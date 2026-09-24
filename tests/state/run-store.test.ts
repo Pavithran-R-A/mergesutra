@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -30,7 +30,7 @@ beforeEach(async () => {
 afterEach(async () => {
   // The temp dir is created by the test process and removed by it; nothing
   // outside `root` is ever touched.
-  await readdir(root);
+  await rm(root, { recursive: true, force: true });
 });
 
 function record(overrides: Partial<NewRunRecordInput> = {}): RunRecord {

@@ -1,8 +1,8 @@
-import { mkdtemp, readdir } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { createRunner, defaultRunner, safeRun, type Runner } from '../../src/core/runner.js';
 
 /**
@@ -14,9 +14,21 @@ import { createRunner, defaultRunner, safeRun, type Runner } from '../../src/cor
 const NODE = process.execPath;
 const ECHO_ARGV = 'process.stdout.write(process.argv.slice(1).join("|"))';
 
+const createdDirs: string[] = [];
+
 async function emptyDir(): Promise<string> {
-  return mkdtemp(path.join(tmpdir(), 'mergesutra-runner-'));
+  const dir = await mkdtemp(path.join(tmpdir(), 'mergesutra-runner-'));
+  createdDirs.push(dir);
+  return dir;
 }
+
+afterAll(async () => {
+  // A test that leaves its scratch directory behind is not hostile-proof, it is
+  // just noisy — so remove them whether or not the assertions passed.
+  for (const dir of createdDirs.splice(0, createdDirs.length)) {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+});
 
 describe('createRunner', () => {
   it('captures stdout, stderr and a zero exit code', async () => {
