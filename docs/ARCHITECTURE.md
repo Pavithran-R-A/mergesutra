@@ -1,6 +1,6 @@
 # MergeSutra — Architecture
 
-Status: Stages 0-3 implement the components marked **[IMPLEMENTED]**; the rest
+Status: Stages 0-4 implement the components marked **[IMPLEMENTED]**; the rest
 are **[DESIGNED]** / **[PLANNED]**. This document describes the whole intended
 architecture so the built pieces fit it.
 
@@ -59,20 +59,25 @@ The model is used only where judgment genuinely helps (issue understanding,
 planning, code generation, diff critique). Everything that can be decided
 deterministically is **not** delegated to the model:
 
-- **AI:** issue analysis → candidate criteria; implementation plan; code
-  generation; independent diff review.
-- **Deterministic:** URL/repo parsing; policy compilation; worktree creation;
-  command execution and exit-code capture; verification gates; diff scope
-  analysis; secret scanning; evidence mapping; final status computation.
+- **AI:** implementation plan; code generation; independent diff review. Each
+  proposal is constrained by a schema and by a closed list of ids the contract
+  already issued — including the criteria a model *suggests*, which stay
+  labelled `MODEL CLAIM` inside the plan until a human states them.
+- **Deterministic:** URL/repo parsing; policy compilation; criteria derivation;
+  plan validation and provenance; worktree creation; command execution and
+  exit-code capture; verification gates; diff scope analysis; secret scanning;
+  evidence mapping; final status computation.
 
-Model output crosses the boundary only through Zod-validated schemas. The
-reviewer may critique but is never allowed to silently edit code.
+Model output crosses the boundary only through Zod-validated schemas, and only
+gets as much authority as the schema has a field for — which is why the plan
+schema has no status, evidence or confidence field to fill in. The reviewer may
+critique but is never allowed to silently edit code.
 
 ## 4. Trust boundaries
 
 | Boundary      | Untrusted side                              | Enforced by                                        |
 | ------------- | ------------------------------------------- | -------------------------------------------------- |
-| Model output  | BharatCode text/JSON                        | Zod schemas; controlled repair; fail-safe          |
+| Model output  | BharatCode text/JSON                        | Zod schemas; closed criterion-id list; argv-only commands; controlled repair; fail-safe |
 | Repository    | File contents, CI/lint/test config, docs    | Policy compiler treats text as data, not authority |
 | Issue/comments| Body text, filenames, comments              | Authority hierarchy; prompt-injection defence      |
 | Filesystem    | Any write target                            | Path must resolve inside authorized workspace      |
@@ -103,6 +108,12 @@ stateDiagram-v2
     VERIFY --> BLOCKED
 ```
 
+Built today: `INTAKE → DISCOVERY → CONTRACT → PLAN`, one command each
+(`issue`, `inspect`, `contract`, `plan`), each writing a run record that the next
+one reads. `APPROVAL` onward is **[DESIGNED]** — which is why a `PLAN`-stage
+record stops with `nextStage` naming what does not exist yet rather than
+implying a run continues.
+
 Explicit bounded limits: agent steps, tool calls, repair attempts, repeated
 identical failures, request/token budget, per-command runtime, and output size.
 If progress stalls, the run **stops with evidence** rather than burning requests.
@@ -120,7 +131,7 @@ src/
                retry, timeouts, cancellation
   cli/         command surface, rendering, doctor,        [IMPLEMENTED]
                issue (intake only), inspect, contract,
-               exit codes
+               plan, exit codes
   intake/      issue URL parsing, local-repo reading,     [IMPLEMENTED]
                intake orchestrator
   github/      gh-CLI source + Zod-validated payloads     [IMPLEMENTED]
@@ -129,6 +140,9 @@ src/
                discovery, repository contract
   contract/    Acceptance Contract schema + criteria      [IMPLEMENTED]
                derivation, revision-with-reason
+  plan/        plan schema (no status field), prompt      [IMPLEMENTED]
+               shaping, coverage checks, planner against
+               BharatCodeClient — holds no process runner
   git/         worktree / base SHA / safe workspace      [PLANNED]
   process/     risk-classified tool controller           [PLANNED]
   verification/deterministic verification engine         [PLANNED]
@@ -145,6 +159,14 @@ entire adapter is offline-testable. This keeps MergeSutra free of any hardcoded
 provider assumption while still defaulting to BharatCode's documented
 OpenAI-compatible API at `https://bharatcode.ai/api/model/v1`.
 
+`mergesutra plan` is the first consumer, and it uses `complete` only: one
+unstructured request whose answer must parse and validate, because
+`completeStructured` would let the adapter's own JSON instruction shape the
+prompt the planner is trying to control. The planner receives a
+`BharatCodeClient`, not a fetch, a key, or a URL — so a test can hand it an
+answer and assert what the stage did with it, and the stage cannot reach the
+network except through the adapter.
+
 ## 8. Evidence pack layout **[DESIGNED]**
 
 ```
@@ -159,4 +181,6 @@ OpenAI-compatible API at `https://bharatcode.ai/api/model/v1`.
   report.json         machine-readable report
 ```
 
-Never committed automatically; never contains secrets.
+Never committed automatically; never contains secrets. Until this bundle exists,
+each stage writes one JSON run record holding what it established — including
+the plan, which lives at `record.plan` rather than in its own file.

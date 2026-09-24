@@ -25,11 +25,12 @@ evidence-first PR output — not just "run an agent in a worktree and open a PR"
 Also: a direct interactive local CLI workflow with no mandatory self-hosted
 runner for the core local path.
 
-- **Status:** the repository-policy compiler (Stage 2) and the Acceptance
-  Contract with its criteria and verification plans (Stage 3) are **shipped** —
-  what is still **[DESIGNED]** is the other half of the chain: attaching
-  executed evidence to those criteria (Stage 7/8) and the evidence-first PR
-  output.
+- **Status:** the repository-policy compiler (Stage 2), the Acceptance Contract
+  with its criteria and verification plans (Stage 3), and a planner that must
+  account for every criterion without being able to mark one proven (Stage 4)
+  are **shipped** — what is still **[DESIGNED]** is the other half of the
+  chain: attaching executed evidence to those criteria (Stage 7/8) and the
+  evidence-first PR output.
 
 ### PatchProof-style verifiers
 
@@ -41,8 +42,10 @@ implementation → verification → PR workflow, not only validation of an
 already-created patch. Verification is one layer inside a larger evidence
 harness.
 
-- **Status:** verification engine **[DESIGNED]** (Stage 7); only the BharatCode
-  adapter + redaction are **[IMPLEMENTED]** today.
+- **Status:** verification engine **[DESIGNED]** (Stage 7). The BharatCode
+  adapter and redaction are implemented and Stage 4 uses both for real, but
+  MergeSutra has not yet run a single gate, so it has no verification claims to
+  make.
 
 ### MergeMitra-style PR reviewers
 

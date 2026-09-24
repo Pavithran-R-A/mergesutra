@@ -14,18 +14,20 @@ becomes a PR."*
 
 ---
 
-> **Honest status: Stage 3 (Acceptance Contract).** You can run
-> `mergesutra doctor`, `mergesutra issue <url>`, `mergesutra inspect <dir>` and
-> `mergesutra contract [run-id]` today: intake reads a GitHub issue and pins the
-> exact repository and base commit into a versioned run record, `inspect`
-> compiles what a repository itself requires into a provenanced contract, and
-> `contract` turns those facts into the criteria a run must prove — every one of
-> them `PENDING`, because nothing has run yet. The BharatCode adapter,
-> configuration, central secret redaction, structured errors, tests and CI are
-> **implemented and green**. The full `issue → PR` workflow is
-> **under construction** — see [Roadmap](docs/ROADMAP.md). Where this README
-> shows the finished experience, it is labelled **target**. What you can run
-> today is shown under [Try it now](#try-it-now).
+> **Honest status: Stage 4 (implementation plan).** You can run
+> `mergesutra doctor`, `mergesutra issue <url>`, `mergesutra inspect <dir>`,
+> `mergesutra contract [run-id]` and `mergesutra plan [run-id]` today: intake
+> reads a GitHub issue and pins the exact repository and base commit into a
+> versioned run record, `inspect` compiles what a repository itself requires
+> into a provenanced contract, `contract` turns those facts into the criteria a
+> run must prove, and `plan` asks BharatCode how to satisfy them — every
+> criterion still `PENDING`, because nothing has run yet and a plan is a
+> proposal, not a result. The BharatCode adapter, configuration, central secret
+> redaction, structured errors, tests and CI are **implemented and green**. The
+> full `issue → PR` workflow is **under construction** — see
+> [Roadmap](docs/ROADMAP.md). Where this README shows the finished experience,
+> it is labelled **target**. What you can run today is shown under
+> [Try it now](#try-it-now).
 
 ---
 
@@ -107,6 +109,9 @@ node dist/index.js inspect .         # compile a repository's own contract
 node dist/index.js inspect /path/to/clone --json
 node dist/index.js contract          # turn the newest run into criteria to prove
 node dist/index.js contract <run-id> --json
+node dist/index.js contract --criterion "Docs say 22 is the floor" --by "Maintainer"
+node dist/index.js plan              # needs BHARATCODE_API_KEY; proposes, runs nothing
+node dist/index.js plan <run-id> --json
 ```
 
 Real `doctor` output (this machine, no secrets shown):
@@ -150,7 +155,7 @@ What MergeSutra does not know yet
 Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20260924T193643Z-5870f1.json
 Next stage:   INSPECT — `mergesutra inspect <repo>` compiles the repository contract (Stage 2)
 
-Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract), 3 (acceptance contract).
+Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract), 3 (acceptance contract), 4 (implementation plan).
 No patch, verification, review or pull request was produced by this command.
 ```
 
@@ -254,7 +259,7 @@ What this contract does not claim
   No criterion in this contract has been checked. `PENDING` is the only status MergeSutra could honestly assign.
 
 Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20260924T193559Z-aa7e41.json
-Next stage:   PLAN — implementation plan (planned: Stage 4)
+Next stage:   PLAN — `mergesutra plan` asks BharatCode how to satisfy these criteria (Stage 4)
 
 A criterion became a requirement only because a file, the issue, or a named human said so.
 Nothing has been verified yet: every criterion above is PENDING by design.
@@ -265,9 +270,102 @@ acceptance list, from a CI-enforced gate, or from a human who names themselves �
 which is why the schema can refuse to store a `PASS` that has no evidence
 behind it.
 
+Real `plan` output. This one continues a different run chain — a scratch Node
+repository with four CI-enforced gates and no issue — and the model endpoint was
+a **local stub** pointed at with `BHARATCODE_API_BASE`, so no live BharatCode
+call was made and no credential was involved. The stage that runs is the same
+one; a live plan is the one capture this README does not yet have, because
+`BHARATCODE_API_KEY` was not set on this machine.
+
+```text
+MergeSutra — implementation plan
+
+PASS          Source run          run-20260924T202452Z-2b12f5 (contract, CONTRACT_DERIVED)
+PASS          Acceptance Contract 4 criteria (v1)
+INFO          BharatCode          stub-model, 1 round trip(s)
+PASS          Plan schema         matched in 1 round trip(s)
+PASS          Plan coverage       all 4 criteria accounted for
+WARN          Criteria deferred   AC-4
+WARN          Proposed criteria   1 MODEL CLAIM(s), not requirements
+NOT_AVAILABLE Execution           planning runs nothing; any argv above is a proposal
+NOT_AVAILABLE Verification        no criterion changed status when a plan was written
+
+From run:     run-20260924T202452Z-2b12f5
+Contract:     v1, 4 criteria
+Model:        stub-model
+
+Plan
+  Reject empty and whitespace-only input at the parser boundary.
+
+Root cause:   `parseDate` passes "" straight to `new Date()`, which yields the epoch.
+
+Changes proposed
+  modify  src/parse.ts                          AC-2, AC-3
+          throw a TypeError before a Date is constructed
+  create  test/parse.test.ts                    AC-3
+          cover the empty-input and ISO-input cases
+  modify  README.md                             AC-4
+          stop documenting the epoch result as the usage example
+
+Validation commands (proposed argv, never run here)
+  npm test                                AC-3
+    purpose: the repository-required test gate
+
+Covered:      AC-1, AC-2, AC-3
+Unaddressed:  1 the plan names instead of claiming
+  AC-4: README wording is a docs call for the maintainer.
+
+Proposed criteria — MODEL CLAIM, not requirements
+  [compatibility] Whitespace-only input is rejected the same way empty input is.
+    why: a caller reporting an empty-string bug usually means blank too
+
+Risks
+  Callers relying on the epoch result will now get a TypeError.
+
+Assumptions
+  `parseDate` has no callers outside src/.
+
+Questions for a human
+  Should the rejection be a TypeError or a RangeError?
+
+Outcome:      PLAN_COMPLETE
+
+What this plan does not establish
+  The plan declares AC-4 unaddressed. A plan that names a gap is honest; a run that stops at a plan is not complete.
+  Proposed criteria stay inside the plan until a human adds them with `mergesutra contract --criterion`; the model cannot write requirements.
+  Carried from run run-20260924T202442Z-306f6e: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  Carried from run run-20260924T202442Z-306f6e: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  Carried from run run-20260924T202442Z-306f6e: No CODEOWNERS file found: ownership of specific paths is unknown.
+  Carried from run run-20260924T202442Z-306f6e: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  No issue was supplied, so the contract can only carry what the repository demands.
+  No criterion in this contract has been checked. `PENDING` is the only status MergeSutra could honestly assign.
+
+Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20260924T202557Z-4ff0a0.json
+Next stage:   IMPLEMENT + VERIFY — not implemented yet; `mergesutra plan` is the last working stage
+
+A plan is a proposal from a model. Nothing here was executed, changed, or verified.
+Criterion statuses move only when evidence exists, and no command was run to produce any.
+```
+
+Every line of that came out of a model and none of it was obeyed. The ids are
+checked against the contract's closed list, the paths against the repository-
+relative rule, the commands against an argv-only shape, and the whole answer
+against a `strict()` schema that has no field for a status — which is why
+`AC-4` above can be *named as unaddressed* but never *marked as passing*. With
+no credential configured the same command refuses rather than improvising
+(see the exit codes below):
+
+```text
+$ mergesutra plan run-20260924T202452Z-2b12f5
+error: BharatCode is not configured: no API key was found.
+  Set the BHARATCODE_API_KEY environment variable. Never pass credentials as command arguments.
+$ echo $?
+78
+```
+
 ## Installation *(planned)*
 
-At Stage 0 MergeSutra is run from a checkout. A published npm package comes at
+Today MergeSutra is run from a checkout. A published npm package comes at
 [Stage 15](docs/ROADMAP.md); publication requires explicit human approval.
 
 ## Quick start *(target)*
@@ -290,15 +388,18 @@ Global flags: `--dry-run`, `--verbose`, `--json`, `--no-color` (also honours
 | `--version` | Version                                      | Ready    |
 | `inspect` | Compile what a repository itself requires into a provenanced contract, read-only | Ready    |
 | `contract` | Turn a run's facts into the criteria it must prove — all `PENDING`, nothing executed | Ready |
+| `plan` | Ask BharatCode for an implementation plan against a run's criteria — proposals only, runs nothing | Ready |
 | `issue`     | Intake: read an issue, pin the repository + base commit into a run record | **Partial — intake only** |
 | `issue` *(full workflow)* | Hero workflow: issue → evidence-backed PR draft | Planned  |
-| `plan` `run` `verify` `review` `report` `pr` `status` `resume` | Phase / recovery commands | Planned |
+| `run` `verify` `review` `report` `pr` `status` `resume` | Phase / recovery commands | Planned |
 
 A planned command reports honestly and exits non-zero — it never fakes success.
 
 `inspect` and `contract` are read-only: they never execute a command from the
 repository they read, never call a model, and write only their own run record
-under `.mergesutra/`.
+under `.mergesutra/`. `plan` is read-only in the same way and one step further
+removed: it calls a model, and holds no process runner at all — a stage that
+could execute a command could execute the command the model just proposed.
 
 ### Exit codes
 
@@ -306,12 +407,12 @@ A script or editor can tell these apart without parsing prose:
 
 | Code | Meaning                                                                     |
 | ---- | --------------------------------------------------------------------------- |
-| `0`  | Did what it claimed (`doctor` ready; `inspect` reached `INSPECT_COMPLETE`; `contract` reached `CONTRACT_DERIVED`) |
-| `1`  | Failed for a stated reason (bad input, unusable configuration)                |
+| `0`  | Did what it claimed (`doctor` ready; `inspect` reached `INSPECT_COMPLETE`; `contract` reached `CONTRACT_DERIVED`; `plan` reached `PLAN_COMPLETE`) |
+| `1`  | Failed for a stated reason (bad input, unusable configuration, nothing to plan against) |
 | `2`  | Command is planned, not implemented — nothing was done                        |
-| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`, `contract`) |
+| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`, `contract`, `plan`) |
 | `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue)   |
-| `78` | Configuration error (cf. `EX_CONFIG`)                                         |
+| `78` | Configuration error (cf. `EX_CONFIG`) — e.g. `plan` with no `BHARATCODE_API_KEY` |
 
 ## Safety model
 
@@ -329,9 +430,13 @@ harness above it. All model access goes through a single adapter
 (`https://bharatcode.ai/api/model/v1`), with model discovery, typed requests,
 bounded retries honouring `Retry-After`, timeouts and cancellation.
 Credentials come **only** from `BHARATCODE_API_KEY` (environment) — never
-arguments, fixtures, logs, reports, or screenshots. This project is not a
-clone or replacement of the official BharatCode CLI; it is truthfully *powered
-by* it.
+arguments, fixtures, logs, reports, or screenshots. `mergesutra plan` is the
+first command to use that adapter, and the answer it gets is treated as data:
+parsed under a `strict()` schema, refused if it drops or invents a criterion,
+and stored with the model, the round-trip count and the token counts MergeSutra
+observed — never with anything the model claimed about itself. This project is
+not a clone or replacement of the official BharatCode CLI; it is truthfully
+*powered by* it.
 
 ## Verification model
 
@@ -349,16 +454,17 @@ ecosystem before testing it.
 
 ## Evidence pack
 
-Today every `issue`, `inspect` and `contract` run writes one secret-free JSON
-run record to `.mergesutra/runs/run-<utc>-<hex>.json` (gitignored), with the
-stage reached, the repository identity it pinned, the repository contract with
-each claim's source file, and — once `contract` has run — the Acceptance
-Contract with its criteria and verification plans. The richer bundle — plan,
-`commands.jsonl` receipts, verification, review, `report.md`/`report.json` under
+Today every `issue`, `inspect`, `contract` and `plan` run writes one secret-free
+JSON run record to `.mergesutra/runs/run-<utc>-<hex>.json` (gitignored), with
+the stage reached, the repository identity it pinned, the repository contract
+with each claim's source file, the Acceptance Contract with its criteria and
+verification plans, and — once `plan` has run — the model's proposal with the
+provenance MergeSutra observed for it. The richer bundle — `commands.jsonl`
+receipts, verification, review, `report.md`/`report.json` under
 `.mergesutra/runs/<id>/` — is the [Stage 12](docs/ROADMAP.md) target. Nothing
-here is ever committed automatically. The record is schema version 3; a file
-written by an earlier stage build is reported as unreadable rather than
-guessed at, so re-run the stage after upgrading.
+here is ever committed automatically. The record is schema version 4; a file
+written by an earlier stage build is reported as unreadable rather than guessed
+at, so re-run the stage after upgrading.
 Layout: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Architecture
@@ -378,7 +484,8 @@ boundaries and state machine.
 
 ## Supported repositories
 
-Stages 1-3 read repositories; they do not patch them. Planned initial target:
+Stages 1-4 read repositories and plan against them; they do not patch them.
+Planned initial target:
 Node/TypeScript/JavaScript projects on **public** GitHub repos. Windows and
 Linux are first-class; macOS follows once core CI is strong.
 
@@ -389,9 +496,14 @@ See [docs/PRODUCT_SPEC.md § Limitations](docs/PRODUCT_SPEC.md) and the
 CI discovery is a bounded line scan, so YAML anchors, aliases, merge keys and
 matrices are reported as *partial coverage* rather than expanded; dev-only
 toolchain advisories (vite/esbuild) are documented rather than force-upgraded
-(they do not ship in the published artifact); and criteria are only ever copied
+(they do not ship in the published artifact); criteria are only ever copied
 from an explicit acceptance list, a CI-enforced gate or a named human, so prose
-that implies a requirement yields a limitation rather than a criterion.
+that implies a requirement yields a limitation rather than a criterion. What
+`plan` checks about a model's answer is its **shape and coverage**, not its
+merit — a well-formed plan can still be the wrong plan, and the next stage is
+the one that finds out. It has also not yet been run against a live BharatCode
+endpoint from this machine (no key was set here); the sample above goes through
+the same adapter against a local stub.
 
 ## Benchmark
 
@@ -402,8 +514,9 @@ than a fake 100%. No magic quality score.
 ## Roadmap
 
 [docs/ROADMAP.md](docs/ROADMAP.md) — Stages 0 (foundation), 1 (repository +
-GitHub issue intake), 2 (repository policy compiler) and 3 (Acceptance Contract
-criteria) are done; Stage 4 (BharatCode implementation plan) is next.
+GitHub issue intake), 2 (repository policy compiler), 3 (Acceptance Contract
+criteria) and 4 (BharatCode implementation plan) are done; Stage 5 (safe
+worktree + risk-classified tool controller) is next.
 
 ## Contributing
 

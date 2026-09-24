@@ -6,6 +6,57 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Stage 4: BharatCode implementation plan
+
+This is the first stage that asks a model anything. It executes nothing, changes
+nothing, and cannot move a criterion off `PENDING` — the plan it stores is a
+proposal with a type of its own, and the type has nowhere to put a result.
+
+- `mergesutra plan [run-id]` — sends a run's Acceptance Contract to BharatCode
+  and stores the validated plan. Exit codes: `0` `PLAN_COMPLETE`, `3`
+  `INCONCLUSIVE` when the answer was refused, `1` when the source run has no
+  contract, `78` when `BHARATCODE_API_KEY` is absent. `--json` emits the whole
+  record. Without a key it refuses and says which variable to set; it never
+  improvises a plan.
+- Plan schema (`src/plan/schema.ts`): `strict()` throughout, with no `status`,
+  `evidence`, `confidence` or `criteriaVerified` field to fill in, and
+  `untrusted: true` applied by schema default rather than by the caller.
+  Refuses a plan that reports a result.
+- Obligation coverage: the criterion ids are handed over as a closed list. An
+  invented id is refused; a dropped one is refused unless the plan names it under
+  `criteriaUnaddressed` with a reason, and the refusal message quotes the id.
+  One bounded repair round trip against the same schema, then a report.
+- Model-proof path and command shapes: repository-relative POSIX paths only
+  (`..`, absolute, drive-letter, backslash and traversal-shaped paths refused)
+  and argv arrays with no shell composition characters. MergeSutra never runs a
+  command string, and a proposal it could not run cannot be stored.
+- Provenance is MergeSutra's, not the model's: the model name, token counts and
+  round-trip count are read from the response envelope, alongside the contract
+  run id and version. `Execution` and `Verification` are `NOT_AVAILABLE` in
+  every plan record.
+- Prompt (`src/plan/prompt.ts`) encloses the issue body and repository text as
+  untrusted material to analyse rather than instructions to obey, and the whole
+  payload is redacted before it leaves the machine.
+- Model proposals stay proposals: `proposedCriteria` is rendered as
+  `MODEL CLAIM, not requirements` and cannot enter the contract. To make that
+  sentence actionable, `mergesutra contract --criterion "…" --by "name"` now
+  lets a human state a requirement no file asserts, and refuses to do so
+  anonymously.
+- Run record schema v4 carries `plan` beside the two contracts; `stage` accepts
+  `plan`, and the check statuses gained `INFO` for a row that reports what
+  happened without judging it. Older v3 files are reported unreadable rather
+  than guessed at.
+- Two defects found by wiring this stage, both fixed with regressions:
+  `Redactor.deep()` masked any value under a secret-shaped key, turning
+  `promptTokens: 120` into a string and making a valid plan record unparseable
+  (it now masks string leaves only), and `complete()` reported "No BharatCode
+  model selected" when the real problem was a missing API key (the key is now
+  checked first).
+- 37 additional offline tests (378 total, all green offline) plus
+  `tests/plan/live.test.ts`, which skips unless `MERGESUTRA_LIVE_BHARATCODE=1`
+  is set alongside a key and a model. No test calls the network or needs a
+  secret.
+
 ### Added — Stage 3: Acceptance Contract
 
 This stage turns what a run already knows into the list of things it must prove.
@@ -137,12 +188,12 @@ This stage reads and records; it does not patch, verify, review or open anything
 
 ### Not yet implemented (planned)
 
-`plan`, `run`, `verify`, `review`, `report`, `pr`, `status`,
+`run`, `verify`, `review`, `report`, `pr`, `status`,
 `resume`. `issue` performs intake only: it produces no plan, patch,
 verification, review or PR draft, and says so on the last two lines. `inspect`
-and `contract` read and record; neither runs a gate, so no criterion is ever
-proven before Stage 7. Invoking a planned command reports a truthful "planned"
-message and exits `2`.
+and `contract` read and record; `plan` consults BharatCode and records what it
+said. None of them runs a gate, so no criterion is ever proven before Stage 7.
+Invoking a planned command reports a truthful "planned" message and exits `2`.
 
 ## [0.0.1] - 2026-09-24
 

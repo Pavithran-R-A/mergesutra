@@ -1,10 +1,12 @@
 # The Acceptance Contract
 
 > Status: **[STAGE 3 SHIPPED]** for the schema, the criteria derivation and
-> `mergesutra contract`. Evidence is still **[DESIGNED]**: nothing attaches a
-> `PASS` before Stage 7 runs a gate, and criteria proposed by the planner are
-> still **[PLANNED]** for Stage 4. The core principle is implemented, not
-> aspirational: **a `PASS` without evidence cannot be constructed.**
+> `mergesutra contract`. **[STAGE 4 SHIPPED]** for planning against the
+> contract — a plan reads the criterion ids and cannot write them. Evidence is
+> still **[DESIGNED]**: nothing attaches a `PASS` before Stage 7 runs a gate.
+> The core principle is implemented, not aspirational: **a `PASS` without
+> evidence cannot be constructed**, and a model cannot be the one to add a
+> requirement.
 
 ## Why it exists
 
@@ -24,9 +26,9 @@ Requirement → Change → Verification → Evidence
 | ------------------- | --------------------------------------- | ---------------------------------- |
 | Answers             | "What does this repository demand of any change?" | "What must this patch prove to close this issue?" |
 | Built from          | Manifests, CI steps, `CODEOWNERS`, docs — files only | Issue text + the repository contract |
-| Implemented         | **Stage 2 — `mergesutra inspect`**, shipped | **Stage 3 — `mergesutra contract`**, shipped (evidence attaches at Stage 7) |
+| Implemented         | **Stage 2 — `mergesutra inspect`**, shipped | **Stage 3 — `mergesutra contract`**, shipped (evidence attaches at Stage 7; Stage 4's planner reads this contract and cannot write it) |
 | Identifiers         | Five fixed gate kinds: `format`, `lint`, `typecheck`, `test`, `build` | Stable `AC-n` criterion ids, versioned with revisions |
-| May it add a rule?  | Never — `MERGESUTRA_ADDITIONAL` is reserved for gates MergeSutra runs for its own benefit, and `inspect` emits none | Only from issue evidence, with a source citation |
+| May it add a rule?  | Never — `MERGESUTRA_ADDITIONAL` is reserved for gates MergeSutra runs for its own benefit, and `inspect` emits none | Only from issue evidence with a citation, or from a named human — never from a model |
 
 The repository contract is an *input* to the Acceptance Contract, not a copy of
 it. Stage 2 records each gate's status as `REPOSITORY_REQUIRED` /
@@ -58,11 +60,18 @@ AC-3  Error behavior must conform to repository conventions.
 
 AC-2 and AC-3 are **not** what Stage 3 emits. `mergesutra contract` copies an
 acceptance list verbatim and inherits CI-enforced gates; a criterion no file
-states is a *model proposal*, which arrives at Stage 4 labelled `MODEL CLAIM`
-and validated against this schema. What the stage really prints for this issue
+states can only enter the contract through a human who names themselves
+(`--criterion "…" --by "name"`). What the stage really prints for this issue
 is in the README's sample output: one criterion per acceptance-list item, plus
 one per `REPOSITORY_REQUIRED` gate, each citing its file and line, all
 `PENDING`.
+
+Stage 4 sits on the other side of that line. `mergesutra plan` is handed
+exactly these ids and must account for every one; if the model thinks a
+requirement is missing, it may record a `proposedCriteria` entry, which the plan
+labels `MODEL CLAIM` and keeps inside the plan. There is no path from a model's
+proposal to this contract that does not pass through a human typing
+`--criterion`.
 
 ## Schema as implemented
 
@@ -88,8 +97,8 @@ AcceptanceCriterion {                    // discriminated on `status`
   source:                                // where the requirement came from
     | { kind: 'issue', detail }
     | { kind: 'repository_policy', file, line }
-    | { kind: 'inferred', reason }       // reserved for Stage 4, never Stage 3
-    | { kind: 'human', by }
+    | { kind: 'inferred', reason }       // legal in the schema; nothing emits it
+    | { kind: 'human', by }              // `contract --criterion … --by …`
   requirementType: 'functional' | 'compatibility' | 'convention' | 'safety' | 'scope'
   verificationPlan: VerificationStep[]
   status: CriterionStatus
@@ -155,4 +164,7 @@ never claims universal proof.
 
 `CONTRIBUTION_READY` is reachable only when all mandatory gates pass. Others:
 `PLAN_READY`, `PATCH_CREATED`, `VERIFICATION_FAILED`, `NEEDS_HUMAN_REVIEW`,
-`BLOCKED`, `INCONCLUSIVE`.
+`BLOCKED`, `INCONCLUSIVE`. The stage that has run so far emits
+`INTAKE`-through-`PLAN` outcomes; its plan outcome is called `PLAN_COMPLETE`
+rather than `PLAN_READY`, because nothing in Stage 4 establishes that the plan
+is ready to execute.

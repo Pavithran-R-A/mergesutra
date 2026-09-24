@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
 Each record: **decision → reason → alternatives → consequence**. These are
-actual decisions taken while building Stage 0, not aspirations.
+actual decisions taken while building Stages 0-4, not aspirations.
 
 ## ADR-001 — MergeSutra sits above the model/runtime layer
 
@@ -224,9 +224,104 @@ actual decisions taken while building Stage 0, not aspirations.
   hand a later stage a document that authorises anything, and a reviewer reading
   the report would see a completed stage rather than a failed one.
 - **Alternatives:** Emit `criteria: []` (silent licence); let the model invent
-  criteria to fill the gap (Stage 4's job, and only as `MODEL CLAIM` against
-  this schema); exit `0` with a warning (rewards the failure path).
+  criteria to fill the gap (refused — Stage 4 records a model's suggestion as a
+  `MODEL CLAIM` inside the plan, and the only route into this schema is a human
+  typing `--criterion … --by …`); exit `0` with a warning (rewards the failure
+  path).
 - **Consequence:** The stage is only useful after intake, and it says which run
   it read. A run whose issue writes no list still gets a contract from the
   repository's required gates — and a limitation naming what is missing — so the
   gap is visible instead of being papered over.
+
+## ADR-017 — A plan is a different artifact from a contract, not a note on it
+
+- **Decision:** Stage 4 produces `ImplementationPlan`, its own Zod type, stored
+  beside the contract at `record.plan` and never merged into it. The plan type
+  has no `status`, no `evidence`, no `confidence` and no `verifiedCriteria`
+  field, and sets `untrusted: true` through a schema `.default()` so the flag
+  cannot be left out or argued down. Its outcome is `PLAN_COMPLETE`, not the
+  spec's `PLAN_READY`: nothing in Stage 4 establishes that a plan is ready to
+  run.
+- **Reason:** The first place a model speaks is the first place a lie can be
+  recorded. If a plan were an edit to the contract, "the model says AC-3 is
+  handled" would be one JSON field away from becoming a status. Making the plan
+  a separate, visibly weaker artifact means the reader meets the distinction
+  before meeting the content.
+- **Alternatives:** Attach `planNotes` to each criterion (invites the next stage
+  to read a proposal as progress); keep plans as markdown prose (unvalidatable,
+  and the traceability ids become a suggestion); name the outcome `PLAN_READY`
+  for vocabulary fidelity (claims readiness no gate produced).
+- **Consequence:** Every plan-carrying screen has to say what a plan is not, so
+  `mergesutra plan` ends with two dim lines saying exactly that, and the
+  `Execution` and `Verification` checks are `NOT_AVAILABLE` by construction.
+  Two artifact types also means two schemas to keep in step when evidence
+  arrives at Stage 7.
+
+## ADR-018 — The contract's ids are a closed list the plan must satisfy
+
+- **Decision:** The planner is given the criterion ids as a fixed set and the
+  stored plan is rejected if it names an id outside the set or omits one it was
+  given — omission is only allowed as an explicit `criteriaUnaddressed` entry
+  with a reason. A schema failure is fed back to the model exactly once with the
+  reason; a second bad answer is stored as `INCONCLUSIVE` with the refusal
+  quoted.
+- **Reason:** A plan that quietly narrows the obligations is the most damaging
+  thing a planning stage can produce, because it looks complete. Coverage is the
+  one property of a model answer that can be checked deterministically, so it is
+  checked, and the check runs before storage rather than in review.
+- **Alternatives:** Trust a prompt instruction to "cover everything" (the
+  failure this guards against is precisely the plausible-looking one); repair
+  until the model complies (unbounded spend, and an eventually-agreeable model
+  proves nothing); accept an uncovered criterion silently (a gap the report
+  would have to rediscover).
+- **Consequence:** Legitimate work outside the contract has nowhere to go
+  except `criteriaUnaddressed` or `proposedCriteria`, which is the intent — but
+  it also means a genuinely missing requirement is visible as a `WARN` row
+  ("1 MODEL CLAIM(s), not requirements") rather than as a criterion, and closing
+  that gap costs a human running `contract --criterion`.
+
+## ADR-019 — The planner holds no process runner, at the type level
+
+- **Decision:** `PlanDeps` has no `Runner`, no filesystem writer and no GitHub
+  client. Proposed commands must be argv arrays free of shell composition
+  characters, and proposed paths must be repository-relative POSIX — both
+  enforced by schema refinements so an unsafe proposal cannot be stored at all,
+  let alone run.
+- **Reason:** Dependency injection is only a safety property if the missing
+  dependency cannot be acquired. A stage that can execute a command can execute
+  the command an untrusted model just proposed, no matter what its prompt says;
+  removing the parameter from the type is what makes "planning runs nothing" a
+  structural fact instead of a behaviour that has to be re-tested forever.
+- **Alternatives:** A runtime flag (`--dry-run` style: one refactor away from
+  being threaded through); approval prompts before executing (moves the decision
+  to a human reading a proposal they cannot verify); validating argv at the
+  runner (correct as defence-in-depth, but the runner would still be reachable
+  from the planner).
+- **Consequence:** Stage 5/6 need their own module boundary to gain execution
+  rights, which is the design anyway. It also means a plan's commands are
+  untested suggestions with no result beside them, so the renderer labels the
+  section "proposed argv, never run here" rather than printing them as checks.
+
+## ADR-020 — Redaction masks strings, never structure
+
+- **Decision:** `Redactor.deep()` replaces string leaves only. A value stored
+  under a secret-shaped key name (`promptTokens`, `apiKeyId`, `token_count`) is
+  inspected first: numbers, booleans and `null` pass through untouched, arrays
+  and objects recurse, and only a string — anywhere in the tree — becomes
+  `[REDACTED]`.
+- **Reason:** Wiring Stage 4 found the bug in the shipped Stage 0 layer: the
+  key-name heuristic masked `promptTokens: 120` into `'[REDACTED]'`, so
+  `createRunRecord` rejected the plan record with "Expected number, received
+  string". A redactor that corrupts a counter is not being careful, it is
+  destroying evidence — and the failure appears in the consumer, far from the
+  cause.
+- **Alternatives:** Mask by key name at any depth (what shipped, and what broke
+  the numeric fields every provenance record needs); redact at the print
+  boundary only (leaves stored copies unredacted); whitelist which numeric
+  fields may survive (a list that has to be right every time, versus a rule
+  about types that is right once).
+- **Consequence:** Two regression tests pin the behaviour, including a secret
+  hidden at depth under a secret-shaped key. A secret expressed as a number
+  cannot exist, so nothing is lost by the type check — but any future
+  non-string credential carrier (a BigInt-shaped token, a binary blob) would
+  need its own rule rather than the blanket key-name guess.

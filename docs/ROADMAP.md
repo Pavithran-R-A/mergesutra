@@ -79,8 +79,10 @@ partially in place; `[ ]` = not started. Do not read an unchecked box as done.
       and versioning with `withRevision`, which refuses a revision without a
       recorded reason and lists the ids that moved
 - [x] An empty contract is refused outright: "no obligations" is a claim about
-      the issue, not an observation, so Stage 4's model proposals (with
-      `MODEL CLAIM` labelling) are where inferred criteria will come from
+      the issue, not an observation. `inferred` therefore stays a legal source
+      that nothing emits — Stage 4's model proposals are labelled
+      `MODEL CLAIM` inside the plan and enter the contract only if a human adds
+      them with `--criterion`
 - [x] `mergesutra contract [run-id]` writes a `contract`-stage record; the issue
       body's text is redacted before storage or printing; `--json` returns the
       parsed record; a run with no repository contract still derives from issue
@@ -90,10 +92,48 @@ partially in place; `[ ]` = not started. Do not read an unchecked box as done.
 - [x] Not done on purpose: no criterion is checked, no gate is run and no model
       is called by this stage, so every status it can emit is `PENDING`
 
-## Stage 4 — BharatCode planner
+## Stage 4 — BharatCode planner — **[DONE]**
 
-- [ ] Structured implementation plan (root cause, files, tests, validation
-      commands, risks, criteria covered)
+- [x] `mergesutra plan [run-id]` asks BharatCode for one implementation plan
+      against a run's Acceptance Contract — the first stage that spends a model
+      call, and the last one that runs nothing
+- [x] A model-proof schema: `strict()` everywhere, no field that could carry a
+      status, evidence count or confidence, and `untrusted: true` defaulted by
+      the schema rather than by the caller — a plan that claims to be trusted is
+      refused
+- [x] Criterion ids are a closed list: an id the contract never issued is
+      refused, and so is a plan that quietly drops one. The refusal names the id
+- [x] Paths must be repository-relative POSIX (`..`, absolute, drive-letter,
+      backslash and symlink-shaped paths refused); commands must be argv arrays
+      with no shell composition characters, because MergeSutra never runs a
+      command string
+- [x] MergeSutra writes the provenance — model and token counts read from the
+      response envelope, contract run id and version, round-trip count — never
+      the model
+- [x] One bounded repair round trip against the same schema; a second bad answer
+      is reported, not renegotiated
+- [x] Model proposals stay proposals: `proposedCriteria` is labelled
+      `MODEL CLAIM`, kept inside the plan, and cannot enter the contract. The
+      human route is `mergesutra contract --criterion "…" --by "name"`, added so
+      that sentence is true
+- [x] Issue text and repository instructions reach the prompt as labelled
+      material to analyse, never as instructions to obey, and are redacted
+      before they are sent
+- [x] `Execution` and `Verification` are `NOT_AVAILABLE` in every plan record;
+      criteria stay `PENDING` after a plan is written
+- [x] `plan` holds no process runner at all, by type as well as by behaviour
+- [x] Run record schema v4 carries the plan beside the contract; a v3 file is
+      reported unreadable rather than guessed at
+- [x] 37 offline tests (`tests/plan/*`, `tests/cli/plan.test.ts`) plus two
+      redaction regressions, against a suite of 378 green and one live check that
+      skips unless `MERGESUTRA_LIVE_BHARATCODE=1` with a key and a model
+      (`tests/plan/live.test.ts`)
+- [x] Not done on purpose: no plan has been executed, and this build has not
+      been pointed at a live BharatCode endpoint from a machine with a key — the
+      captured sample uses the real adapter against a local stub
+- [x] Known gap: `provenance.source` records that the answer came through the
+      BharatCode adapter, not which origin served it; `BHARATCODE_API_BASE` is
+      not stored in the record
 
 ## Stage 5 — Safe worktree + controlled tools
 

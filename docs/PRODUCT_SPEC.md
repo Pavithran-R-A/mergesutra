@@ -64,6 +64,11 @@ Explicit verification states: `PASS`, `FAIL`, `SKIPPED`, `NOT_AVAILABLE`,
 defined mandatory gates pass. Other run states: `PLAN_READY`, `PATCH_CREATED`,
 `VERIFICATION_FAILED`, `NEEDS_HUMAN_REVIEW`, `BLOCKED`, `INCONCLUSIVE`.
 
+One deviation, on purpose: the state after Stage 4 is named `PLAN_COMPLETE`, not
+`PLAN_READY`. Nothing in Stage 4 establishes that a plan is *ready* to execute —
+no command was run, no patch was attempted, and the plan is untrusted model
+output. `COMPLETE` says exactly what happened.
+
 ## 5. Non-goals (deliberate)
 
 MergeSutra is **not**:
@@ -83,9 +88,10 @@ necessary infrastructure.
 
 ## 6. The differentiator: the Acceptance Contract
 
-Derivation is **[IMPLEMENTED]** (Stage 3); the rest of the lifecycle — evidence
-from real runs, revisions during implementation, and the final traceability row
-per criterion — is **[DESIGNED]**.
+Derivation is **[IMPLEMENTED]** (Stage 3) and planning against it is
+**[IMPLEMENTED]** (Stage 4); the rest of the lifecycle — evidence from real
+runs, revisions during implementation, and the final traceability row per
+criterion — is **[DESIGNED]**.
 
 A normal agent receives an issue and generates code. MergeSutra first converts
 the issue and repository policy into a structured, versioned contract of stable
@@ -103,6 +109,15 @@ Requirement → Change → Verification → Evidence
 ```
 
 Full schema and rules: [ACCEPTANCE_CONTRACT.md](ACCEPTANCE_CONTRACT.md).
+
+The contract is also what makes the model safe to consult. `mergesutra plan`
+**(Stage 4, [IMPLEMENTED])** sends the contract's criterion ids as a closed
+list and refuses an answer that drops one, invents one, or arrives in a shape
+the schema does not allow; the plan it stores is typed separately from the
+contract, carries no status field, and is marked `untrusted` by the schema
+rather than by the caller. A model can propose a requirement all it likes —
+that proposal stays inside the plan until a human states it with
+`mergesutra contract --criterion … --by …`.
 
 ## 7. Repository policy compiler
 
@@ -137,7 +152,7 @@ what was run, what passed, what failed or could not be checked — and decide
 whether to publish. Honest reporting of failures is a success condition, not a
 defect.
 
-## 10. Limitations (current, at Stage 3)
+## 10. Limitations (current, at Stage 4)
 
 - Implemented today: CLI skeleton, BharatCode adapter, config, redaction,
   structured errors, `doctor`, **intake** (`mergesutra issue <url>` — parses the
@@ -146,17 +161,28 @@ defect.
   and writes a versioned run record), **repository policy discovery**
   (`mergesutra inspect <repo>` — reads CI, manifests and contributor docs
   read-only and compiles the gates the repository itself demands, each with a
-  file-and-line citation), and **Acceptance Contract derivation**
+  file-and-line citation), **Acceptance Contract derivation**
   (`mergesutra contract [run-id]` — joins an issue run and a repository contract
-  into versioned criteria that cannot record a `PASS` without evidence).
-- Everything after Stage 3 — planning against BharatCode, worktree isolation,
-  the verification engine, review, evidence pack, PR drafting and resumability
+  into versioned criteria that cannot record a `PASS` without evidence), and
+  **implementation planning** against BharatCode (`mergesutra plan [run-id]` —
+  one schema-validated, coverage-checked plan whose every command is a proposal
+  and which holds no process runner).
+- Everything after Stage 4 — worktree isolation, the implementation loop, the
+  verification engine, review, evidence pack, PR drafting and resumability
   (`status` / `resume`) — is **[DESIGNED]** / **[PLANNED]**, not yet functional.
   Planned commands exit `2` rather than imitating success. Every derived
-  criterion is `PENDING`, and the CLI says so on screen.
-- No BharatCode call happens in Stages 1–3: derivation is deterministic, so a
-  run works with no API key present. The stage that needs model judgement is
-  Stage 4.
+  criterion is still `PENDING` after a plan is written, and the CLI says so on
+  screen.
+- Stages 1–3 make no model call, so a run works with no API key present. Stage
+  4 does: without `BHARATCODE_API_KEY` it exits `78` and says why, and this
+  build has not been pointed at a live BharatCode endpoint — the captured
+  plan sample goes through the real adapter against a local stub, with
+  `BHARATCODE_API_BASE` overridden for the test.
+- A plan is validated for **shape and coverage**, not merit. Nothing in Stage 4
+  decides whether the proposed files are the right ones or the proposed commands
+  will pass; that is what the next stages exist for.
+- `provenance.source` records that an answer came through the BharatCode
+  adapter; the endpoint that served it is not stored in the run record.
 - GitHub access goes through the `gh` CLI only; `gh` must be installed and
   signed in, and a run with an unreachable issue reports `BLOCKED` (exit `4`).
 - Initial high-quality verification targets Node.js/TypeScript/JavaScript with
