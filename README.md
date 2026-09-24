@@ -14,15 +14,21 @@ becomes a PR."*
 
 ---
 
-> **Honest status: Stage 4 (implementation plan).** You can run
-> `mergesutra doctor`, `mergesutra issue <url>`, `mergesutra inspect <dir>`,
-> `mergesutra contract [run-id]` and `mergesutra plan [run-id]` today: intake
+> **Honest status: Stage 5 — safety built, deliberately no new command.** What
+> you can run today is `mergesutra doctor`, `mergesutra issue <url>`,
+> `mergesutra inspect <dir>`, `mergesutra contract [run-id]` and
+> `mergesutra plan [run-id]`: intake
 > reads a GitHub issue and pins the exact repository and base commit into a
 > versioned run record, `inspect` compiles what a repository itself requires
 > into a provenanced contract, `contract` turns those facts into the criteria a
 > run must prove, and `plan` asks BharatCode how to satisfy them — every
 > criterion still `PENDING`, because nothing has run yet and a plan is a
-> proposal, not a result. The BharatCode adapter, configuration, central secret
+> proposal, not a result. Stage 5 added the layer the next stage has to pass
+> through — an isolated Git worktree at the pinned base SHA, a risk-classified
+> tool policy, and a writer that cannot write outside its own run's workspace —
+> and shipped it as library modules with no CLI surface, so `mergesutra run`
+> still exits `2` rather than imitating an implementation loop. The BharatCode
+> adapter, configuration, central secret
 > redaction, structured errors, tests and CI are **implemented and green**. The
 > full `issue → PR` workflow is **under construction** — see
 > [Roadmap](docs/ROADMAP.md). Where this README shows the finished experience,
@@ -44,8 +50,10 @@ evidence chain the product:
 - **Truthful gates** — `PASS` only if something really ran and succeeded;
   otherwise `FAIL` / `SKIPPED` / `NOT_AVAILABLE` / `BLOCKED` / `INCONCLUSIVE`.
 - **Safety harness above the model** — isolated worktree, risk-classified tool
-  execution, confined writes, central redaction, and **human approval before
-  any remote action**.
+  policy, confined writes, central redaction, and **human approval before
+  any remote action**. The worktree, the policy and the writer are modules
+  today (Stage 5); the execution that uses them arrives with the loop
+  (Stages 6-7).
 
 ## How it differs from a normal coding agent
 
@@ -515,8 +523,10 @@ than a fake 100%. No magic quality score.
 
 [docs/ROADMAP.md](docs/ROADMAP.md) — Stages 0 (foundation), 1 (repository +
 GitHub issue intake), 2 (repository policy compiler), 3 (Acceptance Contract
-criteria) and 4 (BharatCode implementation plan) are done; Stage 5 (safe
-worktree + risk-classified tool controller) is next.
+criteria) and 4 (BharatCode implementation plan) are done end to end from the
+command line. Stage 5 (safe worktree, risk-classified tool policy, confined
+writer) is done as library modules with no command of its own, on purpose.
+Stage 6 — the bounded implementation loop that first calls them — is next.
 
 ## Contributing
 

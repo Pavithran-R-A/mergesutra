@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
 Each record: **decision → reason → alternatives → consequence**. These are
-actual decisions taken while building Stages 0-4, not aspirations.
+actual decisions taken while building Stages 0-5, not aspirations.
 
 ## ADR-001 — MergeSutra sits above the model/runtime layer
 
@@ -325,3 +325,137 @@ actual decisions taken while building Stages 0-4, not aspirations.
   cannot exist, so nothing is lost by the type check — but any future
   non-string credential carrier (a BigInt-shaped token, a binary blob) would
   need its own rule rather than the blanket key-name guess.
+
+## ADR-021 — Risk is read off the argv, never off the caller's label
+
+- **Decision:** `ToolOp` carries an operation and its arguments, not a risk
+  class. `riskOf()` derives `READ / WRITE / EXECUTE / NETWORK / REMOTE_MUTATION /
+  DESTRUCTIVE` itself, and for a command that means parsing the argv: the
+  program basename (case-folded, `.exe/.cmd/.bat/.com` stripped), the Git
+  subcommand after skipping `-C <path>`, the flags beside it.
+- **Reason:** The callers of Stage 6 onward are shaped by model output and
+  repository text. A `risk` field would be a declaration an untrusted caller
+  gets to make, and `git push --force` labelled `read` would walk straight
+  through — which is the same "data pretending to be authority" the authority
+  hierarchy exists to stop.
+- **Alternatives:** Caller-declared class with a sanity check (the check becomes
+  the policy, so the field is dead weight); a program allowlist (approves `git`
+  and then every Git subcommand inherits that approval); a denylist (a list that
+  is wrong the first time someone finds a synonym).
+- **Consequence:** The policy owns the flag and verb tables, and those tables are
+  the maintenance burden they look like: a Git subcommand nobody classified falls
+  through to `EXECUTE`, which still requires argv shape, a bare program name and
+  a confined working directory. Unsorted is never read as safe.
+
+## ADR-022 — A worktree lives inside the repository, and must prove it is ignored first
+
+- **Decision:** Workspaces go to `.mergesutra/worktrees/<run-id>` **inside** the
+  target repository, on their own branch `mergesutra/<run-id>`, and the run
+  creates nothing until `git check-ignore` exits `0` for that path.
+- **Reason:** Keeping a run's evidence, state and workspace under one ignored
+  directory means one path answers "where did this run touch", and the relative
+  confinement the writer enforces is the same shape as the repository. The
+  obvious cost is polluting a human's checkout with a second working tree, so
+  MergeSutra asks Git — which knows about `.gitignore` negations,
+  `info/exclude`, the global `core.excludesFile` and nested ignore files —
+  instead of parsing ignore rules itself and hoping.
+- **Alternatives:** A sibling directory outside the repo (breaks the one-run-one-
+  place story, can cross devices, and leaves the cleanup outside the repo's own
+  ignore rules); editing `.gitignore` to make the path ignored (writes to a
+  tracked file the human owns, for MergeSutra's convenience); `--git-dir`
+  tricks, which the policy classifies as DESTRUCTIVE for good reason.
+- **Consequence:** A repository where `.mergesutra` is untracked but not ignored
+  cannot run Stage 6 until a human ignores it, and the refusal says exactly that
+  and does not offer to do it for them. Two tests drive real Git here rather
+  than a scripted runner, because the check-ignore contract is the part a mock
+  would be sure to get wrong.
+
+## ADR-023 — A dirty primary checkout is reported, never repaired
+
+- **Decision:** `prepareWorkspace` samples `git status --porcelain` in the
+  primary checkout, records the count, up to ten paths, and `primaryDirty`, and
+  proceeds. It never stashes, cleans, resets or checks out. A second call reuses
+  the workspace at the same base SHA, refuses a workspace at a different SHA
+  rather than resetting it, and refuses to write into a directory that already
+  exists.
+- **Reason:** Uncommitted work is the most valuable and least recoverable thing
+  in a developer's tree, and MergeSutra is a guest in it. Every convenient fix
+  for a dirty tree — auto-stash, `git clean -fd`, `checkout -- .` — is in the
+  class this stage exists to refuse. A tool that tidies the environment so its
+  own pre-flight passes has also destroyed the description of the environment it
+  claims it ran in.
+- **Alternatives:** Require a clean tree (blocks a run over one scratch file, and
+  is pointless: a fresh worktree at a recorded SHA is clean regardless);
+  auto-stash with restore (leaves a stash entry nobody made, and fails on the
+  conflict); proceed silently (the reviewer then believes the run saw the
+  committed state).
+- **Consequence:** Runs can start in a messy checkout, and the run record says
+  so — which is the point. Reuse means a crashed run's workspace survives for
+  the retry instead of being deleted by the next attempt; deleting it is
+  deliberately left to the human, since deletion has no approval path (ADR-024).
+
+## ADR-024 — DESTRUCTIVE has no approval path, and neither does the writer have a delete
+
+- **Decision:** `REMOTE_MUTATION` is blocked until a human approves that exact
+  action summary, matched literally. `DESTRUCTIVE` is refused with
+  `requiresApproval: false` — no flag, no confirmation phrase, no typed path.
+  `openConfinedWriter()` exposes `writeText` and `exists` only, so there is no
+  delete, rename or chmod method for a later stage to reach for.
+- **Reason:** An approval prompt degrades into a keystroke the moment it appears
+  more than once, so the question "can this be undone?" must not be answered by
+  a keystroke. Keeping deletion out of the writer's type is the same decision
+  made structural: Stage 7 needs a file to disappear, and a method that exists
+  will be called by whoever is in a hurry.
+- **Alternatives:** Double confirmation, or a typed path (both convert an
+  irreversible act into a UI problem); an `--allow-destructive` flag (CI sets
+  flags, and a wrapper script is a caller that will set it); a `--yes` mode
+  (the same thing, spelled shorter).
+- **Consequence:** Some runs genuinely cannot finish inside MergeSutra — worktree
+  cleanup is the everyday one, and the docs tell the human to run
+  `git worktree remove` themselves. That is the intended shape: the tool's
+  ceiling is the human's keyboard, not a prompt.
+
+## ADR-025 — Confinement compares realpaths, and says what it still cannot prove
+
+- **Decision:** The writer resolves before it judges. A candidate path is joined
+  lexically, rejected if any segment is `..` or `.git`, then every **existing**
+  ancestor is `realpath`'d — walking up to the first component the filesystem
+  agrees about and re-joining the missing tail — and the result must still sit
+  inside the realpath'd root. Windows is why this is not optional:
+  `C:\Users\PAVITH~1\…` and `C:\Users\Pavithran R A\…` are one directory and
+  unequal as strings.
+- **Reason:** A containment check on the spelling of a path is a check on what
+  the caller typed. Symlinks, junctions, case-insensitive volumes and 8.3
+  aliases all preserve the string while changing the destination, and a
+  non-existent leaf is exactly what a "write this new file" request looks like,
+  so a check that gives up when a path does not exist yet refuses nothing at
+  all.
+- **Alternatives:** Lexical-only plus a final `realpath` of the full path
+  (throws on the not-yet-created file it exists to authorise); `O_NOFOLLOW` and
+  descriptor-relative writes (unportable on Windows, where this ships first);
+  trusting the caller to pre-resolve.
+- **Consequence:** This removes traversal, absolute-path, symlink, junction and
+  short-name escapes for writes. It does **not** remove a TOCTOU window between
+  the check and another program's write, and the policy's own confinement stays
+  lexical — the writer is the enforcing copy. Running commands is Stage 7's
+  problem, and a policy `ALLOW` is deliberately not documented as proof that a
+  command cannot escape; the worktree is isolation for clarity, not a sandbox.
+
+## ADR-026 — Stage 5 ships as a library with no command
+
+- **Decision:** No new subcommand. `mergesutra run` still exits `2` as planned,
+  and `src/git/`, `src/process/` and the two new security modules are reached
+  only by tests, two of which drive real Git in a scratch repository.
+- **Reason:** A command would have to show something, and the only thing these
+  modules can honestly demonstrate today is refusal. Worse, `mergesutra
+  workspace` invites the reading "MergeSutra can now change repositories" — a
+  claim about the implementation loop, verification engine and review stage that
+  do not exist yet, and exactly the kind of aspiration the status rules forbid.
+- **Alternatives:** `mergesutra workspace create/remove` (offers a remove the
+  policy refuses); a `--dry-run` demo command (a second code path that is never
+  the real one); writing a file to show off the writer (a mutation for a
+  screenshot).
+- **Consequence:** This stage looks like no progress from the CLI, and the
+  ROADMAP, CHANGELOG and 68 tests carry the evidence instead. The upside is
+  structural: Stage 6 will be the first real caller, so the API is small and gets
+  shaped by its consumer rather than by a command that had to look useful.

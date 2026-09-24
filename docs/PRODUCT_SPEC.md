@@ -135,8 +135,9 @@ injection and cannot override MergeSutra's security policy.
 - Never casually edit the user's primary checkout; prefer a dedicated Git
   worktree tied to the exact base SHA.
 - Classify tools by risk (READ / WRITE / EXECUTE / NETWORK / REMOTE MUTATION /
-  DESTRUCTIVE); remote mutations require explicit human approval; destructive
-  operations are normally forbidden.
+  DESTRUCTIVE), deriving the class from the argv rather than from what the
+  caller says it is; remote mutations require explicit human approval of that
+  exact action; destructive operations are refused with no approval path.
 - Commands run as argv arrays (no `shell: true`) with timeouts and bounded,
   redacted output.
 - Filesystem writes are proven to resolve inside the authorized workspace.
@@ -152,7 +153,7 @@ what was run, what passed, what failed or could not be checked — and decide
 whether to publish. Honest reporting of failures is a success condition, not a
 defect.
 
-## 10. Limitations (current, at Stage 4)
+## 10. Limitations (current, at Stage 5)
 
 - Implemented today: CLI skeleton, BharatCode adapter, config, redaction,
   structured errors, `doctor`, **intake** (`mergesutra issue <url>` — parses the
@@ -167,9 +168,16 @@ defect.
   **implementation planning** against BharatCode (`mergesutra plan [run-id]` —
   one schema-validated, coverage-checked plan whose every command is a proposal
   and which holds no process runner).
-- Everything after Stage 4 — worktree isolation, the implementation loop, the
-  verification engine, review, evidence pack, PR drafting and resumability
-  (`status` / `resume`) — is **[DESIGNED]** / **[PLANNED]**, not yet functional.
+- Stage 5 implemented the safety layer as **modules with no command**: the
+  worktree manager (`src/git/workspace.ts`), the risk classifier
+  (`src/process/tool-policy.ts`) and the confined writer
+  (`src/security/writer.ts`). Nothing you can type at MergeSutra changes a
+  repository because of it — the summarised safety rules in §8 are now enforced
+  by code with tests, but the loop that would exercise them under a command does
+  not exist yet.
+- Everything from Stage 6 on — the implementation loop, the verification engine,
+  review, evidence pack, PR drafting and resumability (`status` / `resume`) — is
+  **[DESIGNED]** / **[PLANNED]**, not yet functional.
   Planned commands exit `2` rather than imitating success. Every derived
   criterion is still `PENDING` after a plan is written, and the CLI says so on
   screen.

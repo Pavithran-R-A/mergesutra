@@ -116,6 +116,39 @@ reaches a model, so the matrix will need a prompt-level half as well.
 
 No `sudo`. No global Git config changes. No touching unrelated directories.
 
+Implemented today (Stage 5): this table is `src/process/tool-policy.ts`, one
+pure function from a request to a decision. Three things about it are worth
+naming, because each is a place a weaker design would fail:
+
+- **The class is derived, not declared.** A caller cannot mark its own action
+  READ. For a command the class comes from the argv, so
+  `git push --force` proposed as `execute` is DESTRUCTIVE, `git push` is
+  REMOTE MUTATION, and `git -c core.pager=evil log` — which is a *read* until
+  git starts the pager — is DESTRUCTIVE too. Global git options that redirect
+  the repository, the config or the program are refused outright; MergeSutra
+  only ever emits `-C`, which chooses a directory and nothing else.
+- **A remote mutation needs a yes for that exact action.** The approval carries
+  the action's own summary and is compared word for word, so a general
+  "you may publish" cannot cover a different push. Without the match the
+  decision is `requiresApproval: true`, which is what a `BLOCKED` row is made
+  from.
+- **Destruction has no approval path.** `DESTRUCTIVE` returns
+  `requiresApproval: false` deliberately: the answer is not "ask harder". That
+  covers `sudo`/`runas`/`doas`, the deletion programs (`rm`, `del`, `rmdir`,
+  `diskpart`, `mkfs`, `shred`, `dd`), `git clean`/`reset --hard`/`worktree
+  remove`/`prune`/`rebase`/`apply`/`am`, `git push --force`, `git config
+  --global`, and an interpreter handed a command string (`bash -c`, `node -e`,
+  `cmd /c`, `powershell -Command`) — the last because a string re-parsed by an
+  interpreter re-opens exactly the shell path the argv rule just closed.
+  Running `node scripts/check.mjs` is ordinary EXECUTE; repository tooling is
+  what a verification stage exists to run.
+
+A command must also say where it runs: a request with no working directory, or
+one outside the workspace, is refused. Note what this module is *not*: it is a
+judgement on strings, so it is not the enforcement point for writes. The only
+module that puts bytes on disk repeats the containment check after resolving
+links, and says so — see §4.
+
 ## 4. Workspace isolation & file safety
 
 - Prefer a dedicated Git worktree tied to the exact base SHA; never casually
@@ -139,6 +172,56 @@ quietly returning partial text, directory listings are capped, and a
 non-directory path fails before anything is opened. Bounded means bounded: a
 manifest larger than the cap is reported as unreadable, not parsed.
 
+Implemented today for writes (Stage 5): `src/security/writer.ts` is the only
+module in MergeSutra that puts bytes on disk, and the checks run in this order —
+the target must be a relative path with no `..`, no absolute or drive-letter
+prefix and no NUL byte; no segment may be `.git` in any spelling, because in a
+linked worktree `.git` is a *file* pointing at the real admin directory, so a
+path that looks like it stays inside can otherwise land in the repository's
+guts; every **existing** component of the path is resolved with `realpath` and
+must still be inside the link-resolved root, which is what catches a symlink or
+Windows junction named `src` that points at a home directory (a lexical check
+alone sees a harmless relative path there); an existing target that is itself a
+symlink is refused even when it points inside, because writing *through* a link
+lets the repository choose the real destination; content is byte-capped at one
+MiB per write; and the write is atomic — a temp file in the same directory,
+`fsync`, then a rename — so a failure leaves the old file or the new one, never
+half of either, and a refused oversized write to an existing path is proven by
+test to leave the original bytes in place.
+
+The API has no delete, no rename and no chmod, and a test asserts that the only
+methods on the object are `writeText` and `exists`. A writer that cannot delete
+cannot be talked into emptying a checkout.
+
+The workspace itself (Stage 5, `src/git/workspace.ts`) is a real Git worktree at
+the exact base SHA the run recorded, on its own branch
+`mergesutra/<run-id>`, nested under the repository's ignored `.mergesutra/`
+directory. Two rules there are safety rules, not tidiness:
+
+- Before creating anything, `git check-ignore` is asked whether the workspace
+  path is actually ignored, and a path that is not ignored ends the run with no
+  directory created. A worktree that shows up as untracked noise is the one way
+  this design could still damage the human's checkout, and MergeSutra will not
+  edit `.gitignore` on its own behalf.
+- A dirty primary checkout is counted, sampled and reported. It is never
+  stashed, cleaned, reset or removed, and no code path in the module can do
+  those things — `git worktree add` at a pinned SHA does not need the primary to
+  be clean, so there is no reason to touch it. An existing workspace at a
+  different commit is refused rather than reset; a leftover directory Git does
+  not know about is refused rather than deleted; `worktree remove` and `prune`
+  are never called, so cleanup belongs to the human who owns the disk.
+
+Both claims are tested against real Git on this machine, not only against a
+scripted runner: creating a worktree, writing a file inside it, and re-running
+preparation all leave the user's `git status --porcelain` empty and the primary
+HEAD where it was.
+
+The worktree is not what makes writes safe. All worktrees of a repository share
+one object database, and a process in a worktree can still name an absolute path
+somewhere else, so the guarantee is the confined writer above — which is why a
+later stage must not read a tool-policy `ALLOW` as proof that a command cannot
+escape.
+
 ## 5. Command execution safety
 
 - Never `shell: true` unless an extremely strong, fully-controlled,
@@ -157,6 +240,17 @@ containing `;`, `&&` or a redirect stays one literal argument. Tests spawn the
 current Node binary with hostile arguments and assert both that they arrive
 unchanged and that no file was created. A command that could not start reports
 its reason instead of a blank failure.
+
+The classify/apply-policy half of that list is `src/process/tool-policy.ts`
+(§3), and the shape rules it uses — non-empty argv, no shell syntax in any
+token, a program named bare rather than by path — live in
+`src/security/command-safety.ts` so there is one copy of them. The same
+predicates already judged a model's proposed command in Stage 4
+(`isPlanArgvSafe` delegates to them), which is the point: the rule a plan is
+checked against and the rule a command is checked against cannot drift apart,
+because they are the same function. What Stage 5 does not do is run anything —
+`mergesutra run` is still Stage 6, so no repository-defined command has yet been
+classified by a live run.
 
 ## 6. Secret protection (implemented)
 

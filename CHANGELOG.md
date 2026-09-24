@@ -6,6 +6,80 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Stage 5: the workspace, the tool policy and the write boundary
+
+Everything a run needs in order to change files without touching the human's
+checkout, and every rule that decides whether it is allowed to try. Stage 5 adds
+**no CLI command** — `mergesutra run` still exits `2` — because these are the
+gates the next stage passes through, not a feature to advertise. They are
+exercised by tests — including two that drive real Git in a scratch repository —
+whose refusals are quoted below rather than asserted.
+
+- Workspace manager (`src/git/workspace.ts`): `prepareWorkspace` pins a run to
+  the exact base SHA it recorded, verifies the commit exists (`cat-file -t`),
+  and creates a dedicated `git worktree` on its own branch
+  `mergesutra/<run-id>`, nested under the ignored `.mergesutra/worktrees/` so a
+  run cannot scatter directories across a repository. The primary checkout's
+  HEAD and branch are unchanged afterwards.
+- A pre-flight `git check-ignore` decides whether a workspace may exist at all.
+  If `.mergesutra` is not ignored, the run refuses and tells the human how to
+  ignore it — leaving thousands of untracked files in someone's checkout is
+  worse than a blocked run, and MergeSutra will not edit their `.gitignore` to
+  fix it.
+- A dirty primary checkout is counted, sampled and reported. Never stashed,
+  cleaned, reset or removed. Calling `prepareWorkspace` twice reuses the
+  workspace at the same SHA, refuses to reuse one at a different SHA instead of
+  resetting it, and refuses to write into a directory it did not create.
+- Risk-classified tool controller (`src/process/tool-policy.ts`) — six classes
+  (`READ` `WRITE` `EXECUTE` `NETWORK` `REMOTE_MUTATION` `DESTRUCTIVE`) and one
+  decision function. Risk is derived from the operation and, for a command, from
+  the argv; it is never accepted from the caller, so
+  `git push --force` offered as `execute` is still DESTRUCTIVE.
+- Refused with no approval path at all: privilege escalation (`sudo`, `doas`,
+  `runas`), deletion programs (`rm`, `del`, `diskpart`, `shred`, `dd`), an
+  interpreter handed a command string (`bash -c`, `node -e`, `cmd /c`,
+  `powershell -Command`), destructive Git (`clean`, `rebase`, `apply`, `am`,
+  `filter-branch`, `gc`, `prune`, force pushes), and any global Git option that
+  redirects Git itself (`-c core.pager=…` executes a program; `--git-dir`,
+  `--work-tree` and `--exec-path` move the ground). Only `-C` and a few inert
+  flags pass, so confinement cannot be argued out of.
+- A remote mutation (push, PR, comment) is blocked until a human approves *this
+  exact* action summary — a different summary is not covered by the approval.
+  Network use is allowed but always classified and disclosed; no credential
+  crosses it.
+- Confined writer (`src/security/writer.ts`): the only filesystem-mutating module
+  in the build. Repository-relative paths only; no `.git` segment in any
+  spelling (a linked worktree's `.git` is a file, not a directory); every
+  existing ancestor is realpath'd and proved inside the root, which catches
+  traversal, absolute paths, symlinks and Windows junctions; no write through an
+  existing symlink; a 1 MiB single-write cap; an atomic write to a temp file in
+  the target directory, `fsync`'d, then renamed. It exposes `writeText` and
+  `exists` — there is no delete, rename or chmod method to call.
+- One copy of the command-shape rule (`src/security/command-safety.ts`), now
+  shared by the Stage 4 plan validator instead of duplicated inside it: argv
+  arrays, non-empty tokens, no `; & | ` $ < >` or newline.
+- Two real bugs surfaced by Windows, both fixed: an 8.3 short path
+  (`C:\Users\PAVITH~1\…`) is the same directory as
+  `C:\Users\Pavithran R A\…` but not equal under `path.resolve`, so paths are
+  compared after `realpath`; and case-insensitive containment needed the same
+  treatment the lexical checker already had.
+- Direct end-to-end evidence against real Git in a scratch repository: a
+  worktree created at the pinned SHA (`reused: false`, primary
+  `git status --porcelain` empty before and after), a second call reusing it,
+  six writes refused with the reasons above, and thirteen tool requests decided —
+  including `bash -c rm -rf /` and `git clean -fdx` refused,
+  `git -C <workspace> status --porcelain` allowed, and a push blocked until the
+  matching approval was supplied.
+- 68 new tests (`tests/git/workspace.test.ts` including two that drive real Git
+  and real files, `tests/process/tool-policy.test.ts`,
+  `tests/security/writer.test.ts`, `tests/security/command-safety.test.ts`);
+  the suite is 446 green with the one live-BharatCode check that still skips
+  without a key.
+- Known gap, stated rather than papered over: the *policy's* confinement is
+  lexical, and the writer's is post-resolution. A stage that runs a command must
+  not read a policy `ALLOW` as proof the command cannot escape — the worktree is
+  isolation for clarity, not a sandbox.
+
 ### Added — Stage 4: BharatCode implementation plan
 
 This is the first stage that asks a model anything. It executes nothing, changes

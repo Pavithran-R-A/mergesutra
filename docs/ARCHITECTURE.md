@@ -1,6 +1,6 @@
 # MergeSutra — Architecture
 
-Status: Stages 0-4 implement the components marked **[IMPLEMENTED]**; the rest
+Status: Stages 0-5 implement the components marked **[IMPLEMENTED]**; the rest
 are **[DESIGNED]** / **[PLANNED]**. This document describes the whole intended
 architecture so the built pieces fit it.
 
@@ -80,9 +80,9 @@ critique but is never allowed to silently edit code.
 | Model output  | BharatCode text/JSON                        | Zod schemas; closed criterion-id list; argv-only commands; controlled repair; fail-safe |
 | Repository    | File contents, CI/lint/test config, docs    | Policy compiler treats text as data, not authority |
 | Issue/comments| Body text, filenames, comments              | Authority hierarchy; prompt-injection defence      |
-| Filesystem    | Any write target                            | Path must resolve inside authorized workspace      |
-| Process       | Commands to run                             | argv arrays, no `shell:true`, timeout, bounded out |
-| GitHub        | Any remote mutation                         | Explicit human approval gate                       |
+| Filesystem    | Any write target                            | `security/writer.ts`: relative paths only, every existing ancestor realpath'd and proved inside the workspace, no `.git` segment, no write through a link |
+| Process       | Commands to run                             | argv arrays, no `shell:true`, timeout, bounded out; `process/tool-policy.ts` derives the risk from the argv and refuses an interpreter handed a string |
+| GitHub        | Any remote mutation                         | `tool-policy` approval gate: a remote action needs a human yes for that exact summary, and a destructive one has no yes that enables it |
 | BharatCode    | Endpoint/credentials                        | Env-only config; central redaction                 |
 
 ## 5. Workflow state machine
@@ -114,6 +114,11 @@ one reads. `APPROVAL` onward is **[DESIGNED]** — which is why a `PLAN`-stage
 record stops with `nextStage` naming what does not exist yet rather than
 implying a run continues.
 
+Stage 5 built the two boxes the arrow to the left of `IMPL` depends on — the
+worktree and the tool controller — as modules a stage calls, not as a command a
+human runs. There is deliberately no `mergesutra run` yet: a command would imply
+that an implementation loop exists to be run, and the loop is Stage 6.
+
 Explicit bounded limits: agent steps, tool calls, repair attempts, repeated
 identical failures, request/token budget, per-command runtime, and output size.
 If progress stalls, the run **stops with evidence** rather than burning requests.
@@ -125,7 +130,8 @@ src/
   core/        AppError hierarchy, status enums,         [IMPLEMENTED]
                bounded argv-only process runner
   security/    central secret redaction, path             [IMPLEMENTED]
-               confinement, injection signalling
+               confinement, injection signalling, shared
+               command-shape rules, confined writer
   config/      env-only configuration loading            [IMPLEMENTED]
   bharatcode/  BharatCodeClient + HTTP adapter, schemas, [IMPLEMENTED]
                retry, timeouts, cancellation
@@ -143,8 +149,12 @@ src/
   plan/        plan schema (no status field), prompt      [IMPLEMENTED]
                shaping, coverage checks, planner against
                BharatCodeClient — holds no process runner
-  git/         worktree / base SHA / safe workspace      [PLANNED]
-  process/     risk-classified tool controller           [PLANNED]
+  git/         worktree at the pinned base SHA,           [IMPLEMENTED]
+               ignore pre-flight, dirty-state report,
+               idempotent reuse, never a cleanup
+  process/     risk-classified tool controller — the       [IMPLEMENTED]
+               class comes from the argv, not the caller;
+               approval gate, destructive refusal
   verification/deterministic verification engine         [PLANNED]
   review/      independent diff reviewer wiring          [PLANNED]
   evidence/    evidence pack + report renderer           [PLANNED]

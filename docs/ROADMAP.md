@@ -137,9 +137,46 @@ partially in place; `[ ]` = not started. Do not read an unchecked box as done.
 
 ## Stage 5 — Safe worktree + controlled tools
 
-- [ ] Dedicated Git worktree at base SHA; dirty-state detection & preservation
-- [ ] Risk-classified tool controller (READ/WRITE/EXECUTE/NETWORK/REMOTE/DESTRUCTIVE)
-- [ ] Filesystem-write confinement (traversal/symlink/junction defence)
+- [x] Dedicated Git worktree at the exact base SHA (`src/git/workspace.ts`), on
+      the run's own branch `mergesutra/<run-id>`, nested under the ignored
+      `.mergesutra/worktrees/` so a run cannot scatter directories in the repo
+- [x] Pre-flight `git check-ignore` on the workspace path: if `.mergesutra` is
+      not ignored the run refuses to create anything, because leaving thousands
+      of untracked files in the human's checkout is worse than a blocked run
+- [x] Dirty primary checkout is detected, counted, sampled and reported — and
+      never stashed, cleaned, reset or removed; a second call reuses the
+      workspace at the same SHA instead of making another one, and a workspace
+      at a different SHA is refused rather than reset
+- [x] Risk-classified tool controller (`src/process/tool-policy.ts`) with the
+      six classes and one decision function: risk is derived from the operation
+      and, for a command, from the argv — never accepted from the caller.
+      `git push --force` offered as `execute` is still DESTRUCTIVE
+- [x] REMOTE MUTATION needs a human approval that matches the action word for
+      word; DESTRUCTIVE is refused with no approval path at all, including
+      `sudo`, deletion programs, an interpreter handed a command string
+      (`bash -c`, `node -e`), and a global git option that redirects git itself
+      (`-c core.pager=…`, `--git-dir`, `--work-tree`)
+- [x] Filesystem-write confinement (`src/security/writer.ts`): relative paths
+      only, no `.git` segment in any spelling, every existing ancestor
+      realpath'd and proved inside the root (traversal, absolute, symlink and
+      Windows-junction defence), no write through a symlink, byte cap, atomic
+      temp-plus-rename write, and no delete/rename/chmod method to call
+- [x] Shared command-shape predicates (`src/security/command-safety.ts`) now
+      used by the Stage 4 plan validator as well, so one rule has one copy
+- [x] 68 new tests (`tests/git/workspace.test.ts`,
+      `tests/process/tool-policy.test.ts`, `tests/security/writer.test.ts`,
+      `tests/security/command-safety.test.ts`), including two that drive real
+      Git and real files rather than a scripted runner; suite is 446 green with
+      one live check that still skips without a key
+- [x] Not done on purpose: Stage 5 adds **no CLI command**. `mergesutra run`
+      stays planned and exits `2` until Stage 6 has something to run; these
+      modules are the safety layer a stage calls, and they are exercised by
+      tests — two of which drive real Git in a scratch repository — not
+      presented as a user feature
+- [x] Known gap: the policy's confinement is lexical. The writer repeats it
+      after resolving links, which is the enforcing copy; a future stage that
+      runs a command must not treat a policy `ALLOW` as proof that the command
+      cannot escape (the worktree is isolation for clarity, not a sandbox)
 
 ## Stage 6 — BharatCode implementation loop (bounded)
 
