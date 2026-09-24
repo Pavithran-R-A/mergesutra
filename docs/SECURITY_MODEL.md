@@ -49,9 +49,19 @@ Implemented today:
   an argv array, and every API path segment is re-validated before use.
 - Adversarial fixtures assert that a hostile issue body produces no command, no
   config change and no secret in output.
+- Repository text gets the same treatment in Stage 2, because `inspect` reads a
+  tree MergeSutra did not create: the contract is marked `untrusted: true`, CI
+  and manifest files are parsed as data, and instruction-shaped text in them is
+  never interpreted. A `CONTRIBUTING.md` that demands `curl … | sh` changes
+  nothing — prose is scanned for shape only and never becomes a gate.
+- A repository cannot promote itself by naming a check. A gate is
+  `REPOSITORY_REQUIRED` only because a CI step in a specific file at a specific
+  line reaches it, and MergeSutra adds no requirement of its own to the list.
 
-Still planned (Stage 12): the same adversarial treatment for repository file
-contents and filenames, once MergeSutra reads a working tree it did not create.
+Still planned (Stage 12): the full adversarial matrix for repository file
+contents and filenames — injection strings placed in paths, in YAML, and inside
+`package.json` — asserted against the execution stages once MergeSutra runs
+commands from a working tree.
 
 ## 3. Tool risk classes and policy
 
@@ -78,6 +88,16 @@ No `sudo`. No global Git config changes. No touching unrelated directories.
   escape, Windows junction/reparse-point escape, device paths, binary
   corruption, and huge-file ingestion. Model-requested writes outside the
   boundary fail.
+
+Implemented today for reads (Stage 2): `openRepoReader` is the only way
+`inspect` opens a repository, and it is read-only by construction — there is no
+write method to call. Every path is resolved with `realpath` and must stay
+inside the root, so `../`, absolute targets, symlinks and Windows junctions
+pointing out of the tree are refused (tested with a real junction on Windows).
+Reads are byte-bounded and a truncated read says so in its own field instead of
+quietly returning partial text, directory listings are capped, and a
+non-directory path fails before anything is opened. Bounded means bounded: a
+manifest larger than the cap is reported as unreadable, not parsed.
 
 ## 5. Command execution safety
 
@@ -110,6 +130,11 @@ be given exact runtime secret values for literal masking.
 - Subprocesses get controlled environments.
 - Redaction applies to error `details` (a real leak in response bodies was
   caught by test and fixed).
+- The Stage 2 repository contract is redacted before it is persisted. A
+  credential planted in a manifest script or a CI line is repository content
+  MergeSutra must record faithfully in shape but never in substance, so the
+  value becomes `[REDACTED]` in the run record and in the rendered table; the
+  file and line that produced it stay intact.
 
 ## 7. Model/provider availability
 

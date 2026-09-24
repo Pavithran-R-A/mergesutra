@@ -16,6 +16,24 @@ per requirement:
 Requirement → Change → Verification → Evidence
 ```
 
+## Two contracts, deliberately different
+
+|                     | Repository contract                     | Acceptance Contract                |
+| ------------------- | --------------------------------------- | ---------------------------------- |
+| Answers             | "What does this repository demand of any change?" | "What must this patch prove to close this issue?" |
+| Built from          | Manifests, CI steps, `CODEOWNERS`, docs — files only | Issue text + the repository contract |
+| Implemented         | **Stage 2 — `mergesutra inspect`**, shipped | Stage 3                                |
+| Identifiers         | Five fixed gate kinds: `format`, `lint`, `typecheck`, `test`, `build` | Stable `AC-n` criterion ids, versioned with revisions |
+| May it add a rule?  | Never — `MERGESUTRA_ADDITIONAL` is reserved for gates MergeSutra runs for its own benefit, and `inspect` emits none | Only from issue evidence, with a source citation |
+
+The repository contract is an *input* to the Acceptance Contract, not a copy of
+it. Stage 2 records each gate's status as `REPOSITORY_REQUIRED` /
+`DECLARED_ONLY` / `NOT_DECLARED` with the file and line that produced it; Stage
+3 turns the issue's demands into criteria and binds each criterion to the
+verification that will satisfy it, inheriting the repository's required gates as
+baseline criteria. Neither stage may weaken the other: an implementation cannot
+rewrite the contract to make a failing run look complete.
+
 ## Example
 
 Issue: *"Parser accepts invalid empty dates. Reject empty input without

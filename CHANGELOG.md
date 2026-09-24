@@ -6,10 +6,52 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Stage 1 — repository and GitHub issue intake. This stage reads and records; it
-does not patch, verify, review or open anything.
+### Added — Stage 2: repository policy compiler
 
-### Added
+This stage reads a repository and records what the repository itself requires.
+It executes nothing from the repository, patches nothing, and verifies nothing.
+
+- `mergesutra inspect [path]` — compiles a repository's own policy into a
+  provenanced **repository contract** and writes it into a versioned run
+  record. Read-only: nothing in the repository is executed, and only
+  `.mergesutra/` is written. `--json` emits the parsed record. Exit codes: `0`
+  `INSPECT_COMPLETE`, `3` `INCONCLUSIVE`, `1` on an unusable path.
+- Confined read-only repository reader (`src/discovery/repo-fs.ts`): every path
+  is resolved with `realpath` and must stay inside the root (traversal, absolute
+  and symlink/junction escapes are refused), reads are byte-bounded and report
+  `truncated` explicitly rather than silently cutting content, directory
+  listings are capped, and nothing writes.
+- Manifest and toolchain detection (`src/discovery/manifests.ts`): ecosystem,
+  package manager inferred from lockfiles, runtime version from
+  `.nvmrc`/`.node-version`/`engines`, and declared scripts — each carrying the
+  file and detail it came from. An unreadable manifest is listed as unreadable,
+  never guessed past.
+- CI discovery (`src/discovery/ci.ts`): workflows under
+  `.github/workflows/*.yml`, job ids, and `run:` commands with workflow + line
+  provenance. Because this is a bounded line scan and not a YAML engine,
+  anchors, aliases, merge keys and matrices are recorded as caveats and the
+  coverage is honestly marked `partial`.
+- Gate classification (`src/discovery/contract.ts`): format / lint / typecheck /
+  test / build rows are `REPOSITORY_REQUIRED` **only** when a CI step reaches
+  them, `DECLARED_ONLY` when a script exists that no CI step runs, and
+  `NOT_DECLARED` otherwise. A declared script chain is followed to a bounded
+  depth (3) so `npm run check` resolves to the commands it actually runs, and
+  a script that can write (`prettier --write .`) is never named as the gate a
+  read-only check needs. CI steps that cannot be classified are counted in the
+  limitations instead of being dropped.
+- Contribution-doc scan and `CODEOWNERS` summary: shape and counts only. Prose
+  is recorded as data and never becomes a check.
+- The contract is redacted with the central `Redactor` before it is persisted,
+  so a credential embedded in a manifest script cannot reach a run record.
+- Repository text is tagged `untrusted: true` in the contract, and every
+  limitation MergeSutra could not establish is listed rather than left silent
+  (including that branch protection and merge policies were never queried).
+- 107 additional offline tests (306 total) against in-memory fixture
+  repositories, including real junction/symlink escape attempts on Windows.
+
+### Added — Stage 1: repository and GitHub issue intake
+
+This stage reads and records; it does not patch, verify, review or open anything.
 
 - `mergesutra issue <url>` — the hero command's first stage. It parses the URL,
   reads the issue and repository through the injected GitHub source, pins an
@@ -55,10 +97,11 @@ does not patch, verify, review or open anything.
 
 ### Not yet implemented (planned)
 
-`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`,
-`status`, `resume`. `issue` performs intake only: it produces no plan, patch,
-verification, review or PR draft, and says so on the last two lines. Invoking a
-planned command reports a truthful "planned" message and exits `2`.
+`contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`, `status`,
+`resume`. `issue` performs intake only: it produces no plan, patch,
+verification, review or PR draft, and says so on the last two lines. `inspect`
+compiles the repository contract but runs no gate. Invoking a planned command
+reports a truthful "planned" message and exits `2`.
 
 ## [0.0.1] - 2026-09-24
 

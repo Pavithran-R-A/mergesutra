@@ -144,3 +144,47 @@ actual decisions taken while building Stage 0, not aspirations.
   stages resume from the record and validate it on load, so a stale or edited
   file fails loudly. A save failure is reported in the output; the run never
   implies it is resumable.
+
+## ADR-013 — A gate is required only when a file says so
+
+- **Decision:** A repository contract may contain five fixed gate kinds (format,
+  lint, typecheck, test, build) and each is `REPOSITORY_REQUIRED` **only** if a
+  CI step reaches it. A script that exists but no CI step runs is
+  `DECLARED_ONLY`; anything else is `NOT_DECLARED`. MergeSutra never adds a gate
+  of its own to this list, and contribution prose never becomes a check.
+- **Reason:** The whole product is the evidence chain. A `PASS` that rests on a
+  requirement MergeSutra invented is worse than no requirement, because the
+  reader will assume the repository demanded it. Prose in `CONTRIBUTING.md` is
+  untrusted text like any other file (ADR-005), and "the tool exists" is not the
+  same claim as "CI blocks on it".
+- **Alternatives:** Assume `lint`/`test` are always required; grep docs for
+  commands; infer requirements from which files happen to be present.
+- **Consequence:** On a repository whose CI is minimal the contract lists few
+  required gates, which is the truth about that repository. Every row carries
+  the workflow file and line that produced it, so a reviewer can check the claim
+  in seconds. Unclassifiable CI steps are counted in the contract's limitations
+  rather than dropped, so silence is never mistaken for a complete picture.
+
+## ADR-014 — Follow a repository's own script chain, to a bounded depth
+
+- **Decision:** When CI runs `npm run check`, resolve which gate that reaches by
+  following declared scripts (any `npm|pnpm|yarn|bun|npx [run] <name>`
+  invocation) up to 3 levels deep, cycle-safe, preferring the script whose name
+  is itself a known gate. The *command* recorded for the gate is the carrier
+  script's own command, not the CI line's.
+- **Reason:** The dominant real-world pattern is one composite script, so
+  matching only CI's literal command gave MergeSutra's own repository **zero**
+  required gates while `ci.yml` plainly enforces all five. That was a lie by
+  blindness, and it is exactly what Stage 2 exists to prevent. The depth cap and
+  cycle guard exist because a script chain is untrusted input: it may be long,
+  indirect, or self-referential.
+- **Alternatives:** Match only the CI command text (wrong on composite scripts);
+  execute `npm run check` and watch what runs (executes repository code during
+  read-only discovery — refused); let the model guess what a script does
+  (untrusted output presented as repository evidence — refused).
+- **Consequence:** Resolution is a static scan with a stated limit, so a script
+  that reaches a tool through a shell loop or a nested `node tools/x.js` stays
+  unclassified and is reported as an unexplained CI step. Preference for a named
+  carrier also fixes a real safety bug found while building this: a repository
+  declaring both `format` (`prettier --write .`) and `format:check` must never
+  have the write-capable script named as the gate a check needs.

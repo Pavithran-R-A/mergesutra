@@ -40,12 +40,28 @@ partially in place; `[ ]` = not started. Do not read an unchecked box as done.
 - [x] Injection *signalling* on imported issue text (labels as data, never
       blocks); no model call and no patch is produced by this stage
 
-## Stage 2 — Repository policy compiler
+## Stage 2 — Repository policy compiler — **[DONE]**
 
-- [ ] Detect manifests / CI / lint / format / test config
-- [ ] Derive structured repository contract (runtime, package manager, required
-      checks, protected areas) with provenance
-- [ ] Treat repository text as data, never authority
+- [x] Confined, read-only repository reader (realpath containment, byte-bounded
+      reads that report `truncated`, capped listings, no writes)
+- [x] Detect manifests / CI / lint / format / test config (ecosystem, package
+      manager from lockfiles, runtime version, declared scripts, workflow `run:`
+      commands with file + line provenance)
+- [x] Derive structured repository contract (runtime, package manager, required
+      checks, protected areas) with per-field provenance
+- [x] Gates classified only from repository evidence: `REPOSITORY_REQUIRED`
+      needs a CI step that reaches it, `DECLARED_ONLY` for a script nothing
+      runs, `NOT_DECLARED` otherwise; declared-script chains followed to depth
+      3; unclassifiable CI steps counted in the limitations
+- [x] CI coverage stated honestly (`full` vs `partial` with the YAML constructs
+      MergeSutra does not expand)
+- [x] Treat repository text as data, never authority: the contract is marked
+      `untrusted`, redacted before persistence, and contribution-doc prose never
+      becomes a check
+- [x] `mergesutra inspect [path]` writes the contract into a versioned run
+      record; `--json` returns the parsed record
+- [x] Not done on purpose: branch protection / required reviewers / merge
+      policies are repository settings and were not queried
 
 ## Stage 3 — Acceptance Contract engine
 

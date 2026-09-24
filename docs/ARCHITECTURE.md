@@ -1,8 +1,8 @@
 # MergeSutra — Architecture
 
-Status: Stage 0 implements the shaded components marked **[IMPLEMENTED]**; the
-rest are **[DESIGNED]** / **[PLANNED]**. This document describes the whole
-intended architecture so the built pieces fit it.
+Status: Stages 0-2 implement the components marked **[IMPLEMENTED]**; the rest
+are **[DESIGNED]** / **[PLANNED]**. This document describes the whole intended
+architecture so the built pieces fit it.
 
 ## 1. Trust model in one breath
 

@@ -14,11 +14,13 @@ becomes a PR."*
 
 ---
 
-> **Honest status: Stage 1 (intake).** You can run `mergesutra doctor` and
-> `mergesutra issue <url>` today: the latter reads a GitHub issue and pins the
-> exact repository and base commit into a versioned run record. The BharatCode
-> adapter, configuration, central secret redaction, structured errors, tests and
-> CI are **implemented and green**. The full `issue → PR` workflow is
+> **Honest status: Stage 2 (repository contract).** You can run
+> `mergesutra doctor`, `mergesutra issue <url>` and `mergesutra inspect <dir>`
+> today: intake reads a GitHub issue and pins the exact repository and base
+> commit into a versioned run record, and `inspect` compiles what a repository
+> itself requires into a provenanced contract. The BharatCode adapter,
+> configuration, central secret redaction, structured errors, tests and CI are
+> **implemented and green**. The full `issue → PR` workflow is
 > **under construction** — see [Roadmap](docs/ROADMAP.md). Where this README
 > shows the finished experience, it is labelled **target**. What you can run
 > today is shown under [Try it now](#try-it-now).
@@ -99,6 +101,8 @@ node dist/index.js --help
 node dist/index.js doctor            # add --connect to probe BharatCode
 node dist/index.js issue https://github.com/owner/repo/issues/123
 node dist/index.js issue --repo /path/to/an/existing/clone
+node dist/index.js inspect .         # compile a repository's own contract
+node dist/index.js inspect /path/to/clone --json
 ```
 
 Real `doctor` output (this machine, no secrets shown):
@@ -117,16 +121,17 @@ Not ready. Resolve the FAIL items above.
 ```
 
 Real `issue` output (this machine, a clone with no `origin` remote and uncommitted
-work — so it truthfully reports what it could not establish, and exits `3`):
+work — so it truthfully reports what it could not establish, and exits `3`; the
+workspace path is shortened here, not by MergeSutra):
 
 ```text
 MergeSutra — intake
 
 SKIP          Issue URL           not supplied
-PASS          Local repository    C:/Users/…/mergesutra @ a9f46cc0f1 on main
+PASS          Local repository    C:/Users/…/mergesutra @ 52a096711b on main
 NOT_AVAILABLE Repository          local clone has no usable origin remote or resolved default branch
 NOT_AVAILABLE Base commit         no repository identity established
-WARN          Working tree        24 uncommitted change(s); MergeSutra will not read or overwrite them
+WARN          Working tree        17 uncommitted change(s); MergeSutra will not read or overwrite them
 
 Issue:        (none supplied)
 Repository:   NOT_AVAILABLE
@@ -138,15 +143,66 @@ What MergeSutra does not know yet
   No issue text: an issue URL is required before an Acceptance Contract can be derived.
   Fork/archived/private state was not observed (no GitHub query for it).
 
-Run record:   .mergesutra/runs/run-20260924T170719Z-602bf4.json
-Next stage:   DISCOVERY — repository policy compilation (planned: Stage 2)
+Run record:   .mergesutra/runs/run-20260924T184655Z-ba4e3f.json
+Next stage:   INSPECT — `mergesutra inspect <repo>` compiles the repository contract (Stage 2)
 
-Stages implemented: 0 (foundation), 1 (intake).
+Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract).
 No patch, verification, review or pull request was produced by this command.
 ```
 
 Reading an issue needs the GitHub CLI signed in (`gh auth status`); MergeSutra
 never sees or stores a GitHub token, and it never prints the issue body.
+
+Real `inspect` output — the same tool reading its own source repository, which
+is why the wording is blunt about what it does not know:
+
+```text
+MergeSutra — repository contract
+
+PASS          Repository path     C:\Users\…\mergesutra
+PASS          Git metadata        C:/Users/…/mergesutra @ 52a096711b on main
+PASS          Manifest            node, npm, 12 script(s)
+WARN          CI workflows        1 workflow(s), 2 command(s), coverage partial
+PASS          Contribution docs   CONTRIBUTING.md (2345 B)
+SKIP          Protected areas     no CODEOWNERS file
+PASS          Repository contract 5 repository-required gate(s), 0 declared-only, 0 undeclared
+
+Repository:   C:/Users/…/mergesutra
+Base commit:  52a096711b21dcf5566d27b17d8bbec80c7be9d1 (local-git)
+Ecosystem:    node via npm, node >=22
+
+Gates
+  format     REPOSITORY_REQUIRED  prettier --check .             .github/workflows/ci.yml:34 — CI runs 'check', which reaches the 'format:check' this gate needs
+  lint       REPOSITORY_REQUIRED  eslint .                       .github/workflows/ci.yml:34 — CI runs 'check', which reaches the 'lint' this gate needs
+  typecheck  REPOSITORY_REQUIRED  tsc -p tsconfig.json --noEmit  .github/workflows/ci.yml:34 — CI runs 'check', which reaches the 'typecheck' this gate needs
+  test       REPOSITORY_REQUIRED  vitest run                     .github/workflows/ci.yml:34 — CI runs 'check', which reaches the 'test' this gate needs
+  build      REPOSITORY_REQUIRED  tsc -p tsconfig.build.json     .github/workflows/ci.yml:34 — CI runs 'check', which reaches the 'build' this gate needs
+
+CI:           github-actions — 1 workflow(s), 2 command(s), coverage partial
+  .github/workflows/ci.yml: uses a matrix in YAML, which MergeSutra does not expand
+
+Protected:    absent
+Contrib docs: CONTRIBUTING.md
+Outcome:      INSPECT_COMPLETE
+
+What this contract does not know
+  The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  CI coverage was partial: .github/workflows/ci.yml: uses a matrix in YAML, which MergeSutra does not expand
+  No CODEOWNERS file found: ownership of specific paths is unknown.
+  Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+
+Run record:   .mergesutra/runs/run-20260924T184741Z-41dba9.json
+Next stage:   ACCEPTANCE CONTRACT — criteria derivation (planned: Stage 3)
+
+Every line above was read from a file in this repository. Repository text is data, not authority.
+MergeSutra ran nothing from this repository and changed none of its files.
+```
+
+That "5 repository-required" is the point of the stage: MergeSutra followed
+`npm run check` through the repository's own scripts to the five commands CI
+actually enforces, and cites the workflow line for each. It never invents a
+gate the repository did not ask for.
 
 ## Installation *(planned)*
 
@@ -171,11 +227,15 @@ Global flags: `--dry-run`, `--verbose`, `--json`, `--no-color` (also honours
 | `doctor`  | Diagnose environment, never leaking secrets    | Ready    |
 | `--help`  | Usage                                          | Ready    |
 | `--version` | Version                                      | Ready    |
+| `inspect` | Compile what a repository itself requires into a provenanced contract, read-only | Ready    |
 | `issue`     | Intake: read an issue, pin the repository + base commit into a run record | **Partial — intake only** |
 | `issue` *(full workflow)* | Hero workflow: issue → evidence-backed PR draft | Planned  |
-| `inspect` `contract` `plan` `run` `verify` `review` `report` `pr` `status` `resume` | Phase / recovery commands | Planned |
+| `contract` `plan` `run` `verify` `review` `report` `pr` `status` `resume` | Phase / recovery commands | Planned |
 
 A planned command reports honestly and exits non-zero — it never fakes success.
+
+`inspect` is read-only: it never executes a command from the repository it
+reads, and it writes only its own run record under `.mergesutra/`.
 
 ### Exit codes
 
@@ -183,10 +243,10 @@ A script or editor can tell these apart without parsing prose:
 
 | Code | Meaning                                                                     |
 | ---- | --------------------------------------------------------------------------- |
-| `0`  | Did what it claimed (`doctor` ready; `issue` reached `INTAKE_COMPLETE`)       |
+| `0`  | Did what it claimed (`doctor` ready; `inspect` reached `INSPECT_COMPLETE`)    |
 | `1`  | Failed for a stated reason (bad input, unusable configuration)                |
 | `2`  | Command is planned, not implemented — nothing was done                        |
-| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue                |
+| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`) |
 | `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue)   |
 | `78` | Configuration error (cf. `EX_CONFIG`)                                         |
 
@@ -215,15 +275,22 @@ by* it.
 Verification is many repository-native gates (format, lint, typecheck, unit,
 targeted, build, secret scan, **diff scope guard**), each discovered from real
 repo evidence with provenance and classified
-`REPOSITORY_REQUIRED` / `MERGESUTRA_ADDITIONAL` / `OPTIONAL`. Initial
-high-quality support targets Node/TypeScript/JavaScript with a generic
-fallback — we do not claim an ecosystem before testing it.
+`REPOSITORY_REQUIRED` / `MERGESUTRA_ADDITIONAL` / `OPTIONAL`. `inspect`
+today compiles the `REPOSITORY_REQUIRED` and `DECLARED_ONLY` rows from
+manifest + CI evidence and never promotes a gate on its own; running the gates
+comes at [Stage 7](docs/ROADMAP.md). Initial high-quality support targets
+Node/TypeScript/JavaScript with a generic fallback — we do not claim an
+ecosystem before testing it.
 
 ## Evidence pack
 
-Every run writes a local, secret-free bundle under `.mergesutra/runs/<id>/`
-(manifest, contract, plan, `commands.jsonl` receipts, verification, review,
-`report.md`/`report.json`). It is never committed automatically.
+Today every `issue` and `inspect` run writes one secret-free JSON run record to
+`.mergesutra/runs/run-<utc>-<hex>.json` (gitignored), with the stage reached,
+the repository identity it pinned, and the full repository contract including
+each claim's source file. The richer bundle — contract, plan, `commands.jsonl`
+receipts, verification, review, `report.md`/`report.json` under
+`.mergesutra/runs/<id>/` — is the [Stage 12](docs/ROADMAP.md) target. Nothing
+here is ever committed automatically.
 Layout: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Architecture
@@ -243,7 +310,7 @@ boundaries and state machine.
 
 ## Supported repositories
 
-Stage 1 reads repositories; it does not yet patch them. Planned initial target:
+Stages 1-2 read repositories; they do not patch them. Planned initial target:
 Node/TypeScript/JavaScript projects on **public** GitHub repos. Windows and
 Linux are first-class; macOS follows once core CI is strong.
 
@@ -251,8 +318,10 @@ Linux are first-class; macOS follows once core CI is strong.
 
 See [docs/PRODUCT_SPEC.md § Limitations](docs/PRODUCT_SPEC.md) and the
 [roadmap](docs/ROADMAP.md). In short: the full workflow is not implemented yet;
-dev-only toolchain advisories (vite/esbuild) are documented rather than force-
-upgraded (they do not ship in the published artifact).
+CI discovery is a bounded line scan, so YAML anchors, aliases, merge keys and
+matrices are reported as *partial coverage* rather than expanded; dev-only
+toolchain advisories (vite/esbuild) are documented rather than force-upgraded
+(they do not ship in the published artifact).
 
 ## Benchmark
 
@@ -262,8 +331,9 @@ than a fake 100%. No magic quality score.
 
 ## Roadmap
 
-[docs/ROADMAP.md](docs/ROADMAP.md) — Stages 0 (foundation) and 1 (repository +
-GitHub issue intake) are done; Stage 2 (repository policy compiler) is next.
+[docs/ROADMAP.md](docs/ROADMAP.md) — Stages 0 (foundation), 1 (repository +
+GitHub issue intake) and 2 (repository policy compiler) are done; Stage 3
+(Acceptance Contract criteria) is next.
 
 ## Contributing
 
