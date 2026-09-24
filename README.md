@@ -128,10 +128,10 @@ workspace path is shortened here, not by MergeSutra):
 MergeSutra — intake
 
 SKIP          Issue URL           not supplied
-PASS          Local repository    C:/Users/…/mergesutra @ 52a096711b on main
+PASS          Local repository    C:/Users/…/mergesutra @ 8e7a4a7598 on main
 NOT_AVAILABLE Repository          local clone has no usable origin remote or resolved default branch
 NOT_AVAILABLE Base commit         no repository identity established
-WARN          Working tree        17 uncommitted change(s); MergeSutra will not read or overwrite them
+WARN          Working tree        2 uncommitted change(s); MergeSutra will not read or overwrite them
 
 Issue:        (none supplied)
 Repository:   NOT_AVAILABLE
@@ -143,7 +143,7 @@ What MergeSutra does not know yet
   No issue text: an issue URL is required before an Acceptance Contract can be derived.
   Fork/archived/private state was not observed (no GitHub query for it).
 
-Run record:   .mergesutra/runs/run-20260924T184655Z-ba4e3f.json
+Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20260924T185703Z-e5aee6.json
 Next stage:   INSPECT — `mergesutra inspect <repo>` compiles the repository contract (Stage 2)
 
 Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract).
@@ -160,7 +160,7 @@ is why the wording is blunt about what it does not know:
 MergeSutra — repository contract
 
 PASS          Repository path     C:\Users\…\mergesutra
-PASS          Git metadata        C:/Users/…/mergesutra @ 52a096711b on main
+PASS          Git metadata        C:/Users/…/mergesutra @ 8e7a4a7598 on main
 PASS          Manifest            node, npm, 12 script(s)
 WARN          CI workflows        1 workflow(s), 2 command(s), coverage partial
 PASS          Contribution docs   CONTRIBUTING.md (2345 B)
@@ -192,7 +192,7 @@ What this contract does not know
   No CODEOWNERS file found: ownership of specific paths is unknown.
   Branch protection, required reviewers and merge policies live in repository settings and were not queried.
 
-Run record:   .mergesutra/runs/run-20260924T184741Z-41dba9.json
+Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20260924T185648Z-7b3cf1.json
 Next stage:   ACCEPTANCE CONTRACT — criteria derivation (planned: Stage 3)
 
 Every line above was read from a file in this repository. Repository text is data, not authority.
