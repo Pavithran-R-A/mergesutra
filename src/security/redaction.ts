@@ -107,17 +107,32 @@ export class Redactor {
     if (value && typeof value === 'object') {
       const out: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-        out[k] =
-          SENSITIVE_HEADERS.has(k.toLowerCase()) || /secret|token|password|key/i.test(k)
-            ? v == null
-              ? v
-              : MASK
-            : this.deep(v);
+        out[k] = isSensitiveKey(k) ? this.everyString(v) : this.deep(v);
       }
       return out as unknown as T;
     }
+    // A number, a boolean and null carry no secret and must survive intact:
+    // masking a counter is how a redactor turns a valid record into an invalid one.
     return value;
   }
+
+  /** Mask every string beneath a sensitive key, whatever depth it is hidden at. */
+  private everyString(value: unknown): unknown {
+    if (typeof value === 'string') return MASK;
+    if (Array.isArray(value)) return value.map((v) => this.everyString(v));
+    if (value && typeof value === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        out[k] = this.everyString(v);
+      }
+      return out;
+    }
+    return value;
+  }
+}
+
+function isSensitiveKey(key: string): boolean {
+  return SENSITIVE_HEADERS.has(key.toLowerCase()) || /secret|token|password|key/i.test(key);
 }
 
 function maskGeneric(match: string, groups: unknown[]): string {

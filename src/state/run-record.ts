@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { acceptanceContractSchema } from '../contract/schema.js';
 import { AppError } from '../core/errors.js';
 import { repositoryContractSchema } from '../discovery/contract.js';
+import { implementationPlanSchema } from '../plan/schema.js';
 import { VERSION } from '../version.js';
 
 /**
@@ -18,17 +19,27 @@ import { VERSION } from '../version.js';
  * Nothing secret belongs in here. There is no credential field to fill in.
  */
 
-export const RUN_SCHEMA_VERSION = 3;
+export const RUN_SCHEMA_VERSION = 4;
 
-export const RUN_STAGES = ['intake', 'inspect', 'contract'] as const;
+export const RUN_STAGES = ['intake', 'inspect', 'contract', 'plan'] as const;
 export const RUN_OUTCOMES = [
   'INTAKE_COMPLETE',
   'INSPECT_COMPLETE',
   'CONTRACT_DERIVED',
+  'PLAN_COMPLETE',
   'INCONCLUSIVE',
   'BLOCKED',
 ] as const;
-export const RUN_CHECK_STATUSES = ['PASS', 'WARN', 'FAIL', 'SKIP', 'NOT_AVAILABLE'] as const;
+export const RUN_CHECK_STATUSES = [
+  'PASS',
+  'WARN',
+  'FAIL',
+  'SKIP',
+  'NOT_AVAILABLE',
+  // The renderer already has this word, and a record that states "this happened"
+  // without judging it needs a status that does not pretend to be a result.
+  'INFO',
+] as const;
 
 export const injectionFindingSchema = z
   .object({
@@ -138,6 +149,8 @@ export const runRecordSchema = z
     contract: repositoryContractSchema.nullable(),
     /** Present once Stage 3 has derived criteria. Not the same thing as above. */
     acceptanceContract: acceptanceContractSchema.nullable().default(null),
+    /** Present once Stage 4 has asked a model — and the answer passed the schema. */
+    plan: implementationPlanSchema.nullable().default(null),
     checks: z.array(runCheckSchema).readonly(),
     nextStage: z.string(),
     limitations: z.array(z.string()).readonly(),
@@ -166,6 +179,8 @@ export interface NewRunRecordInput {
   readonly contract: RunRecord['contract'];
   /** Only the `contract` command sets this; every other stage leaves it null. */
   readonly acceptanceContract?: RunRecord['acceptanceContract'];
+  /** Only the `plan` command sets this, and it is model output kept as untrusted. */
+  readonly plan?: RunRecord['plan'];
   readonly checks: readonly RunCheck[];
   readonly nextStage: string;
   readonly limitations?: readonly string[];
@@ -186,6 +201,7 @@ export function createRunRecord(input: NewRunRecordInput): RunRecord {
     local: input.local,
     contract: input.contract,
     acceptanceContract: input.acceptanceContract ?? null,
+    plan: input.plan ?? null,
     checks: [...input.checks],
     nextStage: input.nextStage,
     limitations: [...(input.limitations ?? [])],

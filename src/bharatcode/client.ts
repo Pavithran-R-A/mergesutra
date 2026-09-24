@@ -255,6 +255,9 @@ export class HttpBharatCodeClient implements BharatCodeClient {
   }
 
   async complete(request: CompletionRequest): Promise<CompletionResult> {
+    // Checked first because a missing credential is the more actionable of the
+    // two configuration errors: without a model, `--connect` names one.
+    this.requireKey();
     const model = request.model ?? this.config.model;
     if (!model) {
       throw new AppError({

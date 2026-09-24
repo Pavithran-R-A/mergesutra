@@ -3,9 +3,11 @@ import { doctorAction, type DoctorDeps } from './doctor.js';
 import { issueAction, type IssueCommandOptions } from './issue.js';
 import { inspectAction, type InspectCommandOptions } from './inspect.js';
 import { contractAction, type ContractCommandOptions } from './contract.js';
+import { planAction, type PlanCommandOptions } from './plan.js';
 import type { IntakeDeps } from '../intake/intake.js';
 import type { InspectDeps } from '../discovery/inspect.js';
 import type { ContractDeps } from './contract.js';
+import type { PlanDeps } from '../plan/plan.js';
 import { createRenderer, resolveColor } from './render.js';
 import { EXIT } from './exit-codes.js';
 import { PRODUCT_NAME, TAGLINE, VERSION } from '../version.js';
@@ -17,9 +19,9 @@ import { defaultRedactor } from '../security/redaction.js';
  *
  * The one-command hero workflow is `mergesutra issue <url>`. The phase commands
  * (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`)
- * exist for transparency, debugging and recovery. Through Stage 3, `doctor`,
- * the intake half of `issue`, `inspect` and `contract` are wired up; every
- * unfinished command says so truthfully rather than pretending to work.
+ * exist for transparency, debugging and recovery. Through Stage 4, `doctor`,
+ * the intake half of `issue`, `inspect`, `contract` and `plan` are wired up;
+ * every unfinished command says so truthfully rather than pretending to work.
  */
 
 export interface ProgramDeps {
@@ -27,6 +29,7 @@ export interface ProgramDeps {
   issue?: Partial<IntakeDeps>;
   inspect?: Partial<InspectDeps>;
   contract?: Partial<ContractDeps>;
+  plan?: Partial<PlanDeps>;
   write?: (line: string) => void;
   writeErr?: (line: string) => void;
   env?: NodeJS.ProcessEnv;
@@ -34,7 +37,6 @@ export interface ProgramDeps {
 }
 
 const PLANNED = [
-  { name: 'plan', summary: 'BharatCode implementation plan.' },
   { name: 'run', summary: 'Implement in an isolated worktree (BharatCode).' },
   { name: 'verify', summary: 'Run deterministic verification gates.' },
   { name: 'review', summary: 'Independent BharatCode diff review.' },
@@ -105,14 +107,36 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
   program
     .command('contract [run-id]')
     .description('Turn what a run knows into the criteria it must prove')
-    .action(async (runId: string | undefined) => {
+    .option(
+      '--criterion <text>',
+      'add a requirement no file states; repeatable, and it must be attributed with --by',
+      collect,
+      [],
+    )
+    .option('--by <name>', 'who supplied the --criterion requirements (required with it)')
+    .action(async (runId: string | undefined, opts: ContractCommandOptions) => {
       const globals = program.opts();
       const options: ContractCommandOptions = {
         json: globals.json === true,
         noColor: globals.color === false,
         env,
+        criterion: opts.criterion,
+        by: opts.by,
       };
       setExitCode(await contractAction(runId, options, deps.contract, write));
+    });
+
+  program
+    .command('plan [run-id]')
+    .description("Ask BharatCode for an implementation plan against a run's criteria")
+    .action(async (runId: string | undefined) => {
+      const globals = program.opts();
+      const options: PlanCommandOptions = {
+        json: globals.json === true,
+        noColor: globals.color === false,
+        env,
+      };
+      setExitCode(await planAction(runId, options, deps.plan, write));
     });
 
   for (const planned of PLANNED) {
@@ -130,7 +154,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
             renderer.row('INFO', planned.summary),
             '',
             renderer.dim(
-              'Currently working commands: doctor, issue (intake only), inspect, contract, --help, --version.',
+              'Currently working commands: doctor, issue (intake), inspect, contract, plan, --help, --version.',
             ),
             renderer.dim('Progress: see docs/ROADMAP.md'),
           ].join('\n'),
@@ -146,6 +170,11 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
   });
 
   return program;
+}
+
+/** Commander accumulator for a repeatable `--flag <value>` option. */
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
 }
 
 /** Parse argv and run the program, mapping failures to controlled exits. */

@@ -107,7 +107,7 @@ export function formatIntake(result: IntakeResult, renderer: Renderer): string {
   }
   lines.push(
     renderer.dim(
-      'Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract), 3 (acceptance contract).',
+      'Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract), 3 (acceptance contract), 4 (implementation plan).',
     ),
   );
   lines.push(

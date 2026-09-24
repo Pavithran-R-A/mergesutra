@@ -190,7 +190,7 @@ function saveRecord(input: {
     acceptanceContract,
     checks: [...checks],
     nextStage: acceptanceContract
-      ? 'PLAN — implementation plan (planned: Stage 4)'
+      ? 'PLAN — `mergesutra plan` asks BharatCode how to satisfy these criteria (Stage 4)'
       : 'INSPECT — then retry `mergesutra contract`',
     limitations: [
       ...new Set([
@@ -231,6 +231,14 @@ export interface ContractCommandOptions {
   readonly json?: boolean;
   readonly noColor?: boolean;
   readonly env?: NodeJS.ProcessEnv;
+  /**
+   * Requirements a human states that no file states. The only route by which
+   * text MergeSutra cannot read from the repository becomes a criterion — and it
+   * has to name who said it, because `human` outranks repository policy in the
+   * authority hierarchy and an anonymous upgrade would be worthless.
+   */
+  readonly criterion?: readonly string[];
+  readonly by?: string;
 }
 
 export async function contractAction(
@@ -242,7 +250,7 @@ export async function contractAction(
   const renderer = createRenderer({
     color: resolveColor(options.noColor === true, options.env ?? process.env),
   });
-  const result = await runContractStage({ runId }, deps);
+  const result = await runContractStage({ runId, injectedCriteria: humanCriteria(options) }, deps);
 
   if (options.json) {
     write(JSON.stringify({ recordFile: result.recordFile, record: result.record }, null, 2));
@@ -331,6 +339,32 @@ export function formatContract(result: ContractResult, renderer: Renderer): stri
     renderer.dim('Nothing has been verified yet: every criterion above is PENDING by design.'),
   );
   return lines.join('\n');
+}
+
+/**
+ * `--criterion` turns a human statement into a criterion. The name behind it is
+ * mandatory: an unattributed requirement is the shape of the failure this whole
+ * project is built to refuse.
+ */
+function humanCriteria(options: ContractCommandOptions): readonly InjectedCriterion[] | undefined {
+  const statements = options.criterion ?? [];
+  if (statements.length === 0) return undefined;
+  const by = options.by?.trim();
+  if (!by) {
+    throw new AppError({
+      kind: 'validation',
+      message: 'A criterion a human states must name who stated it.',
+      remediation: 'Add --by "<name or role>" alongside --criterion.',
+    });
+  }
+  return statements.map((statement) => ({
+    statement: statement.trim(),
+    by,
+    requirementType: 'functional' as const,
+    // No command is invented on a human's word alone: the check is decided
+    // later, in the open, rather than smuggled in with the requirement.
+    check: null,
+  }));
 }
 
 function sourceNote(source: AcceptanceContract['criteria'][number]['source']): string {

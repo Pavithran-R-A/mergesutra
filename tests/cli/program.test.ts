@@ -52,11 +52,12 @@ describe('mergesutra CLI', () => {
     });
     expect(code).toBe(2);
     expect(c.out()).toContain('planned');
-    expect(c.out()).toContain('issue (intake only)');
+    expect(c.out()).toContain('Currently working commands:');
+    expect(c.out()).toContain('issue (intake)');
   });
 
   it('does not pretend a later stage ran: no planned command exits 0', async () => {
-    for (const name of ['plan', 'run', 'verify', 'review', 'report', 'pr', 'status', 'resume']) {
+    for (const name of ['run', 'verify', 'review', 'report', 'pr', 'status', 'resume']) {
       const c = capture();
       const code = await run(['node', 'mergesutra', name], {
         write: c.write,
@@ -64,6 +65,17 @@ describe('mergesutra CLI', () => {
       });
       expect(code, name).toBe(2);
     }
+  });
+
+  it('stops treating `plan` as a planned command, without making it succeed', async () => {
+    const c = capture();
+    const code = await run(['node', 'mergesutra', 'plan'], {
+      write: c.write,
+      env: { NO_COLOR: '1' },
+    });
+    expect(code).not.toBe(2);
+    expect(c.out()).not.toContain('is planned, not yet implemented');
+    expect(code).not.toBe(0);
   });
 
   it('contract with nothing to build on fails instead of inventing criteria', async () => {

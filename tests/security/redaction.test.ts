@@ -48,6 +48,20 @@ describe('Redactor', () => {
     expect(out.nested.token).toBe('[REDACTED]');
   });
 
+  it('keeps numbers and booleans intact under a secret-ish key name', () => {
+    // `promptTokens` is a counter, not a credential. Masking it turned a valid
+    // run record into one its own schema refused to read back.
+    const r = new Redactor();
+    const out = r.deep({ promptTokens: 120, completionTokens: null, retried: false, ok: 1.5 });
+    expect(out).toEqual({ promptTokens: 120, completionTokens: null, retried: false, ok: 1.5 });
+  });
+
+  it('masks a string hidden under a secret-ish key at any depth', () => {
+    const r = new Redactor();
+    const out = r.deep({ tokens: { access: 'leak-me', count: 3 } });
+    expect(out.tokens).toEqual({ access: '[REDACTED]', count: 3 });
+  });
+
   it('does not crash on empty or short secrets', () => {
     const r = new Redactor(['ab', undefined]);
     expect(() => r.text('nothing here')).not.toThrow();
