@@ -6,6 +6,46 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Stage 3: Acceptance Contract
+
+This stage turns what a run already knows into the list of things it must prove.
+It calls no model, executes nothing, and verifies nothing — so every criterion
+it produces is `PENDING`, and it says so.
+
+- Acceptance Contract schema (`src/contract/schema.ts`) built from Zod
+  discriminated unions, so the states a run must not reach are unconstructible:
+  a `PASS` cannot exist without executed evidence, an executed evidence cannot
+  exist without an exit code or a stated reason, a `PENDING` cannot carry
+  evidence, and undeclared fields (a `confidence` score, a free-text note) are
+  rejected. Criterion statuses are `PENDING / PASS / FAIL / SKIPPED /
+  NOT_AVAILABLE / BLOCKED / INCONCLUSIVE`.
+- Deterministic derivation (`src/contract/derive.ts`): a criterion comes only
+  from the issue's own acceptance list (copied verbatim, never interpreted), a
+  `REPOSITORY_REQUIRED` gate with the CI file and line that cited it, or a named
+  human injection recorded as `MERGESUTRA_ADDITIONAL`. Bullets under a heading
+  that is not about acceptance are not mined; links, notes and repeated items
+  are filtered or merged with a limitation. An empty contract is refused rather
+  than emitted, because "no obligations" is a claim about the issue.
+- `mergesutra contract [run-id]` — reads a run, derives its criteria and writes
+  a `contract`-stage record. Exit codes: `0` `CONTRACT_DERIVED`, `3`
+  `INCONCLUSIVE` when nothing could be derived, `1` when there is no run to read
+  (it names the stage to run first). The printed table and the stored record
+  carry the same `Verification NOT_AVAILABLE` row.
+- Criteria are redacted with the central `Redactor` before they are stored or
+  printed, so a credential pasted into an issue body cannot be laundered into a
+  contract that later stages forward.
+- Run record schema v3: a record now carries both contracts distinctly — the
+  repository contract from Stage 2 and the Acceptance Contract from Stage 3.
+  `createRunRecord` had been dropping the Acceptance Contract field, so a
+  contract-stage record lost its criteria on write; it is now threaded through
+  and covered by a round-trip test. Older v2 run files are reported as
+  unreadable rather than trusted.
+- `withRevision` refuses to rewrite criteria without a recorded reason, so a
+  later stage cannot quietly move the goalposts after a failure.
+- 32 additional offline tests (338 total), including an end-to-end Stage 2 →
+  Stage 3 chain against fixture repositories with no network and no
+  `gh` invocation.
+
 ### Added — Stage 2: repository policy compiler
 
 This stage reads a repository and records what the repository itself requires.
@@ -97,11 +137,12 @@ This stage reads and records; it does not patch, verify, review or open anything
 
 ### Not yet implemented (planned)
 
-`contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`, `status`,
+`plan`, `run`, `verify`, `review`, `report`, `pr`, `status`,
 `resume`. `issue` performs intake only: it produces no plan, patch,
 verification, review or PR draft, and says so on the last two lines. `inspect`
-compiles the repository contract but runs no gate. Invoking a planned command
-reports a truthful "planned" message and exits `2`.
+and `contract` read and record; neither runs a gate, so no criterion is ever
+proven before Stage 7. Invoking a planned command reports a truthful "planned"
+message and exits `2`.
 
 ## [0.0.1] - 2026-09-24
 

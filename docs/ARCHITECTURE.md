@@ -1,6 +1,6 @@
 # MergeSutra — Architecture
 
-Status: Stages 0-2 implement the components marked **[IMPLEMENTED]**; the rest
+Status: Stages 0-3 implement the components marked **[IMPLEMENTED]**; the rest
 are **[DESIGNED]** / **[PLANNED]**. This document describes the whole intended
 architecture so the built pieces fit it.
 
@@ -119,15 +119,18 @@ src/
   bharatcode/  BharatCodeClient + HTTP adapter, schemas, [IMPLEMENTED]
                retry, timeouts, cancellation
   cli/         command surface, rendering, doctor,        [IMPLEMENTED]
-               issue (intake only), exit codes
+               issue (intake only), inspect, contract,
+               exit codes
   intake/      issue URL parsing, local-repo reading,     [IMPLEMENTED]
                intake orchestrator
   github/      gh-CLI source + Zod-validated payloads     [IMPLEMENTED]
   state/       versioned run record + atomic file store   [IMPLEMENTED]
-  contract/    Acceptance Contract engine                [DESIGNED]
+  discovery/   confined repo reader, manifest/CI          [IMPLEMENTED]
+               discovery, repository contract
+  contract/    Acceptance Contract schema + criteria      [IMPLEMENTED]
+               derivation, revision-with-reason
   git/         worktree / base SHA / safe workspace      [PLANNED]
   process/     risk-classified tool controller           [PLANNED]
-  discovery/   repository policy compiler                [PLANNED]
   verification/deterministic verification engine         [PLANNED]
   review/      independent diff reviewer wiring          [PLANNED]
   evidence/    evidence pack + report renderer           [PLANNED]

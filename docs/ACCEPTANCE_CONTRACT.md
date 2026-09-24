@@ -1,8 +1,10 @@
 # The Acceptance Contract
 
-> Status: **[DESIGNED]**. This defines the schema and rules that Stage 3
-> implements. The core principle is already an architectural commitment:
-> **every final `PASS` must point to evidence.**
+> Status: **[STAGE 3 SHIPPED]** for the schema, the criteria derivation and
+> `mergesutra contract`. Evidence is still **[DESIGNED]**: nothing attaches a
+> `PASS` before Stage 7 runs a gate, and criteria proposed by the planner are
+> still **[PLANNED]** for Stage 4. The core principle is implemented, not
+> aspirational: **a `PASS` without evidence cannot be constructed.**
 
 ## Why it exists
 
@@ -22,7 +24,7 @@ Requirement → Change → Verification → Evidence
 | ------------------- | --------------------------------------- | ---------------------------------- |
 | Answers             | "What does this repository demand of any change?" | "What must this patch prove to close this issue?" |
 | Built from          | Manifests, CI steps, `CODEOWNERS`, docs — files only | Issue text + the repository contract |
-| Implemented         | **Stage 2 — `mergesutra inspect`**, shipped | Stage 3                                |
+| Implemented         | **Stage 2 — `mergesutra inspect`**, shipped | **Stage 3 — `mergesutra contract`**, shipped (evidence attaches at Stage 7) |
 | Identifiers         | Five fixed gate kinds: `format`, `lint`, `typecheck`, `test`, `build` | Stable `AC-n` criterion ids, versioned with revisions |
 | May it add a rule?  | Never — `MERGESUTRA_ADDITIONAL` is reserved for gates MergeSutra runs for its own benefit, and `inspect` emits none | Only from issue evidence, with a source citation |
 
@@ -54,55 +56,74 @@ AC-3  Error behavior must conform to repository conventions.
       status: PENDING
 ```
 
-## Schema (Zod-expressible)
+AC-2 and AC-3 are **not** what Stage 3 emits. `mergesutra contract` copies an
+acceptance list verbatim and inherits CI-enforced gates; a criterion no file
+states is a *model proposal*, which arrives at Stage 4 labelled `MODEL CLAIM`
+and validated against this schema. What the stage really prints for this issue
+is in the README's sample output: one criterion per acceptance-list item, plus
+one per `REPOSITORY_REQUIRED` gate, each citing its file and line, all
+`PENDING`.
+
+## Schema as implemented
+
+`src/contract/schema.ts`. Discriminated unions carry the rules, so the
+dishonest shapes do not type rather than merely failing a review comment.
 
 ```ts
-AcceptanceContract {
-  version: number
-  issue: IssueRef
-  repository: RepositoryRef
-  baseSha: string
-  criteria: AcceptanceCriterion[]
-  revisions: ContractRevision[]   // recorded with a reason
+AcceptanceContract {                     // .strict(): an undeclared field throws
+  schemaVersion: 1
+  version: number                        // bumped only by a recorded revision
+  runId: string
+  issueUrl: string | null
+  repository: { fullName, baseSha, localPath }  // pinned by intake, nullable
+  criteria: AcceptanceCriterion[]        // min 1 — an empty contract is refused
+  revisions: ContractRevision[]          // recorded with a reason
+  limitations: string[]                  // what this contract did not establish
+  untrusted: true
 }
 
-AcceptanceCriterion {
-  id: string                 // stable, e.g. "AC-1"
+AcceptanceCriterion {                    // discriminated on `status`
+  id: string                             // "AC-1", assigned in derivation order
   statement: string
-  source: string             // where the requirement came from
-  sourceType: 'issue' | 'repository_policy' | 'inferred' | 'human'
+  source:                                // where the requirement came from
+    | { kind: 'issue', detail }
+    | { kind: 'repository_policy', file, line }
+    | { kind: 'inferred', reason }       // reserved for Stage 4, never Stage 3
+    | { kind: 'human', by }
   requirementType: 'functional' | 'compatibility' | 'convention' | 'safety' | 'scope'
   verificationPlan: VerificationStep[]
-  implementationEvidence: Evidence[]
-  validationEvidence: Evidence[]
   status: CriterionStatus
+  evidence: Evidence[]                   // PASS ⇒ min 1; PENDING ⇒ length 0
   limitations: string[]
 }
 
-VerificationStep {
-  kind: 'test' | 'lint' | 'typecheck' | 'build' | 'static_review' | 'manual'
-  command?: string           // argv form, never a shell string
-  source: CheckSource        // REPOSITORY_REQUIRED | MERGESUTRA_ADDITIONAL | OPTIONAL
-}
+VerificationStep =                       // discriminated on `kind`
+  | { kind: 'test'|'lint'|'format'|'typecheck'|'build'|'secret_scan',
+      command, source, from }            // argv form, never a shell string
+  | { kind: 'static_review'|'manual', source, from }   // cannot carry a command
 
-Evidence {
-  type: 'test_result' | 'command_receipt' | 'diff_hunk' | 'file' | 'review' | 'artifact'
-  provenance: string         // where it came from
-  command?: string
-  exitCode?: number
-  file?: string
-  lineRange?: [number, number]
-  testName?: string
-  artifact?: string
-  timestamp?: string
-  hash?: string
-}
+Evidence =                               // discriminated on `executed`
+  | { executed: false, reason, provenance }
+  | { executed: true, command, provenance,
+      result: { status: 'PASS'|'FAIL', exitCode, outputRef, durationMs }
+            | { status: 'BLOCKED'|'INCONCLUSIVE', reason } }
+
+ContractRevision { version, reason, affectedCriterionIds, createdAt }
 
 CheckSource = 'REPOSITORY_REQUIRED' | 'MERGESUTRA_ADDITIONAL' | 'OPTIONAL'
 
 CriterionStatus =
   'PENDING' | 'PASS' | 'FAIL' | 'SKIPPED' | 'NOT_AVAILABLE' | 'BLOCKED' | 'INCONCLUSIVE'
 ```
+
+Two deltas from the earlier design sketch, both deliberate:
+
+- `implementationEvidence` / `validationEvidence` are one `evidence` list. The
+  split added a place to hide an unsupported claim; the provenance string on
+  each item says what kind of evidence it is.
+- There is no `confidence`, `score` or free-text `notes` field anywhere. A
+  schema-strict object rejects them, so an inflated self-assessment has nowhere
+  to be written.
 
 ## Hard rules
 

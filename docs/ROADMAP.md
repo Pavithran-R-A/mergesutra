@@ -63,11 +63,32 @@ partially in place; `[ ]` = not started. Do not read an unchecked box as done.
 - [x] Not done on purpose: branch protection / required reviewers / merge
       policies are repository settings and were not queried
 
-## Stage 3 — Acceptance Contract engine
+## Stage 3 — Acceptance Contract engine — **[DONE]**
 
-- [ ] Contract + criterion Zod schemas (see ACCEPTANCE_CONTRACT.md)
-- [ ] Criteria derivation from issue + repo contract
-- [ ] Versioning, stable ids, revision-with-reason
+- [x] Acceptance Contract + criterion Zod schemas, built so the dishonest states
+      are unconstructible: `PASS` requires executed evidence, executed evidence
+      requires an exit code or a stated reason, `PENDING` forbids evidence, and
+      undeclared fields (`confidence`, free-text notes) are rejected
+- [x] Criteria derived deterministically from the issue's own acceptance list
+      (copied verbatim), the Stage 2 repository contract's `REPOSITORY_REQUIRED`
+      gates (with CI file + line provenance), and named human injections
+- [x] Non-requirements filtered, not guessed at: bullets under an unrelated
+      heading, links, notes and stack traces; repeated items merged with a
+      limitation that says so
+- [x] Stable ids (`AC-1…`) in derivation order — issue first, then repository —
+      and versioning with `withRevision`, which refuses a revision without a
+      recorded reason and lists the ids that moved
+- [x] An empty contract is refused outright: "no obligations" is a claim about
+      the issue, not an observation, so Stage 4's model proposals (with
+      `MODEL CLAIM` labelling) are where inferred criteria will come from
+- [x] `mergesutra contract [run-id]` writes a `contract`-stage record; the issue
+      body's text is redacted before storage or printing; `--json` returns the
+      parsed record; a run with no repository contract still derives from issue
+      text but records the gap as `NOT_AVAILABLE`
+- [x] Run record schema v3 carries both contracts distinctly; a v2 file is
+      reported unreadable rather than trusted
+- [x] Not done on purpose: no criterion is checked, no gate is run and no model
+      is called by this stage, so every status it can emit is `PENDING`
 
 ## Stage 4 — BharatCode planner
 

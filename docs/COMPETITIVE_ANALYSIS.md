@@ -25,7 +25,11 @@ evidence-first PR output — not just "run an agent in a worktree and open a PR"
 Also: a direct interactive local CLI workflow with no mandatory self-hosted
 runner for the core local path.
 
-- **Status:** differentiators are **[DESIGNED]** (Stage 3/8), not yet shipped.
+- **Status:** the repository-policy compiler (Stage 2) and the Acceptance
+  Contract with its criteria and verification plans (Stage 3) are **shipped** —
+  what is still **[DESIGNED]** is the other half of the chain: attaching
+  executed evidence to those criteria (Stage 7/8) and the evidence-first PR
+  output.
 
 ### PatchProof-style verifiers
 

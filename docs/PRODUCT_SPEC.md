@@ -81,13 +81,19 @@ For every feature we ask: *does this make "issue → evidence-backed PR"
 materially better?* If not, it is rejected as scope creep unless it is
 necessary infrastructure.
 
-## 6. The differentiator: the Acceptance Contract **[DESIGNED]**
+## 6. The differentiator: the Acceptance Contract
+
+Derivation is **[IMPLEMENTED]** (Stage 3); the rest of the lifecycle — evidence
+from real runs, revisions during implementation, and the final traceability row
+per criterion — is **[DESIGNED]**.
 
 A normal agent receives an issue and generates code. MergeSutra first converts
 the issue and repository policy into a structured, versioned contract of stable
 criteria. Each criterion carries: id, statement, source and source type,
-requirement classification, verification plan, implementation and validation
-evidence, status, and unresolved uncertainty.
+requirement classification, verification plan, evidence, status, and unresolved
+uncertainty. Today every criterion ships as `PENDING` with no evidence, because
+nothing has run yet — the schema makes a `PASS` without evidence unconstructible
+rather than merely discouraged.
 
 The contract survives the whole workflow and never degrades into vague prose
 after implementation. The final PR shows, per requirement:
@@ -98,13 +104,14 @@ Requirement → Change → Verification → Evidence
 
 Full schema and rules: [ACCEPTANCE_CONTRACT.md](ACCEPTANCE_CONTRACT.md).
 
-## 7. Repository policy compiler **[DESIGNED]**
+## 7. Repository policy compiler
 
-Before planning, MergeSutra inspects relevant repository instructions
-(`CONTRIBUTING.md`, `AGENTS.md`, `package.json`/`pyproject.toml`/`Cargo.toml`/
-`go.mod`, CI config, lint/format/test config, PR/issue templates, and more) and
-derives a structured **repository contract** (runtime, package manager,
-required checks, contribution requirements, protected areas). It does not blindly
+**[IMPLEMENTED]** (Stage 2) for the read-only discovery path: CI workflows,
+package manifests, and contribution instructions are parsed as data and compiled
+into a **repository contract** (runtime, package manager, required checks,
+contribution requirements, protected areas), with each required gate citing the
+file and line that reached it. Broader ecosystem coverage is **[PLANNED]**. It
+does not blindly
 concatenate files into a prompt. Repository text is treated as possible prompt
 injection and cannot override MergeSutra's security policy.
 
@@ -130,20 +137,26 @@ what was run, what passed, what failed or could not be checked — and decide
 whether to publish. Honest reporting of failures is a success condition, not a
 defect.
 
-## 10. Limitations (current, at Stage 1)
+## 10. Limitations (current, at Stage 3)
 
 - Implemented today: CLI skeleton, BharatCode adapter, config, redaction,
-  structured errors, `doctor`, and **intake** — `mergesutra issue <url>` parses
-  the URL, reads the issue and repository through `gh`, pins an exact base
-  commit with provenance, verifies a supplied `--repo` clone is the same
-  repository, and writes a versioned run record. `--repo` alone also works, and
-  reports `INCONCLUSIVE` because no contract can be derived without issue text.
-- `issue` stops at intake and says so. The Acceptance Contract engine,
-  worktree isolation, verification engine, review, evidence pack, PR drafting
-  and resumability (`status` / `resume`) are **[DESIGNED]** / **[PLANNED]**, not
-  yet functional. Planned commands exit `2` rather than imitating success.
-- No BharatCode call happens during intake: the stage that needs model
-  judgement is Stage 3. A run therefore works with no API key present.
+  structured errors, `doctor`, **intake** (`mergesutra issue <url>` — parses the
+  URL, reads the issue and repository through `gh`, pins an exact base commit
+  with provenance, verifies a supplied `--repo` clone is the same repository,
+  and writes a versioned run record), **repository policy discovery**
+  (`mergesutra inspect <repo>` — reads CI, manifests and contributor docs
+  read-only and compiles the gates the repository itself demands, each with a
+  file-and-line citation), and **Acceptance Contract derivation**
+  (`mergesutra contract [run-id]` — joins an issue run and a repository contract
+  into versioned criteria that cannot record a `PASS` without evidence).
+- Everything after Stage 3 — planning against BharatCode, worktree isolation,
+  the verification engine, review, evidence pack, PR drafting and resumability
+  (`status` / `resume`) — is **[DESIGNED]** / **[PLANNED]**, not yet functional.
+  Planned commands exit `2` rather than imitating success. Every derived
+  criterion is `PENDING`, and the CLI says so on screen.
+- No BharatCode call happens in Stages 1–3: derivation is deterministic, so a
+  run works with no API key present. The stage that needs model judgement is
+  Stage 4.
 - GitHub access goes through the `gh` CLI only; `gh` must be installed and
   signed in, and a run with an unreachable issue reports `BLOCKED` (exit `4`).
 - Initial high-quality verification targets Node.js/TypeScript/JavaScript with

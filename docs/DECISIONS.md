@@ -188,3 +188,45 @@ actual decisions taken while building Stage 0, not aspirations.
   carrier also fixes a real safety bug found while building this: a repository
   declaring both `format` (`prettier --write .`) and `format:check` must never
   have the write-capable script named as the gate a check needs.
+
+## ADR-015 — Unverifiable is a type, not a tone
+
+- **Decision:** The Acceptance Contract is a set of Zod discriminated unions in
+  which the dishonest shapes are unconstructible: `status: 'PASS'` requires at
+  least one `executed: true` evidence with a result; `PENDING` forbids evidence
+  entirely; an `executed` evidence cannot omit `command` and a result; a
+  `static_review`/`manual` step cannot carry a command; every object is
+  `.strict()`, so `confidence`, `score` and free-text `notes` have nowhere to go.
+  Stage 3 can therefore only emit `PENDING`, and says so.
+- **Reason:** Everything downstream of this artifact is a model reading prose
+  and a human skimming a report. A rule that lives only in documentation —
+  "`PASS` means evidence exists" (ADR-002) — is the first thing a confident
+  implementation loop learns to route around. If the value cannot be built, no
+  prompt, no time pressure and no "tests obviously pass" can produce it.
+- **Alternatives:** Validate after construction with a reviewer function (an
+  invalid object can still be handed to the next layer); put the rule in
+  AGENTS-style prose (unenforceable); allow `PASS` with a model justification
+  (converts confidence into verification, explicitly forbidden).
+- **Consequence:** Hand-written schema code is more verbose than a flat type,
+  and the unions must be built through a helper because `z.discriminatedUnion`
+  loses literal narrowing when wrapped — a cost paid once so that every later
+  stage inherits the guarantee. Evidence itself stays a designed shape: it is
+  only filled at Stage 7, and the schema is already ready for it.
+
+## ADR-016 — An empty Acceptance Contract is refused, not emitted
+
+- **Decision:** When no criterion can be traced to the issue's own acceptance
+  list, a CI-enforced gate, or a named human, `contract` raises
+  `AcceptanceContractUnavailable`, stores an `INCONCLUSIVE` record listing the
+  limitations, exits `3` and writes no contract. `criteria` has `min(1)`.
+- **Reason:** "There are no requirements" is a claim about the issue, not an
+  observation about what MergeSutra could parse. Emitting an empty contract would
+  hand a later stage a document that authorises anything, and a reviewer reading
+  the report would see a completed stage rather than a failed one.
+- **Alternatives:** Emit `criteria: []` (silent licence); let the model invent
+  criteria to fill the gap (Stage 4's job, and only as `MODEL CLAIM` against
+  this schema); exit `0` with a warning (rewards the failure path).
+- **Consequence:** The stage is only useful after intake, and it says which run
+  it read. A run whose issue writes no list still gets a contract from the
+  repository's required gates — and a limitation naming what is missing — so the
+  gap is visible instead of being papered over.

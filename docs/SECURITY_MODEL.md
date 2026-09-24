@@ -57,6 +57,15 @@ Implemented today:
 - A repository cannot promote itself by naming a check. A gate is
   `REPOSITORY_REQUIRED` only because a CI step in a specific file at a specific
   line reaches it, and MergeSutra adds no requirement of its own to the list.
+- Stage 3 keeps the same distance from issue text. A criterion is a **verbatim
+  copy** of a list item — MergeSutra does not paraphrase, merge sentences into a
+  new requirement, or mine a bullet that sits under a heading about something
+  else — so a hostile issue cannot get an interpretation recorded as a
+  obligation. The copy is run through the central `Redactor` before it is
+  stored or printed, which closes the one route from "a credential pasted into
+  an issue body" to "a run record that later stages forward". `inferred` is a
+  legal source in the schema but Stage 3 never emits it; when the planner does,
+  it must be labelled `MODEL CLAIM`.
 
 Still planned (Stage 12): the full adversarial matrix for repository file
 contents and filenames — injection strings placed in paths, in YAML, and inside
