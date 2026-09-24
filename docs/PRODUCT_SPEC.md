@@ -130,13 +130,22 @@ what was run, what passed, what failed or could not be checked — and decide
 whether to publish. Honest reporting of failures is a success condition, not a
 defect.
 
-## 10. Limitations (current, at Stage 0)
+## 10. Limitations (current, at Stage 1)
 
-- Only Stage 0 is implemented: CLI skeleton, BharatCode adapter, config,
-  redaction, structured errors, and `doctor`. The full issue→PR workflow, the
-  Acceptance Contract engine, worktree isolation, verification engine, review,
-  evidence pack, PR drafting and resumability are **[DESIGNED]** / **[PLANNED]**,
-  not yet functional.
+- Implemented today: CLI skeleton, BharatCode adapter, config, redaction,
+  structured errors, `doctor`, and **intake** — `mergesutra issue <url>` parses
+  the URL, reads the issue and repository through `gh`, pins an exact base
+  commit with provenance, verifies a supplied `--repo` clone is the same
+  repository, and writes a versioned run record. `--repo` alone also works, and
+  reports `INCONCLUSIVE` because no contract can be derived without issue text.
+- `issue` stops at intake and says so. The Acceptance Contract engine,
+  worktree isolation, verification engine, review, evidence pack, PR drafting
+  and resumability (`status` / `resume`) are **[DESIGNED]** / **[PLANNED]**, not
+  yet functional. Planned commands exit `2` rather than imitating success.
+- No BharatCode call happens during intake: the stage that needs model
+  judgement is Stage 3. A run therefore works with no API key present.
+- GitHub access goes through the `gh` CLI only; `gh` must be installed and
+  signed in, and a run with an unreachable issue reports `BLOCKED` (exit `4`).
 - Initial high-quality verification targets Node.js/TypeScript/JavaScript with
   graceful generic fallback; other ecosystems are **[PLANNED]** and must not be
   claimed until tested.

@@ -112,3 +112,35 @@ actual decisions taken while building Stage 0, not aspirations.
 - **Alternatives:** Assume POSIX.
 - **Consequence:** Windows assumptions are never baked into "Unix-only"
   shortcuts; Stage 13 qualifies behaviour further.
+
+## ADR-011 — The `gh` CLI is MergeSutra's GitHub transport
+
+- **Decision:** Read issues and repository metadata by invoking
+  `gh api --hostname <host> …` as an argv array, rather than calling the REST
+  API directly with a token of our own.
+- **Reason:** `gh` already owns credential storage, `gh auth login`, enterprise
+  hosts and keychain handling. Any token MergeSutra held would be one more
+  secret to store, redact, rotate and leak. This also keeps Stage 1 free of any
+  new credential requirement.
+- **Alternatives:** `octokit` + `GITHUB_TOKEN`; raw `fetch` with a PAT.
+- **Consequence:** Users must have `gh` installed and signed in; a missing or
+  unauthenticated `gh` becomes a reportable `config`/`auth` failure with the
+  exact remediation, never a crash. Tests never spawn `gh`: a scripted argv
+  runner answers for it, so the suite stays offline and credential-free.
+  Response payloads are still fully Zod-validated, because `gh` is a transport,
+  not a trust boundary.
+
+## ADR-012 — The run record is the report
+
+- **Decision:** Build the versioned run record first, then render it. The object
+  written to `.mergesutra/runs/<id>.json` is the same object the terminal prints,
+  and every value in it carries the source it came from.
+- **Reason:** A report assembled separately from persisted state can disagree
+  with it, and "what did the tool actually believe?" is the question an
+  evidence-backed PR has to answer. Absent values stay `null` and render as
+  `NOT_AVAILABLE` rather than being filled with plausible defaults.
+- **Alternatives:** Print during the run and persist a summary afterwards.
+- **Consequence:** A check that cannot be recorded cannot be printed. Later
+  stages resume from the record and validate it on load, so a stale or edited
+  file fails loudly. A save failure is reported in the output; the run never
+  implies it is resumable.

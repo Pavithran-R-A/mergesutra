@@ -21,13 +21,24 @@ partially in place; `[ ]` = not started. Do not read an unchecked box as done.
 - [x] Foundational docs (product, architecture, security model, acceptance
       contract design, competitive analysis, decisions, roadmap)
 
-## Stage 1 — Repository + GitHub issue intake — **[NEXT]**
+## Stage 1 — Repository + GitHub issue intake — **[DONE]**
 
 - [x] URL/model/exit-code plumbing exists at Stage 0
-- [ ] Safe GitHub issue URL parsing
-- [ ] Issue + repository metadata via injected GitHub client (fixtures/mock first)
-- [ ] Default branch resolution + exact base commit SHA
-- [ ] Existing-local-repo path
+- [x] Safe GitHub issue URL parsing (host allow-list, no credentials in URL,
+      pulls and other forges refused, traversal-shaped paths refused)
+- [x] Issue + repository metadata via injected GitHub client (`gh api`,
+      Zod-validated payloads, offline fixtures and a scripted argv runner)
+- [x] Default branch resolution + exact base commit SHA, with provenance
+      (`local-git` HEAD on the default branch, else GitHub branch head, else
+      `NOT_AVAILABLE`)
+- [x] Existing-local-repo path: read-only `git` probes, dirty-state detection,
+      detached HEAD, linked worktree and bare-repository detection
+- [x] Cross-check that `--repo` is the issue's repository; refuse to base work
+      on a mismatched clone
+- [x] Versioned run record (`.mergesutra/runs/<id>.json`) written atomically,
+      schema-validated on load, corrupt files reported not hidden
+- [x] Injection *signalling* on imported issue text (labels as data, never
+      blocks); no model call and no patch is produced by this stage
 
 ## Stage 2 — Repository policy compiler
 

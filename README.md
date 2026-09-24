@@ -14,9 +14,11 @@ becomes a PR."*
 
 ---
 
-> **Honest status: Stage 0 (foundation).** The CLI skeleton, the BharatCode
-> adapter, configuration, central secret redaction, structured errors, tests
-> and CI are **implemented and green**. The full `issue → PR` workflow is
+> **Honest status: Stage 1 (intake).** You can run `mergesutra doctor` and
+> `mergesutra issue <url>` today: the latter reads a GitHub issue and pins the
+> exact repository and base commit into a versioned run record. The BharatCode
+> adapter, configuration, central secret redaction, structured errors, tests and
+> CI are **implemented and green**. The full `issue → PR` workflow is
 > **under construction** — see [Roadmap](docs/ROADMAP.md). Where this README
 > shows the finished experience, it is labelled **target**. What you can run
 > today is shown under [Try it now](#try-it-now).
@@ -95,6 +97,8 @@ npm run build
 node dist/index.js --version
 node dist/index.js --help
 node dist/index.js doctor            # add --connect to probe BharatCode
+node dist/index.js issue https://github.com/owner/repo/issues/123
+node dist/index.js issue --repo /path/to/an/existing/clone
 ```
 
 Real `doctor` output (this machine, no secrets shown):
@@ -111,6 +115,38 @@ SKIP    BharatCode reach  pass --connect to test
 
 Not ready. Resolve the FAIL items above.
 ```
+
+Real `issue` output (this machine, a clone with no `origin` remote and uncommitted
+work — so it truthfully reports what it could not establish, and exits `3`):
+
+```text
+MergeSutra — intake
+
+SKIP          Issue URL           not supplied
+PASS          Local repository    C:/Users/…/mergesutra @ a9f46cc0f1 on main
+NOT_AVAILABLE Repository          local clone has no usable origin remote or resolved default branch
+NOT_AVAILABLE Base commit         no repository identity established
+WARN          Working tree        24 uncommitted change(s); MergeSutra will not read or overwrite them
+
+Issue:        (none supplied)
+Repository:   NOT_AVAILABLE
+Base commit:  NOT_AVAILABLE
+Local clone:  C:/Users/…/mergesutra on main
+Outcome:      INCONCLUSIVE
+
+What MergeSutra does not know yet
+  No issue text: an issue URL is required before an Acceptance Contract can be derived.
+  Fork/archived/private state was not observed (no GitHub query for it).
+
+Run record:   .mergesutra/runs/run-20260924T170719Z-602bf4.json
+Next stage:   DISCOVERY — repository policy compilation (planned: Stage 2)
+
+Stages implemented: 0 (foundation), 1 (intake).
+No patch, verification, review or pull request was produced by this command.
+```
+
+Reading an issue needs the GitHub CLI signed in (`gh auth status`); MergeSutra
+never sees or stores a GitHub token, and it never prints the issue body.
 
 ## Installation *(planned)*
 
@@ -135,10 +171,24 @@ Global flags: `--dry-run`, `--verbose`, `--json`, `--no-color` (also honours
 | `doctor`  | Diagnose environment, never leaking secrets    | Ready    |
 | `--help`  | Usage                                          | Ready    |
 | `--version` | Version                                      | Ready    |
-| `issue`   | Hero workflow: issue → evidence-backed PR draft| Planned  |
+| `issue`     | Intake: read an issue, pin the repository + base commit into a run record | **Partial — intake only** |
+| `issue` *(full workflow)* | Hero workflow: issue → evidence-backed PR draft | Planned  |
 | `inspect` `contract` `plan` `run` `verify` `review` `report` `pr` `status` `resume` | Phase / recovery commands | Planned |
 
 A planned command reports honestly and exits non-zero — it never fakes success.
+
+### Exit codes
+
+A script or editor can tell these apart without parsing prose:
+
+| Code | Meaning                                                                     |
+| ---- | --------------------------------------------------------------------------- |
+| `0`  | Did what it claimed (`doctor` ready; `issue` reached `INTAKE_COMPLETE`)       |
+| `1`  | Failed for a stated reason (bad input, unusable configuration)                |
+| `2`  | Command is planned, not implemented — nothing was done                        |
+| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue                |
+| `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue)   |
+| `78` | Configuration error (cf. `EX_CONFIG`)                                         |
 
 ## Safety model
 
@@ -193,7 +243,7 @@ boundaries and state machine.
 
 ## Supported repositories
 
-Stage 0 does not yet patch repositories. Planned initial target:
+Stage 1 reads repositories; it does not yet patch them. Planned initial target:
 Node/TypeScript/JavaScript projects on **public** GitHub repos. Windows and
 Linux are first-class; macOS follows once core CI is strong.
 
@@ -212,8 +262,8 @@ than a fake 100%. No magic quality score.
 
 ## Roadmap
 
-[docs/ROADMAP.md](docs/ROADMAP.md) — Stage 0 is done; Stage 1 (repository +
-GitHub issue intake) is next.
+[docs/ROADMAP.md](docs/ROADMAP.md) — Stages 0 (foundation) and 1 (repository +
+GitHub issue intake) are done; Stage 2 (repository policy compiler) is next.
 
 ## Contributing
 

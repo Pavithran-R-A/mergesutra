@@ -34,8 +34,24 @@ Planned enforcement (Stage 12):
   config change, no out-of-workspace write, no secret in output, and no
   unprompted remote call.
 
-Implemented today: model output is schema-validated (a malformed or hostile
-response fails safely) and all output text is redacted.
+Implemented today:
+
+- Model output is schema-validated (a malformed or hostile response fails
+  safely) and all output text is redacted.
+- Issue bodies and titles are scanned for instruction-like patterns and the
+  result is recorded as a `Issue content trust` check plus bounded, redacted
+  excerpts. Signalling only: a flagged issue is still imported as data, and no
+  finding grants or removes any permission.
+- An imported issue is marked `untrusted: true` in the run record; the body is
+  stored for later stages and never re-printed by the terminal renderer.
+- Intake spawns nothing on the strength of issue text. The only processes it
+  can start are the fixed `gh api` and read-only `git` queries, each built as
+  an argv array, and every API path segment is re-validated before use.
+- Adversarial fixtures assert that a hostile issue body produces no command, no
+  config change and no secret in output.
+
+Still planned (Stage 12): the same adversarial treatment for repository file
+contents and filenames, once MergeSutra reads a working tree it did not create.
 
 ## 3. Tool risk classes and policy
 
@@ -73,6 +89,14 @@ No `sudo`. No global Git config changes. No touching unrelated directories.
   when appropriate, apply policy, enforce timeout, capture exit code, preserve
   bounded logs.
 - Do not trust package scripts blindly.
+
+Implemented today: `src/core/runner.ts` is the single place MergeSutra starts a
+process. It uses `execFile` with `shell: false`, `windowsHide: true`, a bounded
+timeout and a bounded output size, and takes `(executable, argv)` — a value
+containing `;`, `&&` or a redirect stays one literal argument. Tests spawn the
+current Node binary with hostile arguments and assert both that they arrive
+unchanged and that no file was created. A command that could not start reports
+its reason instead of a blank failure.
 
 ## 6. Secret protection (implemented)
 

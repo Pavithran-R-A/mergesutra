@@ -111,21 +111,26 @@ If progress stalls, the run **stops with evidence** rather than burning requests
 
 ```
 src/
-  core/        AppError hierarchy, status enums          [IMPLEMENTED]
-  security/    central secret redaction                  [IMPLEMENTED]
+  core/        AppError hierarchy, status enums,         [IMPLEMENTED]
+               bounded argv-only process runner
+  security/    central secret redaction, path             [IMPLEMENTED]
+               confinement, injection signalling
   config/      env-only configuration loading            [IMPLEMENTED]
   bharatcode/  BharatCodeClient + HTTP adapter, schemas, [IMPLEMENTED]
                retry, timeouts, cancellation
-  cli/         command surface, rendering, doctor        [IMPLEMENTED]
+  cli/         command surface, rendering, doctor,        [IMPLEMENTED]
+               issue (intake only), exit codes
+  intake/      issue URL parsing, local-repo reading,     [IMPLEMENTED]
+               intake orchestrator
+  github/      gh-CLI source + Zod-validated payloads     [IMPLEMENTED]
+  state/       versioned run record + atomic file store   [IMPLEMENTED]
   contract/    Acceptance Contract engine                [DESIGNED]
   git/         worktree / base SHA / safe workspace      [PLANNED]
-  github/      issue + repo intake (gh/REST)             [PLANNED]
   process/     risk-classified tool controller           [PLANNED]
   discovery/   repository policy compiler                [PLANNED]
   verification/deterministic verification engine         [PLANNED]
   review/      independent diff reviewer wiring          [PLANNED]
   evidence/    evidence pack + report renderer           [PLANNED]
-  state/       run state, resumability                   [PLANNED]
 ```
 
 ## 7. Adapter rule (already implemented)
