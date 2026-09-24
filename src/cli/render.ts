@@ -6,7 +6,11 @@
  * `--no-color` / a non-TTY stream is detected.
  */
 
-export type Status = 'PASS' | 'FAIL' | 'WARN' | 'SKIP' | 'INFO' | 'READY' | 'WAITING';
+export type Status =
+  'PASS' | 'FAIL' | 'WARN' | 'SKIP' | 'NOT_AVAILABLE' | 'INFO' | 'READY' | 'WAITING';
+
+/** Wide enough that the longest truthful state still lines up in a column. */
+export const STATUS_WIDTH = 13;
 
 export interface RenderOptions {
   color: boolean;
@@ -17,6 +21,7 @@ const COLORS: Record<Status | 'dim' | 'bold', string> = {
   FAIL: '31',
   WARN: '33',
   SKIP: '90',
+  NOT_AVAILABLE: '90',
   INFO: '36',
   READY: '32',
   WAITING: '33',
@@ -39,7 +44,7 @@ export function createRenderer(options: RenderOptions) {
   return {
     color,
     status(label: Status): string {
-      return wrap(COLORS[label], label.padEnd(7));
+      return wrap(COLORS[label], label.padEnd(STATUS_WIDTH));
     },
     heading(text: string): string {
       return wrap(COLORS.bold, text);

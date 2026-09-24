@@ -1,6 +1,9 @@
 import { Command, CommanderError } from 'commander';
 import { doctorAction, type DoctorDeps } from './doctor.js';
+import { issueAction, type IssueCommandOptions } from './issue.js';
+import type { IntakeDeps } from '../intake/intake.js';
 import { createRenderer, resolveColor } from './render.js';
+import { EXIT } from './exit-codes.js';
 import { PRODUCT_NAME, TAGLINE, VERSION } from '../version.js';
 import { isAppError } from '../core/errors.js';
 import { defaultRedactor } from '../security/redaction.js';
@@ -10,13 +13,14 @@ import { defaultRedactor } from '../security/redaction.js';
  *
  * The one-command hero workflow is `mergesutra issue <url>`. The phase commands
  * (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`)
- * exist for transparency, debugging and recovery — but at Stage 0 only `doctor`
- * and metadata are wired up. Every unfinished command says so truthfully rather
- * than pretending to work.
+ * exist for transparency, debugging and recovery. Through Stage 1, `doctor` and
+ * the intake half of `issue` are wired up; every unfinished command says so
+ * truthfully rather than pretending to work.
  */
 
 export interface ProgramDeps {
   doctor?: Partial<DoctorDeps>;
+  issue?: Partial<IntakeDeps>;
   write?: (line: string) => void;
   writeErr?: (line: string) => void;
   env?: NodeJS.ProcessEnv;
@@ -24,7 +28,6 @@ export interface ProgramDeps {
 }
 
 const PLANNED = [
-  { name: 'issue <github-url>', summary: 'Full hero workflow: issue → evidence-backed PR draft.' },
   { name: 'inspect', summary: 'Repository + policy discovery.' },
   { name: 'contract', summary: 'Build / show the Acceptance Contract.' },
   { name: 'plan', summary: 'BharatCode implementation plan.' },
@@ -67,6 +70,21 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       setExitCode(code);
     });
 
+  program
+    .command('issue [github-url]')
+    .description('Intake: read an issue and establish the exact repository + base commit')
+    .option('--repo <path>', 'use an existing local clone at <path> as well')
+    .action(async (url: string | undefined, opts: { repo?: string }) => {
+      const globals = program.opts();
+      const options: IssueCommandOptions = {
+        repo: opts.repo,
+        json: globals.json === true,
+        noColor: globals.color === false,
+        env,
+      };
+      setExitCode(await issueAction(url, options, deps.issue, write));
+    });
+
   for (const planned of PLANNED) {
     const [name] = planned.name.split(' ');
     program
@@ -81,12 +99,14 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
             renderer.heading(`${PRODUCT_NAME} — '${name}' is planned, not yet implemented.`),
             renderer.row('INFO', planned.summary),
             '',
-            renderer.dim('Currently working commands: doctor, --help, --version.'),
+            renderer.dim(
+              'Currently working commands: doctor, issue (intake only), --help, --version.',
+            ),
             renderer.dim('Progress: see docs/ROADMAP.md'),
           ].join('\n'),
         );
         // Non-zero exit: a planned command must not masquerade as a successful run.
-        setExitCode(2);
+        setExitCode(EXIT.PLANNED);
       });
   }
 
@@ -117,7 +137,7 @@ export async function run(
     if (isAppError(error)) {
       writeErr(`error: ${defaultRedactor.text(error.message)}`);
       if (error.remediation) writeErr(`  ${defaultRedactor.text(error.remediation)}`);
-      return error.kind === 'config' ? 78 : 1;
+      return error.kind === 'config' ? EXIT.CONFIG : EXIT.ERROR;
     }
     writeErr(
       `error: ${defaultRedactor.text(error instanceof Error ? error.message : String(error))}`,

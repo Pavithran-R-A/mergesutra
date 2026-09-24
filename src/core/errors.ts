@@ -16,6 +16,7 @@ export type AppErrorKind =
   | 'timeout'
   | 'cancelled'
   | 'invalid-response'
+  | 'not-found'
   | 'validation'
   | 'not-implemented';
 
@@ -69,8 +70,9 @@ export function kindForStatus(status: number): { kind: AppErrorKind; retryable: 
       return { kind: 'timeout', retryable: true };
     case 429:
       return { kind: 'rate-limit', retryable: true };
-    case 400:
     case 404:
+      return { kind: 'not-found', retryable: false };
+    case 400:
     case 422:
       return { kind: 'invalid-response', retryable: false };
     default:

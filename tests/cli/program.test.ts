@@ -45,11 +45,34 @@ describe('mergesutra CLI', () => {
 
   it('a planned command says so truthfully and exits non-zero', async () => {
     const c = capture();
-    const code = await run(['node', 'mergesutra', 'issue', 'https://github.com/o/r/issues/1'], {
+    const code = await run(['node', 'mergesutra', 'pr'], {
       write: c.write,
+      env: { NO_COLOR: '1' },
     });
     expect(code).toBe(2);
     expect(c.out()).toContain('planned');
+    expect(c.out()).toContain('issue (intake only)');
+  });
+
+  it('does not pretend a later stage ran: no planned command exits 0', async () => {
+    for (const name of [
+      'contract',
+      'plan',
+      'run',
+      'verify',
+      'review',
+      'report',
+      'pr',
+      'status',
+      'resume',
+    ]) {
+      const c = capture();
+      const code = await run(['node', 'mergesutra', name], {
+        write: c.write,
+        env: { NO_COLOR: '1' },
+      });
+      expect(code, name).toBe(2);
+    }
   });
 
   it('doctor command runs with injected environment', async () => {

@@ -1,9 +1,8 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { loadBharatCodeConfig, summarizeConfig } from '../config/load-config.js';
 import type { BharatCodeClient } from '../bharatcode/client.js';
 import type { RenderOptions, Renderer, Status } from './render.js';
 import { createRenderer, resolveColor } from './render.js';
+import { defaultRunner, safeRun, type Runner, type RunResult } from '../core/runner.js';
 
 /**
  * `mergesutra doctor` — environment diagnosis that never leaks secrets.
@@ -13,15 +12,7 @@ import { createRenderer, resolveColor } from './render.js';
  * so default diagnosis works offline.
  */
 
-const execFileAsync = promisify(execFile);
-
-export interface RunResult {
-  readonly code: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-export type Runner = (file: string, args: readonly string[]) => Promise<RunResult>;
+export type { Runner, RunResult };
 
 export interface DoctorCheck {
   readonly name: string;
@@ -36,20 +27,6 @@ export interface DoctorDeps {
   readonly connect?: boolean;
   readonly nodeVersion?: string;
 }
-
-const defaultRunner: Runner = async (file, args) => {
-  try {
-    const { stdout, stderr } = await execFileAsync(file, [...args], { windowsHide: true });
-    return { code: 0, stdout, stderr };
-  } catch (error) {
-    const e = error as { code?: number; stdout?: string; stderr?: string; message?: string };
-    return {
-      code: typeof e.code === 'number' ? e.code : 1,
-      stdout: e.stdout ?? '',
-      stderr: e.stderr ?? e.message ?? '',
-    };
-  }
-};
 
 const MIN_NODE_MAJOR = 22;
 
@@ -149,18 +126,6 @@ export async function runDoctor(deps: DoctorDeps): Promise<DoctorCheck[]> {
   }
 
   return checks;
-}
-
-async function safeRun(
-  run: Runner,
-  file: string,
-  args: readonly string[],
-): Promise<RunResult | null> {
-  try {
-    return await run(file, args);
-  } catch {
-    return null;
-  }
 }
 
 function firstLine(text: string): string {
