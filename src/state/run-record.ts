@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { acceptanceContractSchema } from '../contract/schema.js';
 import { AppError } from '../core/errors.js';
 import { repositoryContractSchema } from '../discovery/contract.js';
 import { VERSION } from '../version.js';
@@ -17,12 +18,13 @@ import { VERSION } from '../version.js';
  * Nothing secret belongs in here. There is no credential field to fill in.
  */
 
-export const RUN_SCHEMA_VERSION = 2;
+export const RUN_SCHEMA_VERSION = 3;
 
-export const RUN_STAGES = ['intake', 'inspect'] as const;
+export const RUN_STAGES = ['intake', 'inspect', 'contract'] as const;
 export const RUN_OUTCOMES = [
   'INTAKE_COMPLETE',
   'INSPECT_COMPLETE',
+  'CONTRACT_DERIVED',
   'INCONCLUSIVE',
   'BLOCKED',
 ] as const;
@@ -134,6 +136,8 @@ export const runRecordSchema = z
     local: localSnapshotSchema.nullable(),
     /** Present once Stage 2 has read the repository. */
     contract: repositoryContractSchema.nullable(),
+    /** Present once Stage 3 has derived criteria. Not the same thing as above. */
+    acceptanceContract: acceptanceContractSchema.nullable().default(null),
     checks: z.array(runCheckSchema).readonly(),
     nextStage: z.string(),
     limitations: z.array(z.string()).readonly(),
@@ -160,6 +164,8 @@ export interface NewRunRecordInput {
   readonly base: RunRecord['base'];
   readonly local: RunRecord['local'];
   readonly contract: RunRecord['contract'];
+  /** Only the `contract` command sets this; every other stage leaves it null. */
+  readonly acceptanceContract?: RunRecord['acceptanceContract'];
   readonly checks: readonly RunCheck[];
   readonly nextStage: string;
   readonly limitations?: readonly string[];

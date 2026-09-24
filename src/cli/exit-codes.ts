@@ -31,6 +31,7 @@ export function exitForOutcome(outcome: RunOutcome): ExitCode {
   switch (outcome) {
     case 'INTAKE_COMPLETE':
     case 'INSPECT_COMPLETE':
+    case 'CONTRACT_DERIVED':
       return EXIT.OK;
     case 'BLOCKED':
       return EXIT.BLOCKED;
