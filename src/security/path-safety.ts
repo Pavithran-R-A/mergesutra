@@ -59,6 +59,19 @@ export function resolveInsideRoot(root: string, candidate: string, label = 'path
   return resolved;
 }
 
+/**
+ * True when any segment is exactly `.git`.
+ *
+ * Both the tool policy and the writer refuse these paths. In a linked worktree
+ * `.git` is a *file* that points at the real admin directory, so a write that
+ * looks like it stays inside the workspace can still land in the repository's
+ * guts — the name is what to look for, not the shape of the target. Compared
+ * case-insensitively because Windows filenames are.
+ */
+export function hasGitSegment(value: string): boolean {
+  return value.split(/[\\/]+/).some((segment) => segment.toLowerCase() === '.git');
+}
+
 function containmentError(label: string, reason: string): AppError {
   return new AppError({
     kind: 'validation',

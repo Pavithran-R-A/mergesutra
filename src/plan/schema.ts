@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { requirementTypeSchema } from '../contract/schema.js';
+import { isArgvShaped } from '../security/command-safety.js';
 
 /**
  * The implementation plan schema — Stage 4.
@@ -48,10 +49,8 @@ export function isPlanArgvSafe(argv: readonly string[]): boolean {
   const first = argv[0];
   if (!first || first.trim() === '') return false;
   if (/[\\/]/.test(first) && !first.startsWith('./')) return false;
-  return argv.every((token) => !SHELL_COMPOSITION.test(token));
+  return isArgvShaped(argv);
 }
-
-const SHELL_COMPOSITION = /[;&|`$<>\n\r]/;
 
 export const planChangeSchema = z
   .object({
