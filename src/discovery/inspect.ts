@@ -50,7 +50,7 @@ export interface InspectResult {
   readonly checks: readonly RunCheck[];
 }
 
-const NEXT_STAGE = 'ACCEPTANCE CONTRACT — criteria derivation (planned: Stage 3)';
+const NEXT_STAGE = 'ACCEPTANCE CONTRACT — `mergesutra contract` derives the criteria (Stage 3)';
 
 export async function runInspect(
   options: InspectOptions,

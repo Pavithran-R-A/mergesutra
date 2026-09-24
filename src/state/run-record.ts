@@ -185,6 +185,7 @@ export function createRunRecord(input: NewRunRecordInput): RunRecord {
     base: input.base,
     local: input.local,
     contract: input.contract,
+    acceptanceContract: input.acceptanceContract ?? null,
     checks: [...input.checks],
     nextStage: input.nextStage,
     limitations: [...(input.limitations ?? [])],

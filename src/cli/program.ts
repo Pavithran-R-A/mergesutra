@@ -2,8 +2,10 @@ import { Command, CommanderError } from 'commander';
 import { doctorAction, type DoctorDeps } from './doctor.js';
 import { issueAction, type IssueCommandOptions } from './issue.js';
 import { inspectAction, type InspectCommandOptions } from './inspect.js';
+import { contractAction, type ContractCommandOptions } from './contract.js';
 import type { IntakeDeps } from '../intake/intake.js';
 import type { InspectDeps } from '../discovery/inspect.js';
+import type { ContractDeps } from './contract.js';
 import { createRenderer, resolveColor } from './render.js';
 import { EXIT } from './exit-codes.js';
 import { PRODUCT_NAME, TAGLINE, VERSION } from '../version.js';
@@ -15,15 +17,16 @@ import { defaultRedactor } from '../security/redaction.js';
  *
  * The one-command hero workflow is `mergesutra issue <url>`. The phase commands
  * (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`)
- * exist for transparency, debugging and recovery. Through Stage 2, `doctor`,
- * the intake half of `issue` and `inspect` are wired up; every unfinished
- * command says so truthfully rather than pretending to work.
+ * exist for transparency, debugging and recovery. Through Stage 3, `doctor`,
+ * the intake half of `issue`, `inspect` and `contract` are wired up; every
+ * unfinished command says so truthfully rather than pretending to work.
  */
 
 export interface ProgramDeps {
   doctor?: Partial<DoctorDeps>;
   issue?: Partial<IntakeDeps>;
   inspect?: Partial<InspectDeps>;
+  contract?: Partial<ContractDeps>;
   write?: (line: string) => void;
   writeErr?: (line: string) => void;
   env?: NodeJS.ProcessEnv;
@@ -31,7 +34,6 @@ export interface ProgramDeps {
 }
 
 const PLANNED = [
-  { name: 'contract', summary: 'Build / show the Acceptance Contract.' },
   { name: 'plan', summary: 'BharatCode implementation plan.' },
   { name: 'run', summary: 'Implement in an isolated worktree (BharatCode).' },
   { name: 'verify', summary: 'Run deterministic verification gates.' },
@@ -100,6 +102,19 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       setExitCode(await inspectAction(repoPath, options, deps.inspect, write));
     });
 
+  program
+    .command('contract [run-id]')
+    .description('Turn what a run knows into the criteria it must prove')
+    .action(async (runId: string | undefined) => {
+      const globals = program.opts();
+      const options: ContractCommandOptions = {
+        json: globals.json === true,
+        noColor: globals.color === false,
+        env,
+      };
+      setExitCode(await contractAction(runId, options, deps.contract, write));
+    });
+
   for (const planned of PLANNED) {
     const [name] = planned.name.split(' ');
     program
@@ -115,7 +130,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
             renderer.row('INFO', planned.summary),
             '',
             renderer.dim(
-              'Currently working commands: doctor, issue (intake only), inspect, --help, --version.',
+              'Currently working commands: doctor, issue (intake only), inspect, contract, --help, --version.',
             ),
             renderer.dim('Progress: see docs/ROADMAP.md'),
           ].join('\n'),

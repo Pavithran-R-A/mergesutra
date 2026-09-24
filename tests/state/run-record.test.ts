@@ -8,6 +8,7 @@ import {
   type NewRunRecordInput,
   type RunRecord,
 } from '../../src/state/run-record.js';
+import { deriveAcceptanceCriteria } from '../../src/contract/derive.js';
 import { toIssueDocument, toRepositoryIdentity } from '../../src/github/schemas.js';
 import { issuePayload, repositoryPayload } from '../fixtures/github-payloads.js';
 import { TEST_REPO } from '../helpers/github.js';
@@ -55,6 +56,34 @@ describe('createRunRecord', () => {
     expect(record.issue?.untrusted).toBe(true);
     expect(record.base?.source).toBe('local-git');
     expect(record.repository?.source).toBe('github-api');
+  });
+
+  it('keeps an Acceptance Contract in the record that stores it', () => {
+    // A v3 record may carry criteria for a later stage to verify. If the field
+    // were dropped on write, `resume` would silently lose the whole contract.
+    const contract = deriveAcceptanceCriteria({
+      runId: 'run-20260924T213207Z-abc123',
+      issue: {
+        url: 'https://github.com/projectbharat/datekit/issues/123',
+        title: 'Parser accepts invalid empty dates',
+        body: '## Acceptance criteria\n\n- [ ] Empty input is rejected.\n',
+      },
+      repository: {
+        fullName: 'projectbharat/datekit',
+        baseSha: '3f2a1c9d8e7b6a5041322314f5e6d7c8b9a09182',
+        localPath: null,
+      },
+      contract: null,
+    });
+    const record = minimalRecord({
+      stage: 'contract',
+      outcome: 'CONTRACT_DERIVED',
+      acceptanceContract: contract,
+    });
+    expect(record.acceptanceContract?.criteria.map((c) => c.statement)).toEqual([
+      'Empty input is rejected.',
+    ]);
+    expect(parseRunRecord(JSON.parse(JSON.stringify(record))).acceptanceContract).toEqual(contract);
   });
 
   it('copies its inputs so a later mutation cannot rewrite history', () => {

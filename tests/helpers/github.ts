@@ -93,24 +93,42 @@ export interface MemoryRunStore extends RunStore {
   readonly files: Map<string, string>;
 }
 
-/** A run store that keeps records in memory so tests never touch a real disk. */
+/**
+ * A run store that keeps records in memory so tests never touch a real disk.
+ *
+ * `load` is keyed by run id and `list` sorts newest-first, the same contract the
+ * file store promises — a stage that resumes from a previous run can be tested
+ * against it without a fake that quietly ignores the id it was given.
+ */
 export function memoryRunStore(): MemoryRunStore {
   const files = new Map<string, string>();
-  let last: RunRecord | undefined;
+  const records = new Map<string, RunRecord>();
   return {
     files,
     async save(record) {
-      last = record;
       const file = `/runs/${record.runId}.json`;
+      records.set(record.runId, record);
       files.set(file, JSON.stringify(record, null, 2));
       return file;
     },
-    async load() {
-      if (!last) throw new AppError({ kind: 'not-found', message: 'nothing saved yet' });
-      return last;
+    async load(runId) {
+      const record = records.get(runId);
+      if (!record) {
+        throw new AppError({ kind: 'not-found', message: `No run record '${runId}'.` });
+      }
+      return record;
     },
     async list() {
-      return { runs: [], unreadable: [] };
+      const runs = [...records.values()]
+        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
+        .map((record) => ({
+          runId: record.runId,
+          createdAt: record.createdAt,
+          outcome: record.outcome,
+          canonical: record.issueRef?.canonical ?? '(no issue)',
+          file: `/runs/${record.runId}.json`,
+        }));
+      return { runs, unreadable: [] };
     },
   };
 }
