@@ -52,7 +52,8 @@ export interface IntakeResult {
   readonly checks: readonly RunCheck[];
 }
 
-const NEXT_STAGE = 'DISCOVERY — repository policy compilation (planned: Stage 2)';
+const NEXT_STAGE =
+  'INSPECT — `mergesutra inspect <repo>` compiles the repository contract (Stage 2)';
 
 export async function runIntake(
   options: IntakeOptions,
@@ -288,6 +289,7 @@ export async function runIntake(
   const record = createRunRecord({
     runId: newRunId(now, deps.random),
     createdAt: now.toISOString(),
+    stage: 'intake',
     outcome,
     issueRef: issueRef
       ? {
@@ -303,6 +305,7 @@ export async function runIntake(
     repository,
     base,
     local,
+    contract: null,
     checks,
     nextStage: NEXT_STAGE,
     limitations,

@@ -78,7 +78,9 @@ describe('mergesutra issue — rendered output', () => {
       issue: { github: fakeGitHub(), store: memoryRunStore(), run: scriptedRunner({}).run },
     });
     const text = c.text();
-    expect(text).toContain('Stages implemented: 0 (foundation), 1 (intake).');
+    expect(text).toContain(
+      'Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract).',
+    );
     expect(text).toContain('No patch, verification, review or pull request was produced');
     expect(text).not.toMatch(/CONTRIBUTION_READY|diff submitted|tests passed/i);
   });

@@ -5,16 +5,18 @@ import {
   createRunRecord,
   newRunId,
   parseRunRecord,
+  type NewRunRecordInput,
   type RunRecord,
 } from '../../src/state/run-record.js';
 import { toIssueDocument, toRepositoryIdentity } from '../../src/github/schemas.js';
 import { issuePayload, repositoryPayload } from '../fixtures/github-payloads.js';
 import { TEST_REPO } from '../helpers/github.js';
 
-function minimalRecord(overrides: Partial<RunRecord> = {}): RunRecord {
+function minimalRecord(overrides: Partial<NewRunRecordInput> = {}): RunRecord {
   return createRunRecord({
     runId: 'run-20260924T213207Z-abc123',
     createdAt: '2026-09-24T21:32:07.000Z',
+    stage: 'intake',
     outcome: 'INTAKE_COMPLETE',
     issueRef: {
       ...TEST_REPO,
@@ -30,6 +32,7 @@ function minimalRecord(overrides: Partial<RunRecord> = {}): RunRecord {
       source: 'local-git',
     },
     local: null,
+    contract: null,
     checks: [{ name: 'Issue URL', status: 'PASS', detail: 'projectbharat/datekit#123' }],
     nextStage: 'DISCOVERY',
     limitations: [],

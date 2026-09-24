@@ -1,8 +1,7 @@
 import { createRenderer, resolveColor, type Renderer } from './render.js';
-import { EXIT } from './exit-codes.js';
+import { exitForOutcome } from './exit-codes.js';
 import { runIntake, type IntakeDeps, type IntakeResult } from '../intake/intake.js';
 import { PRODUCT_NAME } from '../version.js';
-import type { RunRecord } from '../state/run-record.js';
 
 /**
  * `mergesutra issue <url>` — the hero command, currently intake only.
@@ -36,24 +35,13 @@ export async function issueAction(
 
   if (options.json) {
     write(JSON.stringify({ recordFile: result.recordFile, record: result.record }, null, 2));
-    return exitFor(result.record.outcome);
+    return exitForOutcome(result.record.outcome);
   }
 
   write(renderer.heading(`${PRODUCT_NAME} — intake`));
   write('');
   write(formatIntake(result, renderer));
-  return exitFor(result.record.outcome);
-}
-
-function exitFor(outcome: RunRecord['outcome']): number {
-  switch (outcome) {
-    case 'INTAKE_COMPLETE':
-      return EXIT.OK;
-    case 'BLOCKED':
-      return EXIT.BLOCKED;
-    case 'INCONCLUSIVE':
-      return EXIT.INCONCLUSIVE;
-  }
+  return exitForOutcome(result.record.outcome);
 }
 
 export function formatIntake(result: IntakeResult, renderer: Renderer): string {
@@ -117,7 +105,9 @@ export function formatIntake(result: IntakeResult, renderer: Renderer): string {
       ),
     );
   }
-  lines.push(renderer.dim('Stages implemented: 0 (foundation), 1 (intake).'));
+  lines.push(
+    renderer.dim('Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract).'),
+  );
   lines.push(
     renderer.dim('No patch, verification, review or pull request was produced by this command.'),
   );

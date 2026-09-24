@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AppError } from '../../src/core/errors.js';
-import { createRunRecord, newRunId, type RunRecord } from '../../src/state/run-record.js';
+import {
+  RUN_SCHEMA_VERSION,
+  createRunRecord,
+  newRunId,
+  type NewRunRecordInput,
+  type RunRecord,
+} from '../../src/state/run-record.js';
 import {
   createFileRunStore,
   defaultRunStoreRoot,
@@ -27,10 +33,11 @@ afterEach(async () => {
   await readdir(root);
 });
 
-function record(overrides: Partial<RunRecord> = {}): RunRecord {
+function record(overrides: Partial<NewRunRecordInput> = {}): RunRecord {
   return createRunRecord({
-    runId: overrides.runId ?? newRunId(new Date('2026-09-24T21:32:07.000Z'), () => 0.25),
+    runId: newRunId(new Date('2026-09-24T21:32:07.000Z'), () => 0.25),
     createdAt: '2026-09-24T21:32:07.000Z',
+    stage: 'intake',
     outcome: 'INTAKE_COMPLETE',
     issueRef: {
       ...TEST_REPO,
@@ -46,6 +53,7 @@ function record(overrides: Partial<RunRecord> = {}): RunRecord {
       source: 'local-git',
     },
     local: null,
+    contract: null,
     checks: [],
     nextStage: 'DISCOVERY',
     limitations: [],
@@ -151,6 +159,6 @@ describe('createFileRunStore', () => {
     expect(text).not.toContain(secret);
     expect(text.toLowerCase()).not.toContain('apikey');
     expect(text.toLowerCase()).not.toContain('api_key');
-    expect(JSON.parse(text).schemaVersion).toBe(1);
+    expect(JSON.parse(text).schemaVersion).toBe(RUN_SCHEMA_VERSION);
   });
 });

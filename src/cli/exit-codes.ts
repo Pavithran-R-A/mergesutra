@@ -4,6 +4,8 @@
  * A script must be able to tell "nothing was verified" from "it ran and
  * passed", so every non-success state has its own code rather than sharing 1.
  */
+import type { RunOutcome } from '../state/run-record.js';
+
 export const EXIT = {
   /** The stage ran and reached its defined completion state. */
   OK: 0,
@@ -20,3 +22,19 @@ export const EXIT = {
 } as const;
 
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
+
+/**
+ * One outcome, one code — shared by every stage command so that `issue` and
+ * `inspect` cannot drift apart on what "success" sounds like to a script.
+ */
+export function exitForOutcome(outcome: RunOutcome): ExitCode {
+  switch (outcome) {
+    case 'INTAKE_COMPLETE':
+    case 'INSPECT_COMPLETE':
+      return EXIT.OK;
+    case 'BLOCKED':
+      return EXIT.BLOCKED;
+    case 'INCONCLUSIVE':
+      return EXIT.INCONCLUSIVE;
+  }
+}

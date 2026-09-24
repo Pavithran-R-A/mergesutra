@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AppError } from '../../src/core/errors.js';
 import { runIntake } from '../../src/intake/intake.js';
 import { toIssueDocument } from '../../src/github/schemas.js';
+import { RUN_SCHEMA_VERSION } from '../../src/state/run-record.js';
 import type { RunStore } from '../../src/state/run-store.js';
 import {
   GIT_MAIN_SHA,
@@ -72,9 +73,10 @@ describe('runIntake — issue URL only', () => {
       'Issue content trust=PASS',
     ]);
     expect(result.record).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: RUN_SCHEMA_VERSION,
       stage: 'intake',
       outcome: 'INTAKE_COMPLETE',
+      contract: null,
       runId: 'run-20260924T213207Z-3fffff',
       mergeSutraVersion: expect.any(String),
     });

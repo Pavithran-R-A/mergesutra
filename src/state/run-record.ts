@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
+import { repositoryContractSchema } from '../discovery/contract.js';
 import { VERSION } from '../version.js';
 
 /**
@@ -16,10 +17,15 @@ import { VERSION } from '../version.js';
  * Nothing secret belongs in here. There is no credential field to fill in.
  */
 
-export const RUN_SCHEMA_VERSION = 1;
+export const RUN_SCHEMA_VERSION = 2;
 
-export const RUN_STAGES = ['intake'] as const;
-export const RUN_OUTCOMES = ['INTAKE_COMPLETE', 'INCONCLUSIVE', 'BLOCKED'] as const;
+export const RUN_STAGES = ['intake', 'inspect'] as const;
+export const RUN_OUTCOMES = [
+  'INTAKE_COMPLETE',
+  'INSPECT_COMPLETE',
+  'INCONCLUSIVE',
+  'BLOCKED',
+] as const;
 export const RUN_CHECK_STATUSES = ['PASS', 'WARN', 'FAIL', 'SKIP', 'NOT_AVAILABLE'] as const;
 
 export const injectionFindingSchema = z
@@ -126,6 +132,8 @@ export const runRecordSchema = z
     repository: repositoryIdentitySchema.nullable(),
     base: commitRefSchema.nullable(),
     local: localSnapshotSchema.nullable(),
+    /** Present once Stage 2 has read the repository. */
+    contract: repositoryContractSchema.nullable(),
     checks: z.array(runCheckSchema).readonly(),
     nextStage: z.string(),
     limitations: z.array(z.string()).readonly(),
@@ -135,6 +143,7 @@ export const runRecordSchema = z
 export type InjectionFindingStored = z.infer<typeof injectionFindingSchema>;
 export type IssueRefStored = z.infer<typeof issueRefSchema>;
 export type RunCheck = z.infer<typeof runCheckSchema>;
+export type RunStage = z.infer<typeof runRecordSchema>['stage'];
 export type RunOutcome = z.infer<typeof runRecordSchema>['outcome'];
 export type LocalSnapshotStored = z.infer<typeof localSnapshotSchema>;
 export type RepositoryIdentityStored = z.infer<typeof repositoryIdentitySchema>;
@@ -143,12 +152,14 @@ export type RunRecord = z.infer<typeof runRecordSchema>;
 export interface NewRunRecordInput {
   readonly runId: string;
   readonly createdAt: string;
+  readonly stage: RunStage;
   readonly outcome: RunOutcome;
   readonly issueRef: RunRecord['issueRef'];
   readonly issue: RunRecord['issue'];
   readonly repository: RunRecord['repository'];
   readonly base: RunRecord['base'];
   readonly local: RunRecord['local'];
+  readonly contract: RunRecord['contract'];
   readonly checks: readonly RunCheck[];
   readonly nextStage: string;
   readonly limitations?: readonly string[];
@@ -160,13 +171,14 @@ export function createRunRecord(input: NewRunRecordInput): RunRecord {
     runId: input.runId,
     createdAt: input.createdAt,
     mergeSutraVersion: VERSION,
-    stage: 'intake',
+    stage: input.stage,
     outcome: input.outcome,
     issueRef: input.issueRef,
     issue: input.issue,
     repository: input.repository,
     base: input.base,
     local: input.local,
+    contract: input.contract,
     checks: [...input.checks],
     nextStage: input.nextStage,
     limitations: [...(input.limitations ?? [])],

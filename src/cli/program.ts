@@ -1,7 +1,9 @@
 import { Command, CommanderError } from 'commander';
 import { doctorAction, type DoctorDeps } from './doctor.js';
 import { issueAction, type IssueCommandOptions } from './issue.js';
+import { inspectAction, type InspectCommandOptions } from './inspect.js';
 import type { IntakeDeps } from '../intake/intake.js';
+import type { InspectDeps } from '../discovery/inspect.js';
 import { createRenderer, resolveColor } from './render.js';
 import { EXIT } from './exit-codes.js';
 import { PRODUCT_NAME, TAGLINE, VERSION } from '../version.js';
@@ -13,14 +15,15 @@ import { defaultRedactor } from '../security/redaction.js';
  *
  * The one-command hero workflow is `mergesutra issue <url>`. The phase commands
  * (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`)
- * exist for transparency, debugging and recovery. Through Stage 1, `doctor` and
- * the intake half of `issue` are wired up; every unfinished command says so
- * truthfully rather than pretending to work.
+ * exist for transparency, debugging and recovery. Through Stage 2, `doctor`,
+ * the intake half of `issue` and `inspect` are wired up; every unfinished
+ * command says so truthfully rather than pretending to work.
  */
 
 export interface ProgramDeps {
   doctor?: Partial<DoctorDeps>;
   issue?: Partial<IntakeDeps>;
+  inspect?: Partial<InspectDeps>;
   write?: (line: string) => void;
   writeErr?: (line: string) => void;
   env?: NodeJS.ProcessEnv;
@@ -28,7 +31,6 @@ export interface ProgramDeps {
 }
 
 const PLANNED = [
-  { name: 'inspect', summary: 'Repository + policy discovery.' },
   { name: 'contract', summary: 'Build / show the Acceptance Contract.' },
   { name: 'plan', summary: 'BharatCode implementation plan.' },
   { name: 'run', summary: 'Implement in an isolated worktree (BharatCode).' },
@@ -85,6 +87,19 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       setExitCode(await issueAction(url, options, deps.issue, write));
     });
 
+  program
+    .command('inspect [repo-path]')
+    .description('Read a repository and compile its contract: toolchain, gates, protected areas')
+    .action(async (repoPath: string | undefined) => {
+      const globals = program.opts();
+      const options: InspectCommandOptions = {
+        json: globals.json === true,
+        noColor: globals.color === false,
+        env,
+      };
+      setExitCode(await inspectAction(repoPath, options, deps.inspect, write));
+    });
+
   for (const planned of PLANNED) {
     const [name] = planned.name.split(' ');
     program
@@ -100,7 +115,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
             renderer.row('INFO', planned.summary),
             '',
             renderer.dim(
-              'Currently working commands: doctor, issue (intake only), --help, --version.',
+              'Currently working commands: doctor, issue (intake only), inspect, --help, --version.',
             ),
             renderer.dim('Progress: see docs/ROADMAP.md'),
           ].join('\n'),
