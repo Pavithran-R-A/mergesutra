@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtemp, readFile, readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { createRunner, defaultRunner } from '../../src/core/runner.js';
 import { runContractStage } from '../../src/cli/contract.js';
 import { runInspect } from '../../src/discovery/inspect.js';
 import { runPlanStage } from '../../src/plan/plan.js';
 import { runImplementStage } from '../../src/implement/implement.js';
 import { runVerifyStage } from '../../src/verify/stage.js';
+import { runReportStage } from '../../src/cli/report.js';
+import { createFileRunStore, defaultRunStoreRoot } from '../../src/state/run-store.js';
 import { formatVerification } from '../../src/cli/verify.js';
 import { createRenderer } from '../../src/cli/render.js';
 import { writeAction, checkAction, finishAction, digestOf } from '../helpers/implement.js';
@@ -38,6 +43,11 @@ import type { InjectedCriterion } from '../../src/contract/derive.js';
  * the regression test fails against the base commit's `parseDate`, so if the
  * loop's write were skipped, dropped or reverted, VG-001 would report exit 1 and
  * the trace asserted below would stop being VERIFIED.
+ *
+ * The run then ends the way Stage 8 means a run to end: the record is written to
+ * a real run store, read back by `mergesutra report`'s own code path, and the
+ * three pack files are checked on disk. A reviewer never holds the objects the
+ * stages returned — only those files.
  */
 
 const tempDirs: string[] = [];
@@ -267,9 +277,77 @@ describe.skipIf(!AVAILABLE)(
       expect(report).toContain('What the model said (a claim; decided nothing)');
       expect(report).not.toMatch(/CONTRIBUTION_READY/);
 
-      // The README's Stage 7 capture is this run's real stdout, nothing else:
+      // The README's Stage 7 and Stage 8 captures are this run's real stdout,
+      // nothing else:
       // `MERGESUTRA_HERO_CAPTURE=1 npx vitest run tests/verify/hero.test.ts`.
       if (process.env.MERGESUTRA_HERO_CAPTURE) process.stdout.write(`${report}\n`);
+
+      // ---- Stage 8: the same run, read back off a real filesystem. ----
+      // The pack tests build their records from fixtures. This is the only place
+      // the question "does a run that really happened survive being written down,
+      // read back and rendered?" gets asked end to end — and it is the question a
+      // reviewer of the pack will actually ask, since they never hold the object
+      // the stages returned, only the files left behind.
+      const workspace = await mkdtemp(path.join(tmpdir(), 'mergesutra-hero-pack-'));
+      tempDirs.push(workspace);
+      const storeOnDisk = createFileRunStore(defaultRunStoreRoot(workspace));
+      await storeOnDisk.save(stage.record);
+      const pack = await runReportStage({ runId: stage.record.runId }, { cwd: workspace });
+
+      const packFiles = await readdir(pack.dir);
+      expect(packFiles.sort()).toEqual(['commands.jsonl', 'report.json', 'report.md']);
+
+      const receipts = (await readFile(path.join(pack.dir, 'commands.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => {
+          const receipt = JSON.parse(line) as {
+            gateId: string;
+            argv: string[];
+            exitCode: number;
+          };
+          return {
+            gateId: receipt.gateId,
+            argv: receipt.argv,
+            exitCode: receipt.exitCode,
+          };
+        });
+      expect(receipts).toEqual([
+        { gateId: 'VG-001', argv: ['node', '--test', 'test/invalid.test.mjs'], exitCode: 0 },
+        { gateId: 'VG-002', argv: ['node', '--test'], exitCode: 0 },
+        { gateId: 'VG-003', argv: ['git', 'diff', '--check'], exitCode: 0 },
+      ]);
+
+      const rendered = await readFile(path.join(pack.dir, 'report.md'), 'utf8');
+      expect(rendered).toMatch(/AC-1 \S.* \| PASS \| VERIFIED \| VG-001/);
+      expect(rendered).toMatch(/AC-2 \S.* \| PASS \| VERIFIED \| VG-001/);
+      expect(rendered).toMatch(/AC-3 \S.* \| PASS \| VERIFIED \| VG-002/);
+      expect(rendered).toContain('node --test test/invalid.test.mjs');
+      expect(rendered).toContain('parseDate now rejects');
+      expect(rendered).not.toMatch(/CONTRIBUTION_READY/);
+      // The run record accumulates each stage's caveats, and some of them were
+      // true of a stage that had no receipts yet. The pack that prints them next
+      // to three VERIFIED rows has to say who wrote each one, or a reviewer
+      // reads "Nothing here is verified" as the conclusion of the run above it.
+      expect(rendered).toContain('Nothing here is verified');
+      expect(rendered.indexOf('Recorded by the stages of this run')).toBeLessThan(
+        rendered.indexOf('Nothing here is verified'),
+      );
+
+      const document = JSON.parse(await readFile(path.join(pack.dir, 'report.json'), 'utf8')) as {
+        verification: string | null;
+        contributionReady: boolean;
+      };
+      expect(document.verification).toBe('PASS');
+      expect(document.contributionReady).toBe(false);
+      // The pack is a rendering, so the outcome it carries is the one recorded:
+      // `mergesutra report` over this run exits 0 because the run passed, and
+      // would exit 4 over a blocked one for having been blocked.
+      expect(pack.outcome).toBe('VERIFICATION_PASS');
+      // The README's Stage 8 capture is this file's real bytes, nothing else.
+      if (process.env.MERGESUTRA_HERO_CAPTURE) {
+        process.stdout.write(`\n--- evidence pack: report.md ---\n${rendered}`);
+      }
 
       // ---- The fixture has teeth: the same test, run against the base commit's
       // code, fails. Without this line, "VERIFIED" above would only prove that a
