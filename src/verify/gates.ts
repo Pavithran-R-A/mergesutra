@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   GATE_KINDS,
   SCRIPT_NAMES,
@@ -53,7 +54,6 @@ export const GATE_PROVENANCE_SOURCES = [
   'MERGESUTRA_BUILTIN',
   'USER_SUPPLIED',
 ] as const;
-export type GateProvenanceSource = (typeof GATE_PROVENANCE_SOURCES)[number];
 
 export const REQUIREMENT_LEVELS = [
   'REPOSITORY_REQUIRED',
@@ -61,17 +61,40 @@ export const REQUIREMENT_LEVELS = [
   'MERGESUTRA_ADDITIONAL',
   'USER_REQUESTED',
 ] as const;
-export type RequirementLevel = (typeof REQUIREMENT_LEVELS)[number];
 
 export const EXECUTION_CLASSES = ['READ_ONLY', 'MUTATION_CAPABLE'] as const;
-export type ExecutionClass = (typeof EXECUTION_CLASSES)[number];
 
-export interface GateProvenance {
-  readonly source: GateProvenanceSource;
-  readonly file: string;
-  readonly detail: string;
-  readonly line: number | null;
-}
+/**
+ * Which vocabulary belongs to which question.
+ *
+ * These three schemas are exported because the verification plan is the thing
+ * that gets persisted, and a persisted fact has to be re-validated on the way
+ * back in. Deriving the TypeScript types from them keeps the in-memory shape and
+ * the on-disk shape from becoming two definitions of the same idea.
+ */
+export const gateProvenanceSourceSchema = z.enum(GATE_PROVENANCE_SOURCES);
+export const requirementLevelSchema = z.enum(REQUIREMENT_LEVELS);
+export const executionClassSchema = z.enum(EXECUTION_CLASSES);
+
+/**
+ * Where a gate came from, in terms a reviewer can open.
+ *
+ * `file` is null exactly when the fact has no repository file, which happens for
+ * a check MergeSutra adds itself. Every repository-sourced gate names its file.
+ */
+export const gateProvenanceSchema = z
+  .object({
+    source: gateProvenanceSourceSchema,
+    file: z.string().min(1).nullable(),
+    detail: z.string().min(1),
+    line: z.number().int().positive().nullable(),
+  })
+  .strict();
+
+export type GateProvenanceSource = z.infer<typeof gateProvenanceSourceSchema>;
+export type RequirementLevel = z.infer<typeof requirementLevelSchema>;
+export type ExecutionClass = z.infer<typeof executionClassSchema>;
+export type GateProvenance = z.infer<typeof gateProvenanceSchema>;
 
 export interface DiscoveredGate {
   /** Which acceptance dimension the command checks; two gates may share one. */
@@ -383,9 +406,19 @@ function executionClassFor(
   draft: Draft,
   scripts: ReadonlyMap<string, DeclaredScript>,
 ): ExecutionClass {
-  const texts = reachableTexts(draft.argv, scripts);
-  // Ordered on purpose: a test runner that is also handed `--update` is a
-  // command that edits, and "it is a test" is not a claim to the contrary.
+  return executionClassOf(reachableTexts(draft.argv, scripts));
+}
+
+/**
+ * Which way a command can dirty the workspace, judged from its text.
+ *
+ * Exported because MergeSutra's own checks need the same answer as a
+ * repository's, and a second rule for "does this edit files" is how one of them
+ * ends up wrong.
+ */
+export function executionClassOf(texts: readonly string[]): ExecutionClass {
+  // Ordered on purpose: a test runner handed `--update` is a command that edits,
+  // and "it is a test" is not a claim to the contrary.
   if (texts.some((text) => MUTATION_EVIDENCE.test(text))) return 'MUTATION_CAPABLE';
   if (texts.some((text) => READ_ONLY_EVIDENCE.test(text))) return 'READ_ONLY';
   return 'MUTATION_CAPABLE';
