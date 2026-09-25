@@ -80,7 +80,7 @@ export type VerificationStep = z.infer<typeof verificationStepSchema>;
  * its exit code: `evidence: { executed: true }` without `result` will not type,
  * and neither will a `result` without a `command` that produced it.
  */
-const evidenceSchema = z.discriminatedUnion('executed', [
+export const evidenceSchema = z.discriminatedUnion('executed', [
   z
     .object({
       executed: z.literal(false),

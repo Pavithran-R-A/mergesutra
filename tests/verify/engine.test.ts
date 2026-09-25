@@ -7,15 +7,17 @@ import {
   runVerification,
   type VerificationRun,
 } from '../../src/verify/engine.js';
-import type { ExecutionConsent } from '../../src/verify/consent.js';
-import type { VerificationPlan } from '../../src/verify/plan.js';
 import {
   WORKSPACE,
+  EXITED_FAILING,
+  SUCCEEDED,
   builtinGate,
   consentFor,
+  identitiesProbe,
   planOf,
   plannedGate,
   steppingClock,
+  verifyScripted,
 } from '../helpers/verification.js';
 
 /**
@@ -26,24 +28,13 @@ import {
  * BharatCode credential appears anywhere in this file: nothing here asks a model
  * anything, which is the point of a deterministic engine.
  *
- * `verify` below injects a patch probe that reports "nothing changed", because a
- * test about a gate's exit code has no business discovering git on a fake path.
+ * The shared `verifyScripted` injects a patch probe that reports "nothing changed",
+ * because a test about a gate's exit code has no business discovering git on a fake
+ * path.
  */
 
-const OK: RunResult = {
-  code: 0,
-  stdout: 'all good\n',
-  stderr: '',
-  timedOut: false,
-  truncated: false,
-};
-const FAILED: RunResult = {
-  code: 1,
-  stdout: '',
-  stderr: '1 test failed\n',
-  timedOut: false,
-  truncated: false,
-};
+const OK = SUCCEEDED;
+const FAILED = EXITED_FAILING;
 const TIMED_OUT: RunResult = {
   code: 1,
   stdout: 'half a suite',
@@ -61,15 +52,6 @@ const TOO_MUCH_OUTPUT: RunResult = {
 
 const UNCHANGED = 'b'.repeat(64);
 
-function identitiesProbe(values: readonly (string | null)[]) {
-  let seen = 0;
-  return async () => {
-    const value = values[seen] ?? values[values.length - 1] ?? null;
-    seen += 1;
-    return value;
-  };
-}
-
 function entry(run: VerificationRun, gateId: string) {
   const found = run.gates.find((gate) => gate.gateId === gateId);
   if (!found) throw new Error(`the run reported no outcome for ${gateId}`);
@@ -81,7 +63,7 @@ describe('running the gates a plan names', () => {
     const plan = planOf([builtinGate({ id: 'VG-001' })]);
     const calls: string[] = [];
 
-    const run = await verifyWithCalls(plan, calls, { 'git diff --check': OK });
+    const run = await verifyScripted(plan, calls, { 'git diff --check': OK });
 
     expect(calls).toEqual(['git diff --check']);
     expect(entry(run, 'VG-001').receipt).toMatchObject({
@@ -117,7 +99,7 @@ describe('running the gates a plan names', () => {
     const plan = planOf([plannedGate({ id: 'VG-001' })]);
     const calls: string[] = [];
 
-    const run = await verifyWithCalls(plan, calls, { 'npm test': OK });
+    const run = await verifyScripted(plan, calls, { 'npm test': OK });
     const gate = entry(run, 'VG-001');
 
     expect(calls).toEqual([]);
@@ -136,7 +118,7 @@ describe('running the gates a plan names', () => {
     const plan = planOf([plannedGate({ id: 'VG-001', argv: ['rm', '-rf', 'node_modules'] })]);
     const calls: string[] = [];
 
-    const run = await verifyWithCalls(plan, calls, {}, consentFor(plan, ['VG-001']));
+    const run = await verifyScripted(plan, calls, {}, consentFor(plan, ['VG-001']));
 
     expect(calls).toEqual([]);
     expect(entry(run, 'VG-001').status).toBe('REFUSED');
@@ -148,7 +130,7 @@ describe('running the gates a plan names', () => {
     const plan = planOf([plannedGate({ id: 'VG-001', cwd: '../sibling-run' })]);
     const calls: string[] = [];
 
-    const run = await verifyWithCalls(plan, calls, {}, consentFor(plan, ['VG-001']));
+    const run = await verifyScripted(plan, calls, {}, consentFor(plan, ['VG-001']));
 
     expect(calls).toEqual([]);
     expect(entry(run, 'VG-001').reason).toMatch(/outside/i);
@@ -164,7 +146,7 @@ describe('what one gate contributed', () => {
     ]);
     const calls: string[] = [];
 
-    const run = await verifyWithCalls(
+    const run = await verifyScripted(
       plan,
       calls,
       { 'npm test': FAILED, 'npm run lint': OK },
@@ -180,7 +162,7 @@ describe('what one gate contributed', () => {
   it('records a timed-out gate as inconclusive, never as a pass', async () => {
     const plan = planOf([plannedGate({ id: 'VG-001' })]);
 
-    const run = await verifyWithCalls(
+    const run = await verifyScripted(
       plan,
       [],
       { 'npm test': TIMED_OUT },
@@ -198,7 +180,7 @@ describe('what one gate contributed', () => {
   it('records an output-limit kill as inconclusive, with the status it did return', async () => {
     const plan = planOf([plannedGate({ id: 'VG-001' })]);
 
-    const run = await verifyWithCalls(
+    const run = await verifyScripted(
       plan,
       [],
       { 'npm test': TOO_MUCH_OUTPUT },
@@ -250,7 +232,7 @@ describe('which patch each gate describes', () => {
     const plan = planOf([plannedGate({ id: 'VG-001' })]);
     const calls: string[] = [];
 
-    const run = await verifyWithCalls(
+    const run = await verifyScripted(
       plan,
       calls,
       { 'npm test': OK },
@@ -272,7 +254,7 @@ describe('which patch each gate describes', () => {
   it('binds every receipt to the patch the run verified', async () => {
     const plan = planOf([plannedGate({ id: 'VG-001' })]);
 
-    const run = await verifyWithCalls(plan, [], { 'npm test': OK }, consentFor(plan, ['VG-001']), [
+    const run = await verifyScripted(plan, [], { 'npm test': OK }, consentFor(plan, ['VG-001']), [
       UNCHANGED,
       UNCHANGED,
     ]);
@@ -289,7 +271,7 @@ describe('which patch each gate describes', () => {
     ]);
     const calls: string[] = [];
 
-    const run = await verifyWithCalls(
+    const run = await verifyScripted(
       plan,
       calls,
       { 'npm test': OK, 'npm run lint': OK },
@@ -315,7 +297,7 @@ describe('which patch each gate describes', () => {
     ]);
     const calls: string[] = [];
 
-    const run = await verifyWithCalls(
+    const run = await verifyScripted(
       plan,
       calls,
       { 'npm test': OK },
@@ -377,7 +359,7 @@ describe('what the run as a whole is allowed to say', () => {
       builtinGate({ id: 'VG-002', argv: ['git', 'diff', '--check'] }),
     ]);
 
-    const run = await verifyWithCalls(
+    const run = await verifyScripted(
       plan,
       [],
       { 'npm test': OK, 'git diff --check': OK },
@@ -396,7 +378,7 @@ describe('what the run as a whole is allowed to say', () => {
       plannedGate({ id: 'VG-002', argv: ['npm', 'run', 'lint'] }),
     ]);
 
-    const run = await verifyWithCalls(plan, [], { 'npm test': OK }, consentFor(plan, ['VG-001']));
+    const run = await verifyScripted(plan, [], { 'npm test': OK }, consentFor(plan, ['VG-001']));
 
     expect(entry(run, 'VG-001').receipt.result).toBe('PASS');
     expect(entry(run, 'VG-002').status).toBe('BLOCKED');
@@ -408,18 +390,18 @@ describe('what the run as a whole is allowed to say', () => {
       missingPrerequisites: ['pnpm is not installed, so `pnpm test` was not made a gate'],
     });
 
-    const run = await verifyWithCalls(plan, [], { 'git diff --check': OK });
+    const run = await verifyScripted(plan, [], { 'git diff --check': OK });
 
     expect(run.notes.join('\n')).toMatch(/pnpm is not installed/);
   });
 
   it('will not hand back a run record for a plan that named no gates', async () => {
-    await expect(verifyWithCalls(planOf([]), [], {})).rejects.toThrow(/gates|shape/i);
+    await expect(verifyScripted(planOf([]), [], {})).rejects.toThrow(/gates|shape/i);
   });
 
   it('has no room for a criterion verdict', async () => {
     const plan = planOf([builtinGate({ id: 'VG-001' })]);
-    const run = await verifyWithCalls(plan, [], { 'git diff --check': OK });
+    const run = await verifyScripted(plan, [], { 'git diff --check': OK });
     const document = JSON.parse(JSON.stringify(run)) as Record<string, unknown>;
 
     expect(() =>
@@ -432,28 +414,3 @@ describe('what the run as a whole is allowed to say', () => {
     expect(JSON.stringify(run)).not.toContain('CONTRIBUTION_READY');
   });
 });
-
-/** Run one plan, letting a test watch the commands in the order they ran. */
-async function verifyWithCalls(
-  plan: VerificationPlan,
-  calls: string[],
-  commands: Record<string, RunResult>,
-  consent?: ExecutionConsent,
-  identities: (string | null)[] = [UNCHANGED, UNCHANGED],
-): Promise<VerificationRun> {
-  const runner: Runner = async (file, args) => {
-    const key = [file, ...args].join(' ');
-    calls.push(key);
-    const response = commands[key];
-    if (!response) throw new Error(`the engine ran a command nobody scripted: ${key}`);
-    return response;
-  };
-  return runVerification(
-    { plan, workspace: WORKSPACE, consent, signal: undefined },
-    {
-      now: steppingClock(),
-      runFor: () => runner,
-      currentPatchIdentity: identitiesProbe(identities),
-    },
-  );
-}

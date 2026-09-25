@@ -1,4 +1,6 @@
 import { riskOf } from '../../src/process/tool-policy.js';
+import type { RunResult, Runner } from '../../src/core/runner.js';
+import { runVerification, type VerificationRun } from '../../src/verify/engine.js';
 import { scopeDigest, type ExecutionConsent } from '../../src/verify/consent.js';
 import type { PlannedGate, VerificationPlan } from '../../src/verify/plan.js';
 
@@ -87,4 +89,63 @@ export function consentFor(target: VerificationPlan, ids: readonly string[]): Ex
 export function steppingClock(start = Date.parse('2026-09-25T10:00:00.000Z'), stepMs = 1_000) {
   let at = start;
   return () => new Date((at += stepMs));
+}
+
+/** A command that finished and said it was happy. */
+export const SUCCEEDED: RunResult = {
+  code: 0,
+  stdout: 'all good\n',
+  stderr: '',
+  timedOut: false,
+  truncated: false,
+};
+
+/** A command that finished and said it was not. */
+export const EXITED_FAILING: RunResult = {
+  code: 1,
+  stdout: '',
+  stderr: '1 test failed\n',
+  timedOut: false,
+  truncated: false,
+};
+
+/** Successive readings of the workspace's patch identity; the last one repeats. */
+export function identitiesProbe(values: readonly (string | null)[]) {
+  let seen = 0;
+  return async () => {
+    const value = values[seen] ?? values[values.length - 1] ?? null;
+    seen += 1;
+    return value;
+  };
+}
+
+/**
+ * Run a plan for real, with every command answered from a table.
+ *
+ * The engine, the consent decision and the receipts are all genuinely involved;
+ * only the processes are scripted, so a test here measures judgement rather than
+ * what happens to be installed on the machine.
+ */
+export async function verifyScripted(
+  plan: VerificationPlan,
+  calls: string[],
+  commands: Record<string, RunResult>,
+  consent?: ExecutionConsent,
+  identities: (string | null)[] = [plan.patchIdentity, plan.patchIdentity],
+): Promise<VerificationRun> {
+  const runner: Runner = async (file, args) => {
+    const key = [file, ...args].join(' ');
+    calls.push(key);
+    const response = commands[key];
+    if (!response) throw new Error(`the engine ran a command nobody scripted: ${key}`);
+    return response;
+  };
+  return runVerification(
+    { plan, workspace: WORKSPACE, consent, signal: undefined },
+    {
+      now: steppingClock(),
+      runFor: () => runner,
+      currentPatchIdentity: identitiesProbe(identities),
+    },
+  );
 }

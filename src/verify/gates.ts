@@ -486,7 +486,14 @@ function docCommands(text: string): string[] {
   ];
 }
 
-function normalizeCommand(text: string): string {
+/**
+ * The one way MergeSutra decides that two spellings are the same command.
+ *
+ * Exported because a criterion's verification step and a gate's argv have to be
+ * joined by the same rule that built the gate, or the plan and the evidence
+ * disagree about what `npm test` means.
+ */
+export function normalizeCommand(text: string): string {
   return text
     .trim()
     .replace(/^\$\s+/, '')
