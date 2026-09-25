@@ -133,6 +133,76 @@ describe('mergesutra contract — the obligations a run must prove', () => {
     expect(labelled(text, 'From run')).toContain(source.runId);
   });
 
+  it('binds a criterion a human states to the command that human names', async () => {
+    // The requirement and the check both come from a person here, and the
+    // contract records which kind of check it is by the same rule that files a
+    // repository command under a gate — so Stage 7 has something to bring a
+    // receipt back to. Without it the criterion can only ever be reviewed.
+    const store = memoryRunStore();
+    await inspectedRun(store);
+    const c = capture();
+    const code = await cli(
+      [
+        'contract',
+        '--criterion',
+        'parseDate("") throws instead of returning the epoch',
+        '--check',
+        'vitest run test/invalid.test.ts',
+        '--by',
+        'Pavithran R A',
+      ],
+      store,
+      c,
+    );
+
+    expect(code).toBe(EXIT.OK);
+    const stated = contractOf(writtenByContract(store)).criteria.find((entry) =>
+      entry.statement.includes('throws instead'),
+    );
+    expect(stated?.verificationPlan).toEqual([
+      {
+        kind: 'test',
+        command: 'vitest run test/invalid.test.ts',
+        source: 'MERGESUTRA_ADDITIONAL',
+        from: 'supplied with the criterion',
+      },
+    ]);
+    expect(c.text()).toContain('will check: `vitest run test/invalid.test.ts`');
+  });
+
+  it('refuses a check that states no gate, and a check with no criterion', async () => {
+    const unnamed = capture();
+    const store = memoryRunStore();
+    await inspectedRun(store);
+    const unnamedCode = await cli(
+      [
+        'contract',
+        '--criterion',
+        'the banner is upright',
+        '--check',
+        'align-the-banner',
+        '--by',
+        'Pavithran R A',
+      ],
+      store,
+      unnamed,
+    );
+    expect(unnamedCode).toBe(EXIT.ERROR);
+    expect(unnamed.errorText()).toMatch(/refus/i);
+    expect([...store.files.values()].some((text) => text.includes('banner is upright'))).toBe(
+      false,
+    );
+
+    const orphan = capture();
+    const orphanCode = await cli(
+      ['contract', '--check', 'vitest run', '--by', 'Pavithran R A'],
+      store,
+      orphan,
+    );
+    expect(orphanCode).toBe(EXIT.ERROR);
+    expect(orphan.errorText()).toMatch(/--criterion/);
+  });
+
   it('stores a schema-valid contract in which nothing is verified', async () => {
     const store = memoryRunStore();
     await inspectedRun(store);

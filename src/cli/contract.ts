@@ -1,4 +1,6 @@
 import { AppError } from '../core/errors.js';
+import { gatesEnforced } from '../discovery/contract.js';
+import { toExecutableArgv } from '../verify/command.js';
 import {
   AcceptanceContractUnavailable,
   deriveAcceptanceCriteria,
@@ -238,6 +240,12 @@ export interface ContractCommandOptions {
    * authority hierarchy and an anonymous upgrade would be worthless.
    */
   readonly criterion?: readonly string[];
+  /**
+   * The command that will show each `--criterion`, in the same order. Optional:
+   * a criterion nobody has decided how to check stays `manual`, which Stage 7
+   * then reports as needing a person rather than as passing.
+   */
+  readonly check?: readonly string[];
   readonly by?: string;
 }
 
@@ -342,13 +350,29 @@ export function formatContract(result: ContractResult, renderer: Renderer): stri
 }
 
 /**
- * `--criterion` turns a human statement into a criterion. The name behind it is
- * mandatory: an unattributed requirement is the shape of the failure this whole
- * project is built to refuse.
+ * `--criterion` turns a human statement into a criterion, and `--check` pairs the
+ * command that will show it. The name behind both is mandatory: an unattributed
+ * requirement is the shape of the failure this whole project exists to refuse.
+ *
+ * A check is accepted only as one command MergeSutra could itself run, filed
+ * under a kind of gate it can name. That is not busywork — a criterion whose
+ * check cannot be spelled as an argv can never be met by a receipt, so the
+ * contract would be storing a promise Stage 7 has no way to keep.
  */
 function humanCriteria(options: ContractCommandOptions): readonly InjectedCriterion[] | undefined {
   const statements = options.criterion ?? [];
-  if (statements.length === 0) return undefined;
+  const checks = (options.check ?? []).map((command) => command.trim());
+  if (statements.length === 0) {
+    if (checks.length > 0) {
+      throw new AppError({
+        kind: 'validation',
+        message: 'Refusing a --check with no --criterion for it to prove.',
+        remediation:
+          'State the requirement beside it: --criterion "<what must hold>" --check "<command that shows it>".',
+      });
+    }
+    return undefined;
+  }
   const by = options.by?.trim();
   if (!by) {
     throw new AppError({
@@ -357,14 +381,40 @@ function humanCriteria(options: ContractCommandOptions): readonly InjectedCriter
       remediation: 'Add --by "<name or role>" alongside --criterion.',
     });
   }
-  return statements.map((statement) => ({
+  if (checks.length > statements.length) {
+    throw new AppError({
+      kind: 'validation',
+      message: `Refusing ${checks.length} --check values against ${statements.length} criterion/criteria: a check attaches to the criterion in the same position, and ${checks.length - statements.length} of these have none.`,
+      remediation: 'Give every --criterion at most one --check, in the same order.',
+    });
+  }
+  return statements.map((statement, index) => ({
     statement: statement.trim(),
     by,
     requirementType: 'functional' as const,
-    // No command is invented on a human's word alone: the check is decided
-    // later, in the open, rather than smuggled in with the requirement.
-    check: null,
+    check: checks[index] === undefined ? null : namedCheck(checks[index] as string),
   }));
+}
+
+function namedCheck(command: string): NonNullable<InjectedCriterion['check']> {
+  const translation = toExecutableArgv(command);
+  if (!translation.ok) {
+    throw new AppError({
+      kind: 'validation',
+      message: `Refusing a --check that is not one command: ${translation.reason}.`,
+      remediation: 'Name the command the way CI would run it: one program, then its arguments.',
+    });
+  }
+  const [route] = gatesEnforced(command, new Map());
+  if (!route) {
+    throw new AppError({
+      kind: 'validation',
+      message: `Refusing '${command}' as a check: nothing files it under a kind of gate — test, lint, format, typecheck or build — so no receipt could ever say it passed.`,
+      remediation:
+        'Name a command whose check is evident from the command itself, such as `vitest run test/invalid.test.ts` or `node --test`.',
+    });
+  }
+  return { command, kind: route.kind };
 }
 
 function sourceNote(source: AcceptanceContract['criteria'][number]['source']): string {

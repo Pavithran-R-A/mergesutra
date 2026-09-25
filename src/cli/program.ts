@@ -124,6 +124,12 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       [],
     )
     .option('--by <name>', 'who supplied the --criterion requirements (required with it)')
+    .option(
+      '--check <command>',
+      'the command that proves the --criterion in the same position; repeatable, no shell syntax',
+      collect,
+      [],
+    )
     .action(async (runId: string | undefined, opts: ContractCommandOptions) => {
       const globals = program.opts();
       const options: ContractCommandOptions = {
@@ -131,6 +137,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
         noColor: globals.color === false,
         env,
         criterion: opts.criterion,
+        check: opts.check,
         by: opts.by,
       };
       setExitCode(await contractAction(runId, options, deps.contract, write));
