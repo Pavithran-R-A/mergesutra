@@ -22,6 +22,18 @@ function valid(overrides: Record<string, unknown>): Record<string, unknown> {
   return { action: 'READ_FILE', path: 'src/parse.ts', reason: 'see the behaviour', ...overrides };
 }
 
+/** A write with the only two claims a write is allowed to make. */
+function writeish(overrides: Record<string, unknown>): Record<string, unknown> {
+  return {
+    action: 'WRITE_FILE',
+    path: 'src/parse.ts',
+    content: 'export const x = 1;\n',
+    reason: 'add the guard',
+    replaces: { expectedAbsent: true },
+    ...overrides,
+  };
+}
+
 describe('the closed list', () => {
   it('accepts one of every operation it offers', () => {
     const cases: Record<string, Record<string, unknown>> = {
@@ -32,6 +44,7 @@ describe('the closed list', () => {
         action: 'WRITE_FILE',
         path: 'src/parse.ts',
         content: 'export const x = 1;\n',
+        replaces: { expectedAbsent: true },
         reason: 'add the guard',
       },
       RUN_CHECK: { action: 'RUN_CHECK', argv: ['npm', 'test'], reason: 'run the suite' },
@@ -100,11 +113,85 @@ describe('fields the model does not get to add', () => {
       action: 'WRITE_FILE',
       path: 'src/parse.ts',
       content: 'x\n',
+      replaces: { expectedAbsent: true },
       reason: 'add the guard',
     });
     expect(write.action === 'WRITE_FILE' && write.criterionIds).toEqual([]);
     const list = parseAction({ action: 'LIST_FILES', reason: 'look' });
     expect(list.action === 'LIST_FILES' && list.path).toBe('.');
+  });
+});
+
+describe('a write must say which version of the file it replaces', () => {
+  const DIGEST = 'a'.repeat(64);
+
+  function writeWith(replaces?: unknown): Record<string, unknown> {
+    return {
+      action: 'WRITE_FILE',
+      path: 'src/parse.ts',
+      content: 'export const x = 1;\n',
+      reason: 'add the guard',
+      ...(replaces === undefined ? {} : { replaces }),
+    };
+  }
+
+  it('refuses a write that names no precondition at all', () => {
+    // The Stage 6 gap this closes: a whole-file write for a file the loop was
+    // never shown would otherwise be an ordinary, well-shaped action.
+    expect(() => parseAction(writeWith())).toThrow(/replaces/);
+  });
+
+  it('refuses the two honest spellings together, because it cannot be both cases', () => {
+    expect(() => parseAction(writeWith({ expectedSha256: DIGEST, expectedAbsent: true }))).toThrow(
+      AppError,
+    );
+  });
+
+  it('refuses an absent claim that is not exactly true, so `false` is not "expected present"', () => {
+    expect(() => parseAction(writeWith({ expectedAbsent: false }))).toThrow(AppError);
+    expect(() => parseAction(writeWith({ expectedAbsent: 'true' }))).toThrow(AppError);
+  });
+
+  it('refuses a digest that is not 64 lowercase hex, including a shortened or uppercase one', () => {
+    for (const expectedSha256 of [
+      'abc123',
+      DIGEST.slice(0, 63),
+      `${DIGEST.slice(0, 63)}Z`,
+      DIGEST.toUpperCase(),
+      '',
+    ]) {
+      expect(() => parseAction(writeWith({ expectedSha256 })), String(expectedSha256)).toThrow(
+        AppError,
+      );
+    }
+  });
+
+  it('keeps `force` unspellable beside the digest, so a stale write has no escape hatch', () => {
+    expect(() => parseAction(writeWith({ expectedSha256: DIGEST, force: true }))).toThrow(AppError);
+    expect(() => parseAction({ ...writeWith({ expectedSha256: DIGEST }), force: true })).toThrow(
+      AppError,
+    );
+  });
+
+  it('refuses a `replaces` that is not an object, which cannot carry either claim', () => {
+    for (const replaces of [DIGEST, true, null, [], ['expectedAbsent']]) {
+      expect(() => parseAction(writeWith(replaces)), JSON.stringify(replaces)).toThrow(AppError);
+    }
+  });
+
+  it('carries the precondition through unchanged, in the writer’s own shape', () => {
+    const replaced = parseAction(writeWith({ expectedSha256: DIGEST }));
+    const created = parseAction(writeWith({ expectedAbsent: true }));
+    expect(replaced.action === 'WRITE_FILE' && replaced.replaces).toEqual({
+      expectedSha256: DIGEST,
+    });
+    expect(created.action === 'WRITE_FILE' && created.replaces).toEqual({ expectedAbsent: true });
+  });
+
+  it('refuses to name a precondition for an action that writes nothing', () => {
+    // Not a rule the model needs telling: the field simply does not exist on the
+    // other variants, so it cannot be supplied.
+    expect(() => parseAction(valid({ replaces: { expectedAbsent: true } }))).toThrow(AppError);
   });
 });
 
@@ -203,12 +290,8 @@ describe('commands', () => {
 describe('sizes a single action may not exceed', () => {
   it('rejects content over one write cap and content that is empty', () => {
     const tooBig = 'x'.repeat(MAX_ACTION_CONTENT_CHARS + 1);
-    expect(() =>
-      parseAction({ action: 'WRITE_FILE', path: 'a.ts', content: tooBig, reason: 'r' }),
-    ).toThrow(AppError);
-    expect(() =>
-      parseAction({ action: 'WRITE_FILE', path: 'a.ts', content: '', reason: 'r' }),
-    ).toThrow(AppError);
+    expect(() => parseAction(writeish({ path: 'a.ts', content: tooBig }))).toThrow(AppError);
+    expect(() => parseAction(writeish({ path: 'a.ts', content: '' }))).toThrow(AppError);
   });
 
   it('rejects a reason long enough to be an essay and a summary long enough to be a report', () => {
@@ -233,6 +316,7 @@ describe('criterion ids a action may name', () => {
           action: 'WRITE_FILE',
           path: 'a.ts',
           content: 'x\n',
+          replaces: { expectedAbsent: true },
           reason: 'r',
           criterionIds: ['AC-2', 'AC-1'],
         }),
@@ -263,6 +347,7 @@ describe('criterion ids a action may name', () => {
       action: 'WRITE_FILE',
       path: 'a.ts',
       content: 'x\n',
+      replaces: { expectedAbsent: true },
       reason: 'r',
       criterionIds: ['AC-1', 'AC-99'],
     });
@@ -276,6 +361,7 @@ describe('criterion ids a action may name', () => {
         action: 'WRITE_FILE',
         path: 'a.ts',
         content: 'x\n',
+        replaces: { expectedAbsent: true },
         reason: 'r',
         criterionIds: ['AC1'],
       }),
@@ -292,8 +378,20 @@ describe('actionIdentity: what a repeat means', () => {
   });
 
   it('separates two writes to the same path but not two paths', () => {
-    const a = parseAction({ action: 'WRITE_FILE', path: 'a.ts', content: '1\n', reason: 'r' });
-    const b = parseAction({ action: 'WRITE_FILE', path: 'b.ts', content: '1\n', reason: 'r' });
+    const a = parseAction({
+      action: 'WRITE_FILE',
+      path: 'a.ts',
+      content: '1\n',
+      replaces: { expectedAbsent: true },
+      reason: 'r',
+    });
+    const b = parseAction({
+      action: 'WRITE_FILE',
+      path: 'b.ts',
+      content: '1\n',
+      replaces: { expectedAbsent: true },
+      reason: 'r',
+    });
     expect(actionIdentity(a)).not.toBe(actionIdentity(b));
     expect(actionIdentity(a)).toBe('write:a.ts');
   });

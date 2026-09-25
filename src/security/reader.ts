@@ -1,6 +1,7 @@
 import { open, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { AppError } from '../core/errors.js';
+import { sha256Hex } from './digest.js';
 import { hasGitSegment, isInsideRoot, resolveInsideRoot } from './path-safety.js';
 import { resolveExistingAncestor } from './realpath.js';
 
@@ -61,6 +62,15 @@ export interface ReadReceipt {
   readonly text: string;
   readonly bytes: number;
   readonly truncated: boolean;
+  /**
+   * Digest of every byte on disk, or `null` when this read was truncated.
+   *
+   * The writer's compare-before-write rule takes this value as its precondition,
+   * so it must describe the whole file or say nothing. A digest over the first
+   * 64 KiB would let a caller prove it had seen a prefix and then replace the
+   * rest, which is the gap the rule exists to close.
+   */
+  readonly contentSha256: string | null;
 }
 
 export interface ListEntry {
@@ -178,6 +188,7 @@ export async function openConfinedReader(candidateRoot: string): Promise<Confine
       );
     }
     const buffer = Buffer.alloc(Math.min(file.size, maxBytes));
+    const truncated = file.size > maxBytes;
     const handle = await open(absolute, 'r');
     let bytesRead: number;
     try {
@@ -197,7 +208,8 @@ export async function openConfinedReader(candidateRoot: string): Promise<Confine
       relativePath: relativePath.replaceAll('\\', '/'),
       text,
       bytes: file.size,
-      truncated: file.size > maxBytes,
+      truncated,
+      contentSha256: truncated ? null : sha256Hex(buffer.subarray(0, bytesRead)),
     };
   }
 

@@ -11,6 +11,8 @@ import {
   type ImplementStageResult,
 } from '../../src/implement/implement.js';
 import type { Runner, RunResult } from '../../src/core/runner.js';
+import { sha256Hex } from '../../src/security/digest.js';
+import type { WritePrecondition } from '../../src/security/writer.js';
 import type { AcceptanceContract } from '../../src/contract/schema.js';
 import type { ImplementationLoopInput } from '../../src/implement/loop.js';
 import { runImplementationLoop, type ImplementationLoopDeps } from '../../src/implement/loop.js';
@@ -124,6 +126,14 @@ export async function runLoop(
     files?: Record<string, string>;
     /** Plant anything in the workspace before the loop opens its reader and writer. */
     prepare?: (root: string) => Promise<void>;
+    /**
+     * Reuse a workspace directory instead of getting a fresh one.
+     *
+     * Two loops over the same directory is what a resume looks like from the
+     * outside, and it is the only honest way to ask whether an observation from
+     * the first run still means anything in the second.
+     */
+    root?: string;
     limits?: Partial<LoopLimits>;
     model?: string;
     run?: Runner;
@@ -133,8 +143,8 @@ export async function runLoop(
     deps?: Partial<ImplementationLoopDeps>;
   } = {},
 ): Promise<LoopHarness> {
-  const root = await workspaceTree(options.files);
-  tempDirs.push(root);
+  const root = options.root ?? (await workspaceTree(options.files));
+  if (options.root === undefined) tempDirs.push(root);
   if (options.prepare) await options.prepare(root);
   const { record, contract, plan, criteria } = await plannedRun(tempDirs);
   const client = scriptedClient(answers, options.clientOptions);
@@ -187,8 +197,35 @@ export function writeAction(
   p: string,
   content: string,
   criterionIds: readonly string[] = [],
+  /**
+   * Which version this write replaces. Required by the protocol since Stage 7: a
+   * write that does not say what it overwrites does not parse.
+   */
+  replaces: WritePrecondition = { expectedAbsent: true },
 ): Record<string, unknown> {
-  return { action: 'WRITE_FILE', path: p, content, criterionIds, reason: 'add the guard' };
+  return {
+    action: 'WRITE_FILE',
+    path: p,
+    content,
+    replaces,
+    criterionIds,
+    reason: 'add the guard',
+  };
+}
+
+/** A write that claims the path is still empty. */
+export const EXPECT_ABSENT: WritePrecondition = { expectedAbsent: true };
+
+/** The precondition for the exact bytes `text`, i.e. the version it was read as. */
+export function digestOf(text: string): WritePrecondition {
+  return { expectedSha256: sha256Hex(text) };
+}
+
+/** The precondition for whatever this fixture workspace currently holds at `p`. */
+export function digestOfWorkspaceFile(p: string): { readonly expectedSha256: string } {
+  const text = WORKSPACE_FILES[p];
+  if (text === undefined) throw new Error(`the fixture workspace has no file named ${p}`);
+  return { expectedSha256: sha256Hex(text) };
 }
 
 export function checkAction(

@@ -26,6 +26,9 @@ import { criterionIdSchema } from '../plan/schema.js';
  *   constructed and the error says which ones are;
  * - no variant can name a criterion status, a contract version, a file outside
  *   the workspace, or a command string. There is no field to lie in.
+ *
+ * Stage 7 added a fourth, on the one action that changes bytes: a write must say
+ * which version of the file it replaces. See `preconditionSchema`.
  */
 
 /** Content the model may propose in one write. The writer's own cap is higher. */
@@ -62,6 +65,26 @@ const reasonSchema = z.string().min(1).max(MAX_REASON_CHARS);
 
 /** Where an action says it helps. Optional, because exploration is legitimate. */
 const criteriaSchema = z.array(criterionIdSchema).default([]);
+
+/**
+ * Which version of the file this write replaces, in the writer's own shape.
+ *
+ * Required, and a union of two strict objects, so the two ways a write can be
+ * honest are the only two ways it can be *written*: name the digest of the file
+ * you were shown, or say the path is absent. Neither, both, and a
+ * `force`/`ignoreStale` override are all unparseable — which is the point, since
+ * "and then it overwrote a file it never read" was Stage 6's real gap.
+ */
+const preconditionSchema = z.union(
+  [
+    z.object({ expectedSha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict(),
+    z.object({ expectedAbsent: z.literal(true) }).strict(),
+  ],
+  {
+    message:
+      'A write must say what it replaces: `replaces: { "expectedSha256": "<64 hex digest>" }` for the version MergeSutra reported to you, or `replaces: { "expectedAbsent": true }` for a file you believe is new. There is no way to write without saying.',
+  },
+);
 
 const read = z
   .object({
@@ -100,6 +123,8 @@ const write = z
      * protocol with its own escapes. See ADR-027.
      */
     content: z.string().min(1).max(MAX_ACTION_CONTENT_CHARS),
+    /** Which version of the file this replaces. Required; see `preconditionSchema`. */
+    replaces: preconditionSchema,
     criterionIds: criteriaSchema,
     reason: reasonSchema,
   })

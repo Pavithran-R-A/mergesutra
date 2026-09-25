@@ -1,17 +1,23 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { AppError } from '../../src/core/errors.js';
 import { implementationRecordSchema } from '../../src/implement/state.js';
+import { sha256Hex } from '../../src/security/digest.js';
 import {
   action,
   checkAction,
   cleanUp,
+  digestOf,
+  digestOfWorkspaceFile,
+  EXPECT_ABSENT,
   finishAction,
   readAction,
   runLoop,
   writeAction,
+  workspaceTree,
   type LoopHarness,
   WORKSPACE_FILES,
 } from '../helpers/implement.js';
@@ -94,7 +100,7 @@ describe('the loop acts, then stops', () => {
     const content =
       'export function parseDate(input: string): Date {\n  if (!input) throw new TypeError("empty");\n  return new Date(input);\n}\n';
     const harness = await runLoop(tempDirs, [
-      writeAction('src/parse.ts', content, ['AC-1']),
+      writeAction('src/parse.ts', content, ['AC-1'], digestOfWorkspaceFile('src/parse.ts')),
       finishAction(),
     ]);
     const record = harness.implementation;
@@ -580,7 +586,12 @@ describe('stopping, and what a stopped run keeps', () => {
 describe('what a finished loop may not say', () => {
   it('holds no verdict: the record cannot express a passing criterion', async () => {
     const harness = await runLoop(tempDirs, [
-      writeAction('src/parse.ts', 'export const guard = true;\n', ['AC-1']),
+      writeAction(
+        'src/parse.ts',
+        'export const guard = true;\n',
+        ['AC-1'],
+        digestOfWorkspaceFile('src/parse.ts'),
+      ),
       checkAction(['npm', 'test']),
       finishAction('The guard is in and the suite passes.', ['AC-1']),
     ]);
@@ -668,5 +679,204 @@ describe('the loop’s two boundaries are the same directory', () => {
     expect(JSON.stringify(harness.client.calls[1]?.messages.at(-2)?.content)).not.toContain(
       'export const guard',
     );
+  });
+});
+
+/**
+ * Stage 7: a write names the version it replaces.
+ *
+ * A whole-file write is the one action that can silently discard work — the
+ * loop's own earlier turn, another run, or a person editing the checkout while
+ * the model thinks. So `WRITE_FILE` must say which bytes it is replacing, and
+ * the writer proves that claim against the disk at the moment it swaps anything
+ * in. This is optimistic concurrency, not a filesystem transaction: the
+ * guarantee being tested is that a caller cannot replace what it never observed
+ * and cannot overwrite a change that landed after it looked.
+ *
+ * The digest is only ever obtained from a read, so the tests below treat "the
+ * model quoted a digest" as evidence "the model was shown the file".
+ */
+describe('a write names the version it replaces', () => {
+  const NEW_README = '# datekit\n\n`parseDate("")` now throws.\n';
+  const RUN_A_TEXT = 'export const fromRunA = 1;\n';
+  const RUN_B_TEXT = 'export const fromRunB = 2;\n';
+
+  it('hands over the digest of the file it read, and takes a write that quotes it', async () => {
+    const expected = digestOfWorkspaceFile('README.md');
+    const harness = await runLoop(tempDirs, [
+      readAction('README.md'),
+      writeAction('README.md', NEW_README, [], expected),
+      finishAction(),
+    ]);
+    const [read, write] = harness.implementation.actions;
+
+    // README.md is not a planned file, so the opening prompt never carried its
+    // digest: the read is the only place this value could have come from.
+    expect(initialPrompt(harness)).not.toContain(expected.expectedSha256);
+    expect(read?.outcome).toBe('OBSERVED');
+    expect(lastFeedback(harness, 1)).toContain(expected.expectedSha256);
+    expect(write?.outcome).toBe('APPLIED');
+    expect(await readFile(path.join(harness.root, 'README.md'), 'utf8')).toBe(NEW_README);
+  });
+
+  it('refuses a write that does not say which version it replaces', async () => {
+    const bare = action({
+      action: 'WRITE_FILE',
+      path: 'src/guard.ts',
+      content: 'export const guard = 1;\n',
+      reason: 'add the guard',
+    });
+    // Two attempts because one rejected answer earns one repair round; the point
+    // is that nothing reaches the writer either way.
+    const harness = await runLoop(tempDirs, [bare, bare, finishAction()]);
+
+    expect(harness.implementation.termination.kind).toBe('SCHEMA_REFUSAL');
+    expect(harness.implementation.actions).toEqual([]);
+    expect(harness.implementation.summary.writes).toBe(0);
+    expect(existsSync(path.join(harness.root, 'src', 'guard.ts'))).toBe(false);
+    expect(lastFeedback(harness, 1)).toContain('replaces');
+  });
+
+  it('refuses to replace a file that changed after it was read, and leaves that change alone', async () => {
+    const root = await workspaceTree();
+    tempDirs.push(root);
+    const harness = await runLoop(
+      tempDirs,
+      [
+        readAction('README.md'),
+        checkAction(['git', 'status'], 'see what is staged'),
+        writeAction('README.md', NEW_README, [], digestOfWorkspaceFile('README.md')),
+        finishAction(),
+      ],
+      {
+        root,
+        // Something else edits the file between the two model turns. The digest
+        // the model quotes was true when it was handed over and is not true now.
+        run: async () => {
+          await writeFile(
+            path.join(root, 'README.md'),
+            'edited by a person, not this run\n',
+            'utf8',
+          );
+          return { code: 0, stdout: '', stderr: '' };
+        },
+      },
+    );
+    const write = harness.implementation.actions[2];
+
+    expect(write?.outcome).toBe('REFUSED');
+    expect(write?.detail).toContain('STALE_FILE');
+    expect(harness.implementation.summary.writes).toBe(0);
+    expect(harness.implementation.changes).toEqual([]);
+    // The concurrent edit survives, unmodified: MergeSutra reports the conflict
+    // rather than deciding whose version wins.
+    expect(await readFile(path.join(root, 'README.md'), 'utf8')).toBe(
+      'edited by a person, not this run\n',
+    );
+    expect(lastFeedback(harness, 3)).toMatch(/read the file again/i);
+  });
+
+  it('creates a file the write says is not there yet', async () => {
+    const harness = await runLoop(tempDirs, [
+      writeAction('src/guard.ts', RUN_A_TEXT, [], EXPECT_ABSENT),
+      finishAction(),
+    ]);
+
+    expect(harness.implementation.changes[0]).toMatchObject({
+      relativePath: 'src/guard.ts',
+      created: true,
+    });
+    expect(await readFile(path.join(harness.root, 'src', 'guard.ts'), 'utf8')).toBe(RUN_A_TEXT);
+  });
+
+  it('refuses a write that claimed the path was absent, once something has appeared there', async () => {
+    const root = await workspaceTree();
+    tempDirs.push(root);
+    const harness = await runLoop(
+      tempDirs,
+      [
+        checkAction(['git', 'status'], 'start the work'),
+        writeAction('src/guard.ts', RUN_A_TEXT, [], EXPECT_ABSENT),
+        finishAction(),
+      ],
+      {
+        root,
+        run: async () => {
+          await writeFile(path.join(root, 'src', 'guard.ts'), 'written by someone else\n', 'utf8');
+          return { code: 0, stdout: '', stderr: '' };
+        },
+      },
+    );
+
+    expect(harness.implementation.actions[1]?.outcome).toBe('REFUSED');
+    expect(harness.implementation.actions[1]?.detail).toContain('STALE_FILE');
+    expect(harness.implementation.summary.writes).toBe(0);
+    expect(await readFile(path.join(root, 'src', 'guard.ts'), 'utf8')).toBe(
+      'written by someone else\n',
+    );
+  });
+
+  it('will not let a second run reuse a precondition from the first', async () => {
+    const root = await workspaceTree();
+    tempDirs.push(root);
+
+    const first = await runLoop(
+      tempDirs,
+      [
+        writeAction('src/parse.ts', RUN_A_TEXT, [], digestOfWorkspaceFile('src/parse.ts')),
+        finishAction('Run A replaced the parser.'),
+      ],
+      { root },
+    );
+    expect(first.implementation.summary.writes).toBe(1);
+
+    // Run B quotes the digest Run A observed. It is stale now for one reason
+    // only: Run A changed the file. Resuming inherits the work, not the
+    // observations. (Run B was handed the current digest in its own context, so
+    // a model that read it could still write — this is about the old claim.)
+    const second = await runLoop(
+      tempDirs,
+      [
+        writeAction('src/parse.ts', RUN_B_TEXT, [], digestOfWorkspaceFile('src/parse.ts')),
+        finishAction(),
+      ],
+      { root },
+    );
+
+    expect(second.implementation.actions[0]?.outcome).toBe('REFUSED');
+    expect(second.implementation.actions[0]?.detail).toContain('STALE_FILE');
+    expect(second.implementation.summary.writes).toBe(0);
+    expect(await readFile(path.join(root, 'src/parse.ts'), 'utf8')).toBe(RUN_A_TEXT);
+  });
+
+  it('confines the path before it weighs the precondition', async () => {
+    // A well-formed precondition buys nothing inside .git: the refusal has to be
+    // about where the path is, not about what the write claimed to replace.
+    const harness = await runLoop(tempDirs, [
+      writeAction('.git/config', '[core]\n\tpager = sh\n', [], digestOf('a real digest')),
+      finishAction(),
+    ]);
+
+    expect(harness.implementation.actions[0]?.detail).toContain('.git');
+    expect(harness.implementation.actions[0]?.detail).not.toContain('STALE_FILE');
+    expect(harness.implementation.summary.writes).toBe(0);
+  });
+
+  it('gives no precondition for a file it only showed part of', async () => {
+    const big = 'x'.repeat(4_000);
+    const root = await workspaceTree({ 'notes/big.md': big });
+    tempDirs.push(root);
+    const harness = await runLoop(tempDirs, [readAction('notes/big.md'), finishAction()], {
+      root,
+      limits: { maxModelOutputChars: 800 },
+    });
+    const feedback = lastFeedback(harness, 1);
+
+    expect(harness.implementation.actions[0]?.outcome).toBe('OBSERVED');
+    expect(feedback).toContain('(truncated');
+    expect(feedback).toContain('no write precondition');
+    // The whole-file digest is what a replacement must be certified against, and
+    // a partial view does not have one.
+    expect(feedback).not.toContain(sha256Hex(big));
   });
 });

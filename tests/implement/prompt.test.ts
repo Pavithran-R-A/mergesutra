@@ -11,6 +11,7 @@ import { assembleInitialContext } from '../../src/implement/context.js';
 import { ACTION_KINDS } from '../../src/implement/protocol.js';
 import { DEFAULT_LIMITS, resolveLimits, type LoopLimits } from '../../src/implement/limits.js';
 import { openConfinedReader } from '../../src/security/reader.js';
+import { sha256Hex } from '../../src/security/digest.js';
 import type { ChatMessage } from '../../src/bharatcode/types.js';
 import type { ImplementationPlan } from '../../src/plan/schema.js';
 import {
@@ -306,6 +307,50 @@ describe('the task message', () => {
   it('hands the model the decision to answer', async () => {
     const { user } = await build();
     expect(user.trimEnd().endsWith('Reply with one JSON action now.')).toBe(true);
+  });
+});
+
+/**
+ * Stage 7: the prompt is where a write learns it must name a version.
+ *
+ * The rule is enforced in the writer, so these tests are not the boundary — they
+ * are the argument that a model can satisfy the boundary without guessing. A
+ * digest the prompt never states is a digest the model cannot quote, which would
+ * turn a safety rule into a permanent refusal.
+ */
+describe('the compare-before-write rule the model is told', () => {
+  it('shows the precondition on the WRITE_FILE template itself', () => {
+    expect(ACTION_PROTOCOL_HINT).toContain(
+      '"replaces": { "expectedSha256": "64 hex digits" } | { "expectedAbsent": true }',
+    );
+  });
+
+  it('states that a write must name its version, that there is no force, and that stale means re-read', async () => {
+    const { system } = await build();
+    expect(system).toContain('it must say which version it replaces');
+    expect(system).toContain('There is no force.');
+    expect(system).toContain('STALE_FILE');
+  });
+
+  it('gives every file it sends the digest that file replaces', async () => {
+    const { user } = await build();
+    expect(user).toContain(
+      `MERGESUTRA: write precondition for this path, sha256 of the whole file as it is on disk now: ${sha256Hex(WORKSPACE_FILES['src/parse.ts'] ?? '')}`,
+    );
+    expect(user).toContain(sha256Hex(WORKSPACE_FILES['test/parse.test.ts'] ?? ''));
+    // The line belongs to the file it describes, not to the prompt as a whole.
+    expect(user).toMatch(
+      new RegExp(
+        `=== FILE src/parse.ts[\\s\\S]*?${sha256Hex(WORKSPACE_FILES['src/parse.ts'] ?? '')}`,
+      ),
+    );
+  });
+
+  it('offers no precondition for a file it could not send whole', async () => {
+    const { user } = await build({ limits: { maxContextBytes: 40 } });
+    expect(user).toContain('=== FILE src/parse.ts (truncated) — UNTRUSTED DATA');
+    expect(user).toContain('no write precondition');
+    expect(user).not.toContain(sha256Hex(WORKSPACE_FILES['src/parse.ts'] ?? ''));
   });
 });
 

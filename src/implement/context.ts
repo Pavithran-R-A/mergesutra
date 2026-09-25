@@ -25,6 +25,11 @@ export interface ContextFile {
   readonly relativePath: string;
   readonly text: string;
   readonly truncated: boolean;
+  /**
+   * Digest to send back as this file's write precondition, or null when MergeSutra
+   * did not hand over the whole file and so cannot certify it.
+   */
+  readonly contentSha256: string | null;
 }
 
 export interface SkippedContext {
@@ -46,6 +51,14 @@ export interface ReadOutcome {
   readonly ok: boolean;
   readonly detail: string;
   readonly text?: string;
+  /**
+   * The write precondition for this file, or null when there is not one.
+   *
+   * Null means "you have not seen this file whole", and under Stage 7's rules
+   * that is also the end of the argument for replacing it: the loop will not let
+   * a caller certify bytes it never received.
+   */
+  readonly contentSha256?: string | null;
 }
 
 export async function assembleInitialContext(input: {
@@ -88,6 +101,7 @@ export async function assembleInitialContext(input: {
       relativePath,
       text,
       truncated: text.includes('(truncated:'),
+      contentSha256: outcome.contentSha256 ?? null,
     });
     bytes += Buffer.byteLength(text, 'utf8');
   }
@@ -115,6 +129,7 @@ export async function readForModel(
       text: receipt.truncated
         ? `${receipt.text}\n\n(truncated: ${receipt.bytes} bytes on disk, ${maxBytes} sent)`
         : receipt.text,
+      contentSha256: receipt.contentSha256,
     };
   } catch (error) {
     return { ok: false, detail: oneLine(errorMessage(error)) };
