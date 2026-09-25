@@ -103,7 +103,12 @@ export function formatVerification(result: VerifyStageResult, renderer: Renderer
     lines.push(`  mergesutra verify ${record.runId} ${flags}`);
     lines.push(
       renderer.dim(
-        "  each id consents to that gate's exact command on this run's exact patch; change either and the consent stops matching.",
+        "  each id consents to that gate's exact command, and to nothing else on this machine.",
+      ),
+    );
+    lines.push(
+      renderer.dim(
+        '  the workspace is checked separately against the patch this plan describes, so continuing to implement voids a run rather than reusing its receipts.',
       ),
     );
     lines.push('');

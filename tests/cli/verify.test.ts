@@ -66,6 +66,10 @@ describe.skipIf(!AVAILABLE)('mergesutra verify', () => {
     expect(c.text()).toContain('git diff --check');
     expect(c.text()).toContain('--allow VG-');
     expect(c.text()).toContain('Run record');
+    // The hint describes two different bindings, and must not fold the patch into
+    // the consent: the digest covers the commands, and the engine checks the patch.
+    expect(c.text()).toMatch(/consents to[\s\S]*exact command/i);
+    expect(c.text()).not.toMatch(/consent[^\n]*\bpatch\b/i);
     // The word this stage has no authority to print, printed nowhere.
     expect(c.text()).not.toContain('CONTRIBUTION_READY');
     expect(c.text()).not.toMatch(/all criteria (are )?complete —? (verified|confirmed)/);
