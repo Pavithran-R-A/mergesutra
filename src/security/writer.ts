@@ -2,6 +2,7 @@ import { lstat, mkdir, open, realpath, rename, rm, stat } from 'node:fs/promises
 import path from 'node:path';
 import { AppError } from '../core/errors.js';
 import { hasGitSegment, isInsideRoot, resolveInsideRoot } from './path-safety.js';
+import { resolveExistingAncestor } from './realpath.js';
 
 /**
  * The only way MergeSutra puts bytes on disk in a workspace — Stage 5.
@@ -161,30 +162,6 @@ async function renameChecked(from: string, to: string, relativePath: string): Pr
 
 async function rmQuiet(target: string): Promise<void> {
   await rm(target, { force: true }).catch(() => undefined);
-}
-
-/**
- * Realpath the deepest existing ancestor and re-attach the rest.
- *
- * `realpath` fails on a path that does not exist yet, and a plan routinely
- * writes a file into a directory that does not exist yet. Walking up until
- * something resolves is enough to judge where a symlink or junction along the
- * way would lead, and a link three directories above the target cannot hide.
- */
-async function resolveExistingAncestor(absolute: string): Promise<string> {
-  const missing: string[] = [];
-  let cursor = absolute;
-  for (;;) {
-    try {
-      const real = await realpath(cursor);
-      return missing.length === 0 ? real : path.join(real, ...missing.reverse());
-    } catch {
-      const parent = path.dirname(cursor);
-      if (parent === cursor) return absolute;
-      missing.push(path.basename(cursor));
-      cursor = parent;
-    }
-  }
 }
 
 function notFound(): null {

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { requirementTypeSchema } from '../contract/schema.js';
 import { isArgvShaped } from '../security/command-safety.js';
+import { isRepositoryRelativePath } from '../security/path-safety.js';
 
 /**
  * The implementation plan schema — Stage 4.
@@ -29,13 +30,7 @@ export const criterionIdSchema = z.string().regex(/^AC-\d+$/);
  * is not a proposal MergeSutra will carry forward.
  */
 export function isPlanPathSafe(value: string): boolean {
-  if (value.trim() === '') return false;
-  if (value.includes('\\')) return false;
-  if (value.includes('\0')) return false;
-  if (value.startsWith('/') || value.startsWith('~')) return false;
-  if (/^[a-zA-Z]:/.test(value)) return false;
-  if (value.includes('//')) return false;
-  return value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+  return isRepositoryRelativePath(value);
 }
 
 /**

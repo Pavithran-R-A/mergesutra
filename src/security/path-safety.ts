@@ -97,3 +97,31 @@ export function assertSafePathSegment(value: string, label = 'identifier'): stri
   }
   return value;
 }
+
+/**
+ * A file path a model or a plan is allowed to name.
+ *
+ * The shape rule comes before the confinement check on purpose: a proposal that
+ * needs traversal, an absolute path or a backslash to work is not a proposal
+ * MergeSutra should carry forward, and saying so at the boundary gives a
+ * one-line reason instead of a filesystem error three layers away. Confinement
+ * is still proved after resolution, because a name that looks relative can
+ * still be a link.
+ */
+export function isRepositoryRelativePath(value: string): boolean {
+  if (value.trim() === '') return false;
+  if (value.includes('\\')) return false;
+  if (value.includes('\0')) return false;
+  if (value.startsWith('/') || value.startsWith('~')) return false;
+  if (/^[a-zA-Z]:/.test(value)) return false;
+  if (value.includes('//')) return false;
+  return value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+}
+
+/**
+ * The same shape rule, with `.` allowed because that is how a relative path
+ * spells "here". Only a directory may be named this way — `.` is not a file.
+ */
+export function isRepositoryRelativeDirectory(value: string): boolean {
+  return value === '.' || isRepositoryRelativePath(value);
+}

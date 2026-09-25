@@ -38,16 +38,22 @@ describe('isBareProgram', () => {
     for (const token of [
       '',
       '   ',
+      'npm test',
+      'git commit',
       './scripts/build.sh',
       '/usr/bin/curl',
       'C:\\tools\\git.exe',
       '\\\\server\\share\\x.exe',
     ]) {
-      expect(isBareProgram(token)).toBe(false);
+      expect(isBareProgram(token), JSON.stringify(token)).toBe(false);
     }
   });
 
   it('refuses shell syntax in the program position', () => {
     expect(isBareProgram('git;status')).toBe(false);
+  });
+
+  it('refuses a program named with a tab, which is a command string again', () => {
+    expect(isBareProgram('npm\ttest')).toBe(false);
   });
 });

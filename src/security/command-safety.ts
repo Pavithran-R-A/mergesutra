@@ -29,9 +29,15 @@ export function isArgvShaped(argv: readonly string[]): boolean {
  * or the machine choosing what runs, which is not MergeSutra's decision to
  * delegate. Backslashes are rejected on every platform because Windows accepts
  * them as separators.
+ *
+ * So is an internal space. `['npm test']` is one token, so it survives the
+ * shell-syntax check, but no search path has a program by that name — it is a
+ * command string wearing an array's clothes, and refusing it here is what keeps
+ * "the program position is a program" true.
  */
 export function isBareProgram(token: string): boolean {
   if (token.length === 0 || token.trim() === '') return false;
+  if (/\s/.test(token)) return false;
   if (token.includes('\\')) return false;
   if (/^[a-zA-Z]:/.test(token)) return false;
   if (token.includes('/')) return false;
