@@ -1,3 +1,5 @@
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { defaultRunner } from '../../src/core/runner.js';
 import { makeFixtureTree, NODE_REPO_FILES } from './fixture.js';
 
@@ -17,29 +19,50 @@ export async function hasGit(): Promise<boolean> {
 }
 
 /**
+ * A committed throwaway repository holding exactly these files.
+ *
+ * The `core.hooksPath` step is not project setup, it is a test-honesty step: an
+ * operator's machine may carry a global `core.hooksPath` pointing at tooling that
+ * is not installed here, and a fixture that runs it pays several seconds per
+ * commit and starts failing on a timeout instead of on an assertion. The setting
+ * is written into *this temporary repository* — never the user's config — and the
+ * directory it names stays empty, so Git finds no hook to run.
+ */
+export async function initRepository(
+  files: Record<string, string>,
+): Promise<{ dir: string; base: string }> {
+  const dir = await makeFixtureTree(files);
+  const hooks = path.join(dir, '.no-hooks');
+  await mkdir(hooks, { recursive: true });
+  const steps: readonly (readonly string[])[] = [
+    ['init', '-q'],
+    ['config', 'user.name', 'MergeSutra Test'],
+    ['config', 'user.email', 'test@mergesutra.invalid'],
+    ['config', 'core.hooksPath', hooks],
+    ['add', '-A'],
+    ['commit', '-q', '-m', 'base'],
+  ];
+  for (const args of steps) {
+    const result = await defaultRunner('git', ['-C', dir, ...args]);
+    if (result.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
+  }
+  const head = await headOf(dir);
+  return { dir, base: head };
+}
+
+/**
  * A committed throwaway repository: a Node project with the gates a repository
  * contract reads, and `.mergesutra/` ignored so a workspace cannot dirty it.
  */
 export async function realRepository(extra: Record<string, string> = {}): Promise<string> {
-  const repo = await makeFixtureTree({
+  const { dir } = await initRepository({
     ...NODE_REPO_FILES,
     '.gitignore': '.mergesutra/\nnode_modules/\n',
     'src/parse.ts':
       'export function parseDate(input: string): Date {\n  return new Date(input);\n}\n',
     ...extra,
   });
-  const steps: readonly (readonly string[])[] = [
-    ['init', '-q'],
-    ['config', 'user.name', 'MergeSutra Test'],
-    ['config', 'user.email', 'test@mergesutra.invalid'],
-    ['add', '.'],
-    ['commit', '-q', '-m', 'base'],
-  ];
-  for (const args of steps) {
-    const result = await defaultRunner('git', ['-C', repo, ...args]);
-    if (result.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
-  }
-  return repo;
+  return dir;
 }
 
 export async function headOf(directory: string): Promise<string> {
