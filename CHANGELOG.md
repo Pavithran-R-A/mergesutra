@@ -6,6 +6,64 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Stage 8: the evidence pack, and a report that cannot be over-read
+
+Stage 7 put the verdicts in the run record. Stage 8 is the first time a reader
+gets them without a JavaScript REPL, and the whole design problem was packaging
+without adding: a reviewer who has to run a gate to see what a run established is
+a reviewer who is doing the harness's job.
+
+- `mergesutra report [run-id]` — reads one run record and writes three files
+  beside it under `.mergesutra/runs/<run-id>/`: `report.md` for a human,
+  `report.json` for a tool, `commands.jsonl` with one command receipt per line.
+  With no id it takes the newest record in the run store; with no readable record
+  it refuses instead of writing an empty pack. `--json` prints the machine file
+  instead of the human one. Flags: `--json`, `--no-color`. Exit codes come from
+  the *recorded outcome*, not from the write: `0` for a passed or contract-derived
+  run, `1` for `VERIFICATION_FAIL`, `3` inconclusive, `4` blocked — so a tidy
+  report of a blocked run is still a blocked exit.
+- `src/report/pack.ts` is a renderer with one rule: it may arrange the record's
+  facts and may not add one. The criteria table copies each row's status,
+  sufficiency and gate ids out of `record.evidence`; `report.json` embeds that
+  evidence document, the verification plan and the execution consent as they were
+  filed; `commands.jsonl` re-emits each receipt verbatim rather than summarising
+  it, because a digest already covers the unredacted bytes. A pack built from a
+  run that never verified prints `PENDING` and `no verification has run`, and
+  there is no `VERIFIED` or `PASS` anywhere in it to misread.
+- Caveats are printed under the document that wrote them. A run's `limitations`
+  grows by carry-forward, so a verify-stage record still holds "Nothing here is
+  verified" — words that were true of the stage that wrote them and are false of
+  the run. Deleting the line would be the pack deciding something, so it does not:
+  `report.md` groups the notes as the evidence mapper's, the stages of this run's,
+  and the contract's, in that order, and `report.json` keeps `stageLimitations`
+  and `contractLimitations` as separate keys.
+- The model's own account stays visible and quarantined. The loop's `FINISH`
+  sentence is printed under "What the model said about its own work (a claim;
+  decided nothing)", and the test asserts the criteria table above it never
+  contains that sentence.
+- Writes are confined and atomic: the run id is validated as a path segment
+  before it is used, each file is written to a `.tmp` sibling with mode `0600`
+  and renamed into place, and a traversal-shaped id is refused without touching
+  the filesystem.
+- `tests/verify/hero.test.ts` now ends at the pack: the hero's verified record is
+  saved through the real filesystem store, rendered by the same code path the
+  command uses, and the three files are read back off disk — the three exit-0
+  receipts, the `AC-1, AC-2 → VG-001` and `AC-3 → VG-002` rows, and the caveat
+  attribution. This is the stage's own proof: the fixture-driven tests could not
+  see that a record produced by six real stages renders the way a fixture does,
+  and it is where the carried-forward "Nothing here is verified" contradiction
+  was found.
+- 19 tests of the stage's own — 10 in `tests/report/pack.test.ts`, 4 in
+  `tests/report/write.test.ts`, 5 in `tests/cli/report.test.ts`, plus a new case
+  in `tests/cli/program.test.ts` and the pack block added to the hero test —
+  deterministic and offline; no Stage 8 test needs a BharatCode credential,
+  because `report` makes no model call at all. Measured against the same
+  command line: **820 passing and 2 skipped** (822 tests, up from the 800
+  passing at Stage 7's close; the two skips are the opt-in live-endpoint checks
+  that still need a credential).
+  `mergesutra run`, `review`, `pr`, `status` and `resume` still exit
+  `2`.
+
 ### Added — Stage 7: the deterministic verification engine
 
 The first stage that can move an acceptance criterion off `PENDING`, and the only
@@ -456,6 +514,10 @@ This stage reads and records; it does not patch, verify, review or open anything
 - `www.github.com` produced a non-canonical URL.
 
 ### Not yet implemented (planned)
+
+As shipped at Stage 1 — the sections above supersede this list. `verify` and
+`report` have since been implemented; `run`, `review`, `pr`, `status` and
+`resume` are the commands that still print "planned" and exit `2`.
 
 `run`, `verify`, `review`, `report`, `pr`, `status`,
 `resume`. `issue` performs intake only: it produces no plan, patch,

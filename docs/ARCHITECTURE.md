@@ -122,10 +122,11 @@ stateDiagram-v2
 
 Built today: `INTAKE → DISCOVERY → CONTRACT → PLAN → IMPLEMENT → VERIFY`, one
 command each (`issue`, `inspect`, `contract`, `plan`, `implement`, `verify`), each
-writing a run record that the next one reads. `REVIEW` onward is **[DESIGNED]** —
-which is why a verifying run ends with `nextStage` naming a `review` command that
-does not exist yet, and why `mergesutra run`, `review`, `report` and `pr` still
-exit `2` as planned.
+writing a run record that the next one reads, and `report` rendering whatever the
+chain has established into the pack a reviewer reads. `REVIEW` onward is
+**[DESIGNED]** — which is why a verifying run ends with `nextStage` naming a
+`review` command that does not exist yet, and why `mergesutra run`, `review`,
+`pr`, `status` and `resume` still exit `2` as planned.
 
 What Stage 7 added to this machine is a boundary rather than a box: `VERIFY` is
 the only state that can move a criterion off `PENDING`, and it can do it only from
@@ -197,7 +198,11 @@ src/
                per-gate contamination re-check, and
                conservative criterion evidence mapping
   review/      independent diff reviewer wiring          [PLANNED]
-  evidence/    evidence pack + report renderer           [PLANNED]
+  report/      the evidence pack: record in, the three    [IMPLEMENTED]
+               reviewer files out, copied status for
+               status, receipts re-emitted verbatim,
+               caveats grouped by the document that wrote
+               them, written atomically beside the record
 ```
 
 The loop's dependencies are the whole point of that layout: `implement/` is the
@@ -224,23 +229,35 @@ prompt the planner is trying to control. The planner receives a
 answer and assert what the stage did with it, and the stage cannot reach the
 network except through the adapter.
 
-## 8. Evidence pack layout **[DESIGNED]**
+## 8. Evidence pack layout **[PARTLY SHIPPED]**
 
 ```
 .mergesutra/runs/<run-id>/
+  <run-id>.json       the run record every stage writes — SHIPPED, and it is the
+                      only file a stage other than `report` writes here
+  report.md           human-readable report          — SHIPPED
+  report.json         machine-readable report        — SHIPPED
+  commands.jsonl      one receipt per executed gate  — SHIPPED
   manifest.json       run identity: repo, branch, base SHA, model, timing
   contract.json       versioned Acceptance Contract with revisions
   plan.json           implementation plan
-  commands.jsonl      bounded, redacted command receipts (argv, cwd, exit, time)
   verification.json   gate results with sources
   review.json         reviewer findings
-  report.md           human-readable report
-  report.json         machine-readable report
 ```
 
-Never committed automatically; never contains secrets. Until this bundle exists,
-each stage writes one JSON run record holding what it established — the plan at
-`record.plan`, and Stage 7's four documents at `record.verificationPlan`,
-`record.executionConsent`, `record.verification` and `record.evidence`, rather
-than in files of their own. The shape above is the target; the record is what
-ships, and it carries the same content.
+The three shipped files are a rendering of `<run-id>.json` and nothing else.
+`report.json` embeds the record's `evidence`, `verificationPlan` and
+`executionConsent` documents as they were filed, `commands.jsonl` re-emits each
+receipt from `record.verification` line for line, and `report.md`'s criteria table
+copies each row's status, sufficiency and gate ids. So splitting the same content
+into one file per stage — the five still-designed names above — would add a second
+place for a fact to live and a second chance for the two to disagree. What is left
+for later stages is the content those files would hold that no stage has
+established yet: `review.json` at Stage 9, and a run-level `manifest.json` if a
+later stage ever needs identity that the record does not already carry.
+
+Nothing here is committed automatically, and no pack contains a secret: output is
+redacted on the way into the receipt, and the receipts are what the pack copies.
+The record is schema version 6; a file written by an earlier stage build is
+reported as unreadable rather than guessed at, and `report` refuses it instead of
+rendering an empty pack around the refusal.

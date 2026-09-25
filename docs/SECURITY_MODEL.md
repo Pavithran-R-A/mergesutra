@@ -333,6 +333,36 @@ escape, and why the loop states in its own record limitations that containment
 covers the paths MergeSutra itself touches, not what an allowed third-party
 binary does with its own arguments.
 
+### 4.1 The evidence pack (Stage 8)
+
+`mergesutra report` is the only stage that writes files into the human's primary
+checkout rather than its own worktree, and it is the stage with the least reason
+to: it reads one run record and writes three files beside it under
+`.mergesutra/runs/<run-id>/`. Three rules hold that in place.
+
+- **The run id is a name, not a path.** `assertSafePathSegment` judges it (1-80
+  characters from `[A-Za-z0-9._-]`, starting with a letter or digit) before any
+  filesystem call, so `../`, an absolute path or a backslash-bearing id is
+  refused with no directory created. `tests/report/write.test.ts` asserts this
+  against a real sibling file: after the refusal, the neighbour's bytes are
+  unchanged.
+- **A pack is replaced, never appended to.** Each file goes in as a
+  `<target>.<pid>.tmp` write followed by a rename, so an interrupted run leaves
+  no half-written `report.md` for a reviewer to read as a verdict. The directory
+  is not archived — an older rendering of a newer record is the failure mode
+  here, and ADR-046 keeps the choice visible.
+- **Nothing secret reaches the page.** `commands.jsonl` re-emits receipts that
+  the process runner already bounded and passed through central redaction; the
+  record was written under the same rule. This is why the files carry mode `0600`
+  as a convention and not as the guarantee: on Windows that mode does not map to
+  an ACL, and the pack's safety comes from the redaction upstream of it, not
+  from a permission bit.
+
+`report` starts no processes and reads no credential, so it adds no EXECUTE or
+NETWORK surface (§3) and no secret-protection surface (§6). Its exit code is the
+recorded outcome's (ADR-045), which means it cannot be used to turn a blocked run
+into a pipeline success.
+
 ## 5. Command execution safety
 
 - Never `shell: true` unless an extremely strong, fully-controlled,

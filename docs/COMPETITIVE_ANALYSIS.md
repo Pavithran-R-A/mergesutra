@@ -87,9 +87,9 @@ each requirement to the change.
 | Advantage                                      | Status                                                   |
 | ---------------------------------------------- | -------------------------------------------------------- |
 | BharatCode-native intelligence                 | Implemented (S4 plans, S6 drives the loop)               |
-| Direct interactive local CLI workflow          | Partial — six working commands, `run` still exits `2`    |
-| Acceptance Contract                            | Implemented (S3); no criterion has evidence yet          |
-| Criterion-to-evidence traceability             | Designed (S8)                                            |
+| Direct interactive local CLI workflow          | Partial — eight working commands, `run` still exits `2`   |
+| Acceptance Contract                            | Implemented (S3); every criterion carries its own status  |
+| Criterion-to-evidence traceability             | Implemented (S7 mapping, S8 pack)                         |
 | Repository-policy compilation                  | Implemented (S2)                                         |
 | Bounded, policy-gated implementation loop      | Implemented (S6); writes in its own worktree, verifies nothing |
 | Evidence-first PR output                       | Designed (S10)                                           |

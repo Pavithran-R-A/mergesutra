@@ -71,10 +71,11 @@ Full positioning and competitor notes: [docs/COMPETITIVE_ANALYSIS.md](docs/COMPE
 
 ## 60-second demo *(target experience — not yet runnable)*
 
-*(Steps 6 and 7 of that list are real today as `mergesutra verify`, and the capture
-below in "Stage 7: the same run, verified" is one; the one-shot `issue` driver that
-runs all eight steps unattended is not, which is why this section is a target and
-the sections after it are output.)*
+*(Steps 6 and 7 of that list are real today as `mergesutra verify`, and step 8's
+packaging is real as `mergesutra report`; the captures below in "Stage 7: the same
+run, verified" and "Stage 8: the same run, written down" are their output. The
+one-shot `issue` driver that runs all eight steps unattended is not, which is why
+this section is a target and the sections after it are output.)*
 
 ```text
 $ mergesutra issue https://github.com/example/project/issues/123
@@ -131,7 +132,14 @@ node dist/index.js implement         # needs a key; writes inside its own worktr
 node dist/index.js implement <run-id> --max-steps 8 --json
 node dist/index.js verify            # plans the gates; runs none until you name them
 node dist/index.js verify <run-id> --allow VG-001 --allow VG-002
+node dist/index.js report            # render the newest run's evidence pack
+node dist/index.js report <run-id> --json
 ```
+
+`report` needs nothing new: it reads the run record the commands above wrote and
+puts `report.md`, `report.json` and `commands.jsonl` beside it. It runs no gate and
+decides nothing, and its exit code is the outcome recorded in the run — so
+reporting a blocked run exits `4`, not `0`.
 
 `verify` is the first command that runs a repository's own checks, so it is the
 first that asks. Without `--allow` it writes a plan, refuses every repository
@@ -579,6 +587,104 @@ The story in those lines, in order:
   document beside this one types its own `contributionReady` as a literal `false`
   — so there is no field to talk a run into.
 
+### Stage 8: the same run, written down
+
+`mergesutra report [run-id]` reads a run record and writes three files beside it
+under `.mergesutra/runs/<id>/` — `report.md` for a human, `report.json` for a
+tool, `commands.jsonl` with one receipt per line. It runs no gate and re-decides
+nothing: every status below is copied out of the record the stages wrote, and the
+command's exit code is that record's outcome, so a report of a blocked run exits
+4 rather than 0 for having been printed.
+
+The capture below is the `report.md` the Stage 7 hero run above leaves behind —
+same run, same `VG-001`, same three criteria. It is the real bytes of that test's
+pack file, produced by the same command:
+
+```bash
+MERGESUTRA_HERO_CAPTURE=1 npx vitest run tests/verify/hero.test.ts
+```
+
+**Deterministic development capture using the local BharatCode-compatible test
+stub.** No live BharatCode call was made and no credential was used. The gates in
+it are real processes run by that test, and the receipts are the ones the engine
+filed; the run store here is a temporary directory the test cleans up.
+
+```text
+# MergeSutra evidence pack — run-20260925T090000Z-7fffff
+
+- Issue: (no issue recorded)
+- Stage: verify · Outcome: VERIFICATION_PASS
+- Verification: PASS
+- Consent: operator named VG-001, VG-002
+
+## Gates
+
+| Gate | Command | Exit | Result |
+| --- | --- | --- | --- |
+| VG-001 | node --test test/invalid.test.mjs | exit 0 | PASS |
+| VG-002 | node --test | exit 0 | PASS |
+| VG-003 | git diff --check | exit 0 | PASS |
+
+## Criteria
+
+| Criterion | Status | Evidence | Gates |
+| --- | --- | --- | --- |
+| AC-1 The repository's required `test` check passes. | PASS | VERIFIED | VG-001 |
+| AC-2 An unparseable date string is rejected with a TypeError. | PASS | VERIFIED | VG-001 |
+| AC-3 A valid ISO date still parses to the same instant. | PASS | VERIFIED | VG-002 |
+
+Every row above is copied from the run record this pack was built from; nothing
+here adds a verdict. Readiness to contribute is decided by a human at a later
+stage, and no row in this table means it.
+
+## What the model said about its own work (a claim; decided nothing)
+
+- implement loop — the model's FINISH action (a claim; nothing below read it):
+  parseDate now rejects; the regression test covers it. Believed complete: AC-2, AC-3.
+
+## What these rows do not claim
+
+From the evidence mapper, about the rows above:
+
+- No node_modules directory: a gate that reaches a local binary will fail for want
+  of installed dependencies. MergeSutra will not install anything to make a gate
+  run — a human sets the workspace up, and the report says so.
+- This says what deterministic gates established. Calling a change contribution-ready
+  is a later stage reading this record along with review and packaging, not a
+  conclusion available here.
+
+Recorded by the stages of this run, oldest first:
+
+- Carried from run run-20260925T090000Z-c3ab19: No CODEOWNERS file found: ownership
+  of specific paths is unknown.
+- No criterion in this contract has been checked. `PENDING` is the only status
+  MergeSutra could honestly assign.
+- Nothing here is verified. No criterion changed status and no evidence was
+  collected; that is Stage 7.
+- The workspace is left in place with uncommitted changes; MergeSutra does not
+  delete or reset it.
+- …(twelve lines in the file; four are shown here and eight are omitted)
+```
+
+- **The table cannot be over-read.** Under "Criteria" the status and the
+  sufficiency are separate columns, because they answer different questions: the
+  first is the criterion's conservative state, the second is how far the receipts
+  carry it. A row of `PASS · VERIFIED · VG-001` says one named command exited 0
+  and the mapping judged that enough for this criterion — nothing more.
+- **A caveat stays with the document that wrote it.** That run record accumulates
+  the earlier stages' limitations, so it still contains "Nothing here is verified"
+  after its own gates verified three criteria. The pack neither deletes the line
+  (that would be a verdict) nor prints it flat (that would be the pack repeating a
+  claim it disproves); it says which of the three documents wrote each note.
+- **`commands.jsonl` is the receipts, not a summary of them.** Each line is the
+  receipt object as the engine filed it — argv, cwd, exit code, termination, the
+  patch identity it describes, and a digest over the unredacted output — so a
+  reviewer can check the table against the process rather than against this page.
+- **`contributionReady` in `report.json` is a constant `false`.** The renderer
+  writes it and reads it from nowhere, so Stage 8 has no field for a run to talk
+  itself into being ready; that verdict is [Stage 10](docs/ROADMAP.md)'s, with a
+  diff reviewer and a human in it.
+
 ## Installation *(planned)*
 
 Today MergeSutra is run from a checkout. A published npm package comes at
@@ -589,8 +695,10 @@ Today MergeSutra is run from a checkout. A published npm package comes at
 ```bash
 mergesutra issue https://github.com/owner/repo/issues/123   # hero workflow
 mergesutra issue <url> --dry-run                            # read-only analysis
-mergesutra status | resume | report | pr                    # recovery + output
+mergesutra status | resume | pr                             # recovery + output
 ```
+
+`report` is missing from that list because it already works; see "Try it now".
 
 Global flags: `--dry-run`, `--verbose`, `--json`, `--no-color` (also honours
 `NO_COLOR`), `--yes`.
@@ -607,13 +715,14 @@ Global flags: `--dry-run`, `--verbose`, `--json`, `--no-color` (also honours
 | `plan` | Ask BharatCode for an implementation plan against a run's criteria — proposals only, runs nothing | Ready |
 | `implement` | The bounded loop: BharatCode proposes one action per turn, MergeSutra validates it and executes the allowed ones in the run's own worktree — writes files, verifies nothing, publishes nothing | Ready |
 | `verify` | The deterministic engine: plan the repository's own gates against the patch a run left on disk, run only what the operator named, and judge each one by its exit code | Ready |
+| `report` | Render a run's evidence pack — `report.md`, `report.json`, `commands.jsonl` — from its record, deciding nothing and exiting with the outcome already recorded | Ready |
 | `issue`     | Intake: read an issue, pin the repository + base commit into a run record | **Partial — intake only** |
 | `issue` *(full workflow)* | Hero workflow: issue → evidence-backed PR draft | Planned  |
-| `run` `review` `report` `pr` `status` `resume` | Phase / recovery commands | Planned |
+| `run` `review` `pr` `status` `resume` | Phase / recovery commands | Planned |
 
 A planned command reports honestly and exits non-zero — it never fakes success.
 `mergesutra run` — the unattended pipeline from issue to PR — is still planned,
-and stays planned: `review`, `report` and `pr` do not exist yet, so a command
+and stays planned: `review` and `pr` do not exist yet, so a command
 that promised the whole product would be a lie with a nice name.
 
 `inspect` and `contract` are read-only: they never execute a command from the
@@ -717,10 +826,12 @@ the patch they were agreed to), the **verification run** (one receipt per gate:
 exit code, termination, an output tail of up to 4 KB, and the patch identity that
 receipt describes), and one **acceptance evidence** row per criterion — its
 status, how far the receipts carry it, which gate ids did the carrying, and what
-is still missing. The richer bundle —
-`commands.jsonl`
-receipts, verification, review, `report.md`/`report.json` under
-`.mergesutra/runs/<id>/` — is the [Stage 12](docs/ROADMAP.md) target. Nothing
+is still missing. Stage 8 put the same facts in front of a human: `report.md`,
+`report.json` and `commands.jsonl` under `.mergesutra/runs/<id>/`, beside the
+record they were rendered from. What is still ahead is a *review* of the diff by a
+second model pass that changes nothing, at
+[Stage 9](docs/ROADMAP.md), and the adversarial hardening at
+[Stage 12](docs/ROADMAP.md). Nothing
 here is ever committed automatically. The record is schema version 6; a file
 written by an earlier stage build is reported as unreadable rather than guessed
 at, so re-run the stage after upgrading.
@@ -801,9 +912,11 @@ Stage 6 — the bounded implementation loop that first calls them, `mergesutra
 implement` — is done: it writes files in a workspace and changes nothing else.
 Stage 7, the deterministic verification engine, is done too: `mergesutra verify`
 plans a repository's own gates, runs the ones a human names, and files the
-receipts against the criteria they prove. Stage 8 (the `.mergesutra/runs/<id>/`
-evidence pack and a `report` command that renders it without re-deciding anything)
-is next, along with the commands that still report themselves as planned.
+receipts against the criteria they prove. Stage 8 is done with it: `mergesutra
+report` renders the `.mergesutra/runs/<id>/` evidence pack — `report.md`,
+`report.json`, `commands.jsonl` — out of a run record, without re-deciding a
+single status in it. Stage 9 (an independent diff review that critiques and never
+edits) and the commands that still report themselves as planned are next.
 
 ## Contributing
 

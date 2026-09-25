@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
 Each record: **decision → reason → alternatives → consequence**. These are
-actual decisions taken while building Stages 0-6, not aspirations.
+actual decisions taken while building Stages 0-8, not aspirations.
 
 ## ADR-001 — MergeSutra sits above the model/runtime layer
 
@@ -822,3 +822,123 @@ actual decisions taken while building Stages 0-6, not aspirations.
   labelled as such wherever the output appears — the honest description being
   "deterministic development capture using the local BharatCode-compatible test
   stub", never a claim of a live run.
+
+## ADR-042 — The evidence pack is a rendering of the record, never a second decision-maker
+
+- **Decision:** `src/report/pack.ts` may arrange facts already in the run record
+  and may not add one. The criteria table copies each row's `status`,
+  `sufficiency` and `gateIds` out of `record.evidence`; `report.json` embeds the
+  evidence document, the verification plan and the execution consent as they were
+  filed; the renderer's own strings are headings and the sentence "this command
+  decided nothing". `contributionReady` in the JSON is a literal `false` written
+  by the renderer, which is the one fact it asserts and the one ADR-039 already
+  settled.
+- **Reason:** The moment a packaging step is allowed to reason, there are two
+  places a verdict can come from and only one of them is auditable against a
+  receipt. Keeping the pack a projection also makes the sharpest reviewer
+  question answerable by opening one file: "did this run really pass?" is
+  answered by the record, and the pack cannot flatter it. The first test in
+  `tests/report/pack.test.ts` asserts exactly this — a run that never verified
+  produces a pack with no `VERIFIED` and no `PASS` anywhere in it.
+- **Alternatives:** a report that re-derives sufficiency from the receipts
+  (a second mapper, free to disagree with the first); a report that hides a
+  caveat it judges stale (deciding, not rendering, and invisible from the page);
+  emitting only JSON with a separate viewer (the reviewer then has to run
+  something to see what a run established, which is Stage 8's whole failure
+  mode).
+- **Consequence:** Any verdict a future stage wants a reviewer to see must be
+  written into the record by the stage that earned it — the pack will print it
+  once it exists and will not guess at it while it does not. This is also why
+  Stage 8's integration proof is the hero run's own record rendered off disk:
+  the renderer is only trustworthy at the width of a real record.
+
+## ADR-043 — `commands.jsonl` re-emits each receipt verbatim rather than summarising it
+
+- **Decision:** One line per gate the run started, holding the receipt object
+  exactly as the engine filed it — no re-ordered keys, no shortened stderr, no
+  "exit code summary" column.
+- **Reason:** A receipt is already the bounded, centrally redacted account of a
+  process, and it carries a digest over the unredacted bytes
+  (`digestsUnredactedOutput`). Re-encoding it in the pack would put a second
+  version of the same fact on disk and give the two a way to disagree — and a
+  reader who finds the disagreement cannot tell which one the harness trusted.
+- **Alternatives:** a per-gate summary with truncated output (the truncation
+  rule becomes a renderer decision that the receipt's own bound already made);
+  no command list at all in the pack, only in the record (the reviewer then has
+  to read the record's whole JSON to find what ran); re-running commands to
+  capture fresh output (Stage 8 runs nothing — ADR-035 makes execution a
+  consented capability, not a side effect of formatting).
+- **Consequence:** A pack for a run with many gates is a long JSONL file, and
+  that is the correct shape: line count equals commands started, so a reader can
+  count them. The hero test parses the file back and asserts all three receipts,
+  which fails if the renderer ever starts paraphrasing.
+
+## ADR-044 — A caveat is printed under the name of the document that wrote it
+
+- **Decision:** `report.md` groups the qualifier notes as *From the evidence
+  mapper, about the rows above*, *Recorded by the stages of this run, oldest
+  first*, and *Recorded with the Acceptance Contract*, and `report.json` keeps
+  `stageLimitations` and `contractLimitations` as separate keys. A criterion's
+  own `limitations` are filed under the mapper once evidence exists and under
+  the contract before it, because those are the documents that actually wrote
+  them.
+- **Reason:** `record.limitations` is append-only — each stage carries the
+  previous record's lines forward and adds its own — so by the verify stage the
+  list still contains "Nothing here is verified. No criterion changed status.",
+  which was true of the contract stage and false of the run. Printed as one flat
+  list, that line sat under three `VERIFIED` rows and read as the run's own
+  conclusion. This was found by the hero integration test, not by a fixture: a
+  hand-built record never carries a stage's caveats forward.
+- **Alternatives:** deleting a caveat a later stage answered (the renderer would
+  be judging which lines survive, which ADR-042 forbids); annotating each line
+  with the stage that wrote it (accurate, but `verify` reuses the source run id,
+  so the attribution would point at the same run that is reading it); leaving it
+  flat and trusting the prose above the table (the ordering of the table is what
+  a skimming reader follows).
+- **Consequence:** A carried caveat stays on the page for as long as the record
+  holds it, which is the honest outcome — a reviewer can check it against the
+  document named in the heading. Groups drop out when empty, so a clean run's
+  pack has no qualifications section.
+
+## ADR-045 — `report`'s exit code is the recorded outcome's, not the write's
+
+- **Decision:** `mergesutra report` returns `exitForOutcome(record.outcome)` —
+  `0` for a passed or contract-derived run, `1` for `VERIFICATION_FAIL`, `3` for
+  inconclusive or cancelled, `4` for blocked — after the pack has been written.
+  A refusal to read a record surfaces as the usual error path and writes no pack.
+- **Reason:** The command succeeded as a file operation on a blocked run, and a
+  script that treats exit `0` as "safe to hand to a maintainer" would then be
+  reading a report of a run that was stopped. The exit code is the only thing a
+  pipeline consumes, so it has to carry the run's verdict rather than the
+  renderer's mood.
+- **Alternatives:** `0` whenever the pack is written (a success signal for a
+  tool that reports on other tools' failures); an exit code per file written
+  (measures the wrong thing more precisely); exiting `2` for a blocked run
+  (collides with "planned, not implemented", which is a different statement).
+- **Consequence:** `report` is usable as a gate in CI and, like every other
+  status-bearing command here, its number can be read without opening the pack —
+  while §9's rule still holds that the exit code is primary and not sufficient,
+  because the pack beside it says which gates carried it.
+
+## ADR-046 — One pack per run, rewritten whole; no pack history
+
+- **Decision:** Writing a pack replaces the three files in
+  `.mergesutra/runs/<run-id>/`. There is no timestamped directory per rendering,
+  and no manifest of which record produced the current pack — the run id in the
+  directory name is the only binding, and the pack's `schemaVersion: 1` is a
+  format marker rather than a revision counter.
+- **Reason:** The alternative — keeping old renderings — invites a reviewer to
+  open a pack that describes a superseded record and cannot tell. Replacing is
+  the same choice ADR-040 makes about a contaminated workspace: an artifact that
+  may be stale is worse than one that is simply regenerated, and a run is cheap
+  to report again.
+- **Alternatives:** a dated subdirectory per report (auditable, but the "latest"
+  then depends on mtime, which is exactly the ambiguity the pack exists to
+  remove); a manifest file with the source record's digest (the record is one
+  directory up and unmodified, so it adds a file that can only drift); refusing
+  to overwrite (a second honest run then reports nothing).
+- **Consequence:** `mergesutra report` is not an archive. When Stage 12 wants
+  pack history or a combined manifest, it has to decide how a pack names the
+  record version it came from — the gap is recorded under Stage 8 in
+  `docs/ROADMAP.md` rather than papered over by a directory full of undated
+  files.

@@ -384,16 +384,59 @@ partially in place; `[ ]` = not started. Do not read an unchecked box as done.
       without it; the hero stays green either way, because its criteria quote the
       command the way CI spells it.
 
-## Stage 8 — Evidence mapping + report
+## Stage 8 — Evidence mapping + report — **[DONE]**
 
 The criterion-to-evidence mapping and the command receipts were the substance of
 Stage 7 and shipped there, so what is left in this stage is packaging them for a
 human reader rather than deriving anything new:
 
-- [ ] `.mergesutra/runs/<id>/` evidence pack: `report.md`, `report.json`,
-      `commands.jsonl`, beside the run record that already holds them
-- [ ] `mergesutra report [run-id]` with `--json`, rendering the pack for a reviewer
-      without re-deciding any status
+- [x] `.mergesutra/runs/<id>/` evidence pack: `report.md`, `report.json`,
+      `commands.jsonl`, beside the run record that already holds them. The pack is
+      a rendering and that is its whole discipline: `report.json` carries the
+      record's `evidence` object verbatim, `commands.jsonl` re-emits each receipt
+      exactly as the engine filed it (re-encoding one would put two versions of the
+      same fact on disk), and `report.md`'s criteria table copies each row's
+      status, sufficiency and gate ids out of the record. `src/report/` computes no
+      verdict.
+- [x] `mergesutra report [run-id]` with `--json`, rendering the pack for a reviewer
+      without re-deciding any status. With no run id it takes the newest record in
+      `.mergesutra/runs/`; with no record at all it refuses rather than writing an
+      empty pack. Its exit code is the recorded outcome's, so a report of a blocked
+      run exits 4 — having been written neatly is not success.
+- [x] A run that never verified cannot acquire a passing row from this stage: the
+      same builder fed a contract-stage record prints `PENDING` beside `no
+      verification has run`, and `tests/report/pack.test.ts` holds that no
+      `VERIFIED`, `PASS` or "contribution ready" text appears in that pack at all.
+- [x] The model's own account is printed, and labelled: the loop's FINISH sentence
+      goes in a section named "What the model said about its own work (a claim;
+      decided nothing)", and the test asserts the criteria table never contains it.
+- [x] Caveats are printed under the document that wrote them. A run's `limitations`
+      field grows by carry-forward, so a verify-stage record still holds "Nothing
+      here is verified" — a sentence its own receipts disprove. Deleting it would be
+      the pack deciding something; printing it in one flat list would be the pack
+      re-asserting it. So `report.md` groups the notes three ways (the mapper, the
+      stages of this run, the contract) and `report.json` keeps `stageLimitations`
+      and `contractLimitations` apart.
+- [x] Proved on a run that really happened, not only on fixtures:
+      `tests/verify/hero.test.ts` files the verified record through the real
+      filesystem store, reads it back through `runReportStage` into a temporary
+      workspace, and checks the three files on disk — the three exit-0 receipts in
+      `commands.jsonl`, the `AC-1, AC-2 → VG-001` and `AC-3 → VG-002` rows, the
+      attribution above, and the absence of any `CONTRIBUTION_READY` string.
+- [x] Writes are atomic and confined: the run id is validated before it touches a
+      path, each file goes to a `.<pid>.tmp` sibling and is renamed into place with
+      mode `0600`, and a traversal-shaped run id is refused with the file it would
+      have landed on left alone.
+- [x] Not done on purpose: the pack does not rank, score or summarise the evidence,
+      does not decide which carried caveat a later stage answered, and never writes
+      to the run record. `report` reads state and writes three files.
+- [x] Known gap: a pack is rewritten whole on every call, so `.mergesutra/runs/<id>/`
+      holds only the latest rendering of a run; the history of what a run claimed
+      last week is not kept, and Stage 11's `status`/`resume` UX has to live with that.
+- [x] Known gap: `report` renders whatever record it is pointed at, including one
+      whose stage is `intake`, so a pack for an early run says very little and looks
+      like any other pack. Stage 10's PR draft is where a reader is told which pack
+      is complete enough to review.
 
 ## Stage 9 — Independent diff review + bounded repair
 

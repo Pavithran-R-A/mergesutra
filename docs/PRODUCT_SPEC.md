@@ -153,7 +153,7 @@ what was run, what passed, what failed or could not be checked — and decide
 whether to publish. Honest reporting of failures is a success condition, not a
 defect.
 
-## 10. Limitations (current, at Stage 7)
+## 10. Limitations (current, at Stage 8)
 
 - Implemented today: CLI skeleton, BharatCode adapter, config, redaction,
   structured errors, `doctor`, **intake** (`mergesutra issue <url>` — parses the
@@ -174,7 +174,12 @@ defect.
   the **deterministic verification engine** (`mergesutra verify [run-id]` — the
   repository's own gates, discovered with file-and-line provenance, run only under
   a per-gate `--allow` an operator gives, judged by their exit codes and nothing
-  else, and filed against the criteria whose stated command each one really ran).
+  else, and filed against the criteria whose stated command each one really ran),
+  and the **evidence pack** (`mergesutra report [run-id]` — the run record read
+  back and rendered as `report.md`, `report.json` and `commands.jsonl` beside it:
+  statuses copied, receipts re-emitted as filed, caveats grouped by the document
+  that wrote them, and an exit code taken from the recorded outcome rather than
+  from the fact that printing succeeded).
 - Stage 5 shipped the safety layer as **modules with no command**: the worktree
   manager (`src/git/workspace.ts`), the risk classifier
   (`src/process/tool-policy.ts`) and the confined writer
@@ -183,13 +188,20 @@ defect.
   longer only a policy document — every action the loop can take is routed
   through them, and there is no code path in `src/implement/` that reaches
   `fs.writeFile`, `fs.rm`, `fs.rename`, `exec`, `execSync` or a shell-mode spawn.
-- Everything from Stage 8 on — the evidence pack and `report`, review, PR drafting
+- Everything from Stage 9 on — the independent diff review, PR drafting
   and resumability (`status` / `resume`) — is **[DESIGNED]** / **[PLANNED]**, not
-  yet functional. Planned commands exit `2` rather than imitating success.
-- Every derived criterion is still `PENDING` after `implement` finishes, and the
+  yet functional. Planned commands exit `2` rather than imitating success. The
+  pack `report` writes is three files rendered from one run record; the
+  one-file-per-document bundle sketched in
+  [ARCHITECTURE.md](ARCHITECTURE.md) §8 stays a sketch, because splitting the same
+  facts across files gives each fact two places to be wrong.
+- Every derived criterion is `PENDING` after `implement` finishes, and the
   CLI says so on screen: the loop ran no gate from the Acceptance Contract, and
   `Verification` is `NOT_AVAILABLE` in every implementation record. Attaching a
-  status is `verify`'s job, and it is the only stage that can do it.
+  status is `verify`'s job, and it is the only stage that can do it. A `report`
+  built before `verify` renders that honestly — the row keeps `PENDING`, its
+  Evidence column says `no verification has run`, and `report.json`'s
+  `verification` is `null` — so the pack cannot be mistaken for a run that passed.
 - What `implement` establishes is **permission, not merit**. It records what ran,
   what was refused and with which reason; whether the patch satisfies the issue
   is what `verify` asks, and even its answer is bounded: a gate `PASS` is one

@@ -125,6 +125,17 @@ runs: same patch, same rows; a workspace that moved on gets its rows marked
 `STALE`. Nothing has to mutate the contract for a verification to be honest
 about what it established, and nothing can.
 
+`mergesutra report` then puts that document in front of a human without adding to
+it. The pack it writes beside the run record repeats the rows as they were filed —
+`report.md`'s criteria table is `status`, `sufficiency` and `gateIds` copied out of
+`record.evidence.criteria`, and `report.json` embeds the `evidence` object itself —
+and the pack for a run that has not verified prints the contract's own `PENDING`
+beside a column that reads `no verification has run`. So the trace a reviewer is
+owed, `requirement → change → verification → evidence`, is readable off disk rather
+than only off an in-memory object: `AC-2 → VG-001` in the table, and
+`VG-001`'s argv, exit code and patch identity on the matching line of
+`commands.jsonl`.
+
 Three rules decide whether a receipt counts for a criterion:
 
 - **Relevance is a command match, not a theme.** A criterion whose verification
