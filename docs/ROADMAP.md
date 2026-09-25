@@ -258,17 +258,142 @@ partially in place; `[ ]` = not started. Do not read an unchecked box as done.
       `ALLOW` proves the argv was not destructive; it does not prove the command
       cannot write outside the workspace by naming an absolute path itself.
 
-## Stage 7 — Deterministic verification engine
+## Stage 7 — Deterministic verification engine — **[DONE]**
 
-- [ ] Repo-native check discovery with provenance (REPOSITORY_REQUIRED vs
-      MERGESUTRA_ADDITIONAL vs OPTIONAL)
-- [ ] Gates: format/lint/typecheck/unit/targeted/build/secret-scan/scope-guard
-- [ ] Node/TS/JS first; graceful generic fallback
+- [x] Gate discovery from repository evidence only (`src/verify/gates.ts`): a gate
+      exists when a CI workflow step or a declared package script runs the command.
+      Prose in a contributing guide, a config file that implies a tool and a
+      MergeSutra preference all *corroborate* a gate and never create one. Each
+      gate carries `provenance` (source, file, line — a reviewer can open it) and a
+      separate `requirementLevel`: `REPOSITORY_REQUIRED` (a CI step reaches it),
+      `REPOSITORY_SUGGESTED` (declared, nothing runs it), `MERGESUTRA_ADDITIONAL`
+      (the builtin `git diff --check`), and `USER_REQUESTED`, which is in the
+      vocabulary so an operator-supplied gate has a label later and which nothing
+      in this build emits — a criterion's stated check never creates a gate, it
+      only matches one.
+- [x] A candidate that cannot be honoured is refused loudly with its file and line
+      — a step needing a shell, an install, or a script the manifest never declares
+      is reported rather than dropped, so "CI has five steps, two became gates" is
+      visible instead of being a silent narrowing.
+- [x] `commandForms`: the invocation plus every script body it really reaches, so
+      `npm test` and the `vitest run` behind it are one command for the one question
+      "does this gate speak to this criterion's stated check". Case-preserving, and
+      still a spelling match against commands the gate reaches — not a theme, not a
+      guess about what a suite covers.
+- [x] Gate kinds are the Stage 2 vocabulary and nothing else — `format`, `lint`,
+      `typecheck`, `test`, `build` — assigned from the command the repository
+      spells, not from a guess about its intent. Node-TypeScript-JavaScript comes
+      first through the manifests Stage 2 already reads; a repository that declares
+      no scripts still yields the gates its CI workflow runs, which is the generic
+      fallback.
+- [x] `executionClass` (`READ_ONLY` / `MUTATION_CAPABLE`) is a disclosure, not a
+      switch: the workspace is re-described after *every* gate, because a test
+      suite can write a snapshot file too.
+- [x] Patch identity (`src/verify/patch.ts`): the sha-256 of the run's own
+      uncommitted state (tracked diff, untracked additions, deletions, renames as
+      one gone and one arrived), with Git scratch, `.mergesutra/` and nested
+      worktrees excluded even when the repository forgot to ignore them. Every
+      receipt names it, and evidence whose identity no longer matches the workspace
+      is marked `STALE` in the report rather than trusted silently.
+- [x] Execution consent (`src/verify/consent.ts`): a repository command runs only
+      under `--allow VG-00n`, per gate, bound to this plan's digest, this command
+      and this patch — change any of the three and the consent stops matching.
+      `mergesutra verify <run>` with no consent writes the plan, refuses every
+      repository gate, prints the exact ids and the re-run line, and exits `4`.
+- [x] Receipts (`src/verify/receipt.ts`): one row per gate — argv, exit code,
+      termination, bounded stdout/stderr tail, duration. The exit code is the
+      verdict and nothing else is consulted; a gate that could not start is
+      `BLOCKED` rather than `FAIL`, and a timeout says the process was stopped, not
+      that the patch is wrong.
+- [x] Contamination detection (`src/verify/engine.ts`): a gate that leaves the
+      workspace different from how it found it invalidates the run's verdict rather
+      than adding a receipt, because the next gate would be measuring a patch
+      MergeSutra never identified.
+- [x] Evidence mapping (`src/verify/evidence.ts`): a criterion's `status` stays one
+      of the six truthful values and its `sufficiency` says how much of it the
+      receipts carried (`VERIFIED` / `PARTIALLY_VERIFIED` / `NOT_VERIFIED` /
+      `FAILED` / `BLOCKED` / `MANUAL_REVIEW_REQUIRED`). `PASS` requires an executed
+      gate whose command forms match that criterion's own check; one criterion
+      passing never carries another; no numeric confidence exists to be inflated.
+- [x] Model output can never produce a deterministic `PASS`: the implementation
+      loop's `FINISH` is filed as a claim, rendered under its own heading labelled
+      "a claim; decided nothing", and no status rests on it.
+- [x] Run record v6 carries four new Stage 7 documents (`verificationPlan`,
+      `executionConsent`, `verification`, `evidence`); a v5 file is reported
+      unreadable rather than guessed at, and `contributionReady` is
+      `z.literal(false)` in the evidence schema, so "verified, therefore ready to
+      submit" is unconstructible rather than merely unadvised.
+- [x] `mergesutra verify [run-id] [--allow VG-001 …] [--json] [--no-color]`
+      (`src/cli/verify.ts`, `src/verify/stage.ts`) reads the run's real state, the
+      patch really on disk and the model's real claim; `mergesutra run` still exits
+      `2`. Stage 7 logic lives in `src/verify/`, not in the implementation loop.
+- [x] Hero integration fixture (`tests/verify/hero.test.ts`): a scratch Git
+      repository whose CI demands a regression test that does not exist yet, taken
+      through `inspect` → `contract` → `plan` → `implement` → `verify` with the real
+      stages, real `node --test` child processes and the real patch identity. The
+      AC→VG trace is asserted twice — structurally on the evidence document and
+      textually on the printed report — and the fixture carries its own teeth: a
+      final assertion that the regression test *fails* against the base commit, so
+      no part of the chain can pass by being hard-wired.
+- [x] 144 offline, deterministic tests for the stage — 140 across `tests/verify/*`
+      and 4 in `tests/cli/verify.test.ts` — with no network, no credential and no
+      live BharatCode call. `npm run check` is green at this stage's close with
+      **800 passing and 2 skipped** (the two opt-in live-endpoint checks, which
+      skip on a machine with no `BHARATCODE_API_KEY` rather than pretending).
+- [x] Regression evidence is a narrow, explicit mechanism, not an orchestration
+      (`compareRegressionEvidence` in `src/verify/evidence.ts`): it takes two
+      receipts of *the same gate* on *the same base commit* with *different patch
+      identities*, and says only what it can see — base `FAIL` and patch `PASS` is
+      regression evidence, both-`PASS` explicitly is not, and a pair that does not
+      match is refused as a mistake rather than recorded as inconclusive. The
+      `statement` carries its own limit into the record.
+- [x] Not done on purpose: **no base-run orchestration.** Nothing in `verify`
+      creates a second workspace or re-runs a gate against the base commit, because
+      a stage that silently runs the suite twice doubles the commands a human
+      consented to. The two receipts a regression comparison needs are supplied by
+      a caller that ran both, and `tests/verify/hero.test.ts` proves the base side
+      by hand: the same regression command, executed against the base commit's
+      code, exits non-zero.
+- [x] Not done on purpose: **no `CONTRIBUTION_READY`.** Stage 7 emits
+      `VERIFICATION_PASS` / `FAIL` / `BLOCKED` / `INCONCLUSIVE` / `CANCELLED` and
+      hands off to review; the ready verdict belongs to a later stage that has seen
+      a diff reviewer and a human.
+- [x] Not done on purpose: no gate is *fixed* by this stage — no `--fix`, no
+      `prettier --write`, no retry after mutating the workspace, no dependency
+      install. A missing `node_modules` is a sentence in `missingPrerequisites`.
+- [x] Not done, and the earlier box for it was aspirational: **secret-scan and
+      scope-guard are not gates.** Stage 7's only MergeSutra-added gate is
+      `git diff --check`. Credentials are kept out of records by central redaction
+      on the write path (Stage 0 onwards) rather than by a gate that scans for them
+      after the fact, and the adversarial scan-and-contamination hardening belongs
+      to Stage 12, where it can be tested against real secrets rather than asserted.
+- [x] Known gap: the heuristic that reads a command's purpose (`--check`,
+      `node --test`, a script body) is qualified on Node/TypeScript/JavaScript and
+      on the generic "whatever CI runs" path. Its regexes name `pytest`, `unittest`
+      and `phpunit`, but this build has no non-Node repository run, so a Python,
+      Go, Rust or Java gate is reported with its provenance and stays consent-gated
+      while its `executionClass` deserves a human's eye.
+- [x] Known gap: the hero fixture's criteria are numbered with the repository's own
+      CI demand first (`AC-1`, from the workflow) and the human-stated ones after
+      (`AC-2`, `AC-3`), which is Stage 3's derivation order and not a re-numbering
+      for the demo; the trace it proves is `AC-1, AC-2 → VG-001` and
+      `AC-3 → VG-002`.
+- [x] Known gap: the hero exercises the whole chain, not every branch of it. The
+      script-body spelling widening in `commandForms` is covered by
+      `tests/verify/gates.test.ts` and `tests/verify/evidence.test.ts`, which fail
+      without it; the hero stays green either way, because its criteria quote the
+      command the way CI spells it.
 
 ## Stage 8 — Evidence mapping + report
 
-- [ ] Criterion-to-evidence mapping; command receipts
-- [ ] `.mergesutra/runs/<id>/` evidence pack + `report`/`--json`
+The criterion-to-evidence mapping and the command receipts were the substance of
+Stage 7 and shipped there, so what is left in this stage is packaging them for a
+human reader rather than deriving anything new:
+
+- [ ] `.mergesutra/runs/<id>/` evidence pack: `report.md`, `report.json`,
+      `commands.jsonl`, beside the run record that already holds them
+- [ ] `mergesutra report [run-id]` with `--json`, rendering the pack for a reviewer
+      without re-deciding any status
 
 ## Stage 9 — Independent diff review + bounded repair
 

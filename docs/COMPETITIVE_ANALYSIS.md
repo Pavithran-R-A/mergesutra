@@ -28,11 +28,12 @@ runner for the core local path.
 - **Status:** the repository-policy compiler (Stage 2), the Acceptance Contract
   with its criteria and verification plans (Stage 3), a planner that must
   account for every criterion without being able to mark one proven (Stage 4),
-  and a bounded implementation loop that changes files only inside its own
-  worktree and only through actions a deterministic policy allowed (Stage 6) are
-  **shipped** — what is still **[DESIGNED]** is the other half of the chain:
-  attaching executed evidence to those criteria (Stage 7/8) and the
-  evidence-first PR output.
+  a bounded implementation loop that changes files only inside its own worktree
+  and only through actions a deterministic policy allowed (Stage 6), and a
+  verification engine that runs a repository's own gates only when an operator
+  names them and then attaches their receipts to the criteria they prove
+  (Stage 7) are **shipped** — what is still **[DESIGNED]** is the diff reviewer
+  and the evidence-first PR output that reads this record.
 
 ### PatchProof-style verifiers
 
@@ -44,11 +45,17 @@ implementation → verification → PR workflow, not only validation of an
 already-created patch. Verification is one layer inside a larger evidence
 harness.
 
-- **Status:** verification engine **[DESIGNED]** (Stage 7). The BharatCode
-  adapter and redaction are implemented and Stages 4 and 6 both use them for
-  real, and Stage 6 executes developer commands the policy allowed — but not one
-  gate from a repository contract has been run, so every criterion is still
-  `PENDING` and MergeSutra has no verification claims to make.
+- **Status:** the verification engine is **[SHIPPED]** (Stage 7). It discovers
+  gates from CI steps and declared scripts with file-and-line provenance, runs
+  none of them until an operator names the id, takes the exit code as the whole
+  verdict, re-describes the patch after every gate so a gate that edited the
+  workspace voids its own run, and marks a criterion's evidence `STALE` when the
+  workspace moves off the patch the receipts describe. What it deliberately does
+  not do: orchestrate a base run (the regression comparison takes two receipts a
+  caller already holds, and refuses a pair that is not one), scan for secrets as
+  a gate, or declare anything contribution-ready. Stages 4 and 6 spend real
+  BharatCode calls through the adapter, and no model output has ever produced a
+  `PASS` — the only writer of a criterion's status reads receipts.
 
 ### MergeMitra-style PR reviewers
 

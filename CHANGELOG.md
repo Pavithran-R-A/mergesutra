@@ -6,6 +6,82 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Stage 7: the deterministic verification engine
+
+The first stage that can move an acceptance criterion off `PENDING`, and the only
+one that can do it from something other than a model's own account. BharatCode
+proposed; the repository's tools executed under policy; here, deterministic gates
+observe and an evidence record says what actually happened.
+
+- `mergesutra verify [run-id]` — plans a repository's own gates against the patch
+  an implementation run left on disk, runs the ones the operator names, and files
+  their receipts against the criteria they prove. Flags: `--repo`,
+  `--allow VG-001` (repeatable), `--json`, `--no-color`. Exit codes: `0`
+  `VERIFICATION_PASS`, `1` `VERIFICATION_FAIL`, `4` `VERIFICATION_BLOCKED`, `3`
+  `VERIFICATION_INCONCLUSIVE` — and `4` is what an unconsented run returns, because
+  "I did not run your tests" is a blocked state, not a success.
+- Gate discovery with provenance a reviewer can open (`src/verify/gates.ts`): a
+  gate exists when a CI workflow step or a declared package script runs it, and
+  each one carries its file and line plus a `requirementLevel` —
+  `REPOSITORY_REQUIRED`, `REPOSITORY_SUGGESTED` (declared, nothing runs it),
+  `MERGESUTRA_ADDITIONAL` (MergeSutra's own `git diff --check`, labelled as its
+  own), and `USER_REQUESTED`, which nothing emits yet. Prose in a contributing
+  guide corroborates a gate and never creates one; a CI step MergeSutra cannot
+  translate is refused loudly with its location rather than dropped, so "five
+  steps, two gates" stays visible.
+- Patch identity (`src/verify/patch.ts`): a sha-256 over the workspace's
+  uncommitted state against the run's base commit — tracked diff, untracked
+  additions, deletions, renames as one gone plus one arrived — with Git internals,
+  `.mergesutra/` and nested worktrees excluded even when the repository forgot to
+  ignore them. Every plan, receipt and evidence row names the identity it
+  describes, and a workspace that moved gets its rows marked `STALE` instead of
+  trusted.
+- Execution consent as a capability (`src/verify/consent.ts`): a repository
+  command runs only under a per-gate `--allow`, and the consent carries
+  `scopeDigest(plan)` — the exact set of ids, working directories and argv it was
+  given for. `--allow all` is refused as the malformed id it is; an empty list is
+  no consent at every gate, each of which then records `NOT_EXECUTED` with the
+  command it declined to run.
+- Receipts (`src/verify/receipt.ts`) that cannot hold a verdict: exit code,
+  termination, duration, the patch identity, provenance, a bounded tail of
+  *redacted* stdout/stderr, and the digest of the unredacted bytes with a field
+  saying which of the two the hash describes. `exitCode: 0` with
+  `termination: 'NOT_EXECUTED'` is refused as incoherent rather than read as a
+  pass.
+- The engine (`src/verify/engine.ts`) takes the exit code as the whole verdict for
+  a gate, refuses to start any gate while the workspace no longer matches the plan
+  it was built for, and re-describes the patch after every one: a gate that
+  rewrote the tree — a formatter wearing a check's clothes — records
+  `contamination` and makes the run `INCONCLUSIVE` rather than producing receipts
+  about bytes nobody identified.
+- Conservative evidence mapping (`src/verify/evidence.ts`): a criterion's status
+  and its `sufficiency` are separate facts, and `PASS` requires each step of that
+  criterion's own verification plan to be carried by a gate whose command really
+  matches it — the invocation plus every script body it reaches, so `npm test` and
+  the `vitest run` behind it count as one command. A step that asks for a human
+  holds the row at `MANUAL_REVIEW_REQUIRED`; the model's `FINISH` is copied into
+  `claims` and read by nothing that decides a status.
+- `mergesutra contract --check "node --test test/x.mjs"` now records the command a
+  named human said would prove a criterion, so the trace has something to match
+  against; the criterion still cannot be satisfied by the model proposing it.
+- Run record **schema version 6** carries four new documents —
+  `verificationPlan`, `executionConsent`, `verification`, `evidence` — and a v5
+  file is reported unreadable rather than guessed at. `contributionReady` is
+  `z.literal(false)` in the evidence schema: Stage 7 has no authority to call a
+  patch ready, so the field exists only to record that.
+- `tests/verify/hero.test.ts` is the stage's proof and its demo: a scratch Git
+  repository whose own CI demands a regression test that does not exist, driven
+  through `inspect` → `contract` → `plan` → `implement` → `verify` with real
+  `node --test` child processes, with the AC→VG trace asserted both structurally
+  and in the printed report, and with a final assertion that the regression test
+  exits non-zero against the base commit so no link in that chain can pass by
+  being hard-wired. The README's Stage 7 capture is that test's stdout.
+- 144 tests for the stage — 140 across `tests/verify/*`, 4 in
+  `tests/cli/verify.test.ts` — deterministic and offline; no Stage 7 test needs a
+  BharatCode credential, and the whole suite stands at 800 passing with the two
+  opt-in live-endpoint checks still skipping. `mergesutra run`, `review`, `report`
+  and `pr` still exit `2`.
+
 ### Added — Stage 6: the bounded implementation loop
 
 The first stage where a model's answer makes something happen. BharatCode chooses

@@ -153,7 +153,7 @@ what was run, what passed, what failed or could not be checked — and decide
 whether to publish. Honest reporting of failures is a success condition, not a
 defect.
 
-## 10. Limitations (current, at Stage 6)
+## 10. Limitations (current, at Stage 7)
 
 - Implemented today: CLI skeleton, BharatCode adapter, config, redaction,
   structured errors, `doctor`, **intake** (`mergesutra issue <url>` — parses the
@@ -170,7 +170,11 @@ defect.
   and which holds no process runner), and the **bounded implementation loop**
   (`mergesutra implement [run-id]` — BharatCode proposes one action per turn from
   a closed list of eight; MergeSutra validates it, decides whether it is allowed,
-  and executes the allowed ones in a Git worktree at the run's base commit).
+  and executes the allowed ones in a Git worktree at the run's base commit), and
+  the **deterministic verification engine** (`mergesutra verify [run-id]` — the
+  repository's own gates, discovered with file-and-line provenance, run only under
+  a per-gate `--allow` an operator gives, judged by their exit codes and nothing
+  else, and filed against the criteria whose stated command each one really ran).
 - Stage 5 shipped the safety layer as **modules with no command**: the worktree
   manager (`src/git/workspace.ts`), the risk classifier
   (`src/process/tool-policy.ts`) and the confined writer
@@ -179,18 +183,21 @@ defect.
   longer only a policy document — every action the loop can take is routed
   through them, and there is no code path in `src/implement/` that reaches
   `fs.writeFile`, `fs.rm`, `fs.rename`, `exec`, `execSync` or a shell-mode spawn.
-- Everything from Stage 7 on — the deterministic verification engine, review,
-  the evidence pack, PR drafting and resumability (`status` / `resume`) — is
-  **[DESIGNED]** / **[PLANNED]**, not yet functional.
-  Planned commands exit `2` rather than imitating success. Every derived
-  criterion is still `PENDING` after `implement` finishes, and the CLI says so
-  on screen: the loop ran no gate from the Acceptance Contract, and
-  `Verification` is `NOT_AVAILABLE` in every implementation record.
+- Everything from Stage 8 on — the evidence pack and `report`, review, PR drafting
+  and resumability (`status` / `resume`) — is **[DESIGNED]** / **[PLANNED]**, not
+  yet functional. Planned commands exit `2` rather than imitating success.
+- Every derived criterion is still `PENDING` after `implement` finishes, and the
+  CLI says so on screen: the loop ran no gate from the Acceptance Contract, and
+  `Verification` is `NOT_AVAILABLE` in every implementation record. Attaching a
+  status is `verify`'s job, and it is the only stage that can do it.
 - What `implement` establishes is **permission, not merit**. It records what ran,
   what was refused and with which reason; whether the patch satisfies the issue
-  is Stage 7's question. `COMPLETED_BY_MODEL` means the model stopped asking —
-  hence exit `3` rather than `0`, and no `CONTRIBUTION_READY` reachable from this
-  command.
+  is what `verify` asks, and even its answer is bounded: a gate `PASS` is one
+  command's exit code, and a criterion `PASS` is that command plus the mapping
+  this record publishes. `COMPLETED_BY_MODEL` means the model stopped asking —
+  hence exit `3` rather than `0`, and no `CONTRIBUTION_READY` reachable from any
+  command in this build: `contributionReady` is a literal `false` in the evidence
+  schema, so there is no code path that sets it.
 - Two Stage 6 gaps are written into each record rather than smoothed over: a
   `WRITE_FILE` carries a whole file, so a model that rewrites a file it never
   read clobbers it (the stored `sha256` and byte count make that visible, not

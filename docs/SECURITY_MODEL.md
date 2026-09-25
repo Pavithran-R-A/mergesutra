@@ -163,6 +163,49 @@ happen; it can only choose from eight operations MergeSutra already implements.
   rather than argued away, and it is why verification, not confidence, is the
   next stage's job.
 
+### 2.2 The verification engine (Stage 7)
+
+Verification is the first stage that runs *a stranger's* code on purpose: a
+repository's own CI command, discovered from a repository that §1 classifies as
+untrusted input. Stage 6 executes what a model asked for; Stage 7 executes what a
+repository declares, which is a different threat and gets a different boundary.
+
+- **Discovery cannot authorize.** A discovered CI step or declared script is a
+  *candidate*. Nothing runs until an operator names its id — `--allow VG-001` —
+  and the consent is a capability, not a flag: it carries the digest of this
+  plan, so renaming a gate, editing its command or continuing to implement all
+  void it. `--allow all` is not a wildcard; a malformed id fails before a process
+  starts. An absent list is no consent at every gate, which is a `BLOCKED` row in
+  the report rather than a silent skip.
+- **A gate's command is never a string.** Gate argv comes from a
+  `normalizeCommand`'d repository spelling through the same argv-only runner as
+  everything else: no `shell: true`, no `cmd /c`, timeout and bounded output as
+  usual. The tool policy still classifies each argv, so a CI step that happens to
+  spell `sudo rm -rf` is refused as DESTRUCTIVE even though a repository wrote it
+  in a workflow file — repository text is data, including when it looks like
+  instructions to a verification engine.
+- **Executing a repository command is not sandboxed, and does not claim to be.**
+  The gate runs in the run's worktree with a real cwd; a worktree is isolation for
+  clarity, not a security boundary (§4). What MergeSutra adds is *observation*:
+  the workspace's patch identity is re-described after every gate, and a gate that
+  left the tree changed voids the run's verdict rather than reporting the next
+  result, because the next measurement would describe bytes no one identified.
+- **Receipts are the only thing that can prove anything, so they are bounded and
+  redacted.** A receipt keeps exit code, termination, duration, a 4 KB tail of
+  *redacted* stdout/stderr and the sha-256 of the unredacted bytes — the digest
+  says which of the two it describes, so a reviewer can prove a value was masked
+  rather than that it never appeared. The record never carries a credential; the
+  central `Redactor` is on this path the same way it is on every other.
+- **A model has no route into a verdict.** The engine's inputs are a plan, a
+  patch and an exit code. The implementation loop's `FINISH` is filed beside the
+  rows as a string in `claims`, with the action that produced it named; the
+  mapper copies them into the document and its status derivation never reads the
+  field. That is the whole §1 hierarchy enforced by a function signature.
+- **Staleness is a security property, not a nicety.** Evidence quotes the patch
+  identity it describes; when the workspace moves, the rows are marked `STALE` and
+  stop counting, so a run cannot present yesterday's green for today's bytes —
+  which is the shape an inflated report takes in the wild.
+
 ## 3. Tool risk classes and policy
 
 | Class           | Examples                                  | Policy                                            |
@@ -323,7 +366,11 @@ it with `decideTool`, and runs only what comes back allowed — through
 workspace as cwd. A `REMOTE MUTATION` is refused by the stage rather than put to
 the human, and `DESTRUCTIVE` never reaches a process at all. What Stage 6 does
 *not* do is run the repository's own gates: no command in that loop counts as
-evidence, which is Stage 7's job.
+evidence, which is Stage 7's job — and Stage 7 keeps the same chain for them. A
+discovered gate's argv goes through `decideTool` and the same bounded runner, so
+`REPOSITORY_REQUIRED` provenance buys a command no extra authority: a CI step that
+spells `git clean -fdx` or `sudo …` is refused on the way in, and the refusal is
+reported with its file and line (§2.2).
 
 ## 6. Secret protection (implemented)
 

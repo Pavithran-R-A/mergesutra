@@ -1,6 +1,6 @@
 # MergeSutra — Architecture
 
-Status: Stages 0-6 implement the components marked **[IMPLEMENTED]**; the rest
+Status: Stages 0-7 implement the components marked **[IMPLEMENTED]**; the rest
 are **[DESIGNED]** / **[PLANNED]**. This document describes the whole intended
 architecture so the built pieces fit it.
 
@@ -92,6 +92,8 @@ to silently edit code.
 | Filesystem (write) | Any write target                       | `security/writer.ts`: relative paths only, every existing ancestor realpath'd and proved inside the workspace, no `.git` segment, no write through a link, byte cap, atomic |
 | Filesystem (read)  | Any file a model names                 | `security/reader.ts`: same confinement, plus credential and binary rejection, per-file truncation, and a context budget that can run out |
 | Process       | Commands to run                             | argv arrays, no `shell:true`, timeout, bounded output; `process/tool-policy.ts` derives the risk from the argv and refuses an interpreter handed a string; a program token with a space in it is refused before spawn |
+| A repository's own gate | CI steps and declared scripts, discovered from an untrusted repository | `verify/consent.ts`: an entry runs only under an operator `--allow VG-00n` bound to this plan's digest, this command and this patch, so renaming a gate or editing the patch voids the yes; `verify/patch.ts`: a workspace sitting on another commit is refused; `verify/engine.ts`: the patch is re-described after every gate and a gate that moved it voids the verdict |
+| Evidence      | A receipt, a model's claim, a stale workspace | `verify/evidence.ts`: one writer of a criterion's status, and it reads receipts only; a command that reaches no criterion's stated check proves nothing about it; a patch identity that no longer matches marks the rows `STALE`; `contributionReady` is a literal `false` in the schema, so no code path can set it |
 | GitHub        | Any remote mutation                         | `tool-policy` approval gate: a remote action needs a human yes for that exact summary, and a destructive one has no yes that enables it. Stage 6 does not offer one: asking to push is a refusal, not a prompt |
 | BharatCode    | Endpoint/credentials                        | Env-only config; central redaction; the key is required before a workspace is created |
 
@@ -118,12 +120,19 @@ stateDiagram-v2
     VERIFY --> BLOCKED
 ```
 
-Built today: `INTAKE → DISCOVERY → CONTRACT → PLAN → IMPLEMENT`, one command each
-(`issue`, `inspect`, `contract`, `plan`, `implement`), each writing a run record
-that the next one reads. `VERIFY` onward is **[DESIGNED]** — which is why an
-`IMPLEMENT`-stage record stops with `nextStage` naming the verification command
-that does not exist yet, and why `mergesutra run`, `verify` and `pr` still exit
-`2` as planned.
+Built today: `INTAKE → DISCOVERY → CONTRACT → PLAN → IMPLEMENT → VERIFY`, one
+command each (`issue`, `inspect`, `contract`, `plan`, `implement`, `verify`), each
+writing a run record that the next one reads. `REVIEW` onward is **[DESIGNED]** —
+which is why a verifying run ends with `nextStage` naming a `review` command that
+does not exist yet, and why `mergesutra run`, `review`, `report` and `pr` still
+exit `2` as planned.
+
+What Stage 7 added to this machine is a boundary rather than a box: `VERIFY` is
+the only state that can move a criterion off `PENDING`, and it can do it only from
+a receipt. An implementation run still never reaches `EVIDENCE` on its own — the
+loop ends at a workspace full of uncommitted files, an action log and criteria
+that are all still `PENDING`, and the operator has to ask for gates to run, by id,
+against the patch that is really on disk.
 
 Stage 5 built the two boxes the arrow to the left of `IMPL` depends on — the
 worktree and the tool controller — as modules a stage calls, not as a command a
@@ -133,9 +142,12 @@ eight actions, so the arrow from `BH` back into `IMPL` in the diagram above is
 not a model choosing a tool but a deterministic executor deciding whether the
 action it was given may run at all.
 
-An implementation run never reaches `EVIDENCE` on its own. It ends at a
-workspace full of uncommitted files, an action log, and criteria that are all
-still `PENDING`.
+`VERIFY` is entered the same way — through a closed set of names rather than a
+willingness. The engine holds no gate list of its own: it takes the plan
+discovered from the repository and executes the entries the operator named on the
+command line, against the patch identity those names were minted for. A `FINISH`
+claim arrives from the record and is filed as a claim, because the only writer of
+a criterion's status is the mapper and the only thing it reads is a receipt.
 
 Explicit bounded limits: agent steps, tool calls, repair attempts, repeated
 identical failures, request/token budget, per-command runtime, and output size.
@@ -156,7 +168,7 @@ src/
                retry, timeouts, cancellation
   cli/         command surface, rendering, doctor,        [IMPLEMENTED]
                issue (intake only), inspect, contract,
-               plan, implement, exit codes
+               plan, implement, verify, exit codes
   intake/      issue URL parsing, local-repo reading,     [IMPLEMENTED]
                intake orchestrator
   github/      gh-CLI source + Zod-validated payloads     [IMPLEMENTED]
@@ -179,7 +191,11 @@ src/
   process/     risk-classified tool controller — the       [IMPLEMENTED]
                class comes from the argv, not the caller;
                approval gate, destructive refusal
-  verification/deterministic verification engine         [PLANNED]
+  verify/      the deterministic engine: gate discovery   [IMPLEMENTED]
+               with provenance, patch identity, execution
+               consent bound to a plan digest, receipts,
+               per-gate contamination re-check, and
+               conservative criterion evidence mapping
   review/      independent diff reviewer wiring          [PLANNED]
   evidence/    evidence pack + report renderer           [PLANNED]
 ```
@@ -223,5 +239,8 @@ network except through the adapter.
 ```
 
 Never committed automatically; never contains secrets. Until this bundle exists,
-each stage writes one JSON run record holding what it established — including
-the plan, which lives at `record.plan` rather than in its own file.
+each stage writes one JSON run record holding what it established — the plan at
+`record.plan`, and Stage 7's four documents at `record.verificationPlan`,
+`record.executionConsent`, `record.verification` and `record.evidence`, rather
+than in files of their own. The shape above is the target; the record is what
+ships, and it carries the same content.

@@ -653,3 +653,172 @@ actual decisions taken while building Stages 0-6, not aspirations.
   what runs" is closed at the schema rather than being a policy judgement made
   later. A program the search path cannot find is still an ordinary failed check
   with the name in its stderr, which stays in the action log.
+
+## ADR-035 — Running a repository's command is a capability, not a flag
+
+- **Decision:** A discovered gate executes only if the operator names its id
+  (`--allow VG-001`), and the resulting `ExecutionConsent` carries
+  `scopeDigest(plan)` — a sha-256 over the exact set of `id`, `cwd` and `argv` the
+  plan holds. The engine checks the digest before it spawns anything; a mismatch
+  returns `BLOCKED_REPO_EXECUTION_CONSENT_STALE` and the gate does not run. An
+  empty `--allow` list is no consent, not a wildcard, and `--allow all` is a
+  malformed id that fails before a process starts.
+- **Reason:** A CI command is someone else's code, chosen by a repository MergeSutra
+  treats as untrusted data. The dangerous version of "run the checks" is a boolean
+  that, once true, applies to whatever the discovery step happens to produce next —
+  including after a resume, after an edit, or after a rename that turned a `lint`
+  into an `install`. Binding the yes to the digest makes it a capability that
+  expires exactly when the thing it described stops existing.
+- **Alternatives:** `--yes` / `--dangerously-skip-consent` (one flag, every gate,
+  including the ones added on the next run); a config allow-list of command
+  prefixes (a second, weaker matcher that a rename slips past); asking
+  interactively per gate (unusable in CI, and a prompt that auto-confirms under a
+  pipe is the same hole with more ceremony).
+- **Consequence:** The default `mergesutra verify <run>` is a no-execute run that
+  prints the ids and the exact command to re-run, and exits `4`. That is a longer
+  path to a green gate, and it is the point: the report of an unconsented run is
+  legible evidence about what *would* be checked, never a pass. The patch binding
+  is a separate check (ADR-036) — the engine refuses to run any gate whose plan no
+  longer describes the workspace — so a consent that names the right commands
+  still cannot be spent against the wrong bytes.
+
+## ADR-036 — A patch is named by a digest, so evidence can be proved to describe it
+
+- **Decision:** `describePatch` computes a sha-256 over the workspace's
+  uncommitted state against the run's base commit — tracked diff, untracked
+  additions, deletions, renames as one gone plus one arrived, with `.mergesutra/`,
+  Git internals and nested worktrees excluded even when the repository forgot to
+  ignore them. The plan, every receipt and the evidence document all carry it, and
+  `stalenessOf` compares the verified identity with the one on disk now.
+- **Reason:** "The tests pass" is a sentence about a set of bytes. Without an
+  identity, the passing and the bytes can drift apart — the classic failure being a
+  resume that edits after a green run and reports yesterday's receipts. A digest
+  makes drift observable, and observable drift can be marked `STALE` instead of
+  being trusted or quietly discarded.
+- **Alternatives:** `git status` output as the identity (ordering and locale make
+  it unstable, and it does not cover untracked content); commit hash (there is no
+  commit — the run's contract is that it touches nothing the human owns); mtime or
+  size (a rewrite back to identical bytes reads as a change, an identical rewrite
+  of different bytes does not); trusting the workspace path (a path says where,
+  never what).
+- **Consequence:** Verification is against bytes on disk, not against a promise in
+  the plan, so a `verify` run after further implementation edits is a fresh
+  measurement rather than a resume of the old one — and evidence that goes stale
+  stays in the report, marked, because hiding it would leave a reader unable to
+  tell "no gate covers this" from "a gate covered an older patch".
+
+## ADR-037 — A gate's verdict is its exit code, and an exit code alone is not a criterion's verdict
+
+- **Decision:** One command, one receipt: `PASS` for the exit code the plan
+  predicted, `FAIL` for any other, and `BLOCKED` / `INCONCLUSIVE` for a process
+  that never started, timed out or was cancelled — never a fake `FAIL`. The
+  run-level result is the conservative combination over gates. Whether an
+  acceptance *criterion* holds is derived separately, from those receipts plus the
+  criterion's own verification plan, and is stored as a `sufficiency` beside its
+  `status`.
+- **Reason:** Collapsing the two is how verification software starts grading
+  homework instead of checking it — a suite that exits 0 gets credited to whatever
+  the run was about. Keeping gate result and evidence sufficiency distinct means a
+  green build can be honestly reported as "nothing here proves AC-2", which is the
+  sentence a reviewer needs and a summary metric hides.
+- **Alternatives:** a numeric confidence between the two (an unaccountable number
+  that everyone reads as a probability); one merged status (the collapse just
+  described); letting a model's judgement fill the gap (its answer is in
+  `claims`, weighted nothing).
+- **Consequence:** `missingPrerequisites`, timeouts and unconsented gates all stay
+  visible rows rather than becoming `PASS` by absence, and a `VERIFICATION_PASS`
+  outcome means "the gates named and consented to exited as predicted" — which is
+  not, and does not claim to be, "this patch should be merged".
+
+## ADR-038 — Which criteria a gate proves is a command-spelling match, and the spelling set is the gate's own reach
+
+- **Decision:** A criterion is evidence-linked to a gate only when the command the
+  criterion names equals one of that gate's `commandForms`: the invocation CI
+  spells, plus every package-script body it chains into, followed to a bounded
+  depth, with case preserved. `npm test` and the `vitest run` it runs are one
+  command for this purpose. Nothing else links them — not a shared word, not a
+  matching `requirementType`, not a model's opinion about coverage.
+- **Reason:** The tempting version is a similarity heuristic, and it fails in the
+  direction that matters: a broad green suite gets credited to a criterion about a
+  narrow behaviour, and the report reads as though the specific thing was checked.
+  A spelling match can be wrong in the other, safer direction — a criterion
+  phrased loosely stays `NOT_VERIFIED` — and when it is wrong, the fix is to state
+  the check the way the repository states it, which is information a human has.
+- **Alternatives:** keyword or fuzzy matching (credits an unrelated green run);
+  matching on gate kind (a `test` gate proving any `test` criterion is precisely
+  the over-claim); asking the model which criteria a command covers (ADR-033).
+- **Consequence:** Discovery has to know a script's body, so `commandForms` became
+  part of the persisted gate and one rule has one copy: `relevantCriteriaFor` and
+  the evidence mapper ask the same function. The cost is honest but visible — a
+  criterion whose check nobody wrote down the way CI does it is reported as not
+  verified, and the report says which commands did run.
+
+## ADR-039 — A verification that passes still may not call the contribution ready
+
+- **Decision:** Stage 7 introduces five run outcomes (`VERIFICATION_PASS` / `FAIL`
+  / `BLOCKED` / `INCONCLUSIVE` / `CANCELLED`) and no `CONTRIBUTION_READY`, which
+  stays out of the outcome vocabulary. The evidence document's
+  `contributionReady` is `z.literal(false)`, so the field exists only to record
+  that it cannot be set, and a passing run's `nextStage` names a `review` command
+  that does not exist yet.
+- **Reason:** Readiness is a judgement about a diff's merit, its scope, and whether
+  anyone wants it — none of which a set of exit codes establishes. A product whose
+  headline claim is honest statuses gains nothing by being the one that says
+  "ready" first, and loses the claim the moment a reviewer finds `READY` beside a
+  patch that passes lint and changes the wrong file.
+- **Alternatives:** `CONTRIBUTION_READY` when every mandatory gate passes (a
+  mechanical synonym for "verified", which the record already says); a
+  `LIKELY_READY` state (a euphemism with a status's authority); omitting the field
+  (a later stage would then add it as a real flag rather than fight a literal).
+- **Consequence:** `verify`'s report ends under its own limit — a gate `PASS` is
+  one command's exit code, a criterion `PASS` is that command plus the mapping this
+  record publishes — and the human judgement arrives where ADR-033 pointed, one
+  stage later. The hero fixture asserts the report never contains the string
+  `CONTRIBUTION_READY`.
+
+## ADR-040 — The engine re-measures the workspace after every gate, and a gate that moves it voids the run
+
+- **Decision:** Each gate is followed by a fresh `describePatch`. If the identity
+  moved, the run records `contamination` naming which gate moved the workspace and
+  its result is `INCONCLUSIVE`, whatever the exit codes said. MergeSutra's own
+  commands are the only mutation-capable thing allowed to be *observed* this way;
+  nothing in the stage edits the patch, fixes a failure, or installs a dependency.
+- **Reason:** A receipt describes a patch. If a gate — `prettier --write`, a
+  snapshot updater, a codegen step — rewrote the tree, every later receipt is
+  measuring bytes the earlier ones did not, and a verdict assembled from them is
+  fiction with a table. Reporting contamination is also the only way a reviewer
+  learns that this repository's "check" is a formatter, which is the kind of thing
+  no one writes down.
+- **Alternatives:** declaring gates `READ_ONLY` and trusting the declaration (the
+  `executionClass` is kept as a disclosure precisely because a test suite can
+  write a file); re-running the plan after a mutation (now two patches, and the
+  first receipts are still stale); auto-fixing and continuing (the failure mode
+  this whole stage exists to avoid, dressed as convenience).
+- **Consequence:** A gate order can turn a green run into an inconclusive one, and
+  the report says so plainly with the offending id, so the honest operator action
+  is to re-run — the run is cheap, deterministic, and consents again — rather than
+  to reason about which receipts survived.
+
+## ADR-041 — The hero fixture runs real processes and asserts its own teeth
+
+- **Decision:** One end-to-end integration test (`tests/verify/hero.test.ts`)
+  drives the shipped stages against a scratch Git repository: real `git`, real
+  `node --test` child processes, the real patch digest, the real consent flow, and
+  the printed report. Its last block writes the regression test back against the
+  *base* implementation and asserts the same command exits non-zero. The model
+  turns in the chain come from the local stub.
+- **Reason:** A verification engine can be demonstrated by a fixture that hands it
+  convenient receipts, and such a fixture proves only the plumbing. The assertion
+  that the test fails without the fix is what makes the rest of the chain evidence:
+  it rules out the one shortcut that would leave everything else green and
+  meaningless — a fixture whose "regression test" passed either way.
+- **Alternatives:** a recorded output committed as a fixture (proves nothing about
+  the present tree); unit tests alone (they check each rule, and no test checks
+  that the AC→VG trace survives into the report a human reads); a live BharatCode
+  run (needs a credential, is nondeterministic, and would prove the model rather
+  than the harness).
+- **Consequence:** The suite is slower here by design, the README's Stage 7 capture
+  is this test's real stdout rather than hand-written prose, and the stub is
+  labelled as such wherever the output appears — the honest description being
+  "deterministic development capture using the local BharatCode-compatible test
+  stub", never a claim of a live run.
