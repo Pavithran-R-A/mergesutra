@@ -79,9 +79,10 @@ describe('mergesutra issue — rendered output', () => {
     });
     const text = c.text();
     expect(text).toContain(
-      'Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract), 3 (acceptance contract), 4 (implementation plan).',
+      'Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract), 3 (acceptance contract), 4 (implementation plan), 5 (workspace, tool policy, write boundary), 6 (bounded implementation loop).',
     );
-    expect(text).toContain('No patch, verification, review or pull request was produced');
+    expect(text).toContain('This command produced no patch, verification, review or pull request.');
+    expect(text).toContain('verifies nothing');
     expect(text).not.toMatch(/CONTRIBUTION_READY|diff submitted|tests passed/i);
   });
 

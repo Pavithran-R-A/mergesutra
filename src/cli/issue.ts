@@ -107,11 +107,13 @@ export function formatIntake(result: IntakeResult, renderer: Renderer): string {
   }
   lines.push(
     renderer.dim(
-      'Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract), 3 (acceptance contract), 4 (implementation plan).',
+      'Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract), 3 (acceptance contract), 4 (implementation plan), 5 (workspace, tool policy, write boundary), 6 (bounded implementation loop).',
     ),
   );
   lines.push(
-    renderer.dim('No patch, verification, review or pull request was produced by this command.'),
+    renderer.dim(
+      'This command produced no patch, verification, review or pull request. `mergesutra implement` writes files, but only inside its own workspace, and verifies nothing.',
+    ),
   );
   return lines.join('\n');
 }

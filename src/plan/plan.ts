@@ -198,7 +198,7 @@ export async function runPlanStage(
     plan,
     checks,
     nextStage: plan
-      ? 'IMPLEMENT + VERIFY — not implemented yet; `mergesutra plan` is the last working stage'
+      ? "IMPLEMENT — `mergesutra implement` runs the bounded loop in this run's own workspace; nothing is verified there"
       : 'PLAN — retry `mergesutra plan`',
     limitations: [...new Set([...source.limitations, ...limitations, ...contract.limitations])],
   });
