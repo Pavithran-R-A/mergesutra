@@ -57,7 +57,7 @@ describe('mergesutra CLI', () => {
   });
 
   it('does not pretend a later stage ran: no planned command exits 0', async () => {
-    for (const name of ['run', 'verify', 'review', 'report', 'pr', 'status', 'resume']) {
+    for (const name of ['run', 'review', 'report', 'pr', 'status', 'resume']) {
       const c = capture();
       const code = await run(['node', 'mergesutra', name], {
         write: c.write,
@@ -65,6 +65,21 @@ describe('mergesutra CLI', () => {
       });
       expect(code, name).toBe(2);
     }
+  });
+
+  it('has stopped treating `verify` as planned, without making it succeed', async () => {
+    const c = capture();
+    const err = capture();
+    const code = await run(['node', 'mergesutra', 'verify'], {
+      write: c.write,
+      writeErr: err.write,
+      env: { NO_COLOR: '1' },
+    });
+    expect(code).not.toBe(2);
+    expect(c.out()).not.toContain('is planned, not yet implemented');
+    // With no run record to point at, it fails as a stage would, not as a stub.
+    expect(code).not.toBe(0);
+    expect(err.out()).toMatch(/[Rr]un/);
   });
 
   it('stops treating `plan` as a planned command, without making it succeed', async () => {

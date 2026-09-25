@@ -186,7 +186,7 @@ describe('mergesutra plan — the proposal a reviewer reads', () => {
     expect(c.text()).toContain('plan [run-id]');
     expect(c.text()).not.toContain('BharatCode implementation plan. (planned)');
     // The stages after it must still be labelled as unbuilt.
-    expect(c.text()).toContain('Implement in an isolated worktree (BharatCode).');
+    expect(c.text().replace(/\s+/g, ' ')).toContain('Unattended end-to-end pipeline');
     expect(c.text()).toContain('(planned)');
   });
 });

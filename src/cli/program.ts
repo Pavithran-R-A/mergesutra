@@ -5,11 +5,13 @@ import { inspectAction, type InspectCommandOptions } from './inspect.js';
 import { contractAction, type ContractCommandOptions } from './contract.js';
 import { planAction, type PlanCommandOptions } from './plan.js';
 import { implementAction, type ImplementCommandOptions } from './implement.js';
+import { verifyAction, type VerifyCommandOptions } from './verify.js';
 import type { IntakeDeps } from '../intake/intake.js';
 import type { InspectDeps } from '../discovery/inspect.js';
 import type { ContractDeps } from './contract.js';
 import type { PlanDeps } from '../plan/plan.js';
 import type { ImplementStageDeps } from '../implement/implement.js';
+import type { VerifyStageDeps } from '../verify/stage.js';
 import { createRenderer, resolveColor } from './render.js';
 import { EXIT } from './exit-codes.js';
 import { LIMIT_CAPS } from '../implement/limits.js';
@@ -22,12 +24,13 @@ import { defaultRedactor } from '../security/redaction.js';
  *
  * The one-command hero workflow is `mergesutra issue <url>`. The phase commands
  * (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`)
- * exist for transparency, debugging and recovery. Through Stage 6, `doctor`,
- * the intake half of `issue`, `inspect`, `contract`, `plan` and `implement` are
- * wired up; every unfinished command says so truthfully rather than pretending
- * to work. `run` — the unattended end-to-end pipeline — is deliberately still
- * planned: the stages after implementation do not exist yet, so a command that
- * promised the whole product would be a lie with a nice name.
+ * exist for transparency, debugging and recovery. Through Stage 7, `doctor`,
+ * the intake half of `issue`, `inspect`, `contract`, `plan`, `implement` and
+ * `verify` are wired up; every unfinished command says so truthfully rather
+ * than pretending to work. `run` — the unattended end-to-end pipeline — is
+ * deliberately still planned: a pipeline that skipped the human consent that
+ * `verify` requires would be unsafe, not convenient, so the stages after it
+ * must land before an unattended mode can honestly exist.
  */
 
 export interface ProgramDeps {
@@ -37,6 +40,7 @@ export interface ProgramDeps {
   contract?: Partial<ContractDeps>;
   plan?: Partial<PlanDeps>;
   implement?: Partial<ImplementStageDeps>;
+  verify?: Partial<VerifyStageDeps>;
   write?: (line: string) => void;
   writeErr?: (line: string) => void;
   env?: NodeJS.ProcessEnv;
@@ -44,8 +48,7 @@ export interface ProgramDeps {
 }
 
 const PLANNED = [
-  { name: 'run', summary: 'Implement in an isolated worktree (BharatCode).' },
-  { name: 'verify', summary: 'Run deterministic verification gates.' },
+  { name: 'run', summary: 'Unattended end-to-end pipeline across all stages.' },
   { name: 'review', summary: 'Independent BharatCode diff review.' },
   { name: 'report', summary: 'Render the evidence report.' },
   { name: 'pr', summary: 'Draft the pull request (requires human approval).' },
@@ -181,6 +184,41 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       }
     });
 
+  program
+    .command('verify [run-id]')
+    .description(
+      "Run the repository's own gates against the run's patch; exit codes decide, receipts record",
+    )
+    .option(
+      '--repo <path>',
+      'primary checkout whose workspace this run owns (default: its recorded one)',
+    )
+    .option(
+      '--allow <gate-id>',
+      "consent to running this gate's repository command (repeat per gate; no wildcard exists)",
+      collect,
+      [] as string[],
+    )
+    .action(async (runId: string | undefined, opts: { repo?: string; allow?: string[] }) => {
+      const globals = program.opts();
+      const controller = new AbortController();
+      const onInterrupt = (): void => controller.abort();
+      process.on('SIGINT', onInterrupt);
+      try {
+        const options: VerifyCommandOptions = {
+          json: globals.json === true,
+          noColor: globals.color === false,
+          env,
+          repo: opts.repo,
+          allow: opts.allow ?? [],
+          signal: controller.signal,
+        };
+        setExitCode(await verifyAction(runId, options, deps.verify, write));
+      } finally {
+        process.removeListener('SIGINT', onInterrupt);
+      }
+    });
+
   for (const planned of PLANNED) {
     const [name] = planned.name.split(' ');
     program
@@ -196,7 +234,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
             renderer.row('INFO', planned.summary),
             '',
             renderer.dim(
-              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, --help, --version.',
+              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, verify, --help, --version.',
             ),
             renderer.dim('Progress: see docs/ROADMAP.md'),
           ].join('\n'),

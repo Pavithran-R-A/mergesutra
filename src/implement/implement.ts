@@ -164,7 +164,7 @@ export async function runImplementStage(
 
 function nextStageFor(status: LoopStatus): string {
   if (status === 'COMPLETED_BY_MODEL') {
-    return 'VERIFY — the model says it is done; `mergesutra verify` has to agree, and does not exist yet';
+    return 'VERIFY — the model says it is done; run `mergesutra verify`, whose gates do not read this record';
   }
   return 'IMPLEMENT — re-run `mergesutra implement` on this run, or read its limitations first';
 }

@@ -374,7 +374,9 @@ describe('mergesutra implement — the commands around it', () => {
     expect(text).toContain('implement [options] [run-id]');
     expect(text).toContain('BharatCode proposes actions, MergeSutra executes the allowed ones');
     expect(text).not.toContain('allowed ones (planned)');
-    expect(text).toContain('Implement in an isolated worktree (BharatCode). (planned)');
+    expect(text).toContain('verify [options] [run-id]');
+    expect(text).not.toContain('receipts record (planned)');
+    expect(text).toContain('Unattended end-to-end pipeline across all stages. (planned)');
   });
 
   it('documents the budget it will enforce, including the ceiling', async () => {
@@ -396,7 +398,7 @@ describe('mergesutra implement — the commands around it', () => {
   });
 
   it('exits PLANNED for the pipeline commands that do not exist yet', async () => {
-    for (const command of ['run', 'verify', 'pr']) {
+    for (const command of ['run', 'pr']) {
       const stage = await harness([finishAction()]);
       const c = capture();
       const code = await cli(stage, [command], c);
