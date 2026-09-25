@@ -1,8 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, it, expect } from 'vitest';
 import { run, buildProgram } from '../../src/cli/program.js';
 import { VERSION } from '../../src/version.js';
+import { defaultRunStoreRoot } from '../../src/state/run-store.js';
 import type { Runner } from '../../src/cli/doctor.js';
 import { memoryRunStore } from '../helpers/github.js';
+
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
 
 function capture(): { lines: string[]; write: (l: string) => void; out: () => string } {
   const lines: string[] = [];
@@ -57,7 +67,7 @@ describe('mergesutra CLI', () => {
   });
 
   it('does not pretend a later stage ran: no planned command exits 0', async () => {
-    for (const name of ['run', 'review', 'report', 'pr', 'status', 'resume']) {
+    for (const name of ['run', 'review', 'pr', 'status', 'resume']) {
       const c = capture();
       const code = await run(['node', 'mergesutra', name], {
         write: c.write,
@@ -65,6 +75,29 @@ describe('mergesutra CLI', () => {
       });
       expect(code, name).toBe(2);
     }
+  });
+
+  it('has stopped treating `report` as planned, and writes nothing without a run', async () => {
+    const c = capture();
+    const err = capture();
+    const cwd = await mkdtemp(path.join(tmpdir(), 'mergesutra-planned-'));
+    tempDirs.push(cwd);
+
+    const code = await run(['node', 'mergesutra', 'report'], {
+      write: c.write,
+      writeErr: err.write,
+      env: { NO_COLOR: '1' },
+      report: { store: memoryRunStore(), cwd },
+    });
+
+    expect(code).not.toBe(2);
+    expect(c.out()).not.toContain('is planned, not yet implemented');
+    expect(code).not.toBe(0);
+    expect(err.out()).toMatch(/nothing to report|no run/i);
+    // A report that failed to find a run must not leave a directory behind that
+    // a later reader could mistake for a pack.
+    const listed = await readdir(defaultRunStoreRoot(cwd)).catch(() => null);
+    expect(listed ?? []).toEqual([]);
   });
 
   it('has stopped treating `verify` as planned, without making it succeed', async () => {

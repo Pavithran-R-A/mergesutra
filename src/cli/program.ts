@@ -6,6 +6,7 @@ import { contractAction, type ContractCommandOptions } from './contract.js';
 import { planAction, type PlanCommandOptions } from './plan.js';
 import { implementAction, type ImplementCommandOptions } from './implement.js';
 import { verifyAction, type VerifyCommandOptions } from './verify.js';
+import { reportAction, type ReportCommandOptions, type ReportDeps } from './report.js';
 import type { IntakeDeps } from '../intake/intake.js';
 import type { InspectDeps } from '../discovery/inspect.js';
 import type { ContractDeps } from './contract.js';
@@ -41,6 +42,7 @@ export interface ProgramDeps {
   plan?: Partial<PlanDeps>;
   implement?: Partial<ImplementStageDeps>;
   verify?: Partial<VerifyStageDeps>;
+  report?: Partial<ReportDeps>;
   write?: (line: string) => void;
   writeErr?: (line: string) => void;
   env?: NodeJS.ProcessEnv;
@@ -50,7 +52,6 @@ export interface ProgramDeps {
 const PLANNED = [
   { name: 'run', summary: 'Unattended end-to-end pipeline across all stages.' },
   { name: 'review', summary: 'Independent BharatCode diff review.' },
-  { name: 'report', summary: 'Render the evidence report.' },
   { name: 'pr', summary: 'Draft the pull request (requires human approval).' },
   { name: 'status', summary: 'Show the current run state.' },
   { name: 'resume', summary: 'Resume an interrupted run.' },
@@ -226,6 +227,21 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       }
     });
 
+  program
+    .command('report [run-id]')
+    .description(
+      'Render the evidence pack for a run; it reports what was decided, deciding nothing',
+    )
+    .action(async (runId: string | undefined) => {
+      const globals = program.opts();
+      const options: ReportCommandOptions = {
+        json: globals.json === true,
+        noColor: globals.color === false,
+        env,
+      };
+      setExitCode(await reportAction(runId, options, deps.report, write));
+    });
+
   for (const planned of PLANNED) {
     const [name] = planned.name.split(' ');
     program
@@ -241,7 +257,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
             renderer.row('INFO', planned.summary),
             '',
             renderer.dim(
-              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, verify, --help, --version.',
+              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, verify, report, --help, --version.',
             ),
             renderer.dim('Progress: see docs/ROADMAP.md'),
           ].join('\n'),
