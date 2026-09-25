@@ -21,12 +21,14 @@ export async function hasGit(): Promise<boolean> {
 /**
  * A committed throwaway repository holding exactly these files.
  *
- * The `core.hooksPath` step is not project setup, it is a test-honesty step: an
- * operator's machine may carry a global `core.hooksPath` pointing at tooling that
- * is not installed here, and a fixture that runs it pays several seconds per
- * commit and starts failing on a timeout instead of on an assertion. The setting
- * is written into *this temporary repository* — never the user's config — and the
- * directory it names stays empty, so Git finds no hook to run.
+ * The `core.hooksPath` and `core.autocrlf` steps are not project setup, they are
+ * test-honesty steps: an operator's machine may carry a global `core.hooksPath`
+ * pointing at tooling that is not installed here, and a fixture that runs it pays
+ * several seconds per commit and starts failing on a timeout instead of on an
+ * assertion. A global `core.autocrlf` would rewrite the line endings of every
+ * checkout, so a later stage's digest of a file would name bytes nobody wrote.
+ * Both settings are written into *this temporary repository* — never the user's
+ * config — and the directory the hooks name stays empty, so Git finds none to run.
  */
 export async function initRepository(
   files: Record<string, string>,
@@ -39,6 +41,7 @@ export async function initRepository(
     ['config', 'user.name', 'MergeSutra Test'],
     ['config', 'user.email', 'test@mergesutra.invalid'],
     ['config', 'core.hooksPath', hooks],
+    ['config', 'core.autocrlf', 'false'],
     ['add', '-A'],
     ['commit', '-q', '-m', 'base'],
   ];
