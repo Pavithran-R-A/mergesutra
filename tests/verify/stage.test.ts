@@ -142,10 +142,14 @@ describe.skipIf(!AVAILABLE)('runVerifyStage', () => {
         text: expect.stringContaining('all criteria'),
       },
     ]);
-    for (const entry of stage.evidence.criteria) {
-      if (entry.status === 'PASS') {
-        expect(entry.gateIds.length, entry.criterionId).toBeGreaterThan(0);
-      }
+    // The criteria this contract derives are the repository's own, quoted as
+    // their manifests spell them. If none of them reaches a receipt, the trace
+    // from a requirement to the command that proved it has broken somewhere.
+    const passed = stage.evidence.criteria.filter((entry) => entry.status === 'PASS');
+    expect(passed.length, 'no criterion was carried by a receipt').toBeGreaterThan(0);
+    for (const entry of passed) {
+      expect(entry.sufficiency, entry.criterionId).toBe('VERIFIED');
+      expect(entry.gateIds.length, entry.criterionId).toBeGreaterThan(0);
     }
   });
 

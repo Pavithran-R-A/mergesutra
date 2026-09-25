@@ -102,6 +102,8 @@ export interface DiscoveredGate {
   readonly argv: readonly string[];
   /** Repository-relative directory; `.` until a workspace needs more. */
   readonly cwd: string;
+  /** The invocation, then every script body it reaches: the same command, spelled. */
+  readonly commandForms: readonly string[];
   readonly requirementLevel: RequirementLevel;
   readonly provenance: GateProvenance;
   readonly corroboratedBy: readonly GateProvenance[];
@@ -157,7 +159,7 @@ const MUTATION_EVIDENCE =
 
 /** Positive evidence that a command reports rather than edits. */
 const READ_ONLY_EVIDENCE =
-  /--check\b|--noEmit\b|--dry-run\b|--list-different\b|(^|\s)-[ld](\s|$)|\b(?:vitest|jest|mocha|pytest|unittest|phpunit)\b|\S+ test\b|\b(?:eslint|biome)\b/;
+  /--check\b|--noEmit\b|--dry-run\b|--list-different\b|(^|\s)-[ld](\s|$)|\b(?:vitest|jest|mocha|pytest|unittest|phpunit)\b|\bnode\s+--test\b|\S+ test\b|\b(?:eslint|biome)\b/;
 
 /** How far into a repository's script chain a gate's purpose is followed. */
 const MAX_SCRIPT_DEPTH = 3;
@@ -271,10 +273,11 @@ export async function discoverGates(input: DiscoveryInput): Promise<DiscoveryOut
       name: draft.name,
       argv: draft.argv,
       cwd: '.',
+      commandForms: reachableTexts(draft.argv, scripts),
       requirementLevel: draft.requirementLevel,
       provenance: draft.provenance,
       corroboratedBy: corroborationFor(draft, scripts, configs, docs),
-      relevantCriteria: relevantCriteriaFor(draft, criteria),
+      relevantCriteria: relevantCriteriaFor(draft, criteria, scripts),
       executionClass: executionClassFor(draft, scripts),
       risk: riskOf({ op: 'execute', argv: [...draft.argv], cwd: '.' }),
     }));
@@ -388,15 +391,25 @@ function sameFact(a: GateProvenance, b: GateProvenance): boolean {
   return a.source === b.source && a.file === b.file && a.detail === b.detail;
 }
 
+/**
+ * Which criteria this command is evidence for.
+ *
+ * A criterion names a check the way a contributor reads it, which is usually the
+ * body of a script and sometimes the invocation CI spells; both are the same
+ * command, and this is the one place allowed to say so. It is still a spelling
+ * match against commands this gate really reaches — not a theme, not a guess, not
+ * a judgement about what the suite covers.
+ */
 function relevantCriteriaFor(
   draft: Draft,
   criteria: readonly Pick<AcceptanceCriterion, 'id' | 'verificationPlan'>[],
+  scripts: ReadonlyMap<string, DeclaredScript>,
 ): string[] {
-  const spelled = draft.argv.join(' ');
+  const forms = new Set(reachableTexts(draft.argv, scripts));
   const ids = new Set<string>();
   for (const criterion of criteria) {
     for (const step of criterion.verificationPlan) {
-      if ('command' in step && normalizeCommand(step.command) === spelled) ids.add(criterion.id);
+      if ('command' in step && forms.has(normalizeCommand(step.command))) ids.add(criterion.id);
     }
   }
   return [...ids].sort();
@@ -406,7 +419,7 @@ function executionClassFor(
   draft: Draft,
   scripts: ReadonlyMap<string, DeclaredScript>,
 ): ExecutionClass {
-  return executionClassOf(reachableTexts(draft.argv, scripts));
+  return executionClassOf(reachableTexts(draft.argv, scripts).map((text) => text.toLowerCase()));
 }
 
 /**
@@ -424,12 +437,19 @@ export function executionClassOf(texts: readonly string[]): ExecutionClass {
   return 'MUTATION_CAPABLE';
 }
 
-/** The argv plus every script body it eventually invokes. */
+/**
+ * The argv plus every script body it eventually invokes, spelled as the
+ * repository spelled them.
+ *
+ * Case survives because a criterion's verification step quotes a command, and
+ * `npm run Check` and `npm run check` reaching the same body is a fact about the
+ * manifest's capitalisation, not about the check.
+ */
 function reachableTexts(
   argv: readonly string[],
   scripts: ReadonlyMap<string, DeclaredScript>,
 ): string[] {
-  const texts = [argv.join(' ').toLowerCase()];
+  const texts = [normalizeCommand(argv.join(' '))];
   const seen = new Set<string>();
   let pending = [texts[0] ?? ''];
   for (let depth = 0; depth < MAX_SCRIPT_DEPTH; depth += 1) {
@@ -438,7 +458,8 @@ function reachableTexts(
       for (const token of text.split(/\s+/)) {
         if (!scripts.has(token) || seen.has(token)) continue;
         seen.add(token);
-        const body = (scripts.get(token)?.command ?? '').toLowerCase();
+        const body = normalizeCommand(scripts.get(token)?.command ?? '');
+        if (body.length === 0) continue;
         next.push(body);
         texts.push(body);
       }

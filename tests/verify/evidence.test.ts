@@ -98,6 +98,39 @@ describe('a criterion backed by the gate it asked for', () => {
     expect(record.verification).toBe('PASS');
   });
 
+  it('credits the gate that runs the command the repository spelled inside a script', async () => {
+    // Stage 3 records a repository gate as the manifest's own body — `vitest
+    // run` — while Stage 7 plans the invocation CI spells, `npm test`. One
+    // command, two spellings; a matcher that knows only one leaves every real
+    // criterion reporting that nothing checked it.
+    const plan = planOf([
+      plannedGate({
+        id: 'VG-001',
+        argv: ['npm', 'test'],
+        commandForms: ['npm test', 'vitest run'],
+        ...forCriterion('AC-1'),
+      }),
+    ]);
+    const run = await verifyScripted(
+      plan,
+      [],
+      { 'npm test': SUCCEEDED },
+      consentFor(plan, ['VG-001']),
+    );
+
+    const record = mapAcceptanceEvidence({
+      criteria: [criterion('AC-1', [runs('vitest run')])],
+      plan,
+      run,
+    });
+
+    expect(record.criteria[0]).toMatchObject({
+      status: 'PASS',
+      sufficiency: 'VERIFIED',
+      gateIds: ['VG-001'],
+    });
+  });
+
   it('binds a command the contract copied with a shell prompt to the same gate', async () => {
     const plan = planOf([
       plannedGate({ id: 'VG-001', argv: ['npm', 'test'], ...forCriterion('AC-1') }),

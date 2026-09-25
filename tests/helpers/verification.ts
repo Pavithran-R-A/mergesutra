@@ -24,6 +24,7 @@ export function plannedGate(over: Partial<PlannedGate> & Pick<PlannedGate, 'id'>
     command: argv.join(' '),
     argv,
     cwd: '.',
+    commandForms: [argv.join(' ')],
     requirementLevel: 'REPOSITORY_REQUIRED',
     corroboratedBy: [],
     relevantCriteria: ['AC-1'],

@@ -136,7 +136,7 @@ const TOOL_EVIDENCE: Record<GateKind, RegExp> = {
   format: /\b(prettier|black|ruff)\b[^\n]*--check|\b(rustfmt|gofmt)\b/,
   lint: /\b(eslint|biome|ruff|flake8|golangci-lint)\b|cargo clippy/,
   typecheck: /\b(vue-tsc|mypy|pyright)\b|\btsc\b(?![^\n]*--outdir)/,
-  test: /\b(vitest|jest|pytest|phpunit)\b|\b(npm|pnpm|yarn|bun) test\b|(^|[;&|]\s*)(cargo|go) test\b/,
+  test: /\b(vitest|jest|pytest|phpunit)\b|\b(npm|pnpm|yarn|bun) test\b|\bnode\s+--test\b|(^|[;&|]\s*)(cargo|go) test\b/,
   build:
     /\b(vite|webpack|rollup|turbo|next)\b[^\n]*build|\btsc\b[^\n]*(--build|-b)\b|(^|[;&|]\s*)(cargo|go) build\b|\bmake\b/,
 };

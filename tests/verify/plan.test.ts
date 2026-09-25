@@ -28,6 +28,7 @@ const TEST_GATE: DiscoveredGate = {
   name: 'test',
   argv: ['npm', 'test'],
   cwd: '.',
+  commandForms: ['npm test', 'vitest run'],
   requirementLevel: 'REPOSITORY_REQUIRED',
   provenance: {
     source: 'CI_WORKFLOW',
@@ -47,6 +48,7 @@ const LINT_GATE: DiscoveredGate = {
   name: 'lint',
   argv: ['npm', 'run', 'lint'],
   cwd: '.',
+  commandForms: ['npm run lint'],
   requirementLevel: 'REPOSITORY_SUGGESTED',
   provenance: {
     source: 'PACKAGE_SCRIPT',
@@ -64,6 +66,7 @@ const BUILD_GATE: DiscoveredGate = {
   name: 'build',
   argv: ['npm', 'run', 'build'],
   cwd: '.',
+  commandForms: ['npm run build'],
   requirementLevel: 'REPOSITORY_REQUIRED',
   provenance: {
     source: 'CI_WORKFLOW',

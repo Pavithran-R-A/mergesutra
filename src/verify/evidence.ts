@@ -154,10 +154,14 @@ export function mapAcceptanceEvidence(input: MapEvidenceInput): AcceptanceEviden
   const outcomes = new Map(run.gates.map((outcome) => [outcome.gateId, outcome]));
   const gatesByCommand = new Map<string, PlannedGate[]>();
   for (const gate of plan.gates) {
-    const key = normalizeCommand(gate.command);
-    const existing = gatesByCommand.get(key);
-    if (existing) existing.push(gate);
-    else gatesByCommand.set(key, [gate]);
+    // A gate answers for every spelling the plan says it carries — the
+    // invocation it ran, and the script bodies that invocation reaches.
+    const forms = new Set([gate.command, ...gate.commandForms].map(normalizeCommand));
+    for (const key of forms) {
+      const existing = gatesByCommand.get(key);
+      if (existing) existing.push(gate);
+      else gatesByCommand.set(key, [gate]);
+    }
   }
   const ctx = { gatesByCommand, outcomes, current };
 

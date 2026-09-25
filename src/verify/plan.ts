@@ -6,6 +6,7 @@ import {
   executionClassOf,
   executionClassSchema,
   gateProvenanceSchema,
+  normalizeCommand,
   requirementLevelSchema,
   type DiscoveredGate,
   type DiscoveryOutcome,
@@ -74,6 +75,16 @@ export const plannedGateSchema = z
     argv: z.array(z.string().min(1)).min(1).readonly(),
     /** Repository-relative directory the command runs in. */
     cwd: z.string().min(1),
+    /**
+     * Every spelling MergeSutra treats as this command: the invocation it runs,
+     * first, then the script bodies it reaches from there.
+     *
+     * A criterion quotes a check the way a contributor reads it — the body of the
+     * script — while the gate was planned from the words CI used. They are one
+     * command, and the plan is where that fact gets written down once, so the
+     * evidence stage never has to guess that `npm test` and `vitest run` agree.
+     */
+    commandForms: z.array(z.string().min(1)).min(1).readonly(),
     requirementLevel: requirementLevelSchema,
     provenance: gateProvenanceSchema,
     corroboratedBy: z.array(gateProvenanceSchema).readonly(),
@@ -269,6 +280,7 @@ function fromDiscovery(gate: DiscoveredGate): UnplannedGate {
     command: gate.argv.join(' '),
     argv: gate.argv,
     cwd: gate.cwd,
+    commandForms: gate.commandForms,
     requirementLevel: gate.requirementLevel,
     provenance: gate.provenance,
     corroboratedBy: gate.corroboratedBy,
@@ -287,6 +299,8 @@ function fromAdditional(spec: AdditionalGateSpec): UnplannedGate {
     command: argv.join(' '),
     argv,
     cwd,
+    // MergeSutra's own check reaches no script, so it has exactly one spelling.
+    commandForms: [normalizeCommand(argv.join(' '))],
     // Derived, never read back from the spec: a caller cannot declare its own
     // preference to be the repository's requirement.
     requirementLevel: 'MERGESUTRA_ADDITIONAL',

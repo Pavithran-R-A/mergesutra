@@ -21,6 +21,7 @@ const GATE: PlannedGate = {
   command: 'npm test',
   argv: ['npm', 'test'],
   cwd: '.',
+  commandForms: ['npm test'],
   requirementLevel: 'REPOSITORY_REQUIRED',
   provenance: {
     source: 'CI_WORKFLOW',

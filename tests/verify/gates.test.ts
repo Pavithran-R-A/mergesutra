@@ -157,6 +157,52 @@ describe('a gate the repository enforces', () => {
     expect(byName(found.gates, 'format')?.relevantCriteria).toEqual([]);
   });
 
+  it('maps a criterion that named what the script runs, not how it is invoked', async () => {
+    // Stage 3 records a repository gate by the command in the manifest — what
+    // `npm test` actually executes — while Stage 7 plans the invocation CI
+    // spells. They are one command, and a matcher that only knows one spelling
+    // reports every real criterion as having no evidence either way.
+    const found = await discover(NODE_REPO, [
+      {
+        id: 'AC-1',
+        verificationPlan: [
+          { kind: 'test', command: 'vitest run', source: 'REPOSITORY_REQUIRED', from: null },
+        ],
+      },
+    ]);
+
+    expect(byName(found.gates, 'test')?.relevantCriteria).toEqual(['AC-1']);
+    expect(byName(found.gates, 'lint')?.relevantCriteria).toEqual([]);
+  });
+
+  it('takes a dependency-free Node test suite for the gate CI runs', async () => {
+    const nodeOnly = {
+      'package.json': JSON.stringify({ name: 'datekit', type: 'module' }),
+      'src/parse.mjs': 'export const parseDate = (input) => new Date(input);\n',
+      '.github/workflows/ci.yml': [
+        'name: ci',
+        'on: [push]',
+        'jobs:',
+        '  checks:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: node --test test/invalid.test.mjs',
+        '      - run: node --test',
+        '',
+      ].join('\n'),
+    };
+
+    const found = await discover(nodeOnly);
+
+    expect(found.gates.map((gate) => [gate.argv.join(' '), gate.requirementLevel])).toEqual([
+      ['node --test test/invalid.test.mjs', 'REPOSITORY_REQUIRED'],
+      ['node --test', 'REPOSITORY_REQUIRED'],
+    ]);
+    expect(found.gates.every((gate) => gate.name === 'test')).toBe(true);
+    expect(found.gates.every((gate) => gate.executionClass === 'READ_ONLY')).toBe(true);
+  });
+
   it('refuses to promote a script that nothing runs into a requirement', async () => {
     const withoutCi: Record<string, string> = { ...NODE_REPO };
     delete withoutCi['.github/workflows/ci.yml'];

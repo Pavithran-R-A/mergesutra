@@ -21,6 +21,7 @@ function gate(over: Partial<PlannedGate> & Pick<PlannedGate, 'id'>): PlannedGate
     command: 'npm test',
     argv: ['npm', 'test'],
     cwd: '.',
+    commandForms: ['npm test'],
     requirementLevel: 'REPOSITORY_REQUIRED',
     corroboratedBy: [],
     relevantCriteria: ['AC-1'],
