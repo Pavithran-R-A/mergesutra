@@ -70,6 +70,10 @@ describe('createRunner', () => {
     ]);
     expect(result.code).not.toBe(0);
     expect(result.stderr).toMatch(/output exceeded 1024 bytes/);
+    // A receipt has to say *why* a command ended without reading its stderr like
+    // prose, so the reason is a fact on the result and not a substring.
+    expect(result.truncated).toBe(true);
+    expect(result.timedOut).not.toBe(true);
   });
 
   it('bounds a hanging command instead of waiting for it', async () => {
@@ -81,6 +85,16 @@ describe('createRunner', () => {
     expect(Date.now() - start).toBeLessThan(20_000);
     expect(result.code).not.toBe(0);
     expect(result.stderr).toMatch(/timed out after 400ms/);
+    expect(result.timedOut).toBe(true);
+    expect(result.truncated).not.toBe(true);
+  });
+
+  it('says so when a command finished on its own two feet', async () => {
+    const result = await createRunner()(NODE, ['-e', 'process.exit(3)']);
+
+    expect(result.code).toBe(3);
+    expect(result.timedOut).toBe(false);
+    expect(result.truncated).toBe(false);
   });
 
   it('turns a missing executable into a failed result, not an unhandled rejection', async () => {

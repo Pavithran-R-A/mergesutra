@@ -14,6 +14,17 @@ export interface RunResult {
   readonly code: number;
   readonly stdout: string;
   readonly stderr: string;
+  /**
+   * Why the process ended, as a fact rather than as prose.
+   *
+   * A verification receipt has to distinguish "exited 1" from "we killed it at
+   * its timeout", and the only other place that distinction lived was the stderr
+   * string — which is a thing to read, not a thing to depend on. Absent means a
+   * scripted or third-party runner did not say; the reader treats that as "not
+   * one of ours", never as a pass.
+   */
+  readonly timedOut?: boolean;
+  readonly truncated?: boolean;
 }
 
 export type Runner = (file: string, args: readonly string[]) => Promise<RunResult>;
@@ -54,7 +65,7 @@ export function createRunner(options: RunnerOptions = {}): Runner {
         timeout: timeoutMs,
         maxBuffer,
       });
-      return { code: 0, stdout, stderr };
+      return { code: 0, stdout, stderr, timedOut: false, truncated: false };
     } catch (error) {
       const e = (error ?? {}) as ExecFailure;
       // Node reports a bounded-output kill as ERR_CHILD_PROCESS_STDIO_MAXBUFFER.
@@ -63,6 +74,8 @@ export function createRunner(options: RunnerOptions = {}): Runner {
           code: 1,
           stdout: e.stdout ?? '',
           stderr: `output exceeded ${maxBuffer} bytes; command aborted`,
+          timedOut: false,
+          truncated: true,
         };
       }
       if (e.killed || e.signal === 'SIGTERM') {
@@ -70,6 +83,8 @@ export function createRunner(options: RunnerOptions = {}): Runner {
           code: 1,
           stdout: e.stdout ?? '',
           stderr: `command timed out after ${timeoutMs}ms`,
+          timedOut: true,
+          truncated: false,
         };
       }
       // A command that never started has no stderr; its reason lives in `message`.
@@ -78,6 +93,8 @@ export function createRunner(options: RunnerOptions = {}): Runner {
         code: typeof e.code === 'number' ? e.code : 1,
         stdout: e.stdout ?? '',
         stderr: firstLine(stderr ?? `${file} failed`),
+        timedOut: false,
+        truncated: false,
       };
     }
   };
