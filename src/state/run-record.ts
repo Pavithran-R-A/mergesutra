@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { acceptanceContractSchema } from '../contract/schema.js';
 import { AppError } from '../core/errors.js';
 import { repositoryContractSchema } from '../discovery/contract.js';
+import { implementationRecordSchema } from '../implement/state.js';
 import { implementationPlanSchema } from '../plan/schema.js';
 import { VERSION } from '../version.js';
 
@@ -16,17 +17,29 @@ import { VERSION } from '../version.js';
  * load, because a stale or hand-edited record must fail loudly rather than
  * silently mislead a later stage.
  *
+ * Version 5 added the Stage 6 loop record beside the plan. A plan says what a
+ * model proposed; an implementation record says what MergeSutra actually ran,
+ * refused and wrote. Keeping both in one document is what lets a reader compare
+ * the claim against the actions without opening two files.
+ *
  * Nothing secret belongs in here. There is no credential field to fill in.
  */
 
-export const RUN_SCHEMA_VERSION = 4;
+export const RUN_SCHEMA_VERSION = 5;
 
-export const RUN_STAGES = ['intake', 'inspect', 'contract', 'plan'] as const;
+export const RUN_STAGES = ['intake', 'inspect', 'contract', 'plan', 'implement'] as const;
 export const RUN_OUTCOMES = [
   'INTAKE_COMPLETE',
   'INSPECT_COMPLETE',
   'CONTRACT_DERIVED',
   'PLAN_COMPLETE',
+  // Stage 6 has four, because "the model stopped" and "the run was stopped" and
+  // "the model could not be reached" are different facts a reader must not have
+  // to infer from a status called BLOCKED.
+  'IMPLEMENTED_BY_MODEL',
+  'IMPLEMENTATION_BLOCKED',
+  'IMPLEMENTATION_INCONCLUSIVE',
+  'IMPLEMENTATION_NEEDS_REVIEW',
   'INCONCLUSIVE',
   'BLOCKED',
 ] as const;
@@ -151,6 +164,12 @@ export const runRecordSchema = z
     acceptanceContract: acceptanceContractSchema.nullable().default(null),
     /** Present once Stage 4 has asked a model — and the answer passed the schema. */
     plan: implementationPlanSchema.nullable().default(null),
+    /**
+     * Present once Stage 6 has run the loop. It records actions and their
+     * results, and it has no field in which a criterion could be called `PASS`
+     * — the loop cannot report a verdict because there is nowhere to write one.
+     */
+    implementation: implementationRecordSchema.nullable().default(null),
     checks: z.array(runCheckSchema).readonly(),
     nextStage: z.string(),
     limitations: z.array(z.string()).readonly(),
@@ -181,6 +200,8 @@ export interface NewRunRecordInput {
   readonly acceptanceContract?: RunRecord['acceptanceContract'];
   /** Only the `plan` command sets this, and it is model output kept as untrusted. */
   readonly plan?: RunRecord['plan'];
+  /** Only the `implement` command sets this, and it is a loop's account of itself. */
+  readonly implementation?: RunRecord['implementation'];
   readonly checks: readonly RunCheck[];
   readonly nextStage: string;
   readonly limitations?: readonly string[];
@@ -202,6 +223,7 @@ export function createRunRecord(input: NewRunRecordInput): RunRecord {
     contract: input.contract,
     acceptanceContract: input.acceptanceContract ?? null,
     plan: input.plan ?? null,
+    implementation: input.implementation ?? null,
     checks: [...input.checks],
     nextStage: input.nextStage,
     limitations: [...(input.limitations ?? [])],

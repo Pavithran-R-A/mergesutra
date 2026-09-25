@@ -112,16 +112,7 @@ export class HttpBharatCodeClient implements BharatCodeClient {
   }
 
   private requireKey(): string {
-    if (!this.config.apiKey) {
-      throw new AppError({
-        kind: 'config',
-        message: 'BharatCode is not configured: no API key was found.',
-        retryable: false,
-        remediation:
-          'Set the BHARATCODE_API_KEY environment variable. Never pass credentials as command arguments.',
-      });
-    }
-    return this.config.apiKey;
+    return requireApiKey(this.config.apiKey);
   }
 
   private url(path: string): string {
@@ -427,6 +418,27 @@ function remediationFor(kind: string): string | undefined {
     default:
       return undefined;
   }
+}
+
+/**
+ * The credential check, on its own.
+ *
+ * A stage that is about to create a workspace needs to fail this before it
+ * writes anything, rather than discovering it inside a loop that would record a
+ * missing configuration as a model that did not answer. One wording, in one
+ * place, for both.
+ */
+export function requireApiKey(apiKey: string | undefined): string {
+  if (!apiKey) {
+    throw new AppError({
+      kind: 'config',
+      message: 'BharatCode is not configured: no API key was found.',
+      retryable: false,
+      remediation:
+        'Set the BHARATCODE_API_KEY environment variable. Never pass credentials as command arguments.',
+    });
+  }
+  return apiKey;
 }
 
 /** Factory used by the CLI and tests. */

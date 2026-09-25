@@ -4,12 +4,15 @@ import { issueAction, type IssueCommandOptions } from './issue.js';
 import { inspectAction, type InspectCommandOptions } from './inspect.js';
 import { contractAction, type ContractCommandOptions } from './contract.js';
 import { planAction, type PlanCommandOptions } from './plan.js';
+import { implementAction, type ImplementCommandOptions } from './implement.js';
 import type { IntakeDeps } from '../intake/intake.js';
 import type { InspectDeps } from '../discovery/inspect.js';
 import type { ContractDeps } from './contract.js';
 import type { PlanDeps } from '../plan/plan.js';
+import type { ImplementStageDeps } from '../implement/implement.js';
 import { createRenderer, resolveColor } from './render.js';
 import { EXIT } from './exit-codes.js';
+import { LIMIT_CAPS } from '../implement/limits.js';
 import { PRODUCT_NAME, TAGLINE, VERSION } from '../version.js';
 import { isAppError } from '../core/errors.js';
 import { defaultRedactor } from '../security/redaction.js';
@@ -19,9 +22,12 @@ import { defaultRedactor } from '../security/redaction.js';
  *
  * The one-command hero workflow is `mergesutra issue <url>`. The phase commands
  * (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`)
- * exist for transparency, debugging and recovery. Through Stage 4, `doctor`,
- * the intake half of `issue`, `inspect`, `contract` and `plan` are wired up;
- * every unfinished command says so truthfully rather than pretending to work.
+ * exist for transparency, debugging and recovery. Through Stage 6, `doctor`,
+ * the intake half of `issue`, `inspect`, `contract`, `plan` and `implement` are
+ * wired up; every unfinished command says so truthfully rather than pretending
+ * to work. `run` — the unattended end-to-end pipeline — is deliberately still
+ * planned: the stages after implementation do not exist yet, so a command that
+ * promised the whole product would be a lie with a nice name.
  */
 
 export interface ProgramDeps {
@@ -30,6 +36,7 @@ export interface ProgramDeps {
   inspect?: Partial<InspectDeps>;
   contract?: Partial<ContractDeps>;
   plan?: Partial<PlanDeps>;
+  implement?: Partial<ImplementStageDeps>;
   write?: (line: string) => void;
   writeErr?: (line: string) => void;
   env?: NodeJS.ProcessEnv;
@@ -139,6 +146,41 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       setExitCode(await planAction(runId, options, deps.plan, write));
     });
 
+  program
+    .command('implement [run-id]')
+    .description(
+      'Run the bounded loop: BharatCode proposes actions, MergeSutra executes the allowed ones',
+    )
+    .option('--repo <path>', 'repository whose workspace this run owns (default: its recorded one)')
+    .option('--model <id>', 'ask for this model instead of the configured one')
+    .option('--max-steps <n>', `turn budget (1-${LIMIT_CAPS.maxSteps})`)
+    .option('--max-writes <n>', `write budget (1-${LIMIT_CAPS.maxWrites})`)
+    .option('--max-commands <n>', `command budget (1-${LIMIT_CAPS.maxCommands})`)
+    .action(async (runId: string | undefined, opts: Record<string, string | undefined>) => {
+      const globals = program.opts();
+      // One Ctrl-C stops the loop between actions and aborts the request in
+      // flight; the record is still written, because a cancelled run is a fact.
+      const controller = new AbortController();
+      const onInterrupt = (): void => controller.abort();
+      process.on('SIGINT', onInterrupt);
+      try {
+        const options: ImplementCommandOptions = {
+          json: globals.json === true,
+          noColor: globals.color === false,
+          env,
+          repo: opts.repo,
+          model: opts.model,
+          maxSteps: opts['max-steps'] ?? opts.maxSteps,
+          maxWrites: opts['max-writes'] ?? opts.maxWrites,
+          maxCommands: opts['max-commands'] ?? opts.maxCommands,
+          signal: controller.signal,
+        };
+        setExitCode(await implementAction(runId, options, deps.implement, write));
+      } finally {
+        process.removeListener('SIGINT', onInterrupt);
+      }
+    });
+
   for (const planned of PLANNED) {
     const [name] = planned.name.split(' ');
     program
@@ -154,7 +196,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
             renderer.row('INFO', planned.summary),
             '',
             renderer.dim(
-              'Currently working commands: doctor, issue (intake), inspect, contract, plan, --help, --version.',
+              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, --help, --version.',
             ),
             renderer.dim('Progress: see docs/ROADMAP.md'),
           ].join('\n'),

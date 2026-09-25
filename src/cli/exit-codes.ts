@@ -26,6 +26,9 @@ export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
 /**
  * One outcome, one code — shared by every stage command so that `issue` and
  * `inspect` cannot drift apart on what "success" sounds like to a script.
+ *
+ * Stage 6 has no `EXIT.OK`: a model that asked to stop has claimed work, and the
+ * claim is checked by a later stage. `IMPLEMENTED_BY_MODEL` therefore exits 3.
  */
 export function exitForOutcome(outcome: RunOutcome): ExitCode {
   switch (outcome) {
@@ -34,9 +37,13 @@ export function exitForOutcome(outcome: RunOutcome): ExitCode {
     case 'CONTRACT_DERIVED':
     case 'PLAN_COMPLETE':
       return EXIT.OK;
-    case 'BLOCKED':
-      return EXIT.BLOCKED;
+    case 'IMPLEMENTED_BY_MODEL':
+    case 'IMPLEMENTATION_INCONCLUSIVE':
+    case 'IMPLEMENTATION_NEEDS_REVIEW':
     case 'INCONCLUSIVE':
       return EXIT.INCONCLUSIVE;
+    case 'IMPLEMENTATION_BLOCKED':
+    case 'BLOCKED':
+      return EXIT.BLOCKED;
   }
 }
