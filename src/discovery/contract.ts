@@ -107,8 +107,12 @@ export interface BuildContractInput {
  *
  * The read-only spelling comes first: a contract that reported `prettier --write .`
  * as the format gate would be telling a later stage to edit the user's files.
+ *
+ * Exported because Stage 7 asks the same question — "is there a declared script
+ * that carries this gate, and which one is canonical?" — and a second copy of
+ * this list would eventually disagree with the first.
  */
-const SCRIPT_NAMES: Record<GateKind, readonly string[]> = {
+export const SCRIPT_NAMES: Record<GateKind, readonly string[]> = {
   format: ['format:check', 'format', 'fmt', 'prettier'],
   lint: ['lint:check', 'lint', 'eslint'],
   typecheck: ['typecheck', 'type-check', 'check:types', 'tsc'],
@@ -140,6 +144,17 @@ const TOOL_EVIDENCE: Record<GateKind, RegExp> = {
 /** Setting a workspace up is not a gate, and reporting it as unexplained noise would be misleading. */
 const SETUP_COMMAND =
   /\b(?:npm|pnpm|yarn|bun|npx) ci\b|\b(?:npm|pnpm|yarn|bun) install\b|\b(?:pip|uv|poetry) (?:install|sync)\b|\b(?:go (?:mod|work) (?:download|tidy)|cargo fetch|bundle install)\b|\bapt[-\s]|\bbrew install\b/;
+
+/**
+ * Does this step set the workspace up rather than check it?
+ *
+ * Stage 7 has to refuse these outright: MergeSutra never installs dependencies
+ * as a side effect of verifying (§5 of the Stage 7 brief), and the way to be
+ * sure it never does is to recognise the spelling in one place.
+ */
+export function isSetupCommand(text: string): boolean {
+  return SETUP_COMMAND.test(text.toLowerCase());
+}
 
 /** Every script a piece of command text invokes, in the order it appears. */
 const ANY_INVOCATION = /(?:npm|pnpm|yarn|bun|npx)(?:[ -][\w@/.-]+)*\s+(?:run\s+)?([\w:./-]+)/g;
@@ -200,7 +215,7 @@ function resolveCi(ci: CiFacts, scripts: ReadonlyMap<string, DeclaredScript>): C
   for (const command of ci.commands) {
     const routes = gatesEnforced(command.command, scripts);
     if (routes.length === 0) {
-      if (!SETUP_COMMAND.test(command.command.trim().toLowerCase())) unexplained.push(command);
+      if (!isSetupCommand(command.command)) unexplained.push(command);
       continue;
     }
     for (const route of routes) {

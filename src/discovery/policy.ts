@@ -13,7 +13,13 @@ import type { RepoReader } from './repo-fs.js';
  * markdown file said so.
  */
 
-const CONTRIBUTION_CANDIDATES = [
+/**
+ * Where a repository tells a human how to work.
+ *
+ * Exported so that Stage 7 looks for corroboration in exactly these files
+ * rather than in a second, drifting list.
+ */
+export const CONTRIBUTION_CANDIDATES = [
   'CONTRIBUTING.md',
   'CONTRIBUTING.rst',
   'docs/CONTRIBUTING.md',
@@ -22,7 +28,7 @@ const CONTRIBUTION_CANDIDATES = [
   'docs/DEVELOPMENT.md',
 ];
 
-const MAX_DOC_BYTES = 32 * 1024;
+export const MAX_DOC_BYTES = 32 * 1024;
 
 export interface ContributionDocFact {
   readonly path: string;
