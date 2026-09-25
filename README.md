@@ -14,23 +14,24 @@ becomes a PR."*
 
 ---
 
-> **Honest status: Stage 5 — safety built, deliberately no new command.** What
-> you can run today is `mergesutra doctor`, `mergesutra issue <url>`,
-> `mergesutra inspect <dir>`, `mergesutra contract [run-id]` and
-> `mergesutra plan [run-id]`: intake
+> **Honest status: Stage 6 — a model can now make a file change, inside a cage.**
+> What you can run today is `mergesutra doctor`, `mergesutra issue <url>`,
+> `mergesutra inspect <dir>`, `mergesutra contract [run-id]`,
+> `mergesutra plan [run-id]` and `mergesutra implement [run-id]`: intake
 > reads a GitHub issue and pins the exact repository and base commit into a
 > versioned run record, `inspect` compiles what a repository itself requires
 > into a provenanced contract, `contract` turns those facts into the criteria a
-> run must prove, and `plan` asks BharatCode how to satisfy them — every
-> criterion still `PENDING`, because nothing has run yet and a plan is a
-> proposal, not a result. Stage 5 added the layer the next stage has to pass
-> through — an isolated Git worktree at the pinned base SHA, a risk-classified
-> tool policy, and a writer that cannot write outside its own run's workspace —
-> and shipped it as library modules with no CLI surface, so `mergesutra run`
-> still exits `2` rather than imitating an implementation loop. The BharatCode
-> adapter, configuration, central secret
+> run must prove, `plan` asks BharatCode how to satisfy them, and `implement`
+> runs the first bounded loop — BharatCode proposes one action at a time,
+> MergeSutra validates it, decides whether it is allowed, and executes the
+> allowed ones inside a Git worktree at the pinned base commit. Files really
+> change there; **nothing is verified**, so every criterion is still `PENDING`
+> and a run that ends well exits `3`, not `0`, because the model declaring
+> itself finished is a claim Stage 7 has to check. The BharatCode adapter,
+> configuration, central secret
 > redaction, structured errors, tests and CI are **implemented and green**. The
-> full `issue → PR` workflow is **under construction** — see
+> full `issue → PR` workflow is **under construction** — verification, review,
+> the evidence pack and PR drafting are the next stages; see
 > [Roadmap](docs/ROADMAP.md). Where this README shows the finished experience,
 > it is labelled **target**. What you can run today is shown under
 > [Try it now](#try-it-now).
@@ -51,9 +52,9 @@ evidence chain the product:
   otherwise `FAIL` / `SKIPPED` / `NOT_AVAILABLE` / `BLOCKED` / `INCONCLUSIVE`.
 - **Safety harness above the model** — isolated worktree, risk-classified tool
   policy, confined writes, central redaction, and **human approval before
-  any remote action**. The worktree, the policy and the writer are modules
-  today (Stage 5); the execution that uses them arrives with the loop
-  (Stages 6-7).
+  any remote action**. `mergesutra implement` is the loop that uses them: the
+  model picks one action per turn from a closed list, and MergeSutra decides
+  whether it runs at all. Verification of the result is the next stage.
 
 ## How it differs from a normal coding agent
 
@@ -120,7 +121,14 @@ node dist/index.js contract <run-id> --json
 node dist/index.js contract --criterion "Docs say 22 is the floor" --by "Maintainer"
 node dist/index.js plan              # needs BHARATCODE_API_KEY; proposes, runs nothing
 node dist/index.js plan <run-id> --json
+node dist/index.js implement         # needs a key; writes inside its own worktree only
+node dist/index.js implement <run-id> --max-steps 8 --json
 ```
+
+`implement` is the first command where something changes on disk. It needs a
+plan and a contract in the run it is pointed at, and it refuses before it does
+any work if `BHARATCODE_API_KEY` is missing — no keyless run, and no worktree
+created just to discover that afterwards.
 
 Real `doctor` output (this machine, no secrets shown):
 
@@ -139,7 +147,9 @@ Not ready. Resolve the FAIL items above.
 
 Real `issue` output (this machine, a clone with no `origin` remote and uncommitted
 work — so it truthfully reports what it could not establish, and exits `3`; the
-workspace path is shortened here, not by MergeSutra):
+workspace path is shortened here, not by MergeSutra). Captured at Stage 4, so its
+footer lists the stages that existed then; the same line now reads
+`Stages implemented: 0 … 6 (bounded implementation loop)`.
 
 ```text
 MergeSutra — intake
@@ -355,6 +365,11 @@ A plan is a proposal from a model. Nothing here was executed, changed, or verifi
 Criterion statuses move only when evidence exists, and no command was run to produce any.
 ```
 
+That `Next stage` line was true when this was the newest build; `mergesutra
+implement` now follows `plan`, and the same command prints
+`Next stage: IMPLEMENT — mergesutra implement runs the bounded loop in this run's
+own workspace; nothing is verified there`.
+
 Every line of that came out of a model and none of it was obeyed. The ids are
 checked against the contract's closed list, the paths against the repository-
 relative rule, the commands against an argv-only shape, and the whole answer
@@ -370,6 +385,96 @@ error: BharatCode is not configured: no API key was found.
 $ echo $?
 78
 ```
+
+Real `implement` output — the same command, in the same scratch repository, on
+the plan above. The endpoint was again a **local stub** pointed at with
+`BHARATCODE_API_BASE`, so no live BharatCode call was made and no credential was
+involved; every line of it came off this machine. This one continues a four-gate
+chain (`inspect` → `contract` → `plan` → `implement`) and exits `3`. The
+temporary workspace path is shortened here, not by MergeSutra.
+
+```text
+MergeSutra — bounded implementation run
+
+PASS          Workspace           .mergesutra/worktrees/run-20260925T030530Z-09eef0 at 4b0a90cb38b3 on mergesutra/run-20260925T030530Z-09eef0
+PASS          Acceptance Contract 4 criterion(criteria) unchanged (v1); no revision was applied
+INFO          BharatCode          model stub-model, 5 turn(s), 5 request(s)
+INFO          Writes              2 file(s), 661 byte(s), all inside the workspace
+INFO          Checks              1 developer command(s) run as argv inside the workspace
+WARN          Refused actions     1 action(s) refused by the tool policy, the write boundary or the bounds
+WARN          Model claim         FINISH named 4 criterion(s); a claim, not a verdict
+NOT_AVAILABLE Verification        Stage 6 runs developer checks only; no criterion was verified against its contract
+NOT_AVAILABLE Remote mutation     no push, pull request, comment or GitHub write was attempted
+INFO          Loop end            COMPLETED_BY_MODEL (FINISH): FINISH: claimed 4 criterion(s). parseDate now throws on empty and unparseable input; a test file covers both cases.
+
+Run:          run-20260925T030530Z-09eef0
+Outcome:      IMPLEMENTED_BY_MODEL
+Loop status:  COMPLETED_BY_MODEL
+Ended:        FINISH — FINISH: claimed 4 criterion(s). parseDate now throws on empty and unparseable input; a test file covers both cases.
+Model:        stub-model
+Budget:       5/12 steps · 2/6 writes · 1/4 checks
+Workspace:    .mergesutra/worktrees/run-20260925T030530Z-09eef0 on mergesutra/run-20260925T030530Z-09eef0 at 4b0a90cb38b3
+
+What happened
+   1. INFO         WRITE_FILE                src/parse.ts
+      replaced src/parse.ts: 304 bytes, sha256 ba523ffe302f
+   2. INFO         WRITE_FILE                test/parse.test.ts
+      created test/parse.test.ts: 357 bytes, sha256 49eca929222f
+   3. FAIL         RUN_CHECK                 git push origin HEAD
+      A remote mutation waits for explicit human approval of this exact action: git push origin HEAD. Stage 6 does not seek approval for remote mutations — publishin…
+   4. INFO         RUN_CHECK                 git status --porcelain
+      git status --porcelain exited 0: M src/parse.ts ?? test/
+   5. INFO         FINISH                    parseDate now throws on empty and unparseable input; a test file covers both cases.
+      FINISH: claimed 4 criterion(s). parseDate now throws on empty and unparseable input; a test file covers both cases.
+
+Files written in this workspace
+  edit src/parse.ts                                304 B       AC-3, AC-4
+  sha256 ba523ffe302f1be48548d565f9362fb5380b4333b3c7c0d380c83f27fdd41200
+  new  test/parse.test.ts                          357 B       AC-4
+  sha256 49eca929222fef44ec59cd4cc1f83136df9d5a231eda4a5588de45c86db20009
+
+Criteria the model claims
+  parseDate now throws on empty and unparseable input; a test file covers both cases.
+  believed complete: AC-1, AC-2, AC-3, AC-4 — MODEL CLAIM, unverified
+  no criterion changed status here; the record has no field that could claim one
+
+What this run does not establish
+  The loop ended with FINISH: FINISH: claimed 4 criterion(s). parseDate now throws on empty and unparseable input; a test file covers both cases.
+  Nothing here is verified. No criterion changed status and no evidence was collected; that is Stage 7.
+  No remote mutation was attempted: nothing was pushed, no pull request was opened, no issue was commented on.
+  The Acceptance Contract was not modified. Revision proposals are stored unapplied, for a human to read.
+  The workspace is left in place with uncommitted changes; MergeSutra does not delete or reset it.
+  The model reported itself finished. That is a claim about its own work, recorded as COMPLETED_BY_MODEL, not a result.
+  Carried from run run-20260925T030529Z-627d72: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  Carried from run run-20260925T030529Z-627d72: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  Carried from run run-20260925T030529Z-627d72: No CODEOWNERS file found: ownership of specific paths is unknown.
+  Carried from run run-20260925T030529Z-627d72: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  No issue was supplied, so the contract can only carry what the repository demands.
+  No criterion in this contract has been checked. `PENDING` is the only status MergeSutra could honestly assign.
+
+Run record:   C:\Users\…\AppData\Local\Temp\…\stage6c\repo\.mergesutra\runs\run-20260925T030530Z-09eef0.json
+Next stage:   VERIFY — the model says it is done; `mergesutra verify` has to agree, and does not exist yet
+
+BharatCode chose what to look at and what to write. MergeSutra decided what was allowed to run.
+Nothing here is verified: no criterion is PASS, and no push, pull request or comment was attempted.
+Read it as a candidate: `git -C <workspace> diff` shows the bytes; `mergesutra verify` is what will judge them.
+```
+
+Three things in that capture are the whole point of the stage, and none of them
+is the patch:
+
+- **Step 3 is a refusal, not a failure.** The model asked for
+  `git push origin HEAD`; the tool policy read the argv, classified it
+  REMOTE_MUTATION, and nothing ran — no approval was even sought, because
+  publishing is not this stage's to do. The loop then carried on, and the
+  refusal is a row in the record.
+- **Step 4 is evidence that the writes were real.** `git status --porcelain`
+  exited `0` inside the workspace and named `src/parse.ts` and `test/`. It is
+  `INFO`, not `PASS`: a command that succeeds is a fact about that command.
+- **The exit code is `3`, not `0`.** `IMPLEMENTED_BY_MODEL` means the model
+  stopped asking. The four criteria it believes are complete are still
+  `PENDING`, because the only stage allowed to move them does not exist yet, and
+  the primary checkout's `git status` and branch never changed.
 
 ## Installation *(planned)*
 
@@ -397,17 +502,26 @@ Global flags: `--dry-run`, `--verbose`, `--json`, `--no-color` (also honours
 | `inspect` | Compile what a repository itself requires into a provenanced contract, read-only | Ready    |
 | `contract` | Turn a run's facts into the criteria it must prove — all `PENDING`, nothing executed | Ready |
 | `plan` | Ask BharatCode for an implementation plan against a run's criteria — proposals only, runs nothing | Ready |
+| `implement` | The bounded loop: BharatCode proposes one action per turn, MergeSutra validates it and executes the allowed ones in the run's own worktree — writes files, verifies nothing, publishes nothing | Ready |
 | `issue`     | Intake: read an issue, pin the repository + base commit into a run record | **Partial — intake only** |
 | `issue` *(full workflow)* | Hero workflow: issue → evidence-backed PR draft | Planned  |
 | `run` `verify` `review` `report` `pr` `status` `resume` | Phase / recovery commands | Planned |
 
 A planned command reports honestly and exits non-zero — it never fakes success.
+`mergesutra run` — the unattended pipeline from issue to PR — is still planned,
+and stays planned: `verify`, `review` and `report` do not exist yet, so a command
+that promised the whole product would be a lie with a nice name.
 
 `inspect` and `contract` are read-only: they never execute a command from the
 repository they read, never call a model, and write only their own run record
 under `.mergesutra/`. `plan` is read-only in the same way and one step further
 removed: it calls a model, and holds no process runner at all — a stage that
 could execute a command could execute the command the model just proposed.
+`implement` is the first command that can change anything, and its reach is
+still bounded: writes go through a confined writer, commands through a
+risk-classified policy that derives the risk from the argv rather than being
+told it, both rooted in one worktree, and no action in its vocabulary can push,
+comment, delete or verify.
 
 ### Exit codes
 
@@ -416,11 +530,15 @@ A script or editor can tell these apart without parsing prose:
 | Code | Meaning                                                                     |
 | ---- | --------------------------------------------------------------------------- |
 | `0`  | Did what it claimed (`doctor` ready; `inspect` reached `INSPECT_COMPLETE`; `contract` reached `CONTRACT_DERIVED`; `plan` reached `PLAN_COMPLETE`) |
-| `1`  | Failed for a stated reason (bad input, unusable configuration, nothing to plan against) |
+| `1`  | Failed for a stated reason (bad input, unusable configuration, nothing to plan or implement against) |
 | `2`  | Command is planned, not implemented — nothing was done                        |
-| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`, `contract`, `plan`) |
-| `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue)   |
-| `78` | Configuration error (cf. `EX_CONFIG`) — e.g. `plan` with no `BHARATCODE_API_KEY` |
+| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`, `contract`, `plan`), or an implementation run that changed files without proving anything (`IMPLEMENTED_BY_MODEL`, `IMPLEMENTATION_INCONCLUSIVE`, `IMPLEMENTATION_NEEDS_REVIEW`) |
+| `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue), or a loop that stopped on a bound or on cancellation |
+| `78` | Configuration error (cf. `EX_CONFIG`) — e.g. `plan` or `implement` with no `BHARATCODE_API_KEY` |
+
+`implement` has **no exit `0`**. A loop that ended because the model said
+`FINISH` produced files and a claim, not a verified result, and the number a
+script reads has to say so.
 
 ## Safety model
 
@@ -438,11 +556,15 @@ harness above it. All model access goes through a single adapter
 (`https://bharatcode.ai/api/model/v1`), with model discovery, typed requests,
 bounded retries honouring `Retry-After`, timeouts and cancellation.
 Credentials come **only** from `BHARATCODE_API_KEY` (environment) — never
-arguments, fixtures, logs, reports, or screenshots. `mergesutra plan` is the
-first command to use that adapter, and the answer it gets is treated as data:
-parsed under a `strict()` schema, refused if it drops or invents a criterion,
-and stored with the model, the round-trip count and the token counts MergeSutra
-observed — never with anything the model claimed about itself. This project is
+arguments, fixtures, logs, reports, or screenshots. `mergesutra plan` was the
+first command to use that adapter, and `mergesutra implement` is the second: each
+answer is treated as data, parsed under a `strict()` schema, refused if it drops
+or invents a criterion, and stored with the model, the round-trip count and the
+token counts MergeSutra observed — never with anything the model claimed about
+itself. The loop asks one question per turn and accepts one of eight actions; a
+request that fails after the adapter's own bounded retries ends the run as
+`MODEL_UNAVAILABLE` instead of trying again, so an unavailable model cannot drive
+an open-ended spend. This project is
 not a clone or replacement of the official BharatCode CLI; it is truthfully
 *powered by* it.
 
@@ -455,22 +577,34 @@ repo evidence with provenance and classified
 today compiles the `REPOSITORY_REQUIRED` and `DECLARED_ONLY` rows from
 manifest + CI evidence and never promotes a gate on its own; `contract` turns
 each required gate into a criterion whose verification plan already carries the
-command and the line that cited it. Running the gates comes at
-[Stage 7](docs/ROADMAP.md). Initial high-quality support targets
+command and the line that cited it. Running those gates against a patch comes at
+[Stage 7](docs/ROADMAP.md), and it is deliberately not the same thing as what
+`implement` does: the loop can run a **developer check** the model asked for
+(`RUN_CHECK`, argv-only, bounded, inside the workspace) and records its exit
+code, but a check that exits `0` is a fact about that command, not a criterion
+that passed. No Stage 6 action can move a criterion off `PENDING`, and the
+record has no field that could hold one. Initial high-quality support targets
 Node/TypeScript/JavaScript with a generic fallback — we do not claim an
 ecosystem before testing it.
 
 ## Evidence pack
 
-Today every `issue`, `inspect`, `contract` and `plan` run writes one secret-free
-JSON run record to `.mergesutra/runs/run-<utc>-<hex>.json` (gitignored), with
+Today every `issue`, `inspect`, `contract`, `plan` and `implement` run writes one
+secret-free JSON run record to `.mergesutra/runs/run-<utc>-<hex>.json`
+(gitignored), with
 the stage reached, the repository identity it pinned, the repository contract
 with each claim's source file, the Acceptance Contract with its criteria and
-verification plans, and — once `plan` has run — the model's proposal with the
-provenance MergeSutra observed for it. The richer bundle — `commands.jsonl`
+verification plans, the model's proposal with the
+provenance MergeSutra observed for it, and — once `implement` has run — the
+implementation record: every action with its outcome, refusal reason, risk class
+and exit code, every file written with its size and `sha256`, the workspace and
+branch it wrote to, the budget the loop ran under, how it ended, and the model's
+`FINISH` claim stored as a claim. File *contents* are not in the record; the
+bytes live in the worktree, where `git diff` shows them. The richer bundle —
+`commands.jsonl`
 receipts, verification, review, `report.md`/`report.json` under
 `.mergesutra/runs/<id>/` — is the [Stage 12](docs/ROADMAP.md) target. Nothing
-here is ever committed automatically. The record is schema version 4; a file
+here is ever committed automatically. The record is schema version 5; a file
 written by an earlier stage build is reported as unreadable rather than guessed
 at, so re-run the stage after upgrading.
 Layout: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -492,7 +626,10 @@ boundaries and state machine.
 
 ## Supported repositories
 
-Stages 1-4 read repositories and plan against them; they do not patch them.
+Stages 1-4 read repositories and plan against them; they change nothing. Stage 6
+writes — inside a Git worktree the run owns, at the pinned base commit, on its
+own branch — and never into the checkout it was pointed at, which stays clean
+with its HEAD and branch untouched. Nothing is committed, pushed or opened.
 Planned initial target:
 Node/TypeScript/JavaScript projects on **public** GitHub repos. Windows and
 Linux are first-class; macOS follows once core CI is strong.
@@ -509,9 +646,17 @@ from an explicit acceptance list, a CI-enforced gate or a named human, so prose
 that implies a requirement yields a limitation rather than a criterion. What
 `plan` checks about a model's answer is its **shape and coverage**, not its
 merit — a well-formed plan can still be the wrong plan, and the next stage is
-the one that finds out. It has also not yet been run against a live BharatCode
-endpoint from this machine (no key was set here); the sample above goes through
-the same adapter against a local stub.
+the one that finds out. What `implement` checks is whether an action is
+**allowed**, which is a different question from whether it is right: the loop
+records every action, refusal and exit code, and it cannot tell you the patch
+works. Two specific gaps in Stage 6 are stated in the record itself: a
+`WRITE_FILE` is a whole file, so a model that rewrites one it never read clobbers
+it (the digest makes that visible, not impossible), and a worktree is isolation
+for clarity, **not a sandbox** — a permitted command can still do what the
+operating system allows. Neither `plan` nor `implement` has yet been run against
+a live BharatCode endpoint from this machine (no key was set here); both samples
+above go through the same adapter against a local stub, and the real-Git
+behaviour around them is covered by tests that need no key.
 
 ## Benchmark
 
@@ -526,7 +671,10 @@ GitHub issue intake), 2 (repository policy compiler), 3 (Acceptance Contract
 criteria) and 4 (BharatCode implementation plan) are done end to end from the
 command line. Stage 5 (safe worktree, risk-classified tool policy, confined
 writer) is done as library modules with no command of its own, on purpose.
-Stage 6 — the bounded implementation loop that first calls them — is next.
+Stage 6 — the bounded implementation loop that first calls them, `mergesutra
+implement` — is done: it writes files in a workspace and changes nothing else.
+Stage 7, the deterministic verification engine that decides whether a criterion
+passed, is next.
 
 ## Contributing
 

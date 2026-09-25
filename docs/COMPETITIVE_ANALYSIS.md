@@ -26,10 +26,12 @@ Also: a direct interactive local CLI workflow with no mandatory self-hosted
 runner for the core local path.
 
 - **Status:** the repository-policy compiler (Stage 2), the Acceptance Contract
-  with its criteria and verification plans (Stage 3), and a planner that must
-  account for every criterion without being able to mark one proven (Stage 4)
-  are **shipped** — what is still **[DESIGNED]** is the other half of the
-  chain: attaching executed evidence to those criteria (Stage 7/8) and the
+  with its criteria and verification plans (Stage 3), a planner that must
+  account for every criterion without being able to mark one proven (Stage 4),
+  and a bounded implementation loop that changes files only inside its own
+  worktree and only through actions a deterministic policy allowed (Stage 6) are
+  **shipped** — what is still **[DESIGNED]** is the other half of the chain:
+  attaching executed evidence to those criteria (Stage 7/8) and the
   evidence-first PR output.
 
 ### PatchProof-style verifiers
@@ -43,9 +45,10 @@ already-created patch. Verification is one layer inside a larger evidence
 harness.
 
 - **Status:** verification engine **[DESIGNED]** (Stage 7). The BharatCode
-  adapter and redaction are implemented and Stage 4 uses both for real, but
-  MergeSutra has not yet run a single gate, so it has no verification claims to
-  make.
+  adapter and redaction are implemented and Stages 4 and 6 both use them for
+  real, and Stage 6 executes developer commands the policy allowed — but not one
+  gate from a repository contract has been run, so every criterion is still
+  `PENDING` and MergeSutra has no verification claims to make.
 
 ### MergeMitra-style PR reviewers
 
@@ -74,16 +77,22 @@ each requirement to the change.
 
 ## Competitive advantages we must deliver (tracked, not asserted)
 
-| Advantage                                      | Status        |
-| ---------------------------------------------- | ------------- |
-| BharatCode-native intelligence                 | Implemented   |
-| Direct interactive local CLI workflow          | Partial       |
-| Acceptance Contract                            | Designed (S3) |
-| Criterion-to-evidence traceability             | Designed (S8) |
-| Repository-policy compilation                  | Designed (S2) |
-| Evidence-first PR output                       | Designed (S10)|
-| No mandatory self-hosted runner for local core | Designed (S5) |
-| Honest benchmark incl. published failures      | Planned (S14) |
+| Advantage                                      | Status                                                   |
+| ---------------------------------------------- | -------------------------------------------------------- |
+| BharatCode-native intelligence                 | Implemented (S4 plans, S6 drives the loop)               |
+| Direct interactive local CLI workflow          | Partial — six working commands, `run` still exits `2`    |
+| Acceptance Contract                            | Implemented (S3); no criterion has evidence yet          |
+| Criterion-to-evidence traceability             | Designed (S8)                                            |
+| Repository-policy compilation                  | Implemented (S2)                                         |
+| Bounded, policy-gated implementation loop      | Implemented (S6); writes in its own worktree, verifies nothing |
+| Evidence-first PR output                       | Designed (S10)                                           |
+| No mandatory self-hosted runner for local core | Implemented (S5 worktree, exercised by S6)               |
+| Honest benchmark incl. published failures      | Planned (S14)                                            |
+
+"Implemented" here means the code exists and is green offline, not that the
+advantage is complete: the Acceptance Contract cannot yet be satisfied by any
+run, because nothing has verified a criterion, and the loop's output is an
+unverified workspace rather than a pull request.
 
 Do not attack competitors. State factual, implemented differences only. Respect
 licenses and attribution.

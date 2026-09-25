@@ -153,7 +153,7 @@ what was run, what passed, what failed or could not be checked — and decide
 whether to publish. Honest reporting of failures is a success condition, not a
 defect.
 
-## 10. Limitations (current, at Stage 5)
+## 10. Limitations (current, at Stage 6)
 
 - Implemented today: CLI skeleton, BharatCode adapter, config, redaction,
   structured errors, `doctor`, **intake** (`mergesutra issue <url>` — parses the
@@ -164,28 +164,48 @@ defect.
   read-only and compiles the gates the repository itself demands, each with a
   file-and-line citation), **Acceptance Contract derivation**
   (`mergesutra contract [run-id]` — joins an issue run and a repository contract
-  into versioned criteria that cannot record a `PASS` without evidence), and
+  into versioned criteria that cannot record a `PASS` without evidence),
   **implementation planning** against BharatCode (`mergesutra plan [run-id]` —
   one schema-validated, coverage-checked plan whose every command is a proposal
-  and which holds no process runner).
-- Stage 5 implemented the safety layer as **modules with no command**: the
-  worktree manager (`src/git/workspace.ts`), the risk classifier
+  and which holds no process runner), and the **bounded implementation loop**
+  (`mergesutra implement [run-id]` — BharatCode proposes one action per turn from
+  a closed list of eight; MergeSutra validates it, decides whether it is allowed,
+  and executes the allowed ones in a Git worktree at the run's base commit).
+- Stage 5 shipped the safety layer as **modules with no command**: the worktree
+  manager (`src/git/workspace.ts`), the risk classifier
   (`src/process/tool-policy.ts`) and the confined writer
-  (`src/security/writer.ts`). Nothing you can type at MergeSutra changes a
-  repository because of it — the summarised safety rules in §8 are now enforced
-  by code with tests, but the loop that would exercise them under a command does
-  not exist yet.
-- Everything from Stage 6 on — the implementation loop, the verification engine,
-  review, evidence pack, PR drafting and resumability (`status` / `resume`) — is
+  (`src/security/writer.ts`). Stage 6 is the first consumer of all three, plus a
+  confined reader for the read half of the same boundary. The rules in §8 are no
+  longer only a policy document — every action the loop can take is routed
+  through them, and there is no code path in `src/implement/` that reaches
+  `fs.writeFile`, `fs.rm`, `fs.rename`, `exec`, `execSync` or a shell-mode spawn.
+- Everything from Stage 7 on — the deterministic verification engine, review,
+  the evidence pack, PR drafting and resumability (`status` / `resume`) — is
   **[DESIGNED]** / **[PLANNED]**, not yet functional.
   Planned commands exit `2` rather than imitating success. Every derived
-  criterion is still `PENDING` after a plan is written, and the CLI says so on
-  screen.
-- Stages 1–3 make no model call, so a run works with no API key present. Stage
-  4 does: without `BHARATCODE_API_KEY` it exits `78` and says why, and this
-  build has not been pointed at a live BharatCode endpoint — the captured
-  plan sample goes through the real adapter against a local stub, with
-  `BHARATCODE_API_BASE` overridden for the test.
+  criterion is still `PENDING` after `implement` finishes, and the CLI says so
+  on screen: the loop ran no gate from the Acceptance Contract, and
+  `Verification` is `NOT_AVAILABLE` in every implementation record.
+- What `implement` establishes is **permission, not merit**. It records what ran,
+  what was refused and with which reason; whether the patch satisfies the issue
+  is Stage 7's question. `COMPLETED_BY_MODEL` means the model stopped asking —
+  hence exit `3` rather than `0`, and no `CONTRIBUTION_READY` reachable from this
+  command.
+- Two Stage 6 gaps are written into each record rather than smoothed over: a
+  `WRITE_FILE` carries a whole file, so a model that rewrites a file it never
+  read clobbers it (the stored `sha256` and byte count make that visible, not
+  impossible), and the workspace is isolation for clarity — **a Git worktree is
+  not a sandbox**, so a command the policy allows can still do whatever the
+  operating system allows.
+- Stages 1–3 make no model call, so a run works with no API key present. Stages
+  4 and 6 do: without `BHARATCODE_API_KEY` they exit `78` and say why. Stage 6
+  checks the key **before** it creates a workspace, so a keyless machine gets a
+  configuration refusal and zero git invocations instead of a worktree and an
+  `INCONCLUSIVE` run. This build has still not been pointed at a live BharatCode
+  endpoint — no key exists on this machine — so the captured plan and implement
+  samples both go through the real adapter against a local stub, with
+  `BHARATCODE_API_BASE` overridden for the run. `tests/implement/live.test.ts`
+  is the opt-in real-endpoint check, and it skips here rather than pretending.
 - A plan is validated for **shape and coverage**, not merit. Nothing in Stage 4
   decides whether the proposed files are the right ones or the proposed commands
   will pass; that is what the next stages exist for.

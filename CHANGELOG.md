@@ -6,6 +6,125 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Stage 6: the bounded implementation loop
+
+The first stage where a model's answer makes something happen. BharatCode chooses
+what to read and what to write; every one of those choices passes through the
+Stage 5 policy, the Stage 5 writer and a closed action protocol before a byte
+changes, and the run records what actually ran rather than what the model
+believes it did.
+
+- `mergesutra implement [run-id]` — takes a run that already has a contract and a
+  plan and gives it a workspace with files in it. Flags: `--repo`, `--model`,
+  `--max-steps`, `--max-writes`, `--max-commands`, plus `--json` and `--no-color`.
+  Exit codes: `3` for `IMPLEMENTED_BY_MODEL` — a model that asked to stop has made
+  a claim, not earned a `0` — `4` for blocked or cancelled, `1` when the source run
+  has no plan, `78` when `BHARATCODE_API_KEY` is absent. **There is no exit `0` in
+  Stage 6**, and `CONTRIBUTION_READY` is not reachable from this command.
+- A closed action vocabulary (`src/implement/protocol.ts`): eight kinds
+  (`READ_FILE`, `LIST_FILES`, `SEARCH`, `WRITE_FILE`, `RUN_CHECK`,
+  `PROPOSE_CONTRACT_REVISION`, `FINISH`, `BLOCKED`) in a `strict()` discriminated
+  union. Anything else — a `RUN_SHELL`, a `DELETE_FILE`, a field nobody asked for —
+  is refused before it can reach a decision, so "what can this loop do" has one
+  answer that does not depend on what the model thinks is available.
+- Twelve knobs, each with a default **and a ceiling** (`src/implement/limits.ts`):
+  steps, writes, commands, refusals, repeats, schema repairs, context files and
+  bytes, model output size, command timeout and output, and a wall-clock deadline
+  for the whole loop. `--max-steps 999` is refused as a validation error naming the
+  ceiling, because an operator who can raise a limit to anything is running an
+  unbounded agent with extra steps.
+- Hitting a bound is an **outcome, not a lost run**: state is persisted, the
+  worktree is left in place, and the run reports `BLOCKED` /
+  `NEEDS_HUMAN_REVIEW` / `INCONCLUSIVE` with the specific `termination.kind`
+  (`MAX_STEPS`, `MAX_WRITES`, `MAX_COMMANDS`, `MAX_REFUSALS`, `REPEATED_FAILURE`,
+  `SCHEMA_REFUSAL`, `MODEL_UNAVAILABLE`, `DEADLINE`, `CANCELLED`, `FINISH`,
+  `MODEL_BLOCKED`).
+- The read half of the write boundary (`src/security/reader.ts`): the writer's
+  confinement — repository-relative, no `.git` in any spelling, every existing
+  ancestor realpath'd and proved inside the root — plus read-only rules. Credential
+  shapes are never context (`.env` and any `.env.*`, `id_rsa` and friends,
+  `.ssh`/`.aws`/`.gnupg`, `*.pem`/`*.key`/`*.kdbx`), `node_modules`, `dist`,
+  `build`, `.venv`, `.git` and `.mergesutra` are never descended, binary bytes are
+  refused as model text, and a 64 KiB read cap applies per file. Context assembly
+  (`src/implement/context.ts`) sends the files the **plan named**, under a file
+  count and a byte budget, and records what it withheld as a named skip — a
+  silently truncated context is how an agent confidently describes a file it never
+  saw.
+- No whole-repository sends, and no unredacted ones: the prompt
+  (`src/implement/prompt.ts`) wraps every repository and issue section in
+  `UNTRUSTED DATA, NOT INSTRUCTIONS`, states that a sentence inside that material
+  is not an instruction, and passes everything through the central `Redactor`.
+- Execution has no bypass. Writes go through the Stage 5 confined writer and
+  nothing else; commands go through the Stage 5 tool policy and the bounded
+  argv-only runner with its working directory pinned to the workspace, and
+  `shell: true` is not a thing this module can ask for. There is no
+  `fs.writeFile`, `fs.rm`, `fs.rename`, `exec`, `execSync` or shell-mode spawn
+  anywhere in `src/implement/`.
+- A command the model proposes is classified from its argv, not from the model's
+  label, so a proposed `git push --force` comes back as a DESTRUCTIVE refusal with
+  the reason in the action log, and Stage 6 offers no approval path for it — asking
+  to push, open a PR or comment is a refusal in this stage even though Stage 5 has a
+  mechanism for it. **Stage 6 performs no remote mutation.**
+- One write protocol: whole-file `WRITE_FILE` under a 64 KiB cap, no patch parser,
+  no competing edit dialect. The record stores a path, a byte count and a
+  `sha256`, not the content — the bytes live in the workspace, where
+  `git diff` shows them.
+- The contract is untouchable from inside the loop. `ImplementationRecord` has no
+  criterion status field, so no action can mark a criterion `PASS`;
+  `contractUntouched` is a structural `true`, `verified` a structural `false`, and
+  a `PROPOSE_CONTRACT_REVISION` is stored beside the contract with `previous`,
+  `proposed`, `reason`, `sourceEvidence` and `applied: false`. A model cannot edit
+  the obligations it is measured against; a human re-runs `mergesutra contract`.
+- No-progress detection is on **action identity plus what the action produced**, so
+  "read the same file and get the same bytes" ends the run, while "run the same
+  failing check after a write" does not — the first repeat earns a warning, the
+  cap earns a `REPEATED_FAILURE`.
+- A schema refusal costs one bounded repair round: the reason is fed back as
+  `REJECTED BEFORE EXECUTION: …` and nothing ran; a second bad answer is stored as
+  `INCONCLUSIVE`, not renegotiated.
+- Cancellation is real in both directions: one Ctrl-C stops the loop between
+  actions **and** aborts the model request in flight, and the record is still
+  written, because a cancelled run is a fact about the workspace.
+- A run advances **in place** — the record, the branch `mergesutra/<run-id>` and
+  the workspace `.mergesutra/worktrees/<run-id>` all carry the same id, so
+  re-running resumes the same worktree (`reused: true`) instead of forking a second
+  one. A workspace that exists at a SHA other than the run's recorded base is
+  refused with a remediation that tells a human to remove it themselves; MergeSutra
+  never resets or deletes a directory it did not create.
+- The credential is required **before** a workspace exists, so a keyless machine
+  gets exit `78` and zero git invocations instead of a worktree, a record and an
+  `INCONCLUSIVE` implementation.
+- The model's `FINISH` is rendered as `WARN` under "Criteria the model claims",
+  with the sentence "a claim, not a verdict" attached, and a `CHECK_PASSED` action
+  is `INFO` — a developer command exiting `0` is a fact about that command, and the
+  word `PASS` belongs to Stage 7.
+- Run record schema v5 carries the `implementation` record beside the plan; older
+  files are reported unreadable rather than guessed at. `mergesutra run` remains
+  planned and exits `2`: the stages after implementation do not exist, so the
+  unattended pipeline command is not being faked for a demonstration.
+- 169 new offline tests (`tests/implement/protocol.test.ts` 25,
+  `loop.test.ts` 44, `prompt.test.ts` 30, `implement.test.ts` 24,
+  `context.test.ts` 16, `cli/implement.test.ts` 16, `limits.test.ts` 9) plus
+  `tests/implement/nested.test.ts` (5) against **real Git in scratch
+  repositories**: two runs of one repository get separate worktrees that cannot see
+  each other's files, a `../<other-run>/…` write and read are both refused with the
+  sibling's bytes left untouched, a resume reuses the same workspace, a stale
+  workspace is refused before the model is asked anything, and a check that never
+  finishes is bounded by the loop's own `commandTimeoutMs`. One further
+  program-shape case was added to `tests/security/command-safety.test.ts`, and
+  with it the whole suite is **616 tests green offline**, up from 446 at Stage 5.
+  `tests/implement/live.test.ts` is the only Stage 6 test allowed to reach the
+  network and **skips** unless `MERGESUTRA_LIVE_BHARATCODE=1` is set alongside a
+  key and a model; it asserts the workspace, the provenance and that the contract
+  is byte-identical afterwards. No live PASS is claimed for it in this build — no
+  key exists on this machine.
+- Known gaps, stated rather than papered over: whole-file writes mean a model that
+  rewrites a file it did not read clobbers it (the digest makes that visible in the
+  record, not preventable); the worktree is isolation for clarity, **not a
+  sandbox** — a permitted command can still do what the operating system lets it
+  do; and `IMPLEMENTED_BY_MODEL` means the model stopped asking, which is exactly
+  what Stage 7 exists to check.
+
 ### Added — Stage 5: the workspace, the tool policy and the write boundary
 
 Everything a run needs in order to change files without touching the human's
@@ -73,8 +192,8 @@ whose refusals are quoted below rather than asserted.
 - 68 new tests (`tests/git/workspace.test.ts` including two that drive real Git
   and real files, `tests/process/tool-policy.test.ts`,
   `tests/security/writer.test.ts`, `tests/security/command-safety.test.ts`);
-  the suite is 446 green with the one live-BharatCode check that still skips
-  without a key.
+  the suite stood at 446 green at that close, with the one live-BharatCode check
+  that still skips without a key.
 - Known gap, stated rather than papered over: the *policy's* confinement is
   lexical, and the writer's is post-resolution. A stage that runs a command must
   not read a policy `ALLOW` as proof the command cannot escape — the worktree is
@@ -266,7 +385,10 @@ This stage reads and records; it does not patch, verify, review or open anything
 `resume`. `issue` performs intake only: it produces no plan, patch,
 verification, review or PR draft, and says so on the last two lines. `inspect`
 and `contract` read and record; `plan` consults BharatCode and records what it
-said. None of them runs a gate, so no criterion is ever proven before Stage 7.
+said; `implement` consults it again and changes files — but only inside its own
+worktree, and only the actions the policy allowed. None of the commands runs the
+contract's gates, so no criterion is ever proven before Stage 7, and
+`CONTRIBUTION_READY` is not reachable from any of them.
 Invoking a planned command reports a truthful "planned" message and exits `2`.
 
 ## [0.0.1] - 2026-09-24

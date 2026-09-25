@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
 Each record: **decision → reason → alternatives → consequence**. These are
-actual decisions taken while building Stages 0-5, not aspirations.
+actual decisions taken while building Stages 0-6, not aspirations.
 
 ## ADR-001 — MergeSutra sits above the model/runtime layer
 
@@ -457,5 +457,199 @@ actual decisions taken while building Stages 0-5, not aspirations.
   screenshot).
 - **Consequence:** This stage looks like no progress from the CLI, and the
   ROADMAP, CHANGELOG and 68 tests carry the evidence instead. The upside is
-  structural: Stage 6 will be the first real caller, so the API is small and gets
-  shaped by its consumer rather than by a command that had to look useful.
+  structural: Stage 6 was meant to be the first real caller, so the API is small
+  and gets shaped by its consumer rather than by a command that had to look
+  useful — and that is what happened. `src/implement/loop.ts` is the only module
+  that opens the confined writer, and it inherited the writer's one-method
+  surface rather than gaining a delete (ADR-027).
+
+## ADR-027 — A model write is a whole file, and there is only one write protocol
+
+- **Decision:** `WRITE_FILE` carries the complete intended content of one file
+  (capped at 64 KiB per action) and is applied through the Stage 5 confined
+  writer. There is no patch, no diff, no append, no multi-file edit operation,
+  and no second way for model text to become a file.
+- **Reason:** Stage 6 was required to ship one documented write strategy rather
+  than a menu. A patch is a second protocol with its own escapes — hunk context,
+  fuzz, line endings, path rewriting, "which copy of the file am I patching" —
+  and every one of them is a place where an untrusted document can describe a
+  destination MergeSutra then trusts. A whole file can be size-checked,
+  confinement-checked, digested and written atomically with no parser in the
+  path at all.
+- **Alternatives:** unified diffs plus a patch applier (a parser fed by the
+  model, and a base-content match it can be lied about); line-oriented edit
+  operations (`insert after line 40`) which are a mini-language the model must
+  get exactly right and which re-open the "model text decides what runs" door;
+  `fs.writeFile` straight from the loop, which bypasses every Stage 5 guarantee.
+- **Consequence:** Changing three lines of a large file costs the whole file's
+  tokens, and the per-action and per-loop byte ceilings are what keep that
+  honest. Content is never stored in the run record — only path, byte count,
+  whether the file was new, and a sha256 — so a pasted record cannot leak a
+  repository file. It also means a write can clobber an edit someone else made
+  in the same workspace; that is accepted because the worktree belongs to one run
+  and nothing is committed, so the human still sees the difference as a diff.
+
+## ADR-028 — Reading is a budgeted action, so a model cannot be talked into sending the repository
+
+- **Decision:** The loop decides what leaves the machine. The first turn carries
+  only the files the plan names, each truncated at a per-file cap, under a
+  per-loop byte and file-count budget, with credential-shaped paths, `.git`
+  paths and binary files withheld and the withholding reported. After that, more
+  repository content arrives only as the result of a `READ_FILE`, `LIST_FILES` or
+  `SEARCH` action — each one confined, size-bounded, and charged to the same
+  budget until it runs out and is refused.
+- **Reason:** "Send the model whatever it asks for" is how a context window
+  becomes an exfiltration channel, and the thing being exfiltrated is a
+  repository the model has no right to see in full. A budget that is spent, and
+  visibly spent, is the only claim about size that survives contact with a
+  hostile file. Withholding is recorded as a policy fact rather than an error so
+  a reader can tell "the model never saw it" from "nobody looked".
+- **Alternatives:** a whole-repository dump with a "summarise this" prompt (the
+  cheapest possible design and impossible to bound); an embedding/retrieval layer
+  (a second system with its own failure modes, for a stage whose real job is
+  confinement); letting the model name a directory to read recursively (a
+  `node_modules` walk that spends the run in one turn).
+- **Consequence:** A model working outside the plan's file list pays turns for
+  its exploration and can run out of budget mid-task; when it does, the refusal
+  text says so and the record carries `Context withheld by policy or budget`
+  lines. The tree sample is names only, and MergeSutra's own runtime and
+  dependency directories are excluded from listings so a run never reads its own
+  scaffolding back to itself.
+
+## ADR-029 — No-progress is judged on the action and the state it produced, not on the model's prose
+
+- **Decision:** Every executed action contributes a structural identity —
+  operation plus normalised target — hashed together with the result it
+  produced. `maxRepeatedFailures` consecutive identical pairs end the run with
+  `REPEATED_FAILURE`, and the turn before the last one warns the model in the
+  feedback text.
+- **Reason:** A loop that asks for the same failing command forever is the
+  classic way an API bill grows while nothing happens, and the obvious detector —
+  similarity of the model's messages — is the one a reworded retry defeats. The
+  reason field is prose; the action and its outcome are facts. Judging on those
+  means "the same failure described more hopefully" is still the same failure,
+  while a genuine second attempt after a write lands looks different because the
+  write changed the state it is hashed against.
+- **Alternatives:** counting total turns only (already covered by `maxSteps`, and
+  it punishes productive exploration instead of stalling); comparing the model's
+  text (a thesaurus defeats it); tracking a full diff-state hash (more accurate
+  and far more expensive for the same judgement).
+- **Consequence:** Two writes to the same path with different content are two
+  attempts, which is right, and a search that differs only in case counts as the
+  same attempt, which is also right. The end is a `NEEDS_HUMAN_REVIEW` outcome,
+  not an error: the work done before the stall is kept, the workspace stays put,
+  and the record names the identity that repeated so a human can see what the
+  loop was stuck on.
+
+## ADR-030 — A run advances in place, so one id names the record, the branch, the workspace and the diff
+
+- **Decision:** `implement` writes to the run id it was given. The workspace
+  directory (`.mergesutra/worktrees/<run-id>`), the branch
+  (`mergesutra/<run-id>`), the stored record and every action row all carry that
+  one id. Re-running a stage resumes rather than forking.
+- **Reason:** Stage 4 deliberately forks a new id, because a plan is a draft that
+  a second opinion replaces. Stage 6 changes files on disk, and a changed file
+  cannot be un-forked: a new id per attempt would leave a second worktree, a
+  second branch and two half-related diffs for the same work, and the human would
+  be left to guess which one to read.
+- **Alternatives:** fork per attempt (workspace sprawl, and resume becomes
+  "replay the earlier run"); a sequence of child ids like `run-…-impl-2` (a
+  second naming scheme to explain, and the workspace path no longer matches the
+  run id it was built from); an explicit `--resume` flag (a mode switch for
+  something that should just work).
+- **Consequence:** `reused: true` becomes a fact worth recording, and a resumed
+  run sees its earlier files because the directory was never reset. It also means
+  a stale workspace is a real condition — one left at another commit — which the
+  workspace preparer refuses outright instead of correcting, so nothing a human
+  or another run did to that directory can be silently discarded.
+
+## ADR-031 — A missing credential is a configuration refusal, before a workspace exists
+
+- **Decision:** The stage builds its BharatCode client — and therefore requires
+  `BHARATCODE_API_KEY` — after it has confirmed the run has a contract, a plan
+  and a base commit, and before it creates a worktree.
+- **Reason:** Built the other way round, an unconfigured machine got a new
+  directory, a new branch, a written run record and an `INCONCLUSIVE`
+  implementation, because the failure surfaced as a model request that could not
+  be made. That is a fabricated state: the run reports having tried, and the
+  truthful report is "this machine cannot run this stage", which is exit code 78
+  and nothing on disk.
+- **Alternatives:** checking in the loop (where a request failure must stay
+  recoverable, so it cannot also be a config gate); letting the workspace
+  preparer run first and cleaning up afterwards — a delete Stage 5 rightly
+  refuses to offer.
+- **Consequence:** `mergesutra implement` on a machine with no key is a
+  one-line refusal, and a test asserts no git invocation happened at all. The
+  ordering also means the record guards (no contract, no plan, no base sha) are
+  all paid for before any configuration error, because those describe the run
+  rather than the machine.
+
+## ADR-032 — `.` is a directory and not a file, and the schema says so
+
+- **Decision:** Two path shapes are validated separately: a file path must be
+  repository-relative POSIX with no `..`, no absolute prefix and no empty
+  segments; a directory path may additionally be exactly `.`, which is the only
+  spelling accepted for the workspace root.
+- **Reason:** Listing and searching are naturally rooted at the whole workspace,
+  and a model asked for "a relative path" has no way to say that except `.` or an
+  absolute path. Refusing `.` while offering `..`-free paths does not stop the
+  request, it just pushes the model into the answer the security rules genuinely
+  care about — an absolute path that looks like an attempt to escape.
+- **Alternatives:** allowing `.` for files too (a read of the root directory is
+  not a file read, and the confined reader would be the thing that has to explain
+  why); allowing an empty path for "everything" (an empty string is exactly the
+  shape a missing field arrives as, so it cannot also be meaningful);
+  normalising `.` away in the writer (a second path language, in code, after the
+  check).
+- **Consequence:** `isRepositoryRelativePath` and
+  `isRepositoryRelativeDirectory` are two functions with two rules, and every
+  action declares which one it uses. The error text names the rule that was
+  broken, because a model that gets `invalid_type` learns nothing and retries the
+  same mistake.
+
+## ADR-033 — Stage 6's status vocabulary has no word for "passing"
+
+- **Decision:** The implementation record cannot express a criterion verdict.
+  There is no status field on a criterion anywhere in it; `status` describes the
+  loop (`COMPLETED_BY_MODEL`, `BLOCKED`, `NEEDS_HUMAN_REVIEW`, `INCONCLUSIVE`,
+  `CANCELLED`), and a `FINISH` answer is stored as a claim — `termination.kind:
+  'FINISH'`, the criteria the model believed complete, and a run outcome of
+  `IMPLEMENTED_BY_MODEL`.
+- **Reason:** "The model said it finished" and "the acceptance criteria hold" are
+  two different sentences, and the product's whole value is that it never
+  collapses them. Anything representable will eventually be written by a bug or
+  pressed into it by a model; a schema with no field for `PASS` removes the
+  option. The run even ends with exit code 3 (`INCONCLUSIVE`) rather than 0,
+  because a terminal that believes exit codes should not believe this one.
+- **Alternatives:** a `verified: false` flag on a passing status (a flag is a
+  boolean away from being dropped); a "provisional pass" status (a new word for
+  the thing this stage must not claim); printing the model's summary as the
+  result (the summary is kept, but as `finishClaim`, in a field named for what it
+  is).
+- **Consequence:** Stage 7 is the only stage that can move a criterion off
+  `PENDING`, and the record says so in its own limitations: `Nothing here is
+  verified`. The renderer shows the claim as `WARN` with the words "a claim, not a
+  verdict", and a test asserts that no criterion id ever appears beside a
+  `PASS` row.
+
+## ADR-034 — A program token with a space in it is refused before the process is spawned
+
+- **Decision:** `isBareProgram` rejects any token containing whitespace, a
+  backslash, a slash or a drive prefix, in addition to the shell-syntax
+  characters Stage 1 already refused. `['npm test']` is therefore a refusal, not a
+  failed spawn.
+- **Reason:** Because `argv[0]` is the program and the rest are its arguments,
+  one token that survives the shell-syntax check can still be a whole command
+  string wearing an array's clothes. No search path contains a program named
+  `npm test`, so the alternative to refusing it here is a doomed `ENOENT` whose
+  error text the model reads as "this does not work" rather than "that shape is
+  not allowed".
+- **Alternatives:** splitting on whitespace (which is precisely the shell's
+  behaviour, reintroduced by the front door); relying on the tool policy alone
+  (the policy classifies risk and cannot see that a name has no referent);
+  letting it fail at spawn (a real process attempt, and a leaky error message).
+- **Consequence:** Path-shaped programs — `./scripts/x.sh`, `C:\tools\git.exe`,
+  `/usr/bin/curl` — are refused in the same place, so "the repository decides
+  what runs" is closed at the schema rather than being a policy judgement made
+  later. A program the search path cannot find is still an ordinary failed check
+  with the name in its stderr, which stays in the action log.
