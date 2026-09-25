@@ -9,9 +9,17 @@ import {
   type RunRecord,
 } from '../../src/state/run-record.js';
 import { deriveAcceptanceCriteria } from '../../src/contract/derive.js';
+import { mapAcceptanceEvidence } from '../../src/verify/evidence.js';
 import { toIssueDocument, toRepositoryIdentity } from '../../src/github/schemas.js';
 import { issuePayload, repositoryPayload } from '../fixtures/github-payloads.js';
 import { TEST_REPO } from '../helpers/github.js';
+import {
+  SUCCEEDED,
+  builtinGate,
+  consentFor,
+  planOf,
+  verifyScripted,
+} from '../helpers/verification.js';
 
 function minimalRecord(overrides: Partial<NewRunRecordInput> = {}): RunRecord {
   return createRunRecord({
@@ -91,6 +99,36 @@ describe('createRunRecord', () => {
     const record = minimalRecord({ checks });
     checks.push({ name: 'Extra', status: 'PASS', detail: 'y' });
     expect(record.checks).toHaveLength(1);
+  });
+});
+
+describe('a record that carries Stage 7 verification', () => {
+  it('keeps the plan, the run, the consent and the derived evidence, round-tripped exactly', async () => {
+    const argv = ['git', 'diff', '--check'];
+    const verificationPlan = planOf([builtinGate({ id: 'VG-001', argv })]);
+    const run = await verifyScripted(verificationPlan, [], { [argv.join(' ')]: SUCCEEDED });
+    const evidence = mapAcceptanceEvidence({ criteria: [], plan: verificationPlan, run });
+
+    const record = minimalRecord({
+      stage: 'verify',
+      outcome: 'VERIFICATION_PASS',
+      verificationPlan,
+      verification: run,
+      executionConsent: consentFor(verificationPlan, ['VG-001']),
+      evidence,
+    });
+
+    expect(record.stage).toBe('verify');
+    expect(record.evidence?.contributionReady).toBe(false);
+    expect(parseRunRecord(JSON.parse(JSON.stringify(record)))).toEqual(record);
+  });
+
+  it('leaves every verification field null until Stage 7 fills one', () => {
+    const record = minimalRecord();
+    expect(record.verificationPlan).toBeNull();
+    expect(record.verification).toBeNull();
+    expect(record.evidence).toBeNull();
+    expect(record.executionConsent).toBeNull();
   });
 });
 

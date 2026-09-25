@@ -29,6 +29,10 @@ export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
  *
  * Stage 6 has no `EXIT.OK`: a model that asked to stop has claimed work, and the
  * claim is checked by a later stage. `IMPLEMENTED_BY_MODEL` therefore exits 3.
+ *
+ * Stage 7 earns `EXIT.OK` because the answer is no longer a claim: deterministic
+ * gates ran under a digested consent and the exit codes said so. Even then the
+ * success is `VERIFICATION_PASS` — the gates passed, not "ship it".
  */
 export function exitForOutcome(outcome: RunOutcome): ExitCode {
   switch (outcome) {
@@ -36,13 +40,19 @@ export function exitForOutcome(outcome: RunOutcome): ExitCode {
     case 'INSPECT_COMPLETE':
     case 'CONTRACT_DERIVED':
     case 'PLAN_COMPLETE':
+    case 'VERIFICATION_PASS':
       return EXIT.OK;
+    case 'VERIFICATION_FAIL':
+      return EXIT.ERROR;
     case 'IMPLEMENTED_BY_MODEL':
     case 'IMPLEMENTATION_INCONCLUSIVE':
     case 'IMPLEMENTATION_NEEDS_REVIEW':
+    case 'VERIFICATION_INCONCLUSIVE':
+    case 'VERIFICATION_CANCELLED':
     case 'INCONCLUSIVE':
       return EXIT.INCONCLUSIVE;
     case 'IMPLEMENTATION_BLOCKED':
+    case 'VERIFICATION_BLOCKED':
     case 'BLOCKED':
       return EXIT.BLOCKED;
   }

@@ -5,6 +5,10 @@ import { repositoryContractSchema } from '../discovery/contract.js';
 import { implementationRecordSchema } from '../implement/state.js';
 import { implementationPlanSchema } from '../plan/schema.js';
 import { VERSION } from '../version.js';
+import { executionConsentSchema } from '../verify/consent.js';
+import { verificationRunSchema } from '../verify/engine.js';
+import { acceptanceEvidenceSchema } from '../verify/evidence.js';
+import { verificationPlanSchema } from '../verify/plan.js';
 
 /**
  * The run record: everything MergeSutra has established so far, in one
@@ -22,12 +26,18 @@ import { VERSION } from '../version.js';
  * refused and wrote. Keeping both in one document is what lets a reader compare
  * the claim against the actions without opening two files.
  *
+ * Version 6 adds Stage 7's four documents: the verification plan (a promise
+ * made before anything ran), the verification run (what happened to it), the
+ * execution consent (which gates a human named), and the acceptance evidence
+ * (what each criterion may claim). None of them can say the contribution is
+ * ready — that word lives in no schema in this file, by design.
+ *
  * Nothing secret belongs in here. There is no credential field to fill in.
  */
 
-export const RUN_SCHEMA_VERSION = 5;
+export const RUN_SCHEMA_VERSION = 6;
 
-export const RUN_STAGES = ['intake', 'inspect', 'contract', 'plan', 'implement'] as const;
+export const RUN_STAGES = ['intake', 'inspect', 'contract', 'plan', 'implement', 'verify'] as const;
 export const RUN_OUTCOMES = [
   'INTAKE_COMPLETE',
   'INSPECT_COMPLETE',
@@ -40,6 +50,15 @@ export const RUN_OUTCOMES = [
   'IMPLEMENTATION_BLOCKED',
   'IMPLEMENTATION_INCONCLUSIVE',
   'IMPLEMENTATION_NEEDS_REVIEW',
+  // Stage 7 mirrors the engine's five run verdicts one-for-one. A record that
+  // collapsed `CANCELLED` into `INCONCLUSIVE` would hide the fact that a human
+  // stopped the run, and a PASS here says only that the gates passed — the
+  // contribution is not called ready by anything in this file.
+  'VERIFICATION_PASS',
+  'VERIFICATION_FAIL',
+  'VERIFICATION_BLOCKED',
+  'VERIFICATION_INCONCLUSIVE',
+  'VERIFICATION_CANCELLED',
   'INCONCLUSIVE',
   'BLOCKED',
 ] as const;
@@ -170,6 +189,18 @@ export const runRecordSchema = z
      * — the loop cannot report a verdict because there is nowhere to write one.
      */
     implementation: implementationRecordSchema.nullable().default(null),
+    /**
+     * Present once Stage 7 has planned, run and judged gates. Four documents,
+     * kept separate on purpose: the plan is the promise made before anything
+     * ran, the run is what actually happened to it, the consent is the human's
+     * named yes, and the evidence is what each criterion may claim from the
+     * receipts. Collapsing any two would let a later stage quote a promise as
+     * if it were an observation.
+     */
+    verificationPlan: verificationPlanSchema.nullable().default(null),
+    verification: verificationRunSchema.nullable().default(null),
+    executionConsent: executionConsentSchema.nullable().default(null),
+    evidence: acceptanceEvidenceSchema.nullable().default(null),
     checks: z.array(runCheckSchema).readonly(),
     nextStage: z.string(),
     limitations: z.array(z.string()).readonly(),
@@ -202,6 +233,11 @@ export interface NewRunRecordInput {
   readonly plan?: RunRecord['plan'];
   /** Only the `implement` command sets this, and it is a loop's account of itself. */
   readonly implementation?: RunRecord['implementation'];
+  /** Only the `verify` command sets these four, from the engine and nothing else. */
+  readonly verificationPlan?: RunRecord['verificationPlan'];
+  readonly verification?: RunRecord['verification'];
+  readonly executionConsent?: RunRecord['executionConsent'];
+  readonly evidence?: RunRecord['evidence'];
   readonly checks: readonly RunCheck[];
   readonly nextStage: string;
   readonly limitations?: readonly string[];
@@ -224,6 +260,10 @@ export function createRunRecord(input: NewRunRecordInput): RunRecord {
     acceptanceContract: input.acceptanceContract ?? null,
     plan: input.plan ?? null,
     implementation: input.implementation ?? null,
+    verificationPlan: input.verificationPlan ?? null,
+    verification: input.verification ?? null,
+    executionConsent: input.executionConsent ?? null,
+    evidence: input.evidence ?? null,
     checks: [...input.checks],
     nextStage: input.nextStage,
     limitations: [...(input.limitations ?? [])],
