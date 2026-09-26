@@ -7,6 +7,7 @@ import { planAction, type PlanCommandOptions } from './plan.js';
 import { implementAction, type ImplementCommandOptions } from './implement.js';
 import { verifyAction, type VerifyCommandOptions } from './verify.js';
 import { reviewAction, type ReviewCommandOptions } from './review.js';
+import { repairAction, type RepairCommandOptions } from './repair.js';
 import { reportAction, type ReportCommandOptions, type ReportDeps } from './report.js';
 import type { IntakeDeps } from '../intake/intake.js';
 import type { InspectDeps } from '../discovery/inspect.js';
@@ -15,6 +16,7 @@ import type { PlanDeps } from '../plan/plan.js';
 import type { ImplementStageDeps } from '../implement/implement.js';
 import type { VerifyStageDeps } from '../verify/stage.js';
 import type { ReviewStageDeps } from '../review/stage.js';
+import type { RepairStageDeps } from '../repair/stage.js';
 import { createRenderer, resolveColor } from './render.js';
 import { EXIT } from './exit-codes.js';
 import { LIMIT_CAPS } from '../implement/limits.js';
@@ -27,10 +29,11 @@ import { defaultRedactor } from '../security/redaction.js';
  * MergeSutra command surface.
  *
  * The one-command hero workflow is `mergesutra issue <url>`. The phase commands
- * (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`)
+ * (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `repair`, `report`, `pr`)
  * exist for transparency, debugging and recovery. Through Stage 9, `doctor`,
  * the intake half of `issue`, `inspect`, `contract`, `plan`, `implement`,
- * `verify`, `review` and `report` are wired up; every unfinished command says
+ * `verify`, `review`, `repair` and `report` are wired up; every unfinished
+ * command says
  * so truthfully rather than pretending to work. `run` — the unattended
  * end-to-end pipeline — is deliberately still planned: a pipeline that skipped
  * the human consent that `verify` requires would be unsafe, not convenient, so
@@ -46,6 +49,7 @@ export interface ProgramDeps {
   implement?: Partial<ImplementStageDeps>;
   verify?: Partial<VerifyStageDeps>;
   review?: Partial<ReviewStageDeps>;
+  repair?: Partial<RepairStageDeps>;
   report?: Partial<ReportDeps>;
   write?: (line: string) => void;
   writeErr?: (line: string) => void;
@@ -274,6 +278,59 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
     );
 
   program
+    .command('repair [run-id]')
+    .description(
+      'Execute the frozen repair plan — the only command that edits, and only against the plan digest approved here',
+    )
+    .option(
+      '--approve-plan <digest>',
+      'the frozen plan’s 64-hex digest, typed after reading it (the only way to authorise an edit)',
+    )
+    .option(
+      '--repo <path>',
+      'primary checkout whose workspace this run owns (default: its recorded one)',
+    )
+    .option(
+      '--max-review-cycles <n>',
+      `review-cycle budget before a human takes over (1-${String(MAX_REVIEW_CYCLES_CEILING)}; lowering only)`,
+    )
+    .option(
+      '--max-repair-cycles <n>',
+      `repair-cycle budget for the frozen plan (1-${String(MAX_REPAIR_CYCLES_CEILING)}; lowering only)`,
+    )
+    .action(
+      async (
+        runId: string | undefined,
+        opts: {
+          approvePlan?: string;
+          repo?: string;
+          maxReviewCycles?: string;
+          maxRepairCycles?: string;
+        },
+      ) => {
+        const globals = program.opts();
+        const controller = new AbortController();
+        const onInterrupt = (): void => controller.abort();
+        process.on('SIGINT', onInterrupt);
+        try {
+          const options: RepairCommandOptions = {
+            json: globals.json === true,
+            noColor: globals.color === false,
+            env,
+            approvePlan: opts.approvePlan,
+            repo: opts.repo,
+            maxReviewCycles: opts.maxReviewCycles,
+            maxRepairCycles: opts.maxRepairCycles,
+            signal: controller.signal,
+          };
+          setExitCode(await repairAction(runId, options, deps.repair, write));
+        } finally {
+          process.removeListener('SIGINT', onInterrupt);
+        }
+      },
+    );
+
+  program
     .command('report [run-id]')
     .description(
       'Render the evidence pack for a run; it reports what was decided, deciding nothing',
@@ -303,7 +360,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
             renderer.row('INFO', planned.summary),
             '',
             renderer.dim(
-              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, verify, review, report, --help, --version.',
+              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, verify, review, repair, report, --help, --version.',
             ),
             renderer.dim('Progress: see docs/ROADMAP.md'),
           ].join('\n'),
