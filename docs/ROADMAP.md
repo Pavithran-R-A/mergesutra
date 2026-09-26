@@ -438,10 +438,120 @@ human reader rather than deriving anything new:
       like any other pack. Stage 10's PR draft is where a reader is told which pack
       is complete enough to review.
 
-## Stage 9 — Independent diff review + bounded repair
+## Stage 9 — Independent diff review + bounded repair — **[DONE]**
 
-- [ ] Critique-only reviewer (no silent edits)
-- [ ] Bounded repair routing
+Stage 7 established what a repository's own gates prove and Stage 8 wrote it down.
+This stage answers the question a green suite cannot: is the requirement actually
+met? A second model pass reads the exact bytes the gates measured and files
+findings about them. It has no tools and no authority, and the routing that turns a
+finding into a work order is deterministic code, not the model's opinion of itself:
+
+- [x] Critique-only reviewer (no silent edits). `mergesutra review [run-id]` reads a
+      genuine persisted run — it refuses one with no contract, no implementation or
+      no verification, rather than reviewing a partial story — and returns with the
+      workspace **byte-identical**, including in the case that most needs proving: a
+      review that found a real defect. The stage holds no writer and runs no gate; a
+      `RunRecord` written by it carries a `review` document and at most one frozen
+      `repairPlan`.
+- [x] The patch is pinned before the question and re-measured after the answer
+      (`src/review/engine.ts`, `reviewedPatchIdentity` / `currentPatchIdentity` /
+      `patchPrecondition` on the attempt). Bytes that moved while the reviewer was
+      reading make the account `STALE`: the outcome is `REVIEW_STALE`, exit `4`, and
+      no finding from that answer is routed anywhere.
+- [x] Citation is authored, not quoted. `review/manifest.ts` issues the only ids a
+      finding may cite (`CTX-001`…, typed PATCH / SOURCE / CRITERION / RECEIPT /
+      POLICY, each with what was actually sent and how much of it), and
+      `review/disposition.ts` weighs every answer against it: uncited or unanchored
+      is `UNSUPPORTED`, a repeat of an existing finding is `DUPLICATE`, anything
+      outside the plan's stated scope is `OUT_OF_SCOPE`, security-sensitive or
+      architectural complaints are `NEEDS_HUMAN_REVIEW`. **The reviewer never
+      assigns its own disposition**, and the JSON shape it must return has no
+      status, score, grade or verdict field.
+- [x] Zero findings is reported as a limit, not a clean bill: the record gains a
+      `REVIEW-EMPTY` caveat ("the absence of findings, not the absence of defects"),
+      the outcome stays `REVIEW_RECORDED` with exit `3`, and the pack quotes the same
+      sentence. A summary that reads as an approval is a failed answer, and the
+      prompt says so before asking.
+- [x] Bounded repair routing, frozen before the edit. `src/repair/plan.ts` builds a
+      strict `RepairPlan` (files, gates, criteria, cycle numbers, digest) from the
+      `VALID_REPAIR_CANDIDATE` findings only, under ceilings a caller cannot raise:
+      2 review cycles, 2 repair cycles, 5 findings per cycle, provable at the module
+      against a caller that asks for more (`tests/repair/plan.test.ts`). Past a
+      ceiling the routing stops and the outcome is `REVIEW_NEEDS_HUMAN` — a decision
+      somebody owes, with the bound that stopped it named in the record.
+- [x] The reviewer's page defends its own structure. Material whose line is shaped
+      like one of MergeSutra's section headings (`=== … ===`) is quoted behind a
+      `> [data] ` marker and the count is disclosed at the bottom of the page, so
+      planted text cannot open a section while every byte of it stays readable
+      (`src/security/prompt-material.ts`, `src/review/prompt.ts`,
+      `tests/review/prompt.test.ts`).
+- [x] The lifecycle is encoded in state, not documented. `tests/review/hero.test.ts`
+      takes a real scratch repository through `inspect` → `contract` → `plan` →
+      `implement` → `verify` → `review` → a repair executed by Stage 6's own bounded
+      loop and confined writer → `verify` again → `report`, on real Git objects and
+      real `node --test` processes: patch A's receipts and review are shown to be
+      about patch A, patch B mints new ones, and the pack written after the repair
+      prints `Review: none recorded — nothing has read these bytes a second time`.
+      The fixture carries its teeth: the impossible-day assertion the repair added
+      is asserted to *fail* against the patch it replaced.
+- [x] Green-but-wrong is the flagship case, because it is the one a suite cannot see:
+      every gate passes and the requirement the issue was opened about is `VERIFIED`
+      by a gate that never once handed the parser an impossible day. The reviewer
+      files `CORRECTNESS` and `TEST_GAP` against those exact bytes; both route as
+      repair candidates. The same file proves the opposite failure modes: a zero-
+      finding answer mutates nothing, and a fabricated finding citing a real id for a
+      claim the patch does not support is weighed, not believed.
+- [x] Refusal, cancellation and unintelligibility damage nothing. A refused,
+      unreachable, cancelled or unparseable answer still writes a record — with no
+      review document in it, because there is nothing to file — and the patch,
+      receipts, evidence and pack are untouched; `REVIEW_CANCELLED` is its own
+      outcome, tested separately from a model that said no (`tests/review/stage.test.ts`).
+- [x] Run record schema **v7**, additive: `review` and `repairPlan` fields plus the
+      `REVIEW_*` outcomes and the `review` stage. A v6 record still parses and is
+      rendered without invented findings, receipts or approvals — the pack says no
+      review was recorded rather than implying one (`docs/DECISIONS.md`).
+- [x] 192 offline, deterministic tests for the stage — 134 across `tests/review/*`,
+      48 in `tests/repair/*`, 10 in `tests/cli/review.test.ts` — with no network, no
+      credential and no live BharatCode call. `npm run check` is green at this
+      stage's close with **1053 passing and 3 skipped** (the three opt-in
+      live-endpoint checks: `tests/plan/live.test.ts`,
+      `tests/implement/live.test.ts` and `tests/review/live.test.ts`,
+      which skip unless a flag, a key and a model id are all present).
+- [x] One explicit opt-in live review smoke test (§35 of the stage brief):
+      `tests/review/live.test.ts` asks the real endpoint once, about a real patch,
+      and stays silent unless invited. It asserts only structural truths — the model
+      id actually spoken to, the patch identity unchanged, every citation present in
+      the manifest MergeSutra authored, no `CONTRIBUTION_READY` string, no credential
+      in the record or in any pack file — because a model's agreement is not
+      evidence either way.
+- [x] **Not done on purpose: no command executes a repair.** Stage 9 routes work and
+      freezes the scope; running a frozen plan would be a second writer with the
+      loop's powers, and the brief's "do not build a second unrestricted editing
+      agent" is honoured by not building one at all. The consequence is stated
+      plainly rather than hidden: `classifyRepairScope` / `routeRepairScope` in
+      `src/repair/scope.ts` have **no production caller** — the scope guard is proven
+      by tests over the delta the hero run really produced, and the stage that wires
+      it is the one that does not exist yet.
+- [x] Not done on purpose: no verdict. There is no `REVIEW_PASS` outcome and no code
+      path to a word like `PASS` from this stage; readiness stays in gate receipts
+      and criterion statuses, where Stage 7 put it.
+- [x] Known gap: **independent review, not an independent model.** The reviewer runs
+      through the same adapter, possibly on the same model family, so this stage
+      buys a second pass with different instructions and no tools, not a vendor
+      diversity claim.
+- [x] Known gap: the guard that stops quoted text impersonating a section heading is
+      on the reviewer's page only. `plan` and `implement` still interpolate
+      repository, issue and model text into their prompts ungarded; the shared
+      primitive exists for them to call and the adversarial suite around it is
+      [Stage 12](#stage-12--security-hardening) work.
+- [x] Known gap: one question, one answer. A review is a single request (plus at most
+      one bounded repair round for a malformed JSON answer), so a reviewer that
+      misreads a file cannot be asked again within the run; `attempts` records how
+      many answers it took, not how many exchanges happened.
+- [x] Known gap: the reviewer cannot see what the context withheld. A file marked
+      `WITHHELD` or `NOT_SENT` is listed and its content is not, so a defect that
+      lives in a credential-shaped entry or a binary is reported as *the fact that it
+      is in the patch* and nothing more — by rule, and the rule is tested.
 
 ## Stage 10 — Human approval + PR draft
 

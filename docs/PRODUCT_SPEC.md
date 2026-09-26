@@ -153,7 +153,7 @@ what was run, what passed, what failed or could not be checked — and decide
 whether to publish. Honest reporting of failures is a success condition, not a
 defect.
 
-## 10. Limitations (current, at Stage 8)
+## 10. Limitations (current, at Stage 9)
 
 - Implemented today: CLI skeleton, BharatCode adapter, config, redaction,
   structured errors, `doctor`, **intake** (`mergesutra issue <url>` — parses the
@@ -179,7 +179,11 @@ defect.
   back and rendered as `report.md`, `report.json` and `commands.jsonl` beside it:
   statuses copied, receipts re-emitted as filed, caveats grouped by the document
   that wrote them, and an exit code taken from the recorded outcome rather than
-  from the fact that printing succeeded).
+  from the fact that printing succeeded), and the **independent diff review**
+  (`mergesutra review [run-id]` — the patch Stage 7 measured is pinned, a second
+  model with no tools describes it, MergeSutra weighs each finding against the
+  citation list it authored before asking, and a repair plan is frozen before any
+  edit; the workspace the stage reviewed comes back byte-identical).
 - Stage 5 shipped the safety layer as **modules with no command**: the worktree
   manager (`src/git/workspace.ts`), the risk classifier
   (`src/process/tool-policy.ts`) and the confined writer
@@ -188,13 +192,28 @@ defect.
   longer only a policy document — every action the loop can take is routed
   through them, and there is no code path in `src/implement/` that reaches
   `fs.writeFile`, `fs.rm`, `fs.rename`, `exec`, `execSync` or a shell-mode spawn.
-- Everything from Stage 9 on — the independent diff review, PR drafting
+- Stage 9 shipped the **independent diff review** and its **routing** — a reviewer
+  with no tools, findings weighed against a manifest MergeSutra authored, bounded
+  dispositions, and a repair plan frozen before any edit. What it deliberately did
+  **not** ship is the execution of that plan: no command of MergeSutra's starts the
+  loop a frozen plan authorises, so `src/repair/scope.ts`'s planned-versus-actual
+  comparison has no production caller and a reviewed run's `nextStage` names a
+  `REPAIR` that does not exist yet. Building that is a later stage's decision, with
+  its own consent, not a flag on `review`.
+- A review is a **second pass, not a second vendor.** It runs through the same
+  adapter, possibly on the same model family, so what Stage 9 buys is different
+  instructions and no tools, not provider diversity — and the reviewer's world is
+  the page it was shown: a defect inside a file the context withheld cannot be
+  cited, so it can be filed as a fact about the patch but cannot route to a repair.
+- Everything from Stage 10 on — PR drafting
   and resumability (`status` / `resume`) — is **[DESIGNED]** / **[PLANNED]**, not
   yet functional. Planned commands exit `2` rather than imitating success. The
   pack `report` writes is three files rendered from one run record; the
   one-file-per-document bundle sketched in
   [ARCHITECTURE.md](ARCHITECTURE.md) §8 stays a sketch, because splitting the same
-  facts across files gives each fact two places to be wrong.
+  facts across files gives each fact two places to be wrong — including the review,
+  whose findings live in the record and are rendered from it rather than into a
+  separate `review.json`.
 - Every derived criterion is `PENDING` after `implement` finishes, and the
   CLI says so on screen: the loop ran no gate from the Acceptance Contract, and
   `Verification` is `NOT_AVAILABLE` in every implementation record. Attaching a

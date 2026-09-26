@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
 Each record: **decision → reason → alternatives → consequence**. These are
-actual decisions taken while building Stages 0-8, not aspirations.
+actual decisions taken while building Stages 0-9, not aspirations.
 
 ## ADR-001 — MergeSutra sits above the model/runtime layer
 
@@ -987,3 +987,129 @@ actual decisions taken while building Stages 0-8, not aspirations.
   than a silent edit. v6 records remain v6 on disk, so a pack rendered from a
   migrated record carries the fields the run actually wrote — and when Stage 10
   wants pack history, ADR-046's recorded gap still stands.
+
+## ADR-048 — A finding's authority is a citation MergeSutra issued, not a quotation the model picked
+
+- **Decision:** `review/manifest.ts` authors the reference list before the question
+  is asked — every patch file, every in-scope source file, every criterion, every
+  gate receipt and every policy file the contract was read from, each with a
+  `CTX-nnn` id, its kind, its target, how it was presented (`DIFF`,
+  `FULL_CONTENT`, `LISTED`, `WITHHELD`, `NOT_SENT`, …) and how many lines of it
+  actually went on the page. A finding must carry one or more of those ids plus an
+  anchor a reader can go and look at — a path the manifest names or a criterion id
+  the contract issued — or `review/disposition.ts` files it `UNSUPPORTED`. A
+  quotation is welcome alongside a citation and buys nothing by itself.
+- **Reason:** The obvious way to check a review claim is to look for the quoted
+  lines, and that check is satisfiable by anything a model can paraphrase: a
+  sentence copied out of a README, a plausible `if` from a file the context never
+  sent, a heading lifted from the page's own structure. Only an id this run minted,
+  for this patch, binds a claim to bytes that were really shown — and the same list
+  is what lets the client refuse a `lineRange` pointing past lines the manifest says
+  were sent, and refuse a finding about the content of a withheld file. Weighing an
+  unanchored complaint on its prose would put the reviewer back in charge of how
+  much to believe.
+- **Alternatives:** free-text evidence, graded by a second model (a second opinion
+  with no more access to the facts, and a second paid call per finding); letting a
+  quotation count as a citation (it is the exact thing an injected issue body can
+  produce on request); having the reviewer re-read files to confirm (it is given no
+  tools, and a reviewer that can browse is a reviewer whose findings describe a
+  state nobody pinned).
+- **Consequence:** The manifest is now load-bearing for the audit, not only for the
+  prompt: a finding dropped as `UNSUPPORTED` is kept with its reason, so a human can
+  see what was refused and check whether the manifest was wrong to refuse it. It also
+  means a real defect in a file the context withheld cannot be cited, and therefore
+  cannot route to a repair — the reviewer is told to file the *fact of the
+  withholding* instead, and the rule is tested rather than hoped over.
+
+## ADR-049 — The reviewer's shape has no verdict field, and the disposition is not its to give
+
+- **Decision:** `REVIEW_SCHEMA_HINT` carries `summary` and `findings` only, and the
+  finding shape has no `status`, `score`, `grade`, `ready`, `approved` or
+  `disposition` key — `.strict()` rejects one that appears. The
+  `REVIEW_DISPOSITIONS` list (`VALID_REPAIR_CANDIDATE`, `NEEDS_HUMAN_REVIEW`,
+  `DUPLICATE`, `OUT_OF_SCOPE`, `UNSUPPORTED`, `STALE`) lives entirely on this side of
+  the wire: `review/disposition.ts` assigns each one from rules the model cannot see
+  it applying, and the prompt says out loud that MergeSutra weighs findings and the
+  reviewer only files them. The record's outcome vocabulary has no `REVIEW_PASS`,
+  and the stage has no code path to a word like `PASS`.
+- **Reason:** A model asked "is this ready?" answers in the mood of the patch it just
+  read, and a confident "yes" is worth more in a report than the receipts it would
+  displace. Removing the field is the only control that does not depend on the answer
+  being wrong: there is nothing to grant, so the temptation cannot be phrased. The
+  disposition matters separately, because a reviewer asked to prioritise its own
+  findings routes none of them — and the categories that must reach a human
+  (`SECURITY`, `REPOSITORY_POLICY`, `SCOPE`, `MAINTAINABILITY`) are exactly the ones
+  an eager reviewer would label a simple code fix, while repair cycles are finite.
+- **Alternatives:** a `verdict` field the client ignores (it would still be stored,
+  still be rendered, and a reader would weigh it — an unused field is a field someone
+  will use later); a confidence threshold gating the routing (the model sets the
+  number, so the threshold measures its own optimism); asking a third model to
+  adjudicate findings (two unverifiable opinions, one more call, still no receipt).
+- **Consequence:** Zero findings is a result the harness has to speak for, so the
+  record gains a `REVIEW-EMPTY` caveat saying it is the absence of findings rather
+  than the absence of defects, and `report` copies that sentence instead of leaving an
+  empty section to be read as a clean bill. The reviewer's own `confidence` is still
+  stored — as the model's stated account, with nothing downstream allowed to read it.
+
+## ADR-050 — Quoted material that is shaped like prompt structure is marked, not removed
+
+- **Decision:** Every piece of untrusted text the reviewer is shown passes through
+  `markQuoted()` in `src/security/prompt-material.ts`. A line whose *whole* line
+  matches `^\s*={3,}.*={3,}\s*$` — the shape this product's own section headings have
+  — is prefixed with `> [data] ` and the total is disclosed at the bottom of the page,
+  beside the rule that explains the marker. Nothing is deleted, truncated or
+  reworded, and the marking happens on the way into the prompt, so the same marked
+  text is what `reviewMaterial()` reports as the bytes the reviewer was given.
+- **Reason:** The prompt already says repository, issue and model text is data with no
+  authority, so a body that says "ignore the previous instructions" is answered by
+  rule. A body containing a line that reads `=== ACCEPTANCE CONTRACT ===` is a
+  different attack: it does not ask to be obeyed, it *becomes* the page's structure,
+  so everything under it reads as a new section in the instruction channel rather than
+  as quoted material — and those section names are public, because they are in this
+  repository. Marking rather than stripping keeps the content reviewable: a finding
+  about a planted heading must be weighable against the exact bytes.
+- **Alternatives:** stripping `===`-shaped lines (the reviewer is then shown a page
+  that is not the file, and a finding about the removed part becomes unfalsifiable);
+  escaping to `\=\=\=` (unreadable, and the model spends its effort on the escaping
+  rather than the patch); putting all material in a JSON envelope and dropping the
+  section layout (the layout is what lets a reviewer cite a section, and it is the one
+  structure models follow reliably).
+- **Consequence:** The primitive is shared and prompt-agnostic, so the honest
+  disclosure is that it currently guards one page: `review/prompt.ts` calls it and
+  `plan`/`implement` do not yet. Those prompts label their material as untrusted and
+  bound what a model may return, which is a weaker property; widening the guard is
+  Stage 12 adversarial work with tests beside it, not a Stage 9 drive-by, and the gap
+  is written into `docs/SECURITY_MODEL.md` and the README's Limitations rather than
+  left implied.
+
+## ADR-051 — Stage 9 ships routing with no executor, so the scope guard has no production caller
+
+- **Decision:** The stage ends at the frozen `RepairPlan`: a strict, digest-bound,
+  versioned work order naming the files, gates and criteria a *later* stage is
+  allowed to touch, built before any edit and persisted in the record. Nothing in the
+  shipped product starts the loop that would carry it out, so
+  `classifyRepairScope()` / `routeRepairScope()` in `src/repair/scope.ts` — the
+  comparison of planned scope against the delta A→B a repair actually left, with
+  `PRE_EXISTING_PATCH_FILE` and the "while I'm here" refactor flagged rather than
+  quietly cleaned — are called only by tests, including the hero run's real delta.
+- **Reason:** The stage brief's non-negotiable was "do not build a second unrestricted
+  editing agent", and the only way to be certain a critique-only stage cannot edit is
+  to give it no writer at all. Wiring an executor here would mean either a second call
+  path into the Stage 5 writer — the bypass the architecture says must not exist — or
+  running Stage 6 inside Stage 9, so one stage owns both the finding and the fix and
+  the receipts below it describe bytes nobody reviewed. A plan that authorises nothing
+  yet is a document; a command that acts on it is a capability, and a capability needs
+  its own stage, its own consent and its own tests.
+- **Alternatives:** auto-repairing `VALID_REPAIR_CANDIDATE` findings inside the review
+  stage (it would produce a diff no reviewer saw, and break ADR-047's staleness rules
+  on purpose); a `--repair` flag on `review` (a flag that changes what a
+  critique-only stage is); treating the frozen plan as consent to edit again (a plan is
+  MergeSutra's statement about a model's claim, not a human's yes).
+- **Consequence:** Two facts are stated in the docs and in the record rather than
+  implied otherwise: `mergesutra review` exits `3` or `4` and never `0`, and a run
+  whose findings route to repair carries a `nextStage` naming a `REPAIR` no command
+  implements — which a later stage must either build or stop advertising. The scope
+  guard is proven by tests that fail without it, and any stage that executes a plan is
+  required to consult it; that requirement lives in `tests/repair/lifecycle.test.ts`
+  and this record, which is exactly the kind of rule a future implementer could
+  otherwise skip by forgetting.

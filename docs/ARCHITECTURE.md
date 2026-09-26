@@ -94,6 +94,7 @@ to silently edit code.
 | Process       | Commands to run                             | argv arrays, no `shell:true`, timeout, bounded output; `process/tool-policy.ts` derives the risk from the argv and refuses an interpreter handed a string; a program token with a space in it is refused before spawn |
 | A repository's own gate | CI steps and declared scripts, discovered from an untrusted repository | `verify/consent.ts`: an entry runs only under an operator `--allow VG-00n` bound to this plan's digest, this command and this patch, so renaming a gate or editing the patch voids the yes; `verify/patch.ts`: a workspace sitting on another commit is refused; `verify/engine.ts`: the patch is re-described after every gate and a gate that moved it voids the verdict |
 | Evidence      | A receipt, a model's claim, a stale workspace | `verify/evidence.ts`: one writer of a criterion's status, and it reads receipts only; a command that reaches no criterion's stated check proves nothing about it; a patch identity that no longer matches marks the rows `STALE`; `contributionReady` is a literal `false` in the schema, so no code path can set it |
+| A second model's review | Findings about the patch, from a reviewer with no tools | `review/manifest.ts`: MergeSutra authors the only citable ids, and the reviewer is shown the page assembled for it rather than the repository; `review/disposition.ts`: an unanchored finding is `UNSUPPORTED`, a repeat is `DUPLICATE`, and the answer's schema has no field that could hold a verdict; `review/prompt.ts`: material whose line is shaped like a section heading is quoted behind a marker so it cannot open one; `review/stage.ts`: the patch identity is pinned before the question and re-measured after the answer, so bytes that moved in the meantime make the account `STALE` instead of authoritative |
 | GitHub        | Any remote mutation                         | `tool-policy` approval gate: a remote action needs a human yes for that exact summary, and a destructive one has no yes that enables it. Stage 6 does not offer one: asking to push is a refusal, not a prompt |
 | BharatCode    | Endpoint/credentials                        | Env-only config; central redaction; the key is required before a workspace is created |
 
@@ -120,13 +121,17 @@ stateDiagram-v2
     VERIFY --> BLOCKED
 ```
 
-Built today: `INTAKE → DISCOVERY → CONTRACT → PLAN → IMPLEMENT → VERIFY`, one
-command each (`issue`, `inspect`, `contract`, `plan`, `implement`, `verify`), each
+Built today: `INTAKE → DISCOVERY → CONTRACT → PLAN → IMPLEMENT → VERIFY → REVIEW`,
+one command each (`issue`, `inspect`, `contract`, `plan`, `implement`, `verify`,
+`review`), each
 writing a run record that the next one reads, and `report` rendering whatever the
-chain has established into the pack a reviewer reads. `REVIEW` onward is
-**[DESIGNED]** — which is why a verifying run ends with `nextStage` naming a
-`review` command that does not exist yet, and why `mergesutra run`, `review`,
-`pr`, `status` and `resume` still exit `2` as planned.
+chain has established into the pack a reviewer reads. `REVIEW` is a filing state,
+not a driving one: it reads the patch Stage 7 measured, records findings and — when
+one is routable — a repair plan frozen before any edit, and then returns the
+workspace byte-identical. `REPAIR` onward is
+**[DESIGNED]** — which is why a reviewed run points its `nextStage` at a loop that
+no command starts yet, and why `mergesutra run`, `pr`,
+`status` and `resume` still exit `2` as planned.
 
 What Stage 7 added to this machine is a boundary rather than a box: `VERIFY` is
 the only state that can move a criterion off `PENDING`, and it can do it only from
@@ -149,6 +154,20 @@ discovered from the repository and executes the entries the operator named on th
 command line, against the patch identity those names were minted for. A `FINISH`
 claim arrives from the record and is filed as a claim, because the only writer of
 a criterion's status is the mapper and the only thing it reads is a receipt.
+
+`REVIEW` is entered the same way again, and the thing it closes off is the shape of
+the answer. The reviewer is handed the exact patch Stage 7 measured plus a manifest
+of citation ids MergeSutra authored itself, and the JSON it must return has no
+status, score, grade or verdict field — there is nothing in it for a model to grant.
+A finding that cannot be anchored on an id from that manifest is filed
+`UNSUPPORTED` rather than deleted, and a surviving finding is given a *routing*
+disposition, not a ruling on its merit. The only document with authority over a
+later edit is the `RepairPlan`, and it is frozen before anything changes: Stage 9
+holds no writer and runs no gate, and the workspace it reviewed comes back
+byte-identical. A repair therefore re-enters `IMPLEMENT` and voids the old
+documents as state, not as prose — the record a repair writes carries no review, and
+Stage 7 must mint receipts against the new patch identity before any criterion row
+means anything again.
 
 Explicit bounded limits: agent steps, tool calls, repair attempts, repeated
 identical failures, request/token budget, per-command runtime, and output size.
@@ -197,7 +216,13 @@ src/
                consent bound to a plan digest, receipts,
                per-gate contamination re-check, and
                conservative criterion evidence mapping
-  review/      independent diff reviewer wiring          [PLANNED]
+  review/      independent diff reviewer wiring: a      [IMPLEMENTED]
+               context assembled from the record and the
+               bytes, a manifest of citation ids MergeSutra
+               authored, one question with no verdict field,
+               findings weighed against that manifest,
+               dispositions, a RepairPlan frozen before any
+               edit, and the workspace left byte-identical
   report/      the evidence pack: record in, the three    [IMPLEMENTED]
                reviewer files out, copied status for
                status, receipts re-emitted verbatim,
@@ -229,6 +254,16 @@ prompt the planner is trying to control. The planner receives a
 answer and assert what the stage did with it, and the stage cannot reach the
 network except through the adapter.
 
+`implement` and `review` are the second and third consumers, and both keep the
+same rule for the same reason: each asks for one `complete` per turn and validates
+the text locally, so the schema the stage enforces is the stage's own and not
+something the transport negotiated on its behalf. `requestReview` calls nothing
+else on the client — no `completeStructured`, no `listModels`, no `healthCheck` —
+and the hero reviewer's test double makes that observable by refusing all three if
+asked. The `modelId` that lands in the record is the one the endpoint answered
+with, never the one a page advertises, so swapping today's model for tomorrow's
+changes a config value and every recorded id, not a line of prompt code.
+
 ## 8. Evidence pack layout **[PARTLY SHIPPED]**
 
 ```
@@ -250,14 +285,20 @@ The three shipped files are a rendering of `<run-id>.json` and nothing else.
 `executionConsent` documents as they were filed, `commands.jsonl` re-emits each
 receipt from `record.verification` line for line, and `report.md`'s criteria table
 copies each row's status, sufficiency and gate ids. So splitting the same content
-into one file per stage — the five still-designed names above — would add a second
-place for a fact to live and a second chance for the two to disagree. What is left
-for later stages is the content those files would hold that no stage has
-established yet: `review.json` at Stage 9, and a run-level `manifest.json` if a
-later stage ever needs identity that the record does not already carry.
+into one file per stage — the still-designed names above — would add a second
+place for a fact to live and a second chance for the two to disagree. Stage 9
+proved that reasoning rather than working around it: a review and a repair plan are
+now documents in the record, and the pack renders them into `report.md` and
+`report.json` from that same record, so `review.json` stays a name with no file
+behind it and no second copy of a finding to fall out of step with the first.
+What is left for later stages is the content those files would hold that no stage
+has established yet — a run-level `manifest.json`, if a later stage ever needs
+identity that the record does not already carry.
 
 Nothing here is committed automatically, and no pack contains a secret: output is
 redacted on the way into the receipt, and the receipts are what the pack copies.
-The record is schema version 6; a file written by an earlier stage build is
-reported as unreadable rather than guessed at, and `report` refuses it instead of
+The record is schema version 7 — Stage 9 added `review` and `repairPlan` to it and
+kept every v6 document readable and interpretable on its own terms; a v6 record
+gains no findings it never had — and a file written by an earlier stage build is
+reported as unreadable rather than guessed at, so `report` refuses it instead of
 rendering an empty pack around the refusal.

@@ -29,11 +29,15 @@ runner for the core local path.
   with its criteria and verification plans (Stage 3), a planner that must
   account for every criterion without being able to mark one proven (Stage 4),
   a bounded implementation loop that changes files only inside its own worktree
-  and only through actions a deterministic policy allowed (Stage 6), and a
+  and only through actions a deterministic policy allowed (Stage 6), a
   verification engine that runs a repository's own gates only when an operator
   names them and then attaches their receipts to the criteria they prove
-  (Stage 7) are **shipped** — what is still **[DESIGNED]** is the diff reviewer
-  and the evidence-first PR output that reads this record.
+  (Stage 7), a report that puts those facts in front of a human without
+  re-deciding one of them (Stage 8), and a critique-only second reader that
+  describes the pinned patch, cites or is refused, and freezes the scope of a
+  repair before any edit (Stage 9) are **shipped** — what is still
+  **[DESIGNED]** is executing a frozen repair plan, the human-approval gate and
+  the evidence-first PR output that reads this record.
 
 ### PatchProof-style verifiers
 
@@ -63,6 +67,13 @@ AI-assisted review of an already-created pull request.
 
 **MergeSutra's difference:** review is a *critique-only* stage inside our
 workflow that cannot silently edit code; it is not the product's entry point.
+Shipped, and shaped so a review cannot be over-read: the reviewer is given no
+tools and a JSON shape with no status, score or verdict field, its findings are
+weighed against a citation list MergeSutra authored before asking, and the
+disposition — repair candidate, duplicate, unsupported, or for a human — is never
+the model's to assign. A review that files nothing is recorded as the absence of
+findings, not as a clean bill, and the workspace it reviewed is byte-identical
+when it returns.
 
 ### General coding agents (Claude Code, Codex-style, OpenCode, Cursor-like)
 

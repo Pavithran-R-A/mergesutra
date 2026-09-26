@@ -6,6 +6,96 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Stage 9: the same patch, read a second time by a model that changes nothing
+
+Stage 7 said what the repository's own gates prove. Stage 9 asks the question a
+green suite cannot answer — *is the requirement actually met?* — and files the
+answer without touching a byte. The design problem was the opposite of Stage 8's:
+not packaging without adding, but consulting a model without letting it decide.
+
+- `mergesutra review [run-id]` — shows a second model the exact patch a run pinned,
+  files the findings it can cite, routes them, and returns with the workspace
+  byte-identical. Flags: `--repo`, `--max-review-cycles`, `--max-repair-cycles`
+  (both ceilings a caller may lower, never raise), `--json`, `--no-color`. It has
+  **no exit `0`**: a completed review exits `3`, bytes that moved mid-review exit `4`
+  (`REVIEW_STALE`), and a missing `BHARATCODE_API_KEY` is a configuration refusal
+  with exit `78` — raised after the run has proved it is reviewable, before a call is
+  spent. There is no `REVIEW_PASS` in the outcome vocabulary and no code path to one.
+- The reviewer's answer has nowhere to put a verdict (`src/review/schema.ts`).
+  `summary` and `findings` only; each finding carries severity, one of nine
+  categories, statement, impact, evidence, an anchored file, a bounded `lineRange`,
+  criterion ids and `CTX-` citations — and no `status`, `score`, `grade`, `ready` or
+  `disposition` field, which `.strict()` enforces by rejecting the ones a model tries
+  to add. `RF-001`-style ids and dispositions are assigned here, in the order the
+  findings arrived.
+- Citations are issued, not quoted (`src/review/manifest.ts`). Before the question is
+  asked, MergeSutra authors the only ids a finding may cite — patch files, in-scope
+  sources the plan named and the patch left alone, criteria, gate receipts, policy
+  files — each with what was sent, how it was presented, and how many lines reached
+  the page. `src/review/disposition.ts` then weighs every answer against it: uncited
+  or unanchored is `UNSUPPORTED`, a repeat is `DUPLICATE`, a complaint about a file
+  this patch does not touch is `OUT_OF_SCOPE`, and `SECURITY`, `REPOSITORY_POLICY`,
+  `SCOPE` and `MAINTAINABILITY` go to a human however confident their author claims
+  to be. Only `BLOCKER`/`HIGH` findings on a citable patch file become
+  `VALID_REPAIR_CANDIDATE`.
+- A repair plan is frozen before anything changes (`src/repair/plan.ts`,
+  `src/repair/bounds.ts`): a strict, digest-bound work order naming the files, gates
+  and criteria a later stage may touch, under ceilings of 2 review cycles, 2 repair
+  cycles and 5 findings per cycle — provable against a caller that asks for more. Past
+  a ceiling the routing stops and says which bound stopped it, and the outcome becomes
+  `REVIEW_NEEDS_HUMAN`. `src/repair/scope.ts` compares a plan to the delta a repair
+  actually left, flagging `UNEXPECTED` files and a "while I'm here" refactor instead of
+  cleaning them.
+- The patch is pinned before the question and re-measured after the answer
+  (`src/review/engine.ts`, `src/review/stage.ts`). Bytes that moved yield
+  `REVIEW_STALE`, no findings from that answer are routed, and the account of the
+  review is still written; a refused, unreachable, cancelled or unintelligible answer
+  writes a record too — with no review document in it, because there is nothing to
+  file — and leaves the patch, the receipts, the evidence and the pack as they were.
+- Zero findings is reported as a limit, not a clean bill: the record gains a
+  `REVIEW-EMPTY` caveat ("the absence of findings, not the absence of defects") and
+  the pack repeats it, so an empty section cannot be read as a sign-off.
+- Quoted text can no longer impersonate the page's own structure
+  (`src/security/prompt-material.ts`, used by `src/review/prompt.ts`). A line of
+  untrusted material whose whole line is shaped like a section heading is prefixed
+  with `> [data] `, the count is disclosed at the foot of the prompt, and nothing is
+  deleted — so an issue body containing `=== ACCEPTANCE CONTRACT ===` renames nothing
+  and opens nothing. `tests/review/prompt.test.ts` proves the attacked page has the
+  same section list as the clean one.
+- Run record **v7**: `review` and `repairPlan` are added beside the six stages'
+  documents, nullable and defaulted, and the reader becomes version-aware — a v6
+  record still parses, is transformed in memory, and gains no findings it never had.
+  `report.md` renders a review and a frozen plan from that record, and prints
+  `none recorded — nothing has read these bytes a second time` when a run has none,
+  which is what the pack after a real repair correctly says about its own bytes.
+- 192 offline, deterministic tests for the stage — 134 across `tests/review/*`, 48 in
+  `tests/repair/*`, 10 in `tests/cli/review.test.ts` — none of which needs a
+  credential. The flagship fixture (`tests/review/hero.test.ts`) runs on real Git and
+  real `node --test` processes: every gate passes on a patch that does not satisfy the
+  requirement the issue was opened about, the reviewer says so, the repair is executed
+  through Stage 6's own bounded loop and confined writer, Stage 7 mints new receipts
+  for the new bytes, and the pack is regenerated — with the fixture's teeth asserted,
+  in that the case the repair added is checked to *fail* against the patch it replaced.
+  Two further paths are pinned separately: a review that files nothing mutates
+  nothing, and a fabricated finding citing a real id is weighed rather than believed.
+- One opt-in live check: `tests/review/live.test.ts` asks the real endpoint once about a
+  real patch, and stays skipped unless `MERGESUTRA_LIVE_BHARATCODE=1`, a key and a
+  model id are present together. It asserts structure — the model id actually answered,
+  the unchanged patch identity, citations that exist in the manifest, no credential in
+  the record or the pack — never agreement. At this entry's `npm run check`: **1053
+  passing and 3 skipped** (the three opt-in live-endpoint checks: planner, loop and
+  reviewer).
+- **Not done, and stated as a gap rather than a completion:** no shipped command
+  executes a repair. Stage 9 routes work and freezes the scope; running a frozen plan
+  would mean a second writer with the loop's powers, which the stage brief forbids, so
+  `classifyRepairScope` has no production caller and a reviewed run's `nextStage` names
+  a `REPAIR` that does not exist yet. The reviewer also runs through the same adapter
+  and possibly the same model family, so this is an *independent review*, not an
+  independent model; and the `> [data] ` guard covers the reviewer's page only — the
+  `plan` and `implement` prompts still interpolate `===`-shaped text with labelling but
+  without marking, which is Stage 12 work.
+- `mergesutra run`, `pr`, `status` and `resume` still exit `2`.
+
 ### Added — Stage 8: the evidence pack, and a report that cannot be over-read
 
 Stage 7 put the verdicts in the run record. Stage 8 is the first time a reader
@@ -62,7 +152,7 @@ a reviewer who is doing the harness's job.
   passing at Stage 7's close; the two skips are the opt-in live-endpoint checks
   that still need a credential).
   `mergesutra run`, `review`, `pr`, `status` and `resume` still exit
-  `2`.
+  `2`. (That list lost `review` at Stage 9, above; the rest is still true.)
 
 ### Added — Stage 7: the deterministic verification engine
 
