@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultRunner } from '../../src/core/runner.js';
 import type { RunRecord } from '../../src/state/run-record.js';
+import type { ExecutionConsent } from '../../src/verify/consent.js';
 import { scopeDigest } from '../../src/verify/consent.js';
 import { runVerifyStage } from '../../src/verify/stage.js';
 import {
@@ -145,6 +146,70 @@ describe.skipIf(!AVAILABLE)('one verification round over a workspace', () => {
       expect(gates.calls, gate.command).toContain(gate.argv.join(' '));
     }
     expect(round.evidence.criteria.some((entry) => entry.status === 'PASS')).toBe(true);
+  });
+
+  it('reuses the yes already on file when this round asks for the same commands', async () => {
+    const fixture = await implementedRun(tempDirs);
+    const first = await verify(fixture, {}, scriptedGates());
+    const ids = repositoryIds(first.plan);
+    const onFile: ExecutionConsent = {
+      planDigest: scopeDigest(first.plan),
+      gateIds: ids,
+      grantedAt: NOW.toISOString(),
+    };
+    const gates = scriptedGates();
+
+    const round = await verify(fixture, { consent: onFile }, gates);
+
+    // No new approval is asked for: the digest is the proof that the yes still
+    // covers this, and a round that re-asked would be a round that ignored it.
+    expect(round.consent).toEqual(onFile);
+    expect(round.run.planDigest).toBe(scopeDigest(round.plan));
+    expect(round.run.result).toBe('PASS');
+    expect(round.evidence.criteria.some((entry) => entry.status === 'PASS')).toBe(true);
+    for (const id of ids) {
+      expect(round.run.gates.find((gate) => gate.gateId === id)?.status).toBe('CONSENTED');
+    }
+  });
+
+  it('treats a consent written for other commands as no consent, and says which', async () => {
+    const fixture = await implementedRun(tempDirs);
+    const first = await verify(fixture, {}, scriptedGates());
+    const ids = repositoryIds(first.plan);
+    const gates = scriptedGates();
+
+    const round = await verify(
+      fixture,
+      { consent: { planDigest: 'a'.repeat(64), gateIds: ids, grantedAt: NOW.toISOString() } },
+      gates,
+    );
+
+    expect(gates.calls).toEqual(['git diff --check']);
+    expect(round.run.result).toBe('BLOCKED');
+    const stale = round.run.gates.filter(
+      (gate) => gate.code === 'BLOCKED_REPO_EXECUTION_CONSENT_STALE',
+    );
+    expect(stale.map((gate) => gate.gateId).sort()).toEqual([...ids].sort());
+    // Stale, not missing: an operator asking "do I have to name them again?" gets
+    // the true answer, which is that this set changed, not that nothing was ever agreed.
+    for (const gate of stale) {
+      expect(gate.requiresConsent).toBe(true);
+      expect(gate.reason).toMatch(/different set of commands/i);
+    }
+  });
+
+  it('refuses a stored consent that could not have been given in this process', async () => {
+    const fixture = await implementedRun(tempDirs);
+    const first = await verify(fixture, {}, scriptedGates());
+    const digest = scopeDigest(first.plan);
+
+    await expect(
+      verify(
+        fixture,
+        { consent: { planDigest: digest, gateIds: ['*'], grantedAt: NOW.toISOString() } },
+        scriptedGates(),
+      ),
+    ).rejects.toThrow(/consent/i);
   });
 
   it('files the loop’s claim beside the receipts and lets no status rest on it', async () => {

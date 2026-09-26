@@ -95,6 +95,19 @@ export interface VerifyWorkspaceInput {
   readonly claims?: readonly ModelClaim[];
   /** Gate ids the operator consents to run this repository's commands for. */
   readonly allow?: readonly string[];
+  /**
+   * The yes already on file for this run, from the round that asked first.
+   *
+   * A repair re-verifies bytes a human has already agreed to have measured, and
+   * asking again would be its own kind of lie about what was approved. This
+   * module does not decide whether that earlier yes still covers this round — it
+   * hands the consent over and the digest decides, in the one place digests are
+   * compared. Same commands, the same gate ids run; a plan whose scope moved
+   * makes the old yes stale by itself, with no rule written for repair.
+   *
+   * `allow` outranks it, because a flag typed for this round is the newer act.
+   */
+  readonly consent?: ExecutionConsent | null;
   readonly signal?: AbortSignal;
   /**
    * The plan this round revises, when the run has been verified before.
@@ -161,7 +174,7 @@ export async function verifyWorkspace(
         now,
       });
 
-  const consent = consentFrom(input.allow, plan, now);
+  const consent = consentFor(input.allow, input.consent, plan, now);
   const run = await runVerification(
     { plan, workspace: input.workspace, consent: consent ?? undefined, signal: input.signal },
     { now, runFor: deps.runFor },
@@ -186,24 +199,31 @@ export async function verifyWorkspace(
 }
 
 /**
- * The operator's flag, turned into the capability the engine checks.
+ * The operator's flag, or the yes already on file, turned into what the engine checks.
  *
  * An empty or absent list is not a wildcard: it is no consent, and every
  * repository-sourced gate says so in its receipt. A malformed id fails here,
  * before a single process starts, because `--allow all` must not become a
  * `--yes` by accident.
+ *
+ * A stored consent is re-parsed rather than trusted for its type. It has been
+ * read off disk, and a document that names `*` is a wildcard-shaped object, not
+ * a consent, whatever its field names claim.
  */
-function consentFrom(
+function consentFor(
   allow: readonly string[] | undefined,
+  onFile: ExecutionConsent | null | undefined,
   plan: VerificationPlan,
   now: () => Date,
 ): ExecutionConsent | null {
-  if (!allow || allow.length === 0) return null;
-  return parseExecutionConsent({
-    planDigest: scopeDigest(plan),
-    gateIds: [...allow],
-    grantedAt: now().toISOString(),
-  });
+  if (allow && allow.length > 0) {
+    return parseExecutionConsent({
+      planDigest: scopeDigest(plan),
+      gateIds: [...allow],
+      grantedAt: now().toISOString(),
+    });
+  }
+  return onFile ? parseExecutionConsent(onFile) : null;
 }
 
 function describeRun(

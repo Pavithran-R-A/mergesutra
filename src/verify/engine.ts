@@ -4,6 +4,7 @@ import { AppError } from '../core/errors.js';
 import { resolveInsideRoot } from '../security/path-safety.js';
 import { defaultRedactor } from '../security/redaction.js';
 import {
+  BLOCKED_CODES,
   decideExecution,
   scopeDigest,
   type BlockedCode,
@@ -538,7 +539,12 @@ function outcome(
   return {
     gateId: gate.id,
     status,
-    requiresConsent: status === 'BLOCKED' && code === 'BLOCKED_REPO_EXECUTION_APPROVAL_REQUIRED',
+    // Either of the two consent codes means the same thing to the operator: a
+    // yes naming these gates for this plan is what is missing. A stale yes is
+    // still a missing yes — printing nothing here would hide the one action
+    // that unblocks the round.
+    requiresConsent:
+      status === 'BLOCKED' && (BLOCKED_CODES as readonly string[]).includes(code ?? ''),
     code: code ?? (failure !== null && failure !== undefined ? 'GATE_COULD_NOT_RUN' : null),
     reason: failure !== null && failure !== undefined ? `${reason} (${failure})` : reason,
     receipt,

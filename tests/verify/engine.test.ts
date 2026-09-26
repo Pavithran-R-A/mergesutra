@@ -114,6 +114,29 @@ describe('running the gates a plan names', () => {
     expect(run.result).toBe('BLOCKED');
   });
 
+  it('says a stale yes is what is missing, and that a fresh one would fix it', async () => {
+    const plan = planOf([plannedGate({ id: 'VG-001' })]);
+    // The same gate id, for a plan whose commands are not the ones agreed to —
+    // which is what a repaired patch's re-verification looks like.
+    const elsewhere = planOf([plannedGate({ id: 'VG-001', argv: ['npm', 'run', 'test'] })]);
+    const calls: string[] = [];
+
+    const run = await verifyScripted(
+      plan,
+      calls,
+      { 'npm test': OK },
+      consentFor(elsewhere, ['VG-001']),
+    );
+    const gate = entry(run, 'VG-001');
+
+    expect(calls).toEqual([]);
+    expect(gate.code).toBe('BLOCKED_REPO_EXECUTION_CONSENT_STALE');
+    // The remedy for a stale yes has the same shape as the remedy for no yes:
+    // name these gates against this plan. Reporting `false` here would send the
+    // operator off to do something that changes nothing.
+    expect(gate.requiresConsent).toBe(true);
+  });
+
   it('refuses a destructive gate even when the operator consented to it', async () => {
     const plan = planOf([plannedGate({ id: 'VG-001', argv: ['rm', '-rf', 'node_modules'] })]);
     const calls: string[] = [];
