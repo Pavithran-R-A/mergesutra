@@ -31,6 +31,8 @@ import {
   type StageHarnessOptions,
 } from '../helpers/implement.js';
 import { planBodyFor, scriptedClient, TEST_MODEL } from '../helpers/bharatcode.js';
+import { cycleFor, frozenPlan, measuredPatch } from '../helpers/repair.js';
+import type { RepairExecution } from '../../src/repair/execution.js';
 
 /**
  * The Stage 6 stage, from a stored plan to files in a workspace.
@@ -73,6 +75,37 @@ async function damage(
   changes: Partial<Pick<RunRecord, 'acceptanceContract' | 'plan' | 'base'>>,
 ): Promise<void> {
   await stage.store.save({ ...stage.record, ...changes });
+}
+
+/**
+ * One filed repair cycle for a record that has been through one.
+ *
+ * Assembled by the product's own constructor over a measured patch, because a
+ * hand-written object could carry a shape `parseRunRecord` would refuse on the way
+ * back in — and the tests that use this are about what survives a round trip.
+ */
+function aCycleOn(record: RunRecord): RepairExecution {
+  const implementation = record.implementation;
+  if (!implementation) {
+    throw new Error('the loop must have filed its own record before a cycle can cite it');
+  }
+  const { description } = measuredPatch(
+    [['src/parse.ts', 'export function parse(value) {\n  return value;\n}\n', 'MODIFIED']],
+    record.base?.sha ?? 'f'.repeat(40),
+  );
+  const plan = frozenPlan({
+    runId: record.runId,
+    criteria: (record.acceptanceContract?.criteria ?? []).map((criterion) => criterion.id),
+    patchIdentity: description.identity,
+    expectedChecks: ['VG-001'],
+    createdAt: NOW.toISOString(),
+  });
+  return cycleFor({
+    plan,
+    patch: description,
+    implementation,
+    createdAt: NOW.toISOString(),
+  });
 }
 
 describe('what must already be true before the model is asked anything', () => {
@@ -287,6 +320,24 @@ describe('the record this stage writes back', () => {
     expect(result.implementation.contractUntouched).toBe(true);
     expect(result.checks.find((check) => check.name === 'Proposed revisions')?.status).toBe('WARN');
     expect(result.implementation.limitations.join(' ')).toMatch(/stored unapplied/);
+  });
+
+  it('keeps the repair cycles a run has already been through when the loop runs again', async () => {
+    const stage = await harness([finishAction()]);
+    const first = await stage.implement();
+    // A reviewer found a defect, a plan was frozen, a cycle was approved and ran,
+    // and now the person is back at the loop for more work on the same run.
+    const ran = { ...first.record, repairExecutions: [aCycleOn(first.record)] };
+    await stage.store.save(ran);
+
+    const again = await stage.implement();
+
+    // The loop has no opinion about the earlier cycle, and that is exactly why it
+    // must not lose it: the cycles a run sits on are the only record of what was
+    // edited under approval, and a stage that rebuilds the record field by field
+    // drops the field it never reads.
+    expect(again.record.repairExecutions).toEqual(ran.repairExecutions);
+    expect(again.record.repairExecutions[0]?.planDigest).toBe(ran.repairExecutions[0]?.planDigest);
   });
 
   it('reports the contract it was given as unchanged, with its version', async () => {

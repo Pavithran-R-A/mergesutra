@@ -164,6 +164,7 @@ export async function runReviewStage(
     evidence: source.evidence,
     review,
     repairPlan,
+    repairExecutions: source.repairExecutions,
     checks: describeReview(attempt, review, repairPlan),
     limitations: [...source.limitations, ...attempt.limitations, ...extra],
     nextStage: nextStageFor(attempt, review, repairPlan),

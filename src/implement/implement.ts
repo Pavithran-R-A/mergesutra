@@ -143,6 +143,11 @@ export async function runImplementStage(
     acceptanceContract: contract,
     plan,
     implementation,
+    // Carried, unlike the verification and the review this run supersedes: a cycle
+    // is a dated fact about what was already edited under approval, not a claim
+    // about the bytes now on disk. Dropping it would make a run that has been
+    // repaired read as one that never was.
+    repairExecutions: source.repairExecutions,
     checks,
     nextStage: nextStageFor(implementation.status),
     limitations: [

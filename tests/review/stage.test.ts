@@ -10,6 +10,9 @@ import {
   type RepairPlan,
 } from '../../src/repair/plan.js';
 import { runReviewStage } from '../../src/review/stage.js';
+import { buildEvidencePack } from '../../src/report/pack.js';
+import { cycleFor, frozenPlan } from '../helpers/repair.js';
+import type { RepairExecution } from '../../src/repair/execution.js';
 import { parseRunRecord } from '../../src/state/run-record.js';
 import { describePatch } from '../../src/verify/patch.js';
 import { snapshotTree } from '../helpers/fixture.js';
@@ -73,6 +76,32 @@ async function aRun(): Promise<ReviewFixture> {
 
 const WIRE = (call: CompletionRequest) =>
   call.messages.map((message) => message.content).join('\n');
+
+/**
+ * A filed cycle for a run that has already been repaired once, built by the
+ * product's own constructor from a frozen plan and the fixture's real measurement.
+ *
+ * The cycle is recorded as leaving no trace, which is the honest default for a
+ * helper that cannot claim bytes it never moved — and the point of the tests that
+ * use it is that the cycle *happened*, not what it changed.
+ */
+function aCycleFor(fixture: ReviewFixture): RepairExecution {
+  const implementation = fixture.record.implementation;
+  if (!implementation) throw new Error('the review fixture must carry an implementation record');
+  const plan = frozenPlan({
+    runId: fixture.record.runId,
+    criteria: [...fixture.criteria],
+    patchIdentity: fixture.patch.identity,
+    expectedChecks: ['VG-001'],
+    createdAt: '2026-09-26T09:30:00.000Z',
+  });
+  return cycleFor({
+    plan,
+    patch: fixture.patch,
+    implementation,
+    createdAt: '2026-09-26T09:40:00.000Z',
+  });
+}
 
 /**
  * A reviewer that reads the page it was given.
@@ -264,6 +293,27 @@ describe.skipIf(!AVAILABLE)('what the review stage writes, and what it leaves al
     expect(stage.record.evidence).toEqual(fixture.record.evidence);
     expect(stage.record.executionConsent).toEqual(fixture.record.executionConsent);
     expect(stage.record.acceptanceContract).toEqual(fixture.record.acceptanceContract);
+  });
+
+  it('keeps the cycles a repaired run has been through, because a review is not an amnesty', async () => {
+    const fixture = await aRun();
+    // A run that has already been repaired once: the record carries the cycle, and
+    // this call is the second reading Stage 9R routes a repaired run to.
+    const ran = recordWith(fixture.record, { repairExecutions: [aCycleFor(fixture)] });
+    await fixture.prepared.store.save(ran);
+    const criterion = fixture.criteria[0] ?? 'AC-1';
+    const model = reviewer((wire) => reviewOf(wire, criterion, []));
+
+    const stage = await runReviewStage(
+      { runId: fixture.record.runId },
+      { store: fixture.prepared.store, now: () => NOW, client: model.client },
+    );
+
+    // A stage that rebuilds a record from the fields it cares about would drop the
+    // array it has no opinion about, and the run would then read as though nobody
+    // had ever edited it — with a review of the edited bytes as the only trace.
+    expect(stage.record.repairExecutions).toEqual(ran.repairExecutions);
+    expect(buildEvidencePack(stage.record).files['report.md']).toContain('Repair cycle 1');
   });
 
   it('marks the review stale when the bytes move while the reviewer is answering', async () => {
