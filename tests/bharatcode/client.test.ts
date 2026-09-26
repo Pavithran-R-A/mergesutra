@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { createBharatCodeClient } from '../../src/bharatcode/client.js';
+import { createBharatCodeClient, type FetchLike } from '../../src/bharatcode/client.js';
+import { loadBharatCodeConfig } from '../../src/config/load-config.js';
 import { AppError } from '../../src/core/errors.js';
 import type { BharatCodeClientConfig } from '../../src/bharatcode/types.js';
 import { fakeFetch, hangingFetch, recordingSleeper, TEST_KEY } from '../helpers/fetch.js';
@@ -43,6 +44,66 @@ describe('BharatCodeClient.listModels', () => {
     const { fetch } = fakeFetch([{ ok: true, status: 200, body: { data: [{ name: 'oops' }] } }]);
     const client = createBharatCodeClient({ config: baseConfig(), fetch });
     await expect(client.listModels()).rejects.toMatchObject({ kind: 'invalid-response' });
+  });
+});
+
+/**
+ * The addresses a client reaches when nobody names any, §28.
+ *
+ * Every other test here runs against `bharatcode.test`, which proves the shape of
+ * a request but says nothing about where a real `mergesutra` run would send it —
+ * and the shape is exactly where a default can go wrong: an extra slash, a lost
+ * `/api/model`, a catalogue path bolted onto the host root. So this goes through
+ * the same loader the CLI goes through, with an empty environment, and reads the
+ * URLs that actually left the client.
+ */
+describe('the endpoints a default-configured client calls', () => {
+  function defaults(fetch: FetchLike) {
+    return createBharatCodeClient({
+      config: loadBharatCodeConfig({ BHARATCODE_API_KEY: TEST_KEY, BHARATCODE_MODEL: 'bc-large' }),
+      fetch,
+    });
+  }
+
+  it('asks that host for its model catalogue at <base>/models', async () => {
+    const { fetch, calls } = fakeFetch([{ ok: true, status: 200, body: { data: [] } }]);
+
+    await defaults(fetch).listModels();
+
+    expect(calls.map((call) => call.url)).toEqual(['https://bharatcode.ai/api/model/v1/models']);
+  });
+
+  it('asks the same host for a completion, at <base>/chat/completions', async () => {
+    const { fetch, calls } = fakeFetch([{ ok: true, status: 200, body: completionBody }]);
+
+    await defaults(fetch).complete({ messages: [{ role: 'user', content: 'ping' }] });
+
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://bharatcode.ai/api/model/v1/chat/completions',
+    ]);
+  });
+
+  it('carries an overridden base through to both, without doubling a slash', async () => {
+    const { fetch, calls } = fakeFetch([
+      { ok: true, status: 200, body: { data: [] } },
+      { ok: true, status: 200, body: completionBody },
+    ]);
+    const client = createBharatCodeClient({
+      config: loadBharatCodeConfig({
+        BHARATCODE_API_KEY: TEST_KEY,
+        BHARATCODE_MODEL: 'bc-large',
+        BHARATCODE_API_BASE: 'https://staging.example/api/model/v1/',
+      }),
+      fetch,
+    });
+
+    await client.listModels();
+    await client.complete({ messages: [{ role: 'user', content: 'ping' }] });
+
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://staging.example/api/model/v1/models',
+      'https://staging.example/api/model/v1/chat/completions',
+    ]);
   });
 });
 
