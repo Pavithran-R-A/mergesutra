@@ -14,6 +14,8 @@ import { createFileRunStore, defaultRunStoreRoot } from '../../src/state/run-sto
 import { describePatch } from '../../src/verify/patch.js';
 import { buildEvidencePack } from '../../src/report/pack.js';
 import { classifyRepairScope, routeRepairScope } from '../../src/repair/scope.js';
+import { repairPlanDigest } from '../../src/repair/digest.js';
+import { runRepairStage } from '../../src/repair/stage.js';
 import { formatReview } from '../../src/cli/review.js';
 import { createRenderer } from '../../src/cli/render.js';
 import { checkAction, digestOf, finishAction, writeAction } from '../helpers/implement.js';
@@ -363,13 +365,29 @@ describe.skipIf(!AVAILABLE)(
       // the reviewer read are still the bytes on disk.
       expect((await describePatch({ workspace, baseSha: base })).identity).toBe(patchA.identity);
 
-      // ---- The repair, through Stage 6's loop and Stage 5's confined writer. ----
-      const repaired = await runImplementStage(
+      // ---- Stage 9R, unpaid for: a frozen plan is not yet permission to edit. ----
+      const refused = await runRepairStage(
         { runId },
+        { store, cwd: repo, now: () => NOW, client: scriptedClient([]) },
+      );
+      expect(refused.executed).toBe(false);
+      expect(refused.decision.status).toBe('ABSENT');
+      expect(refused.decision.expectedDigest).toBe(repairPlanDigest(plan));
+      // A run nobody approved is the run it was before the command was typed: no
+      // record rewritten, no pack touched, no byte moved.
+      expect(refused.recordFile).toBeNull();
+      expect(refused.packDir).toBeNull();
+      expect((await store.load(runId)).repairExecutions).toEqual([]);
+      expect((await describePatch({ workspace, baseSha: base })).identity).toBe(patchA.identity);
+
+      // ---- Stage 9R, paid for: the digest of that plan, typed after reading it. ----
+      const repaired = await runRepairStage(
+        { runId, approvePlan: repairPlanDigest(plan) },
         {
           store,
           cwd: repo,
           now: () => NOW,
+          runsRoot: defaultRunStoreRoot(storeRoot),
           client: scriptedClient([
             writeAction(
               'src/date.mjs',
@@ -389,43 +407,114 @@ describe.skipIf(!AVAILABLE)(
         },
       );
       const patchB = await describePatch({ workspace, baseSha: base });
-      expect(repaired.workspace.reused).toBe(true);
+      expect(repaired.executed).toBe(true);
+      expect(repaired.decision.status).toBe('MATCHED');
+      const execution = repaired.execution;
+      if (!execution) throw new Error('an approved cycle filed no execution');
+      // One editing engine, not a second one with separate powers: Stage 6's loop,
+      // Stage 5's confined writer, the workspace this run already owns.
+      expect(execution.implementation.workspace.relativePath).toBe(first.workspace.relativePath);
+      expect(execution.planDigest).toBe(repairPlanDigest(plan));
+      expect(execution.patchBeforeIdentity).toBe(patchA.identity);
+      expect(execution.patchAfterIdentity).toBe(patchB.identity);
+      expect(execution.patchChanged).toBe(true);
+      expect(execution.verificationRequired).toBe(true);
       expect(patchB.identity).not.toBe(patchA.identity);
 
-      // The scope guard, over the delta the plan described in advance.
-      const delta = classifyRepairScope({ plan, patchBefore: patchA, patchAfter: patchB });
-      expect(delta.outcome).toBe('WITHIN_PLANNED_SCOPE');
-      expect(delta.unexpectedFiles).toEqual([]);
-      expect(
-        delta.files.filter((file) => file.delta !== 'UNCHANGED').map((file) => file.path),
-      ).toEqual(['src/date.mjs', 'test/parse.test.mjs']);
-      expect(routeRepairScope(delta)).toBe('REVERIFY_THROUGH_STAGE_7');
-
-      // What the repair left behind carries a new implementation account and no
-      // review: those findings describe patch A, and patch A no longer exists.
-      expect(repaired.record.review).toBeNull();
-      expect(repaired.record.repairPlan).toBeNull();
-
-      // ---- Stage 7 again, with a human naming the gates a second time. ----
-      const secondVerification = await runVerifyStage(
-        { runId, allow: ['VG-001', 'VG-002'] },
-        { store, now: () => NOW },
+      // The scope guard, over the delta the plan described in advance — and the
+      // delta on the filed execution is the guard's own reading of the two real
+      // patches, not a summary the cycle wrote down for itself.
+      expect(execution.scope).toEqual(
+        classifyRepairScope({ plan, patchBefore: patchA, patchAfter: patchB }),
       );
-      expect(secondVerification.run.result).toBe('PASS');
-      expect(secondVerification.run.patchPrecondition.status).toBe('MATCHED');
-      expect(secondVerification.record.verificationPlan?.patchIdentity).toBe(patchB.identity);
+      expect(execution.scope.outcome).toBe('WITHIN_PLANNED_SCOPE');
+      expect(execution.scope.unexpectedFiles).toEqual([]);
+      expect(
+        execution.scope.files.filter((file) => file.delta !== 'UNCHANGED').map((file) => file.path),
+      ).toEqual(['src/date.mjs', 'test/parse.test.mjs']);
+      expect(routeRepairScope(execution.scope)).toBe('REVERIFY_THROUGH_STAGE_7');
+
+      // ---- Stage 7 ran again on those bytes, under the consent already on file. ----
+      // No `allow` is typed anywhere below: the only reason a repository gate may
+      // have started is §16 reuse — the same commands, so the same scope digest.
+      const round = repaired.round;
+      if (!round) throw new Error('a patch-changing cycle owed a re-verification and got none');
+      expect(round.plan.patchIdentity).toBe(patchB.identity);
+      expect(round.run.result).toBe('PASS');
+      expect(round.run.patchPrecondition.status).toBe('MATCHED');
+      // A gate that never started would make the round BLOCKED, so the line above
+      // is the proof; this states the same fact where a reader is looking for it.
+      expect(round.run.gates.map((gate) => gate.receipt.termination)).not.toContain('NOT_EXECUTED');
       // New receipts for new bytes: every one of them names patch B.
-      expect([
-        ...new Set(secondVerification.run.gates.map((gate) => gate.receipt.patchIdentity)),
-      ]).toEqual([patchB.identity]);
+      expect([...new Set(round.run.gates.map((gate) => gate.receipt.patchIdentity))]).toEqual([
+        patchB.identity,
+      ]);
       // And the suite that gate ran now carries the impossible-day assertion, in
       // the output of the process that really executed it.
       expect(
-        secondVerification.run.gates.find((gate) => gate.gateId === 'VG-002')?.receipt
-          .stdoutSummary,
+        round.run.gates.find((gate) => gate.gateId === 'VG-002')?.receipt.stdoutSummary,
       ).toContain('an impossible day is rejected');
 
-      // ---- Stage 8 over the repaired record, read back off the disk it lives on. ----
+      // ---- Evidence remapped: the requirement is now VERIFIED by a gate that ran it. ----
+      const remapped = repaired.record.evidence?.criteria.find(
+        (entry) => entry.criterionId === impossibleDay.id,
+      );
+      expect(remapped?.sufficiency).toBe('VERIFIED');
+      const remappingGate = round.run.gates.find((gate) => gate.gateId === remapped?.gateIds[0]);
+      expect(remappingGate?.receipt.patchIdentity).toBe(patchB.identity);
+      expect(repaired.record.verificationPlan?.patchIdentity).toBe(patchB.identity);
+      expect(repaired.record.verification?.patchPrecondition.status).toBe('MATCHED');
+      // The review of patch A survives as a review of patch A — carried, never
+      // re-labelled as a reading of the bytes that exist now.
+      expect(repaired.record.review?.reviewedPatchIdentity).toBe(patchA.identity);
+      expect(repaired.record.repairExecutions).toHaveLength(1);
+      expect(repaired.record.outcome).toBe('REPAIR_APPLIED');
+      expect(repaired.record.nextStage).toMatch(/REVIEW/);
+
+      // ---- Stage 8's pack, regenerated by the cycle that made the old one stale. ----
+      expect(repaired.packError).toBeNull();
+      if (!repaired.packDir)
+        throw new Error('a filed cycle wrote no pack and said nothing about it');
+      const afterRepair = await readFile(path.join(repaired.packDir, 'report.md'), 'utf8');
+      expect(afterRepair).toContain('## Repair cycles');
+      const cycleLine =
+        afterRepair.split('\n').find((line) => line.includes('Repair cycle 1')) ?? '';
+      // The rows above the cycle line were re-measured, so the line may not call
+      // them stale: green and stale are different claims, and this one is green.
+      expect(cycleLine).toContain(patchB.identity);
+      expect(cycleLine).not.toMatch(/stale/i);
+      // Patch A survives on the page, but only as history: the reading that made
+      // the finding, the order frozen against those bytes, and the cycle that
+      // started from them. The rows that carry verdicts are pinned to patch B,
+      // which is what a reader of a pack needs the page to say out loud.
+      expect(afterRepair).toContain(`- Patch: ${patchB.identity}`);
+      const patchAReferences = afterRepair
+        .split('\n')
+        .filter((line) => line.includes(patchA.identity));
+      expect(patchAReferences).toHaveLength(3);
+      for (const line of patchAReferences) {
+        expect(line).toMatch(/Reviewed patch:|review \/ 1 repair, against patch|Repair cycle 1/);
+      }
+      expect(afterRepair).not.toContain(`- Patch: ${patchA.identity}`);
+
+      // ---- A second, independent reading of the bytes that exist now. ----
+      const secondReview = await runReviewStage(
+        { runId },
+        { store, now: () => NOW, client: reviewer(() => []) },
+      );
+      expect(secondReview.attempt.status).toBe('REVIEWED');
+      expect(secondReview.review?.reviewedPatchIdentity).toBe(patchB.identity);
+      expect(secondReview.review?.findings).toEqual([]);
+      // Nobody objected, so nothing was frozen and nothing was edited: the second
+      // reading earns no more authority over the bytes than the first one did.
+      expect(secondReview.repairPlan).toBeNull();
+      expect((await describePatch({ workspace, baseSha: base })).identity).toBe(patchB.identity);
+      expect(secondReview.record.outcome).toBe('REVIEW_RECORDED');
+      // Routed onward, not run onward — Stage 10 is a later command's decision.
+      expect(secondReview.record.nextStage).toMatch(/REPORT|PR|human/i);
+      expect(JSON.stringify(secondReview.record)).not.toMatch(/CONTRIBUTION_READY|APPROVED/i);
+
+      // ---- Stage 8 over the final record, read back off the disk it lives on. ----
       const pack = await runReportStage({ runId }, { cwd: storeRoot });
       expect((await readdir(pack.dir)).sort()).toEqual([
         'commands.jsonl',
@@ -434,10 +523,14 @@ describe.skipIf(!AVAILABLE)(
       ]);
       const rendered = await readFile(path.join(pack.dir, 'report.md'), 'utf8');
       expect(rendered).toContain(patchB.identity);
-      expect(rendered).not.toContain(patchA.identity);
-      // It says plainly that no second reader has looked at these bytes, rather
-      // than leaving the section out and letting the silence read as a clean bill.
-      expect(rendered).toMatch(/Review: none recorded/i);
+      expect(rendered).toMatch(/Repair cycle 1/);
+      // The second reviewer filed nothing, which the pack states as a limit on the
+      // reading rather than as a clean bill of health.
+      expect(rendered).toContain('The reviewer filed no findings');
+      // What the pack may never say, in the words the Stage 8 suite bans too:
+      // `approved` as a bare English adjective is a truthful description of a plan
+      // a human digested, so the finding here is a verdict attributed to a model.
+      expect(rendered).not.toMatch(/CONTRIBUTION_READY|AI APPROVED|approved by the model|LGTM/i);
 
       // What the operator saw at the review step, captured verbatim for the README.
       const report = formatReview(reviewed, createRenderer({ color: false }));
