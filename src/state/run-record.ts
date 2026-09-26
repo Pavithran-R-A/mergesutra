@@ -4,6 +4,7 @@ import { AppError } from '../core/errors.js';
 import { repositoryContractSchema } from '../discovery/contract.js';
 import { implementationRecordSchema } from '../implement/state.js';
 import { implementationPlanSchema } from '../plan/schema.js';
+import { reviewDocumentSchema } from '../review/schema.js';
 import { VERSION } from '../version.js';
 import { executionConsentSchema } from '../verify/consent.js';
 import { verificationRunSchema } from '../verify/engine.js';
@@ -32,10 +33,30 @@ import { verificationPlanSchema } from '../verify/plan.js';
  * (what each criterion may claim). None of them can say the contribution is
  * ready — that word lives in no schema in this file, by design.
  *
+ * Version 7 adds Stage 9's review document, and it is the first bump this file
+ * has had to answer for: records written by 6 are already on disk, in runs a
+ * human may still be reading, and this product's whole promise is that a later
+ * stage can pick up a run from the evidence on disk. So the bump is additive and
+ * the reader is version-aware. A 6 record is validated as a 6 record, then given
+ * `review: null` in memory — never an empty review, which would say a reviewer
+ * looked and found nothing. Nothing is rewritten on the way in; the file a human
+ * audited stays the file the run wrote, and only a legitimate stage save writes
+ * the current version. A version this build does not read is refused with the
+ * same loud error as always, rather than guessed at.
+ *
  * Nothing secret belongs in here. There is no credential field to fill in.
  */
 
-export const RUN_SCHEMA_VERSION = 6;
+export const RUN_SCHEMA_VERSION = 7;
+
+/**
+ * The record versions this build reads, oldest first.
+ *
+ * A window, not a history: a version is in this list only while this file holds a
+ * schema that validates exactly what its author wrote and a transform that can
+ * say what that record did not contain.
+ */
+export const RUN_SCHEMA_VERSIONS_SUPPORTED: readonly number[] = [6, RUN_SCHEMA_VERSION];
 
 export const RUN_STAGES = ['intake', 'inspect', 'contract', 'plan', 'implement', 'verify'] as const;
 export const RUN_OUTCOMES = [
@@ -164,46 +185,71 @@ export const runCheckSchema = z
   })
   .strict();
 
+/**
+ * The fields every version from 6 onward holds, written once.
+ *
+ * The v6 and v7 schemas are this shape plus their own `schemaVersion` literal and
+ * their own additions, so a reader of old records validates the shape their
+ * author actually wrote — and a hand-edited v6 file cannot smuggle a v7 field in
+ * by claiming to be a 6.
+ */
+const runRecordFieldsV6 = {
+  runId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/),
+  createdAt: z.string().min(1),
+  mergeSutraVersion: z.string().min(1),
+  stage: z.enum(RUN_STAGES),
+  outcome: z.enum(RUN_OUTCOMES),
+  issueRef: issueRefSchema.nullable(),
+  issue: issueDocumentSchema.nullable(),
+  repository: repositoryIdentitySchema.nullable(),
+  base: commitRefSchema.nullable(),
+  local: localSnapshotSchema.nullable(),
+  /** Present once Stage 2 has read the repository. */
+  contract: repositoryContractSchema.nullable(),
+  /** Present once Stage 3 has derived criteria. Not the same thing as above. */
+  acceptanceContract: acceptanceContractSchema.nullable().default(null),
+  /** Present once Stage 4 has asked a model — and the answer passed the schema. */
+  plan: implementationPlanSchema.nullable().default(null),
+  /**
+   * Present once Stage 6 has run the loop. It records actions and their
+   * results, and it has no field in which a criterion could be called `PASS`
+   * — the loop cannot report a verdict because there is nowhere to write one.
+   */
+  implementation: implementationRecordSchema.nullable().default(null),
+  /**
+   * Present once Stage 7 has planned, run and judged gates. Four documents,
+   * kept separate on purpose: the plan is the promise made before anything
+   * ran, the run is what actually happened to it, the consent is the human's
+   * named yes, and the evidence is what each criterion may claim from the
+   * receipts. Collapsing any two would let a later stage quote a promise as
+   * if it were an observation.
+   */
+  verificationPlan: verificationPlanSchema.nullable().default(null),
+  verification: verificationRunSchema.nullable().default(null),
+  executionConsent: executionConsentSchema.nullable().default(null),
+  evidence: acceptanceEvidenceSchema.nullable().default(null),
+  checks: z.array(runCheckSchema).readonly(),
+  nextStage: z.string(),
+  limitations: z.array(z.string()).readonly(),
+};
+
+const runRecordV6Schema = z.object({ schemaVersion: z.literal(6), ...runRecordFieldsV6 }).strict();
+
 export const runRecordSchema = z
   .object({
     schemaVersion: z.literal(RUN_SCHEMA_VERSION),
-    runId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/),
-    createdAt: z.string().min(1),
-    mergeSutraVersion: z.string().min(1),
-    stage: z.enum(RUN_STAGES),
-    outcome: z.enum(RUN_OUTCOMES),
-    issueRef: issueRefSchema.nullable(),
-    issue: issueDocumentSchema.nullable(),
-    repository: repositoryIdentitySchema.nullable(),
-    base: commitRefSchema.nullable(),
-    local: localSnapshotSchema.nullable(),
-    /** Present once Stage 2 has read the repository. */
-    contract: repositoryContractSchema.nullable(),
-    /** Present once Stage 3 has derived criteria. Not the same thing as above. */
-    acceptanceContract: acceptanceContractSchema.nullable().default(null),
-    /** Present once Stage 4 has asked a model — and the answer passed the schema. */
-    plan: implementationPlanSchema.nullable().default(null),
+    ...runRecordFieldsV6,
     /**
-     * Present once Stage 6 has run the loop. It records actions and their
-     * results, and it has no field in which a criterion could be called `PASS`
-     * — the loop cannot report a verdict because there is nowhere to write one.
+     * Present once Stage 9 has reviewed these exact bytes.
+     *
+     * `null` and "zero findings" are different facts and only one of them is a
+     * review: null says no reviewer was ever shown this patch, while a document
+     * with an empty `findings` list says one was and reported nothing. A
+     * migrated v6 record gets the first, because that is what happened to it.
+     * The document also carries the patch identity it vouches for, so a reader
+     * can tell a review from a review that has gone stale.
      */
-    implementation: implementationRecordSchema.nullable().default(null),
-    /**
-     * Present once Stage 7 has planned, run and judged gates. Four documents,
-     * kept separate on purpose: the plan is the promise made before anything
-     * ran, the run is what actually happened to it, the consent is the human's
-     * named yes, and the evidence is what each criterion may claim from the
-     * receipts. Collapsing any two would let a later stage quote a promise as
-     * if it were an observation.
-     */
-    verificationPlan: verificationPlanSchema.nullable().default(null),
-    verification: verificationRunSchema.nullable().default(null),
-    executionConsent: executionConsentSchema.nullable().default(null),
-    evidence: acceptanceEvidenceSchema.nullable().default(null),
-    checks: z.array(runCheckSchema).readonly(),
-    nextStage: z.string(),
-    limitations: z.array(z.string()).readonly(),
+    review: reviewDocumentSchema.nullable().default(null),
   })
   .strict();
 
@@ -238,6 +284,8 @@ export interface NewRunRecordInput {
   readonly verification?: RunRecord['verification'];
   readonly executionConsent?: RunRecord['executionConsent'];
   readonly evidence?: RunRecord['evidence'];
+  /** Only the review stage sets this, and only from a review of these exact bytes. */
+  readonly review?: RunRecord['review'];
   readonly checks: readonly RunCheck[];
   readonly nextStage: string;
   readonly limitations?: readonly string[];
@@ -264,18 +312,37 @@ export function createRunRecord(input: NewRunRecordInput): RunRecord {
     verification: input.verification ?? null,
     executionConsent: input.executionConsent ?? null,
     evidence: input.evidence ?? null,
+    review: input.review ?? null,
     checks: [...input.checks],
     nextStage: input.nextStage,
     limitations: [...(input.limitations ?? [])],
   });
 }
 
-export function parseRunRecord(unknown: unknown): RunRecord {
-  const parsed = runRecordSchema.safeParse(unknown);
-  if (parsed.success) return parsed.data;
-  const detail =
-    parsed.error.issues.map((i) => `${i.path.join('.') || 'record'}: ${i.message}`).join('; ') ||
-    'unrecognised record';
+/**
+ * A 6 record, seen in memory as a 7 record.
+ *
+ * The transform adds one thing: the fact that Stage 9 never ran. It cannot add a
+ * review, a finding, a disposition, a receipt or an approval, because a 6 record
+ * has no such evidence and inventing one here would put words a reviewer never
+ * said into a document a reader will trust.
+ */
+function upgradeV6Record(record: z.infer<typeof runRecordV6Schema>): RunRecord {
+  return runRecordSchema.parse({
+    ...record,
+    schemaVersion: RUN_SCHEMA_VERSION,
+    review: null,
+  });
+}
+
+function issueDetail(issues: readonly z.ZodIssue[]): string {
+  return (
+    issues.map((i) => `${i.path.join('.') || 'record'}: ${i.message}`).join('; ') ||
+    'unrecognised record'
+  );
+}
+
+function refuseRunRecord(detail: string): never {
   throw new AppError({
     kind: 'validation',
     message: `Run record is not readable: ${detail}`,
@@ -283,6 +350,40 @@ export function parseRunRecord(unknown: unknown): RunRecord {
       'The .mergesutra run file is from a different MergeSutra version or was edited. Start a fresh run, or remove that file.',
     details: { reason: detail },
   });
+}
+
+/**
+ * Read a stored record, whatever supported version its author wrote.
+ *
+ * Old files are validated as the version they claim to be, then transformed —
+ * never reinterpreted. A version number that is a number but not a supported one
+ * is named in the error, because "I could not read it" and "I have never seen 12"
+ * send a human to different places. Anything else fails the way this file has
+ * always failed: loudly, with the reason.
+ */
+export function parseRunRecord(unknown: unknown): RunRecord {
+  const declared =
+    typeof unknown === 'object' && unknown !== null && 'schemaVersion' in unknown
+      ? unknown.schemaVersion
+      : undefined;
+
+  if (declared === 6) {
+    const asV6 = runRecordV6Schema.safeParse(unknown);
+    if (asV6.success) return upgradeV6Record(asV6.data);
+    return refuseRunRecord(`as written for version 6: ${issueDetail(asV6.error.issues)}`);
+  }
+
+  if (typeof declared === 'number' && !RUN_SCHEMA_VERSIONS_SUPPORTED.includes(declared)) {
+    return refuseRunRecord(
+      `schemaVersion ${declared} is not a version this MergeSutra reads; it reads ${RUN_SCHEMA_VERSIONS_SUPPORTED.join(
+        ' and ',
+      )}`,
+    );
+  }
+
+  const parsed = runRecordSchema.safeParse(unknown);
+  if (parsed.success) return parsed.data;
+  refuseRunRecord(issueDetail(parsed.error.issues));
 }
 
 /** Filesystem-safe, sortable, collision-resistant without needing a server. */

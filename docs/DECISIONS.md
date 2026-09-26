@@ -942,3 +942,44 @@ actual decisions taken while building Stages 0-8, not aspirations.
   record version it came from — the gap is recorded under Stage 8 in
   `docs/ROADMAP.md` rather than papered over by a directory full of undated
   files.
+
+## ADR-047 — A record version is added, not replaced, and reading never rewrites
+
+- **Decision:** Stage 9 bumps the run record to `schemaVersion: 7` by adding one
+  nullable, defaulted field (`review`) beside the six stages' documents, and the
+  reader becomes version-aware: `RUN_SCHEMA_VERSIONS_SUPPORTED` names the window
+  (6 and 7), a record declaring 6 is validated against a v6-only shape, then
+  transformed in memory to v7 with `review: null` and validated again. Anything
+  outside the window is refused with the existing `Run record is not readable`
+  error, and a numeric version that is simply unknown is named in the message.
+  `store.load()` and `store.list()` never write; only a stage that legitimately
+  saves persists, and what it persists is v7.
+- **Reason:** Every earlier bump replaced the reader, because no record from a
+  previous version was expected to be on disk when the new build ran. Stage 9 is
+  the first bump where that assumption fails — records from Stage 8 exist, are
+  gitignored rather than archived, and are the artifacts a human audits, so a
+  literal-only parser would have made `mergesutra report <old-run>` and every
+  future `review`/`resume` against them fail. The migration adds exactly one
+  default and nothing else: a v6 record has no evidence of a review, so
+  inventing `findings: []` would report "a reviewer looked and found nothing"
+  about bytes nobody was shown, which is the same class of falsehood §5's
+  truthful-status rules forbid. Keeping the v6 shape strict is what stops a
+  hand-edited file from claiming to be a 6 while carrying a 7's `review`.
+- **Alternatives:** loosening `schemaVersion` to `z.number()` (a record would
+  then be parsed by a schema that has never heard of its fields, and the
+  `.strict()` guard — the thing that catches a hand-edited file — would go with
+  it); silently accepting a future version (a v8 record read as v7 would drop
+  whatever v8 added, and drop it without saying so); rewriting v6 files to v7 on
+  read, or a `migrate` command (the file a human already audited would no longer
+  be the file the run wrote, and a migration that happens as a side effect of
+  opening something is not a migration anyone asked for); storing each stage's
+  documents in separate files (a real fix for the general problem, and Stage 12
+  territory — it changes what a reviewer opens, so it is not a compatibility
+  decision dressed up as one).
+- **Consequence:** A dropped field is now a *possible* outcome of reading, so the
+  ceiling on supported versions has to stay honest: adding a version to
+  `RUN_SCHEMA_VERSIONS_SUPPORTED` requires a schema beside it and a transform
+  with a test, and removing one is a compatibility break to record here rather
+  than a silent edit. v6 records remain v6 on disk, so a pack rendered from a
+  migrated record carries the fields the run actually wrote — and when Stage 10
+  wants pack history, ADR-046's recorded gap still stands.
