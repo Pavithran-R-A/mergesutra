@@ -22,6 +22,7 @@ import {
   replacementHint,
   withActionRepairFeedback,
   withStepFeedback,
+  type LoopBrief,
 } from './prompt.js';
 import {
   actionIdentity,
@@ -43,7 +44,7 @@ import {
 } from './state.js';
 
 /**
- * The bounded implementation loop — Stage 6.
+ * The bounded implementation loop — Stage 6, shared by Stage 9R's repair cycles.
  *
  * This is the first place MergeSutra lets a model cause something to happen, and
  * the shape of the project is decided by how it does that: the model is asked for
@@ -51,9 +52,12 @@ import {
  * through the boundaries Stage 5 built. Nothing in this file calls `fs.writeFile`
  * or a child process directly. A write goes to the confined writer, a command to
  * the policy-checked runner, a read to the confined reader, and all three are
- * rooted in the one workspace this run owns.
+ * rooted in the one workspace this run owns. There is no second copy of these
+ * hands anywhere in the product, which is why a repair cycle is a caller of this
+ * module rather than a sibling: the most a cycle may add is a narrower scope
+ * (`LoopBrief`), never a wider permission.
  *
- * Four properties are the point of the module:
+ * Six properties are the point of the module:
  *
  * 1. **No shell, ever.** Model text is parsed against `loopActionSchema` and an
  *    argv array reaches `execFile` with `shell: false`. There is no code path
@@ -75,6 +79,10 @@ import {
  *    will not produce a valid action all end the loop with an
  *    `ImplementationRecord` and a truthful status. The worktree is left in place;
  *    this stage writes files and never cleans up, because cleanup is destructive.
+ * 6. **A caller may narrow what a model may touch.** Given a brief, a `WRITE_FILE`
+ *    to a path outside it is refused before the writer is asked — and given none,
+ *    nothing changes about Stage 6. Being listed by a plan is not the same as
+ *    being allowed by Stage 5, so the policy and the precondition still run.
  *
  * `FINISH` is treated as what it is — the model's claim that it is done. The
  * status becomes `COMPLETED_BY_MODEL`, which Stage 7 must support or refute.
@@ -110,6 +118,15 @@ export interface ImplementationLoopInput {
   readonly limits?: Partial<LoopLimits>;
   /** Overrides the configured model for this loop only; the id used is persisted. */
   readonly model?: string;
+  /**
+   * A frozen scope for this cycle, from Stage 9R's repair plan.
+   *
+   * Absent for Stage 6, where the plan is both the intent and the context choice.
+   * Present, it *replaces* the plan's file list for both jobs — which files are
+   * read first, and which may be written — because a repair cycle is scoped by
+   * what a reviewer found, not by what an earlier model proposed.
+   */
+  readonly brief?: LoopBrief;
 }
 
 export interface ImplementationLoopDeps {
@@ -188,7 +205,13 @@ export async function runImplementationLoop(
     });
 
   const criterionIds = input.contract.criteria.map((criterion) => criterion.id);
-  const context = await assembleInitialContext({ reader, plan: input.plan, limits });
+  const context = await assembleInitialContext({
+    reader,
+    files: input.brief
+      ? input.brief.contextFiles
+      : input.plan.body.changes.map((change) => change.file),
+    limits,
+  });
 
   const state: LoopState = {
     steps: 0,
@@ -216,6 +239,7 @@ export async function runImplementationLoop(
       plan: input.plan,
       context,
       limits,
+      brief: input.brief,
     }),
   );
 
@@ -488,6 +512,8 @@ async function execute(action: LoopAction, ctx: ExecuteContext): Promise<ActionE
     }
 
     case 'WRITE_FILE': {
+      const outside = outsideScope(ctx.input.brief, action.path);
+      if (outside) return refused(outside, 'WRITE');
       const decision = decideTool(
         { op: 'write', path: action.path },
         { workspace: ctx.writer.root },
@@ -601,6 +627,30 @@ function refused(reason: string, risk: RiskClass | null): ActionEffect {
     exitCode: null,
     risk,
   };
+}
+
+/**
+ * The frozen scope, asked before the writer is.
+ *
+ * Stage 9R's whole safety argument is that a repair changes only files a
+ * reviewer saw and a human approved by digest. Detecting the drift afterwards is
+ * part of it, but a cycle that only reports an out-of-scope edit has still made
+ * one — so the check lives here, on the one action that moves bytes, ahead of
+ * both the tool policy and the compare-before-write precondition.
+ *
+ * It is a prevention and nothing more. Admitting a path says only that the plan
+ * named it, which is why `.git/config` on the list still reaches `decideTool`
+ * and still comes back refused: being planned is not being safe, and Stage 5
+ * decides that independently of what any model meant.
+ */
+function outsideScope(brief: LoopBrief | undefined, path: string): string | null {
+  if (brief === undefined || brief.writableFiles.includes(path)) return null;
+  const named = brief.writableFiles.length > 0 ? brief.writableFiles.join(', ') : '(none)';
+  return (
+    `Refused: ${path} is not one of the files this cycle's scope names, so nothing was written to it. ` +
+    `This cycle may change only: ${named}. The scope was frozen before any edit and a model cannot ` +
+    'widen it; if the finding needs this file, reply BLOCKED and say so.'
+  );
 }
 
 /**

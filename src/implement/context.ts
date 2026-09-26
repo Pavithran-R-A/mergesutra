@@ -1,6 +1,5 @@
 import { AppError } from '../core/errors.js';
 import type { ConfinedReader } from '../security/reader.js';
-import type { ImplementationPlan } from '../plan/schema.js';
 import type { LoopLimits } from './limits.js';
 
 /**
@@ -9,10 +8,10 @@ import type { LoopLimits } from './limits.js';
  * Sending a repository is neither helpful nor safe. It is slow, it costs tokens,
  * it carries whatever the last person left in `.env`, and it hands a model more
  * text to be influenced by than it can use. So context is assembled from a
- * purpose: the files this plan intends to change, plus what the run already
- * established as facts. Every byte goes through the confined reader, which means
- * a plan that names `.git/config` or `../../.ssh/id_rsa` produces a *recorded
- * skip* rather than content.
+ * purpose: the files the caller named, plus what the run already established as
+ * facts. Every byte goes through the confined reader, which means a name like
+ * `.git/config` or `../../.ssh/id_rsa` produces a *recorded skip* rather than
+ * content — a listed path is a request to read, never an authority to do it.
  *
  * Two budgets are enforced here: per-file bytes and a total. When the total runs
  * out the assembler stops and says so — a silently truncated context is how an
@@ -42,7 +41,7 @@ export interface AssembledContext {
   readonly skipped: readonly SkippedContext[];
   readonly bytes: number;
   readonly treeSample: readonly string[];
-  /** Paths the plan named that the repository does not have yet — usually new files. */
+  /** Paths the caller named that the repository does not have yet — usually new files. */
   readonly notYetPresent: readonly string[];
 }
 
@@ -63,10 +62,19 @@ export interface ReadOutcome {
 
 export async function assembleInitialContext(input: {
   reader: ConfinedReader;
-  plan: ImplementationPlan;
+  /**
+   * Which files to open first, in the order the caller means them.
+   *
+   * A list rather than a plan, because two different stages hand one over: Stage
+   * 6 names what its plan intends to change, and a repair cycle names the scope
+   * a frozen plan settled on. The assembler's job is the same for both — read
+   * these, confine them, budget them — and it is stronger for not pretending to
+   * know which document the paths came from.
+   */
+  files: readonly string[];
   limits: Pick<LoopLimits, 'maxContextFiles' | 'maxContextBytes'>;
 }): Promise<AssembledContext> {
-  const wanted = [...new Set(input.plan.body.changes.map((change) => change.file))];
+  const wanted = [...new Set(input.files)];
   const treeSample = await input.reader.walk('.', 3, 60);
   const files: ContextFile[] = [];
   const skipped: SkippedContext[] = [];

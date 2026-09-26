@@ -64,7 +64,7 @@ async function build(
   const plan = options.planFiles ? planTouching(options.planFiles) : run.plan;
   const context = await assembleInitialContext({
     reader: await openConfinedReader(root),
-    plan,
+    files: plan.body.changes.map((change) => change.file),
     limits: resolveLimits(options.limits),
   });
   const record = options.withoutRepositoryContract ? { ...run.record, contract: null } : run.record;
@@ -293,7 +293,7 @@ describe('the task message', () => {
 
   it('calls a planned path that is missing what it is', async () => {
     const { user } = await build({ planFiles: ['src/guard.ts'] });
-    expect(user).toContain('=== PLAN PATHS NOT PRESENT YET (expected for new files) ===');
+    expect(user).toContain('=== PATHS NOT PRESENT YET (expected for new files) ===');
     expect(user).toContain('src/guard.ts');
     expect(user).not.toContain('WITHHELD');
   });

@@ -8,13 +8,12 @@ import {
   readForModel,
 } from '../../src/implement/context.js';
 import { openConfinedReader } from '../../src/security/reader.js';
-import { planTouching } from '../helpers/implement.js';
 
 /**
  * What the model is shown before it asks for anything.
  *
  * The claim under test is that this stage never ships a repository: it ships the
- * files the plan means to change, through the same reader that refuses
+ * files the caller names, through the same reader that refuses
  * credentials, `.git`, binaries and oversized reads — and when it withholds
  * something it says so, because a silently absent file is how an agent ends up
  * confidently describing code it was never shown.
@@ -58,7 +57,7 @@ describe('assembleInitialContext', () => {
     const reader = await readerFor(await repo(SMALL));
     const context = await assembleInitialContext({
       reader,
-      plan: planTouching(['src/parse.ts', 'test/parse.test.ts']),
+      files: ['src/parse.ts', 'test/parse.test.ts'],
       limits: { maxContextFiles: 6, maxContextBytes: 48 * 1024 },
     });
 
@@ -77,7 +76,7 @@ describe('assembleInitialContext', () => {
     const reader = await readerFor(await repo(SMALL));
     const context = await assembleInitialContext({
       reader,
-      plan: planTouching(['src/parse.ts', 'src/parse.ts', 'README.md']),
+      files: ['src/parse.ts', 'src/parse.ts', 'README.md'],
       limits: { maxContextFiles: 6, maxContextBytes: 48 * 1024 },
     });
     expect(context.files.map((file) => file.relativePath)).toEqual(['src/parse.ts', 'README.md']);
@@ -89,7 +88,7 @@ describe('assembleInitialContext', () => {
     );
     const context = await assembleInitialContext({
       reader,
-      plan: planTouching(['.env', 'src/parse.ts']),
+      files: ['.env', 'src/parse.ts'],
       limits: { maxContextFiles: 6, maxContextBytes: 48 * 1024 },
     });
 
@@ -103,7 +102,7 @@ describe('assembleInitialContext', () => {
     const reader = await readerFor(await repo(SMALL));
     const context = await assembleInitialContext({
       reader,
-      plan: planTouching(['.git/config']),
+      files: ['.git/config'],
       limits: { maxContextFiles: 6, maxContextBytes: 48 * 1024 },
     });
     expect(context.files).toEqual([]);
@@ -119,7 +118,7 @@ describe('assembleInitialContext', () => {
     );
     const context = await assembleInitialContext({
       reader,
-      plan: planTouching(['assets/logo.png']),
+      files: ['assets/logo.png'],
       limits: { maxContextFiles: 6, maxContextBytes: 48 * 1024 },
     });
     expect(context.files).toEqual([]);
@@ -130,7 +129,7 @@ describe('assembleInitialContext', () => {
     const reader = await readerFor(await repo(SMALL));
     const context = await assembleInitialContext({
       reader,
-      plan: planTouching(['src/guard.ts']),
+      files: ['src/guard.ts'],
       limits: { maxContextFiles: 6, maxContextBytes: 48 * 1024 },
     });
     // A plan is allowed to create a file; the prompt has to say it is absent so
@@ -144,7 +143,7 @@ describe('assembleInitialContext', () => {
     const reader = await readerFor(await repo({ ...SMALL, 'src/big.ts': big }));
     const context = await assembleInitialContext({
       reader,
-      plan: planTouching(['src/big.ts']),
+      files: ['src/big.ts'],
       limits: { maxContextFiles: 6, maxContextBytes: 512 * 1024 },
     });
 
@@ -158,7 +157,7 @@ describe('assembleInitialContext', () => {
     const reader = await readerFor(await repo(SMALL));
     const context = await assembleInitialContext({
       reader,
-      plan: planTouching(['src/parse.ts', 'README.md', 'src/other.ts']),
+      files: ['src/parse.ts', 'README.md', 'src/other.ts'],
       limits: { maxContextFiles: 2, maxContextBytes: 48 * 1024 },
     });
     expect(context.files).toHaveLength(2);
@@ -171,7 +170,7 @@ describe('assembleInitialContext', () => {
     const reader = await readerFor(await repo(SMALL));
     const context = await assembleInitialContext({
       reader,
-      plan: planTouching(['src/parse.ts', 'test/parse.test.ts', 'README.md']),
+      files: ['src/parse.ts', 'test/parse.test.ts', 'README.md'],
       limits: { maxContextFiles: 6, maxContextBytes: PARSE_BYTES },
     });
 
@@ -188,7 +187,7 @@ describe('assembleInitialContext', () => {
     const reader = await readerFor(await repo(SMALL));
     const context = await assembleInitialContext({
       reader,
-      plan: planTouching(['src/parse.ts', 'README.md']),
+      files: ['src/parse.ts', 'README.md'],
       limits: { maxContextFiles: 6, maxContextBytes: 48 * 1024 },
     });
     const total = context.files.reduce(
@@ -209,7 +208,7 @@ describe('assembleInitialContext', () => {
     );
     const context = await assembleInitialContext({
       reader,
-      plan: planTouching(['README.md']),
+      files: ['README.md'],
       limits: { maxContextFiles: 6, maxContextBytes: 48 * 1024 },
     });
 
@@ -226,7 +225,7 @@ describe('assembleInitialContext', () => {
     const reader = await readerFor(root);
     await assembleInitialContext({
       reader,
-      plan: planTouching(['src/parse.ts', 'README.md']),
+      files: ['src/parse.ts', 'README.md'],
       limits: { maxContextFiles: 6, maxContextBytes: 48 * 1024 },
     });
     expect(await readFile(path.join(root, 'src/parse.ts'), 'utf8')).toBe(SMALL['src/parse.ts']);
