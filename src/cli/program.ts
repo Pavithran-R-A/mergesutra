@@ -6,6 +6,7 @@ import { contractAction, type ContractCommandOptions } from './contract.js';
 import { planAction, type PlanCommandOptions } from './plan.js';
 import { implementAction, type ImplementCommandOptions } from './implement.js';
 import { verifyAction, type VerifyCommandOptions } from './verify.js';
+import { reviewAction, type ReviewCommandOptions } from './review.js';
 import { reportAction, type ReportCommandOptions, type ReportDeps } from './report.js';
 import type { IntakeDeps } from '../intake/intake.js';
 import type { InspectDeps } from '../discovery/inspect.js';
@@ -13,9 +14,11 @@ import type { ContractDeps } from './contract.js';
 import type { PlanDeps } from '../plan/plan.js';
 import type { ImplementStageDeps } from '../implement/implement.js';
 import type { VerifyStageDeps } from '../verify/stage.js';
+import type { ReviewStageDeps } from '../review/stage.js';
 import { createRenderer, resolveColor } from './render.js';
 import { EXIT } from './exit-codes.js';
 import { LIMIT_CAPS } from '../implement/limits.js';
+import { MAX_REPAIR_CYCLES_CEILING, MAX_REVIEW_CYCLES_CEILING } from '../repair/bounds.js';
 import { PRODUCT_NAME, TAGLINE, VERSION } from '../version.js';
 import { isAppError } from '../core/errors.js';
 import { defaultRedactor } from '../security/redaction.js';
@@ -25,13 +28,13 @@ import { defaultRedactor } from '../security/redaction.js';
  *
  * The one-command hero workflow is `mergesutra issue <url>`. The phase commands
  * (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`)
- * exist for transparency, debugging and recovery. Through Stage 7, `doctor`,
- * the intake half of `issue`, `inspect`, `contract`, `plan`, `implement` and
- * `verify` are wired up; every unfinished command says so truthfully rather
- * than pretending to work. `run` — the unattended end-to-end pipeline — is
- * deliberately still planned: a pipeline that skipped the human consent that
- * `verify` requires would be unsafe, not convenient, so the stages after it
- * must land before an unattended mode can honestly exist.
+ * exist for transparency, debugging and recovery. Through Stage 9, `doctor`,
+ * the intake half of `issue`, `inspect`, `contract`, `plan`, `implement`,
+ * `verify`, `review` and `report` are wired up; every unfinished command says
+ * so truthfully rather than pretending to work. `run` — the unattended
+ * end-to-end pipeline — is deliberately still planned: a pipeline that skipped
+ * the human consent that `verify` requires would be unsafe, not convenient, so
+ * the stages after it must land before an unattended mode can honestly exist.
  */
 
 export interface ProgramDeps {
@@ -42,6 +45,7 @@ export interface ProgramDeps {
   plan?: Partial<PlanDeps>;
   implement?: Partial<ImplementStageDeps>;
   verify?: Partial<VerifyStageDeps>;
+  review?: Partial<ReviewStageDeps>;
   report?: Partial<ReportDeps>;
   write?: (line: string) => void;
   writeErr?: (line: string) => void;
@@ -51,7 +55,6 @@ export interface ProgramDeps {
 
 const PLANNED = [
   { name: 'run', summary: 'Unattended end-to-end pipeline across all stages.' },
-  { name: 'review', summary: 'Independent BharatCode diff review.' },
   { name: 'pr', summary: 'Draft the pull request (requires human approval).' },
   { name: 'status', summary: 'Show the current run state.' },
   { name: 'resume', summary: 'Resume an interrupted run.' },
@@ -228,6 +231,49 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
     });
 
   program
+    .command('review [run-id]')
+    .description(
+      'Second pair of eyes on the exact patch: a review files findings and edits nothing — it is the repair that would need consent',
+    )
+    .option(
+      '--repo <path>',
+      'primary checkout whose workspace this run owns (default: its recorded one)',
+    )
+    .option(
+      `--max-review-cycles <n>`,
+      `review-cycle budget before a human takes over (1-${String(MAX_REVIEW_CYCLES_CEILING)}; lowering only)`,
+    )
+    .option(
+      `--max-repair-cycles <n>`,
+      `repair-cycle budget for the frozen plan (1-${String(MAX_REPAIR_CYCLES_CEILING)}; lowering only)`,
+    )
+    .action(
+      async (
+        runId: string | undefined,
+        opts: { repo?: string; maxReviewCycles?: string; maxRepairCycles?: string },
+      ) => {
+        const globals = program.opts();
+        const controller = new AbortController();
+        const onInterrupt = (): void => controller.abort();
+        process.on('SIGINT', onInterrupt);
+        try {
+          const options: ReviewCommandOptions = {
+            json: globals.json === true,
+            noColor: globals.color === false,
+            env,
+            repo: opts.repo,
+            maxReviewCycles: opts.maxReviewCycles,
+            maxRepairCycles: opts.maxRepairCycles,
+            signal: controller.signal,
+          };
+          setExitCode(await reviewAction(runId, options, deps.review, write));
+        } finally {
+          process.removeListener('SIGINT', onInterrupt);
+        }
+      },
+    );
+
+  program
     .command('report [run-id]')
     .description(
       'Render the evidence pack for a run; it reports what was decided, deciding nothing',
@@ -257,7 +303,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
             renderer.row('INFO', planned.summary),
             '',
             renderer.dim(
-              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, verify, report, --help, --version.',
+              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, verify, review, report, --help, --version.',
             ),
             renderer.dim('Progress: see docs/ROADMAP.md'),
           ].join('\n'),

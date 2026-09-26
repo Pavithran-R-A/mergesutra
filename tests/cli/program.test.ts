@@ -67,7 +67,7 @@ describe('mergesutra CLI', () => {
   });
 
   it('does not pretend a later stage ran: no planned command exits 0', async () => {
-    for (const name of ['run', 'review', 'pr', 'status', 'resume']) {
+    for (const name of ['run', 'pr', 'status', 'resume']) {
       const c = capture();
       const code = await run(['node', 'mergesutra', name], {
         write: c.write,

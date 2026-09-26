@@ -1,5 +1,10 @@
 import path from 'node:path';
-import type { BharatCodeClient } from '../bharatcode/client.js';
+import {
+  createBharatCodeClient,
+  requireApiKey,
+  type BharatCodeClient,
+} from '../bharatcode/client.js';
+import { loadBharatCodeConfig } from '../config/load-config.js';
 import { AppError } from '../core/errors.js';
 import type { RepairLimits } from '../repair/bounds.js';
 import { buildRepairPlan, type RepairPlan } from '../repair/plan.js';
@@ -53,7 +58,9 @@ export interface ReviewStageDeps {
   readonly store?: RunStore;
   readonly cwd?: string;
   readonly now?: () => Date;
-  readonly client: BharatCodeClient;
+  /** Absent means the shipped product's own client, which needs a real credential. */
+  readonly client?: BharatCodeClient;
+  readonly env?: NodeJS.ProcessEnv;
   /** Bounds a caller may tighten; the ceilings in src/repair/bounds.ts are not movable. */
   readonly limits?: Partial<RepairLimits>;
   /** How the patch is re-measured after the answer. A test seam, the engine's own shape. */
@@ -114,10 +121,13 @@ export async function runReviewStage(
   const patch = await describePatch({ workspace, baseSha });
 
   const context = await assembleReviewContext({ record: source, workspace, patch });
+  // Built here, after the run has proved it can be reviewed: "this run has nothing
+  // to review" is the truer refusal on a machine that also has no credential.
+  const client = deps.client ?? clientFromEnvironment(deps.env ?? process.env);
   const probe = deps.currentPatchIdentity ?? (() => measureIdentity(workspace, baseSha));
   const attempt = await requestReview(
     { context, currentPatchIdentity: probe, ...(input.signal ? { signal: input.signal } : {}) },
-    { client: deps.client },
+    { client },
   );
 
   const review = documentFor(sourceRunId, baseSha, context, attempt, now);
@@ -173,6 +183,21 @@ export async function runReviewStage(
 async function measureIdentity(workspace: string, baseSha: string): Promise<string | null> {
   const described = await describePatch({ workspace, baseSha }).catch(() => null);
   return described?.identity ?? null;
+}
+
+/**
+ * The shipped product's own reviewer, built only once there is a run to ask about.
+ *
+ * A machine with no `BHARATCODE_API_KEY` cannot have a second opinion, and the
+ * honest shape of that is a configuration refusal with exit 78 — not a record
+ * that says a review came back inconclusive. The credential is read from the
+ * environment here and nowhere else: it never enters a argv, a fixture, a
+ * receipt or a report.
+ */
+function clientFromEnvironment(env: NodeJS.ProcessEnv): BharatCodeClient {
+  const config = loadBharatCodeConfig(env);
+  requireApiKey(config.apiKey);
+  return createBharatCodeClient({ config });
 }
 
 /**
