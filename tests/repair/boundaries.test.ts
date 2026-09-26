@@ -19,6 +19,12 @@ import { describe, expect, it } from 'vitest';
  * powers. The strings below are data to be searched for, never imported or run:
  * this file opens nothing but its own siblings.
  *
+ * `execution.ts` belongs in the decision group even though its name says
+ * otherwise, and that is the useful reading of it: it assembles a record of a
+ * cycle from a plan, an approval and two patch measurements that already exist, so
+ * by the time it runs the editing is over. A module that writes down what hands
+ * did does not itself need any.
+ *
  * It also locks in the positive side of the bargain. The moment Stage 9 does gain
  * an execution path, it must be the loop's, and the boundary that keeps the rest
  * of src/repair clean is the one this file enforces.
@@ -38,6 +44,7 @@ const DECISION_MODULES = [
   'consent.ts',
   'context.ts',
   'digest.ts',
+  'execution.ts',
   'limits.ts',
   'plan.ts',
   'scope.ts',
