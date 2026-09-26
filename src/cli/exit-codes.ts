@@ -39,6 +39,15 @@ export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
  * a thing to exit 0 over; and `REVIEW_STALE` is a block, because the patch moved
  * while it was being reviewed and every finding in that document is about bytes
  * that are gone.
+ *
+ * Stage 9R adds three outcomes and gives none of them `EXIT.OK`, which is the
+ * whole point of a repair: bytes moved under a plan a human approved, and the only
+ * thing that can call them good is a verification run that has not happened yet.
+ * `REPAIR_APPLIED` and `REPAIR_NEEDS_HUMAN` both exit 3 — one because the gates
+ * must be re-run, the other because a person must read a delta that escaped the
+ * plan — and `REPAIR_BLOCKED` exits 4 with the untouched workspace, which is the
+ * same news as `REVIEW_STALE` to a script: stop and look, there is nothing to
+ * carry forward.
  */
 export function exitForOutcome(outcome: RunOutcome): ExitCode {
   switch (outcome) {
@@ -59,11 +68,14 @@ export function exitForOutcome(outcome: RunOutcome): ExitCode {
     case 'REVIEW_NEEDS_HUMAN':
     case 'REVIEW_INCONCLUSIVE':
     case 'REVIEW_CANCELLED':
+    case 'REPAIR_APPLIED':
+    case 'REPAIR_NEEDS_HUMAN':
     case 'INCONCLUSIVE':
       return EXIT.INCONCLUSIVE;
     case 'IMPLEMENTATION_BLOCKED':
     case 'VERIFICATION_BLOCKED':
     case 'REVIEW_STALE':
+    case 'REPAIR_BLOCKED':
     case 'BLOCKED':
       return EXIT.BLOCKED;
   }

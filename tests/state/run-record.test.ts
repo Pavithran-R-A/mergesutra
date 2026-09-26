@@ -169,6 +169,44 @@ describe('a record that has reached the review stage', () => {
   });
 });
 
+/**
+ * Stage 9R's slot: what each repair cycle did, in the order it did it.
+ *
+ * The list is empty rather than null for a run that never repaired, because there
+ * is no second meaning an empty list could carry here — unlike `review`, where null
+ * and "reviewed, found nothing" are different claims. An entry, in turn, is not
+ * evidence that the repair worked: a cycle that changed nothing is stored, and says
+ * so, which is the distinction the tests below keep apart.
+ */
+describe('a record that has reached a repair cycle', () => {
+  it('lists no executions for a run that never repaired', () => {
+    expect(minimalRecord().repairExecutions).toEqual([]);
+  });
+
+  it('defaults the slot instead of inventing one when the field is absent', () => {
+    const { repairExecutions: _executions, ...written } = minimalRecord();
+
+    expect(parseRunRecord(written).repairExecutions).toEqual([]);
+  });
+
+  it('names a repair that ran differently from one that never started', () => {
+    const applied = minimalRecord({ stage: 'repair', outcome: 'REPAIR_APPLIED' });
+    const refused = minimalRecord({ stage: 'repair', outcome: 'REPAIR_BLOCKED' });
+
+    expect(applied.outcome).toBe('REPAIR_APPLIED');
+    expect(refused.outcome).toBe('REPAIR_BLOCKED');
+    expect(parseRunRecord(JSON.parse(JSON.stringify(applied)))).toEqual(applied);
+  });
+
+  it('still refuses a repair outcome nobody defined', () => {
+    const written = JSON.parse(JSON.stringify(minimalRecord({ stage: 'repair' })));
+
+    expect(capture(() => parseRunRecord({ ...written, outcome: 'REPAIR_READY' })).kind).toBe(
+      'validation',
+    );
+  });
+});
+
 describe('parseRunRecord', () => {
   it('round-trips through JSON', () => {
     const record = minimalRecord();

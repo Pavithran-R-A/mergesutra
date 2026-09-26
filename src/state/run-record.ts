@@ -4,6 +4,7 @@ import { AppError } from '../core/errors.js';
 import { repositoryContractSchema } from '../discovery/contract.js';
 import { implementationRecordSchema } from '../implement/state.js';
 import { implementationPlanSchema } from '../plan/schema.js';
+import { repairExecutionSchema } from '../repair/execution.js';
 import { repairPlanSchema } from '../repair/plan.js';
 import { reviewDocumentSchema } from '../review/schema.js';
 import { VERSION } from '../version.js';
@@ -50,10 +51,28 @@ import { verificationPlanSchema } from '../verify/plan.js';
  * the current version. A version this build does not read is refused with the
  * same loud error as always, rather than guessed at.
  *
+ * Version 8 adds Stage 9R's one document: the list of repair executions, each of
+ * which says what one approved cycle changed. It is a list rather than a single
+ * nullable slot because a run may be repaired more than once, and the fact a reader
+ * cannot reconstruct afterwards is the *order* — which cycle produced the bytes now
+ * on disk, and which one was escalated instead of re-verified. The v7 migration
+ * gives an empty list, never a plausible cycle: an old record has no evidence that
+ * any repair ran, and inventing one would attribute writes to a run that never made
+ * them.
+ *
+ * The stage and outcome vocabularies are split at the same time, and that is the
+ * part of this bump that is not cosmetic. `repair` is in v8's list and not in v6's
+ * or v7's, so an older file cannot claim a stage whose meaning this build only
+ * defines alongside an execution list — and a hand-edited record that tries is
+ * refused as the version it says it is. The alternative was one enum for every
+ * version, which would have let a migrated v7 record arrive in a report reading
+ * `stage: repair, repairExecutions: []`: true words in a false order, which is the
+ * exact class of thing the record exists to prevent.
+ *
  * Nothing secret belongs in here. There is no credential field to fill in.
  */
 
-export const RUN_SCHEMA_VERSION = 7;
+export const RUN_SCHEMA_VERSION = 8;
 
 /**
  * The record versions this build reads, oldest first.
@@ -62,9 +81,10 @@ export const RUN_SCHEMA_VERSION = 7;
  * schema that validates exactly what its author wrote and a transform that can
  * say what that record did not contain.
  */
-export const RUN_SCHEMA_VERSIONS_SUPPORTED: readonly number[] = [6, RUN_SCHEMA_VERSION];
+export const RUN_SCHEMA_VERSIONS_SUPPORTED: readonly number[] = [6, 7, RUN_SCHEMA_VERSION];
 
-export const RUN_STAGES = [
+/** What existed before Stage 9R: seven stages, and no way to say a repair ran. */
+export const RUN_STAGES_THROUGH_REVIEW = [
   'intake',
   'inspect',
   'contract',
@@ -73,7 +93,17 @@ export const RUN_STAGES = [
   'verify',
   'review',
 ] as const;
-export const RUN_OUTCOMES = [
+
+/**
+ * The stages a v8 record may name.
+ *
+ * `repair` is v8's own: a run in that stage has been through
+ * consent, a bounded loop and a scope guard, and the record has to be able to hold
+ * what each of them did. Older records are validated against the list above, so
+ * this word cannot be backdated into them.
+ */
+export const RUN_STAGES = [...RUN_STAGES_THROUGH_REVIEW, 'repair'] as const;
+export const RUN_OUTCOMES_THROUGH_REVIEW = [
   'INTAKE_COMPLETE',
   'INSPECT_COMPLETE',
   'CONTRACT_DERIVED',
@@ -107,6 +137,30 @@ export const RUN_OUTCOMES = [
   'REVIEW_CANCELLED',
   'INCONCLUSIVE',
   'BLOCKED',
+] as const;
+
+/**
+ * Stage 9R's three, and the only way this record can say a repair happened.
+ *
+ * They describe what came out of a cycle, never what it was worth. `REPAIR_APPLIED`
+ * means bytes moved inside the scope a human approved — which is a claim the gates
+ * have to judge again, not a result; `REPAIR_NEEDS_HUMAN` means the cycle reached
+ * outside that scope or left no trace at all, and an operator has to read the delta;
+ * `REPAIR_BLOCKED` means the workspace was never touched, because the consent was
+ * missing or stale or the loop stopped before it wrote anything. There is no
+ * `REPAIR_PASS` and no `REPAIR_READY`: the word that a repair worked belongs to a
+ * re-verified patch, and saying it here would be the loop grading its own edit.
+ *
+ * Why three and not one per termination reason: Stage 6's own status is already
+ * stored, in full, inside each execution record. An outcome that repeated
+ * `MAX_WRITES` or `MODEL_UNAVAILABLE` here would be a second copy of a fact that can
+ * then disagree with the first.
+ */
+export const RUN_OUTCOMES = [
+  ...RUN_OUTCOMES_THROUGH_REVIEW,
+  'REPAIR_APPLIED',
+  'REPAIR_NEEDS_HUMAN',
+  'REPAIR_BLOCKED',
 ] as const;
 export const RUN_CHECK_STATUSES = [
   'PASS',
@@ -222,8 +276,8 @@ const runRecordFieldsV6 = {
   runId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/),
   createdAt: z.string().min(1),
   mergeSutraVersion: z.string().min(1),
-  stage: z.enum(RUN_STAGES),
-  outcome: z.enum(RUN_OUTCOMES),
+  stage: z.enum(RUN_STAGES_THROUGH_REVIEW),
+  outcome: z.enum(RUN_OUTCOMES_THROUGH_REVIEW),
   issueRef: issueRefSchema.nullable(),
   issue: issueDocumentSchema.nullable(),
   repository: repositoryIdentitySchema.nullable(),
@@ -260,10 +314,37 @@ const runRecordFieldsV6 = {
 
 const runRecordV6Schema = z.object({ schemaVersion: z.literal(6), ...runRecordFieldsV6 }).strict();
 
+/**
+ * What Stage 9 wrote, read as it was written.
+ *
+ * The two documents below are the whole of v7's addition, and this schema is what
+ * keeps the version honest: a file that says it is a 7 cannot carry a repair
+ * execution, a consent to repair, or a stage word only v8 defines. The stage and
+ * outcome enums come from the shared fields, which stop at `review` — so the
+ * narrowest reading of "review was the last stage" is enforced on the older
+ * shapes rather than only remembered by this one.
+ */
+const runRecordV7Schema = z
+  .object({
+    schemaVersion: z.literal(7),
+    ...runRecordFieldsV6,
+    review: reviewDocumentSchema.nullable().default(null),
+    repairPlan: repairPlanSchema.nullable().default(null),
+  })
+  .strict();
+
 export const runRecordSchema = z
   .object({
     schemaVersion: z.literal(RUN_SCHEMA_VERSION),
     ...runRecordFieldsV6,
+    /**
+     * v8's own stage and outcome words, overriding the shared fields.
+     *
+     * Only a record that can hold the executions may name the stage that produced
+     * them; see the header.
+     */
+    stage: z.enum(RUN_STAGES),
+    outcome: z.enum(RUN_OUTCOMES),
     /**
      * Present once Stage 9 has reviewed these exact bytes.
      *
@@ -288,6 +369,22 @@ export const runRecordSchema = z
      * distinction survives migration, which gives a v6 record this null.
      */
     repairPlan: repairPlanSchema.nullable().default(null),
+    /**
+     * Every repair cycle this run has been through, oldest first.
+     *
+     * A list, not a slot, because the order is the one fact about two cycles that
+     * nobody can recover afterwards: which cycle put the current bytes on disk,
+     * and which one was escalated to a human instead of re-verified. Each entry
+     * is written by Stage 9R's own builder, which refuses a cycle nobody approved,
+     * so this array is a record of things that were allowed to happen rather than
+     * of things a model says it did.
+     *
+     * `[]` means no repair cycle ran. It does not mean a cycle ran and found
+     * nothing to do — that cycle would be in here, saying `REPAIR_LEFT_NO_TRACE`
+     * in its scope. The default is a real state, not an omission, and that is why
+     * the migration fills it with an empty list rather than with a plausible cycle.
+     */
+    repairExecutions: z.array(repairExecutionSchema).readonly().default([]),
   })
   .strict();
 
@@ -326,6 +423,14 @@ export interface NewRunRecordInput {
   readonly review?: RunRecord['review'];
   /** Only the review stage sets this, and only after freezing it before any edit. */
   readonly repairPlan?: RunRecord['repairPlan'];
+  /**
+   * Only the repair stage sets this, and only with the executions it built for
+   * cycles a human approved. A caller that has nothing to add omits it; a caller
+   * that appends passes the whole prior list plus its own entry, because this is
+   * the only place the record is written and an overwrite that drops a cycle would
+   * be indistinguishable from a run that never had one.
+   */
+  readonly repairExecutions?: RunRecord['repairExecutions'];
   readonly checks: readonly RunCheck[];
   readonly nextStage: string;
   readonly limitations?: readonly string[];
@@ -354,6 +459,7 @@ export function createRunRecord(input: NewRunRecordInput): RunRecord {
     evidence: input.evidence ?? null,
     review: input.review ?? null,
     repairPlan: input.repairPlan ?? null,
+    repairExecutions: [...(input.repairExecutions ?? [])],
     checks: [...input.checks],
     nextStage: input.nextStage,
     limitations: [...(input.limitations ?? [])],
@@ -368,12 +474,35 @@ export function createRunRecord(input: NewRunRecordInput): RunRecord {
  * disposition, a receipt or an approval, because a 6 record has no such evidence
  * and inventing one here would put words a reviewer never said into a document a
  * reader will trust.
+ *
+ * It passes through the v7 schema rather than jumping to v8, so the chain is the
+ * one this build actually supports: every step adds a field a real stage would
+ * have filled, and each step is checked against the shape its own author wrote.
  */
-function upgradeV6Record(record: z.infer<typeof runRecordV6Schema>): RunRecord {
+function upgradeV6Record(
+  record: z.infer<typeof runRecordV6Schema>,
+): z.infer<typeof runRecordV7Schema> {
+  return runRecordV7Schema.parse({
+    ...record,
+    schemaVersion: 7,
+    review: null,
+    repairPlan: null,
+  });
+}
+
+/**
+ * A 7 record, seen in memory as an 8 record.
+ *
+ * One empty list and nothing else. Stage 9R never ran on this run, so there is no
+ * cycle to describe, no approval to name and no patch identity to vouch for — and
+ * an empty list is the honest reading of that, unlike a slot a later stage could
+ * mistake for a repair that found nothing to do.
+ */
+function upgradeV7Record(record: z.infer<typeof runRecordV7Schema>): RunRecord {
   return runRecordSchema.parse({
     ...record,
     schemaVersion: RUN_SCHEMA_VERSION,
-    review: null,
+    repairExecutions: [],
   });
 }
 
@@ -411,8 +540,14 @@ export function parseRunRecord(unknown: unknown): RunRecord {
 
   if (declared === 6) {
     const asV6 = runRecordV6Schema.safeParse(unknown);
-    if (asV6.success) return upgradeV6Record(asV6.data);
+    if (asV6.success) return upgradeV7Record(upgradeV6Record(asV6.data));
     return refuseRunRecord(`as written for version 6: ${issueDetail(asV6.error.issues)}`);
+  }
+
+  if (declared === 7) {
+    const asV7 = runRecordV7Schema.safeParse(unknown);
+    if (asV7.success) return upgradeV7Record(asV7.data);
+    return refuseRunRecord(`as written for version 7: ${issueDetail(asV7.error.issues)}`);
   }
 
   if (typeof declared === 'number' && !RUN_SCHEMA_VERSIONS_SUPPORTED.includes(declared)) {

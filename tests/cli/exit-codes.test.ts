@@ -58,10 +58,42 @@ describe('exit codes for Stage 7 outcomes', () => {
       'REVIEW_CANCELLED',
       'INCONCLUSIVE',
       'BLOCKED',
+      'REPAIR_APPLIED',
+      'REPAIR_NEEDS_HUMAN',
+      'REPAIR_BLOCKED',
     ] as const satisfies readonly RunOutcome[];
     for (const outcome of all) {
       expect(code(outcome), outcome).toBeTypeOf('number');
     }
+  });
+});
+
+describe('exit codes for Stage 9R repair outcomes', () => {
+  /**
+   * A repair is the one stage in this product that edits the repository, and none
+   * of its outcomes exits 0. `REPAIR_APPLIED` means bytes moved where a human
+   * approved that they could, which is a claim Stage 7 has to judge all over again;
+   * `REPAIR_NEEDS_HUMAN` means the cycle reached outside its scope or left no
+   * trace; `REPAIR_BLOCKED` means it never started, which is exactly what stops
+   * everything downstream.
+   */
+  it('exits 3 for a repair that changed the patch, because that is a claim and not a verdict', () => {
+    expect(code('REPAIR_APPLIED')).toBe(EXIT.INCONCLUSIVE);
+  });
+
+  it('exits 3 when a repair has to be escalated to a person, and never 0', () => {
+    expect(code('REPAIR_NEEDS_HUMAN')).toBe(EXIT.INCONCLUSIVE);
+  });
+
+  it('exits 4 when the cycle never ran', () => {
+    expect(code('REPAIR_BLOCKED')).toBe(EXIT.BLOCKED);
+  });
+
+  it('gives the new outcomes codes without moving an older one', () => {
+    expect(code('REVIEW_RECORDED')).toBe(EXIT.INCONCLUSIVE);
+    expect(code('REVIEW_STALE')).toBe(EXIT.BLOCKED);
+    expect(code('VERIFICATION_PASS')).toBe(EXIT.OK);
+    expect(code('IMPLEMENTED_BY_MODEL')).toBe(EXIT.INCONCLUSIVE);
   });
 });
 

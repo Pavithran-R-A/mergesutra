@@ -17,6 +17,9 @@ import {
   parseRepairPlan,
   type RepairPlan,
 } from '../../src/repair/plan.js';
+import { buildRepairExecution, type RepairExecution } from '../../src/repair/execution.js';
+import { repairPlanDigest } from '../../src/repair/digest.js';
+import { approveRepairPlan } from '../../src/repair/consent.js';
 import {
   cleanUp,
   hasGit,
@@ -32,14 +35,20 @@ import {
  * evidence on disk, so a version bump that makes earlier records unreadable would
  * destroy the thing it ships. The rule tested here is narrow on purpose: the
  * parser accepts the versions this build supports, migrates them in memory by
- * filling in what Stage 9 has *not* done yet, and refuses anything else with the
+ * filling in what this build has *not* done yet, and refuses anything else with the
  * error it has always given.
  *
  * The part that matters most is what migration may not do. A v6 record has no
  * review and no frozen repair plan, so the migrated record has both as null —
  * not an empty review, not a plan with zero items, and above nothing that could
- * be read downstream as "it was checked". Null is the honest value for "this
- * stage never ran", and the tests below are what keep it that way.
+ * be read downstream as "it was checked". A v7 record has never run a repair
+ * cycle, so its execution list is empty rather than populated with a plausible
+ * cycle. Null is the honest value for "this stage never ran", and the tests below
+ * are what keep it that way.
+ *
+ * Keeping the older shapes strict is the other half of the rule: a v7 file that
+ * smuggles in v8's execution list, or claims v8's `repair` stage, is refused as the
+ * version it says it is rather than upgraded on trust.
  *
  * And a read is a read: opening an old file must not quietly rewrite it in the
  * current version, because then the file a human audited would no longer be the
@@ -63,13 +72,25 @@ beforeAll(async () => {
 /**
  * The same document as its author wrote it: v6 had no Stage 9 field at all.
  *
- * Stage 9's review and its frozen repair plan are both stripped here, which is
- * what a real v6 file looks like: it has no key for either, rather than a key
- * holding null.
+ * Stage 9's review, its frozen repair plan and Stage 9R's execution list are all
+ * stripped here, which is what a real v6 file looks like: it has no key for any of
+ * them, rather than a key holding null.
  */
 function asV6(record: RunRecord): Record<string, unknown> {
-  const { schemaVersion: _version, review: _review, repairPlan: _plan, ...rest } = record;
+  const {
+    schemaVersion: _version,
+    review: _review,
+    repairPlan: _plan,
+    repairExecutions: _executions,
+    ...rest
+  } = record;
   return { schemaVersion: 6, ...rest };
+}
+
+/** A v7 file: Stage 9 had run, and no repair cycle had. */
+function asV7(record: RunRecord): Record<string, unknown> {
+  const { schemaVersion: _version, repairExecutions: _executions, ...rest } = record;
+  return { schemaVersion: 7, ...rest };
 }
 
 function fieldsOf(value: Record<string, unknown>): Record<string, unknown> {
@@ -111,6 +132,29 @@ function frozenPlan(overrides: Record<string, unknown> = {}): RepairPlan {
   });
 }
 
+/**
+ * One cycle's record, built the way a repair stage builds it.
+ *
+ * Both measurements are the fixture's own patch, which makes this a cycle that
+ * changed nothing — the honest thing to store in a version test, because a changed
+ * patch would mean hand-writing a measurement this file never took. Whether the
+ * cycle achieved anything is a different test's business; this one is about whether
+ * the record can hold the document at all.
+ */
+function executionFor(record: RunRecord, overrides: Record<string, unknown> = {}): RepairExecution {
+  const implementation = record.implementation;
+  if (!implementation) throw new Error('the review fixture must carry an implementation record');
+  const plan = frozenPlan(overrides);
+  return buildRepairExecution({
+    plan,
+    approval: approveRepairPlan({ plan, approvedAt: '2026-09-26T09:35:00.000Z' }),
+    patchBefore: fixture.patch,
+    patchAfter: fixture.patch,
+    implementation,
+    createdAt: '2026-09-26T09:40:00.000Z',
+  });
+}
+
 describe.skipIf(!AVAILABLE)('a run record written by the previous version', () => {
   it('loads a real Stage 8 record and calls it the current version', () => {
     const migrated = parseRunRecord(asV6(fixture.record));
@@ -124,6 +168,7 @@ describe.skipIf(!AVAILABLE)('a run record written by the previous version', () =
 
     expect(migrated.review).toBeNull();
     expect(migrated.repairPlan).toBeNull();
+    expect(migrated.repairExecutions).toEqual([]);
   });
 
   it('carries every field the old record held, unchanged', () => {
@@ -161,6 +206,85 @@ describe.skipIf(!AVAILABLE)('a run record written by the previous version', () =
 
     expect(context.manifest.references.length).toBeGreaterThan(0);
     expect(context.manifest.reviewedPatchIdentity).toBe(fixture.patch.identity);
+  });
+});
+
+/**
+ * A v7 record, seen by a build that has run a repair cycle.
+ *
+ * Stage 9R's whole storage question is whether a run that was reviewed by an older
+ * MergeSutra can still be repaired by this one, so this group is the same
+ * discipline as the v6 one with one thing added: a migrated record gets an *empty*
+ * execution list, never a plausible-looking one. A v7 file has no evidence that any
+ * cycle ran, and an invented entry would attribute writes to a run that never made
+ * them — including, potentially, to a patch nobody approved.
+ */
+describe.skipIf(!AVAILABLE)('a run record written by version 7', () => {
+  it('loads a real Stage 9 record and calls it the current version', () => {
+    const migrated = parseRunRecord(asV7(fixture.record));
+
+    expect(RUN_SCHEMA_VERSION).toBeGreaterThan(7);
+    expect(migrated.schemaVersion).toBe(RUN_SCHEMA_VERSION);
+  });
+
+  it('gives it no repair executions, because no cycle ever ran', () => {
+    const migrated = parseRunRecord(asV7(fixture.record));
+
+    expect(migrated.review).toEqual(fixture.record.review);
+    expect(migrated.repairExecutions).toEqual([]);
+  });
+
+  it('carries every field the v7 record held, unchanged', () => {
+    const original = asV7(fixture.record);
+    const carried = fieldsOf(parseRunRecord(original) as unknown as Record<string, unknown>);
+
+    for (const [key, value] of Object.entries(fieldsOf(original))) {
+      expect(carried[key], key).toEqual(value);
+    }
+  });
+
+  it('invents no cycle, consent or verdict on the way in', () => {
+    const migrated = parseRunRecord(asV7(fixture.record));
+
+    expect(migrated.stage).toBe(fixture.record.stage);
+    expect(migrated.outcome).toBe(fixture.record.outcome);
+    expect(JSON.stringify(migrated)).not.toMatch(
+      /REPAIR_APPLIED|REPAIR_NEEDS_HUMAN|OUTSIDE_PLANNED_SCOPE/,
+    );
+  });
+
+  it('is a record a repair cycle can genuinely be recorded against', () => {
+    const migrated = parseRunRecord(asV7(fixture.record));
+
+    const repaired = recordWith(migrated, {
+      stage: 'repair',
+      outcome: 'REPAIR_APPLIED',
+      repairExecutions: [executionFor(migrated)],
+    });
+
+    expect(repaired.repairExecutions).toHaveLength(1);
+    expect(repaired.repairExecutions[0]?.patchBeforeIdentity).toBe(fixture.patch.identity);
+  });
+
+  it('will not accept a v7 field that v7 never had', () => {
+    const smuggled = { ...asV7(fixture.record), repairExecutions: [] };
+
+    expect(capture(() => parseRunRecord(smuggled)).kind).toBe('validation');
+  });
+
+  it('will not let an old record claim the repair stage', () => {
+    const error = capture(() => parseRunRecord({ ...asV7(fixture.record), stage: 'repair' }));
+
+    expect(error.kind).toBe('validation');
+    expect(error.message).toMatch(/stage|repair/i);
+  });
+
+  it('will not let an old record carry a repair outcome', () => {
+    const error = capture(() =>
+      parseRunRecord({ ...asV7(fixture.record), outcome: 'REPAIR_BLOCKED' }),
+    );
+
+    expect(error.kind).toBe('validation');
   });
 });
 
@@ -215,6 +339,53 @@ describe.skipIf(!AVAILABLE)('the current version, and versions nobody knows', ()
     expect(error.message).toMatch(/VG-\d{3}|gate id/i);
   });
 
+  it('round-trips a record that carries the execution of a repair cycle', () => {
+    const current = recordWith(fixture.record, {
+      stage: 'repair',
+      outcome: 'REPAIR_NEEDS_HUMAN',
+      repairExecutions: [executionFor(fixture.record)],
+    });
+
+    const loaded = parseRunRecord(JSON.parse(JSON.stringify(current)));
+
+    expect(loaded).toEqual(current);
+    expect(loaded.repairExecutions[0]?.planDigest).toBe(repairPlanDigest(frozenPlan()));
+  });
+
+  it('keeps two cycles in the order they ran, each with its own lineage', () => {
+    const current = recordWith(fixture.record, {
+      repairExecutions: [
+        executionFor(fixture.record),
+        executionFor(fixture.record, { repairCycle: 2 }),
+      ],
+    });
+
+    const loaded = parseRunRecord(JSON.parse(JSON.stringify(current)));
+
+    expect(loaded.repairExecutions.map((execution) => execution.repairCycle)).toEqual([1, 2]);
+    expect(loaded.repairExecutions[1]?.planDigest).not.toBe(loaded.repairExecutions[0]?.planDigest);
+  });
+
+  it('tells a run that never repaired from a cycle that changed nothing', () => {
+    const never = parseRunRecord(asV7(fixture.record));
+    const ran = recordWith(fixture.record, { repairExecutions: [executionFor(fixture.record)] });
+
+    expect(never.repairExecutions).toEqual([]);
+    expect(ran.repairExecutions[0]?.scope.outcome).toBe('REPAIR_LEFT_NO_TRACE');
+  });
+
+  it('refuses an execution the repair execution schema itself refuses', () => {
+    const smuggled = {
+      ...fixture.record,
+      repairExecutions: [{ ...executionFor(fixture.record), contributionReady: true }],
+    };
+
+    const error = capture(() => parseRunRecord(smuggled));
+
+    expect(error.kind).toBe('validation');
+    expect(error.message).toMatch(/contributionReady/);
+  });
+
   it('refuses a version from before the supported window, and says which one', () => {
     const old = { ...asV6(fixture.record), schemaVersion: 5 };
     const error = capture(() => parseRunRecord(old));
@@ -222,10 +393,11 @@ describe.skipIf(!AVAILABLE)('the current version, and versions nobody knows', ()
     expect(error.kind).toBe('validation');
     expect(error.message).toMatch(/version 5|schemaVersion/i);
     expect(RUN_SCHEMA_VERSIONS_SUPPORTED).toContain(6);
+    expect(RUN_SCHEMA_VERSIONS_SUPPORTED).toContain(7);
   });
 
   it('refuses a future version rather than guessing what it meant', () => {
-    for (const version of [8, 99, 'six', null]) {
+    for (const version of [9, 99, 'eight', null]) {
       const error = capture(() =>
         parseRunRecord({ ...asV6(fixture.record), schemaVersion: version }),
       );
@@ -320,6 +492,24 @@ describe.skipIf(!AVAILABLE)('what the store does to an old file', () => {
     expect(loaded.repairPlan?.findings.map((finding) => finding.expectedFiles)).toEqual([
       ['src/parse.ts'],
     ]);
+  });
+
+  it('saves and reloads a run that has been repaired, which is what a resume needs', async () => {
+    const runs = await runsDirectory('mergesutra-repaired-');
+    const store = createFileRunStore(runs);
+    const repaired = recordWith(fixture.record, {
+      stage: 'repair',
+      outcome: 'REPAIR_APPLIED',
+      repairExecutions: [executionFor(fixture.record)],
+    });
+
+    await store.save(repaired);
+    const loaded = await store.load(repaired.runId);
+
+    expect(loaded.repairExecutions).toEqual(repaired.repairExecutions);
+    expect(
+      JSON.parse(await readFile(path.join(runs, `${repaired.runId}.json`), 'utf8')),
+    ).toMatchObject({ schemaVersion: RUN_SCHEMA_VERSION });
   });
 
   it('migrates on the way in without touching the file a human already audited', async () => {
