@@ -132,6 +132,43 @@ describe('a record that carries Stage 7 verification', () => {
   });
 });
 
+describe('a record that has reached the review stage', () => {
+  /**
+   * Stage 9 needs a place in the record for "a second pass read these bytes",
+   * and the names are chosen so the record never says more than that.
+   * `REVIEW_RECORDED` is not `REVIEW_PASS`: a model that found nothing is not a
+   * run that passed. The five names below exist so a script can tell a recorded
+   * review from a stale one from an interrupted one without reading a sentence.
+   */
+  it('records that a review happened, and round-trips it', () => {
+    const record = minimalRecord({ stage: 'review', outcome: 'REVIEW_RECORDED' });
+
+    expect(record.stage).toBe('review');
+    expect(parseRunRecord(JSON.parse(JSON.stringify(record)))).toEqual(record);
+  });
+
+  it('names a review that went stale differently from one that was interrupted', () => {
+    const stale = minimalRecord({ stage: 'review', outcome: 'REVIEW_STALE' });
+    const stopped = minimalRecord({ stage: 'review', outcome: 'REVIEW_CANCELLED' });
+
+    expect(stale.outcome).toBe('REVIEW_STALE');
+    expect(stopped.outcome).toBe('REVIEW_CANCELLED');
+  });
+
+  it('still refuses a stage nobody defined', () => {
+    const written = JSON.parse(JSON.stringify(minimalRecord({ stage: 'review' })));
+
+    let caught: unknown;
+    try {
+      parseRunRecord({ ...written, stage: 'reviewing' });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AppError);
+  });
+});
+
 describe('parseRunRecord', () => {
   it('round-trips through JSON', () => {
     const record = minimalRecord();

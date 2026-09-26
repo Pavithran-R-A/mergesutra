@@ -51,11 +51,44 @@ describe('exit codes for Stage 7 outcomes', () => {
       'VERIFICATION_BLOCKED',
       'VERIFICATION_INCONCLUSIVE',
       'VERIFICATION_CANCELLED',
+      'REVIEW_RECORDED',
+      'REVIEW_NEEDS_HUMAN',
+      'REVIEW_STALE',
+      'REVIEW_INCONCLUSIVE',
+      'REVIEW_CANCELLED',
       'INCONCLUSIVE',
       'BLOCKED',
     ] as const satisfies readonly RunOutcome[];
     for (const outcome of all) {
       expect(code(outcome), outcome).toBeTypeOf('number');
     }
+  });
+});
+
+describe('exit codes for Stage 9 outcomes', () => {
+  /**
+   * A review is the first document in this product a human might read as a
+   * sign-off, so the exit code carries part of the honesty: nothing a model
+   * wrote ends a run successfully. Only the facts around a review — it went
+   * stale, it needs a person, it was interrupted — choose which non-zero code a
+   * script sees.
+   */
+  it('never exits 0 for a review, however clean its findings list reads', () => {
+    expect(code('REVIEW_RECORDED')).toBe(EXIT.INCONCLUSIVE);
+  });
+
+  it('exits 4 when the review describes bytes that no longer exist', () => {
+    expect(code('REVIEW_STALE')).toBe(EXIT.BLOCKED);
+  });
+
+  it('counts a routed, unfinished or interrupted review as an open end', () => {
+    expect(code('REVIEW_NEEDS_HUMAN')).toBe(EXIT.INCONCLUSIVE);
+    expect(code('REVIEW_INCONCLUSIVE')).toBe(EXIT.INCONCLUSIVE);
+    expect(code('REVIEW_CANCELLED')).toBe(EXIT.INCONCLUSIVE);
+  });
+
+  it('leaves every earlier stage exactly where it was', () => {
+    expect(code('PLAN_COMPLETE')).toBe(EXIT.OK);
+    expect(code('CONTRACT_DERIVED')).toBe(EXIT.OK);
   });
 });

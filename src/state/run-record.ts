@@ -64,7 +64,15 @@ export const RUN_SCHEMA_VERSION = 7;
  */
 export const RUN_SCHEMA_VERSIONS_SUPPORTED: readonly number[] = [6, RUN_SCHEMA_VERSION];
 
-export const RUN_STAGES = ['intake', 'inspect', 'contract', 'plan', 'implement', 'verify'] as const;
+export const RUN_STAGES = [
+  'intake',
+  'inspect',
+  'contract',
+  'plan',
+  'implement',
+  'verify',
+  'review',
+] as const;
 export const RUN_OUTCOMES = [
   'INTAKE_COMPLETE',
   'INSPECT_COMPLETE',
@@ -86,6 +94,17 @@ export const RUN_OUTCOMES = [
   'VERIFICATION_BLOCKED',
   'VERIFICATION_INCONCLUSIVE',
   'VERIFICATION_CANCELLED',
+  // Stage 9's five, and none of them is a verdict on the contribution. There is
+  // deliberately no `REVIEW_PASS`: a model that filed nothing did not certify
+  // anything, and a record whose wording allowed "the review passed" would be
+  // read that way by the next person to open it. What these say is what happened
+  // to the review itself — it was written down, it needs a person, the bytes
+  // moved under it, it made no sense, a human stopped it.
+  'REVIEW_RECORDED',
+  'REVIEW_NEEDS_HUMAN',
+  'REVIEW_STALE',
+  'REVIEW_INCONCLUSIVE',
+  'REVIEW_CANCELLED',
   'INCONCLUSIVE',
   'BLOCKED',
 ] as const;

@@ -33,6 +33,12 @@ export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
  * Stage 7 earns `EXIT.OK` because the answer is no longer a claim: deterministic
  * gates ran under a digested consent and the exit codes said so. Even then the
  * success is `VERIFICATION_PASS` — the gates passed, not "ship it".
+ *
+ * Stage 9 has no `EXIT.OK` either. `REVIEW_RECORDED` means a model read these
+ * bytes and MergeSutra stored what it said, which is a thing to go and read, not
+ * a thing to exit 0 over; and `REVIEW_STALE` is a block, because the patch moved
+ * while it was being reviewed and every finding in that document is about bytes
+ * that are gone.
  */
 export function exitForOutcome(outcome: RunOutcome): ExitCode {
   switch (outcome) {
@@ -49,10 +55,15 @@ export function exitForOutcome(outcome: RunOutcome): ExitCode {
     case 'IMPLEMENTATION_NEEDS_REVIEW':
     case 'VERIFICATION_INCONCLUSIVE':
     case 'VERIFICATION_CANCELLED':
+    case 'REVIEW_RECORDED':
+    case 'REVIEW_NEEDS_HUMAN':
+    case 'REVIEW_INCONCLUSIVE':
+    case 'REVIEW_CANCELLED':
     case 'INCONCLUSIVE':
       return EXIT.INCONCLUSIVE;
     case 'IMPLEMENTATION_BLOCKED':
     case 'VERIFICATION_BLOCKED':
+    case 'REVIEW_STALE':
     case 'BLOCKED':
       return EXIT.BLOCKED;
   }
