@@ -36,6 +36,7 @@ const REPAIR_DIR = path.join(process.cwd(), 'src', 'repair');
 const DECISION_MODULES = [
   'bounds.ts',
   'consent.ts',
+  'context.ts',
   'digest.ts',
   'limits.ts',
   'plan.ts',
