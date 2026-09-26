@@ -1,0 +1,103 @@
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+/**
+ * Stage 9 decides; it does not touch.
+ *
+ * The steering rule behind this file is that a repair must not become a second,
+ * less-restricted editing agent. Stage 6 already owns the only pair of hands in
+ * this product that can change a workspace: the confined reader, the confined
+ * writer, compare-before-write preconditions, the risk-classified tool decision
+ * and the loop's own limits. So the modules in src/repair are allowed to be only
+ * what they are — arithmetic over documents. They may freeze a plan, compare two
+ * patch measurements and say where a cycle should go next; none of those jobs
+ * needs a file handle, a child process or a writer.
+ *
+ * This test is the difference between that being a design intention and being a
+ * build gate. It scans the source text for the specifiers that would grant those
+ * powers. The strings below are data to be searched for, never imported or run:
+ * this file opens nothing but its own siblings.
+ *
+ * It also locks in the positive side of the bargain. The moment Stage 9 does gain
+ * an execution path, it must be the loop's, and the boundary that keeps the rest
+ * of src/repair clean is the one this file enforces.
+ */
+
+const REPAIR_DIR = path.join(process.cwd(), 'src', 'repair');
+
+/** Anything that could reach a byte, a process or a network port. */
+const FORBIDDEN = [
+  'node:fs',
+  'node:child_process',
+  'security/writer.js',
+  'security/reader.js',
+  'core/runner.js',
+  'implement/loop.js',
+  'github/client.js',
+  'bharatcode/client.js',
+] as const;
+
+async function repairSources(): Promise<Map<string, string>> {
+  const entries = await readdir(REPAIR_DIR, { withFileTypes: true });
+  const files = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
+    .map((entry) => path.join(REPAIR_DIR, entry.name));
+  const texts = await Promise.all(files.map(async (file) => readFile(file, 'utf8')));
+  const pairs = files.map((file, index) => [path.basename(file), texts[index] ?? ''] as const);
+  return new Map(pairs);
+}
+
+describe('what the repair modules may not reach for', () => {
+  it('reads every module in src/repair, so the check cannot be empty', async () => {
+    const sources = await repairSources();
+
+    expect([...sources.keys()].sort()).toEqual(['bounds.ts', 'plan.ts', 'scope.ts']);
+    for (const [name, text] of sources) {
+      expect(text.length, name).toBeGreaterThan(200);
+    }
+  });
+
+  it('imports no filesystem, no process and no writer', async () => {
+    const sources = await repairSources();
+
+    const hits: string[] = [];
+    for (const [name, text] of sources) {
+      for (const forbidden of FORBIDDEN) {
+        if (text.includes(`'${forbidden}`) || text.includes(`"${forbidden}`)) {
+          hits.push(`${name} imports ${forbidden}`);
+        }
+      }
+    }
+
+    expect(hits).toEqual([]);
+  });
+
+  it('names no capability the plan could hand to a model', async () => {
+    const sources = await repairSources();
+    const text = [...sources.values()].join('\n');
+
+    for (const word of [
+      'sudo',
+      'shell: true',
+      'execSync',
+      'spawn(',
+      'fetch(',
+      'DELETE',
+      'unlink',
+    ]) {
+      expect(text.includes(word), word).toBe(false);
+    }
+  });
+
+  it('keeps its own verdicts free of any word that could be read as readiness', async () => {
+    const sources = await repairSources();
+
+    for (const [name, text] of sources) {
+      const code = text.replace(/^\s*\*.*$/gm, '').replace(/^\s*\/\/.*$/gm, '');
+      for (const word of ['CONTRIBUTION_READY', 'AI APPROVED', "'PASS'", "'VERIFIED'"]) {
+        expect(code.includes(word), `${name} ${word}`).toBe(false);
+      }
+    }
+  });
+});
