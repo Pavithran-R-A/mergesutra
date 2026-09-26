@@ -565,3 +565,15 @@ function verdictOf(outcomes: readonly GateOutcome[], state: PerGateState): RunVe
   if (results.includes('FAIL')) return 'FAIL';
   return 'PASS';
 }
+
+/**
+ * Whether a verdict is the one that says every gate passed.
+ *
+ * Exported as a question rather than a constant because `PASS` is this module's
+ * own word, produced by the weighing above: a caller that compares the verdict to
+ * a string it typed out is keeping a second definition of green, and the second
+ * definition is the one that drifts.
+ */
+export function verdictIsPassed(result: RunVerdict): boolean {
+  return result === 'PASS';
+}

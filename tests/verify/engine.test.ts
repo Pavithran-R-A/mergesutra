@@ -5,6 +5,7 @@ import { scopeDigest } from '../../src/verify/consent.js';
 import {
   parseVerificationRun,
   runVerification,
+  verdictIsPassed,
   type VerificationRun,
 } from '../../src/verify/engine.js';
 import {
@@ -435,5 +436,24 @@ describe('what the run as a whole is allowed to say', () => {
       }),
     ).toThrow(/shape|unknown|invalid/i);
     expect(JSON.stringify(run)).not.toContain('CONTRIBUTION_READY');
+  });
+});
+
+describe('asking the engine’s verdict whether it passed', () => {
+  /**
+   * A re-verification after a repair has to tell a passing round from a blocked
+   * one, and it may not hold the word for green itself. `PASS` is the engine's
+   * vocabulary — it is what `verdictOf` returns after weighing every receipt — so
+   * a caller that typed the comparison out would be keeping a second, drifting
+   * definition of what passed. This is the one question a caller may ask.
+   */
+  it('says yes only for the verdict all the gates passed under', () => {
+    expect(verdictIsPassed('PASS')).toBe(true);
+  });
+
+  it('says no for every verdict that left a gate unpassed', () => {
+    for (const verdict of ['FAIL', 'BLOCKED', 'INCONCLUSIVE', 'CANCELLED'] as const) {
+      expect(verdictIsPassed(verdict), verdict).toBe(false);
+    }
   });
 });
