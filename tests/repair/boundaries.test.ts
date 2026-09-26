@@ -26,6 +26,25 @@ import { describe, expect, it } from 'vitest';
 
 const REPAIR_DIR = path.join(process.cwd(), 'src', 'repair');
 
+/**
+ * The modules that only do arithmetic over documents, and the one that carries
+ * out a decision. Listing them by name is the point: a new file in `src/repair`
+ * has to be put in one group or the other before this directory builds, so the
+ * question "does this module get hands?" is answered in the test file rather
+ * than by whoever added it.
+ */
+const DECISION_MODULES = [
+  'bounds.ts',
+  'consent.ts',
+  'digest.ts',
+  'limits.ts',
+  'plan.ts',
+  'scope.ts',
+] as const;
+
+/** Stage 9R's orchestrator: the only repair module allowed to reach the loop. */
+const EXECUTION_MODULES: readonly string[] = [];
+
 /** Anything that could reach a byte, a process or a network port. */
 const FORBIDDEN = [
   'node:fs',
@@ -38,6 +57,14 @@ const FORBIDDEN = [
   'bharatcode/client.js',
 ] as const;
 
+/**
+ * What the orchestrator may reach for. It is the same list minus the loop, which
+ * it delegates to — and that minus is the whole rule: the edit happens in
+ * Stage 6's hands, so repair code has no writer, no runner and no client of its
+ * own. Reaching for GitHub, or for a model, from here would be a second of each.
+ */
+const EXECUTION_FORBIDDEN = FORBIDDEN.filter((specifier) => specifier !== 'implement/loop.js');
+
 async function repairSources(): Promise<Map<string, string>> {
   const entries = await readdir(REPAIR_DIR, { withFileTypes: true });
   const files = entries
@@ -49,10 +76,10 @@ async function repairSources(): Promise<Map<string, string>> {
 }
 
 describe('what the repair modules may not reach for', () => {
-  it('reads every module in src/repair, so the check cannot be empty', async () => {
+  it('reads every module in src/repair, and every one is in a named group', async () => {
     const sources = await repairSources();
 
-    expect([...sources.keys()].sort()).toEqual(['bounds.ts', 'plan.ts', 'scope.ts']);
+    expect([...sources.keys()].sort()).toEqual([...DECISION_MODULES, ...EXECUTION_MODULES].sort());
     for (const [name, text] of sources) {
       expect(text.length, name).toBeGreaterThan(200);
     }
@@ -63,9 +90,10 @@ describe('what the repair modules may not reach for', () => {
 
     const hits: string[] = [];
     for (const [name, text] of sources) {
-      for (const forbidden of FORBIDDEN) {
-        if (text.includes(`'${forbidden}`) || text.includes(`"${forbidden}`)) {
-          hits.push(`${name} imports ${forbidden}`);
+      const forbidden = EXECUTION_MODULES.includes(name) ? EXECUTION_FORBIDDEN : FORBIDDEN;
+      for (const specifier of forbidden) {
+        if (text.includes(`'${specifier}`) || text.includes(`"${specifier}`)) {
+          hits.push(`${name} imports ${specifier}`);
         }
       }
     }
