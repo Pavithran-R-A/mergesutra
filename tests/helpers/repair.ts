@@ -7,7 +7,8 @@ import {
   type RepairPlan,
 } from '../../src/repair/plan.js';
 import type { ImplementationRecord } from '../../src/implement/state.js';
-import type { PatchDescription } from '../../src/verify/patch.js';
+import { sha256Hex } from '../../src/security/digest.js';
+import { patchDescriptionSchema, type PatchDescription } from '../../src/verify/patch.js';
 
 /**
  * The documents a run holds once it has been reviewed and repaired.
@@ -24,6 +25,37 @@ import type { PatchDescription } from '../../src/verify/patch.js';
  * one is claiming bytes it never saw. Callers that need a moved patch measure it
  * and pass it in.
  */
+
+/**
+ * A patch description with the shape a real measurement has: each file's content
+ * digest, and an identity that is a digest over those facts.
+ *
+ * Stage 9R's tests need two of these per cycle (the patch the review read, and
+ * the one the repair left), and the pair has to be internally consistent — if the
+ * identity were free text, a test could name any digest as "patch A" and the
+ * staleness assertions would prove nothing about staleness.
+ */
+export function measuredPatch(
+  files: readonly [string, string, 'ADDED' | 'MODIFIED' | 'DELETED'][],
+  baseSha: string,
+): { description: PatchDescription; identity: string } {
+  const facts = files.map(([filePath, content, change]) => ({
+    path: filePath,
+    tracked: change !== 'ADDED',
+    change,
+    contentSha256: change === 'DELETED' ? null : sha256Hex(content),
+  }));
+  const identity = sha256Hex(JSON.stringify(facts));
+  return {
+    description: patchDescriptionSchema.parse({
+      schemaVersion: 1,
+      baseSha,
+      identity,
+      files: facts,
+    }),
+    identity,
+  };
+}
 
 export function frozenPlan(input: {
   readonly runId: string;
@@ -56,10 +88,19 @@ export function frozenPlan(input: {
   });
 }
 
-/** One cycle a human approved by digest, over a patch that came back unchanged. */
+/**
+ * One cycle a human approved by digest.
+ *
+ * The patch comes back unchanged unless the caller passes `patchAfter`, because
+ * the honest default for a fixture is "no bytes moved" — claiming a second
+ * measurement is claiming bytes nobody saw. A test that wants a real A→B cycle
+ * builds both with {@link measuredPatch}, which derives each identity from the
+ * file contents it was given, so the pair cannot be made to disagree by hand.
+ */
 export function cycleFor(input: {
   readonly plan: RepairPlan;
   readonly patch: PatchDescription;
+  readonly patchAfter?: PatchDescription;
   readonly implementation: ImplementationRecord;
   readonly createdAt: string;
 }): RepairExecution {
@@ -67,7 +108,7 @@ export function cycleFor(input: {
     plan: input.plan,
     approval: approveRepairPlan({ plan: input.plan, approvedAt: input.createdAt }),
     patchBefore: input.patch,
-    patchAfter: input.patch,
+    patchAfter: input.patchAfter ?? input.patch,
     implementation: input.implementation,
     createdAt: input.createdAt,
   });

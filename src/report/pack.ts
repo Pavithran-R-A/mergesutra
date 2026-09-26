@@ -125,6 +125,7 @@ function markdown(record: RunRecord, rows: readonly CriterionRow[]): string {
   lines.push(...claimsSection(record));
   lines.push(...reviewSection(record));
   lines.push(...repairSection(record));
+  lines.push(...repairCyclesSection(record));
   lines.push(...notesSection(record, rows));
   return lines.join('\n');
 }
@@ -321,6 +322,58 @@ function repairSection(record: RunRecord): string[] {
   return lines;
 }
 
+/**
+ * The cycles that have already moved these bytes, and what each one did to the rows above.
+ *
+ * A pack becomes misleading the moment a repair runs on the run it describes: the
+ * criteria table is then a report about patch A, the workspace is on B, and every
+ * statement in the file reads in the present tense. So each cycle is printed with
+ * both digests, the plan it answered to, and — in the same line as the digest it
+ * replaced — whether the earlier receipts still describe anything. That clause is
+ * `patchChanged` from Stage 9's scope guard, not this renderer's opinion, and a
+ * cycle that moved no bytes does not get one: an edit that left no trace has not
+ * invalidated any evidence, and saying it had would be a different lie in the
+ * opposite direction.
+ *
+ * What the section is not for is a result. It records that files were edited under
+ * a human-approved scope; whether the edit satisfied a criterion is answered only
+ * by a verification measured after it, which is the table at the top of this page.
+ */
+function repairCyclesSection(record: RunRecord): string[] {
+  const executions = record.repairExecutions;
+  if (executions.length === 0) return [];
+  const lines: string[] = [
+    '## Repair cycles (edits that happened, not outcomes that were reached)',
+    '',
+  ];
+  for (const execution of executions) {
+    lines.push(
+      `- Repair cycle ${execution.repairCycle} of review ${execution.reviewCycle} · plan ${execution.planDigest} · patch ${execution.patchBeforeIdentity} → ${execution.patchAfterIdentity} · ${execution.scope.outcome} · ${consequenceOf(execution)}`,
+    );
+  }
+  lines.push('');
+  lines.push(
+    'A cycle is a record of what was changed under an approved scope. The only answer to whether a change worked is a verification measured on the bytes it left, and the rows at the top of this pack say which bytes those are.',
+  );
+  lines.push('');
+  return lines;
+}
+
+/**
+ * Whether a cycle left the evidence above describing the workspace.
+ *
+ * Two clauses, chosen by the scope guard's own `patchChanged` flag: moved bytes
+ * means the receipts over them are stale, unchanged bytes means nothing about them
+ * has altered. The word `stale` is deliberately absent from the second — the
+ * §19 rule the pack exists to expose is that green and stale are different claims,
+ * and a renderer that used the word loosely would retire the distinction.
+ */
+function consequenceOf(execution: RunRecord['repairExecutions'][number]): string {
+  return execution.patchChanged
+    ? `the rows above were measured on ${execution.patchBeforeIdentity} and are stale for these bytes; only a re-verification can make them current`
+    : 'the cycle left the patch unchanged, so nothing above changed status because of it';
+}
+
 function gatesSection(record: RunRecord): string[] {
   const outcomes = record.verification?.gates ?? [];
   const lines: string[] = ['## Gates', ''];
@@ -370,6 +423,12 @@ function document(record: RunRecord, rows: readonly CriterionRow[]): Record<stri
     // as a verdict.
     review: record.review,
     repairPlan: record.repairPlan,
+    // In order, and as written by the cycles themselves: which patch each one
+    // started from and which it left, so a reader can tell whether the rows above
+    // describe the bytes still on disk. Nothing here is derived from them — a
+    // verdict would have to come from a verification, and this array is a record
+    // of edits.
+    repairExecutions: [...record.repairExecutions],
     // Kept apart because they mean different things: the first is what the
     // stages of this run accumulated, carrying earlier lines forward as it
     // grew; the second is what the contract itself could not see. Merged,

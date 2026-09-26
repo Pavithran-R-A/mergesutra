@@ -3,6 +3,8 @@ import { buildEvidencePack } from '../../src/report/pack.js';
 import { buildReviewDocument, reviewBodySchema } from '../../src/review/schema.js';
 import { REPAIR_PLAN_SCHEMA_VERSION, parseRepairPlan } from '../../src/repair/plan.js';
 import { recordWith } from '../helpers/review.js';
+import { cycleFor, frozenPlan, measuredPatch } from '../helpers/repair.js';
+import { stubImplementation } from '../helpers/verifyRun.js';
 import type { RunRecord } from '../../src/state/run-record.js';
 import { recordAt, verifiedRecord } from '../helpers/report.js';
 
@@ -374,5 +376,142 @@ describe('a pack for a run that has been reviewed', () => {
 
     expect(pack.files['report.md']).toContain(DIGEST);
     expect(pack.files['report.md']).not.toContain('e'.repeat(64));
+  });
+});
+
+describe('a pack regenerated after a repair cycle', () => {
+  /**
+   * §19's requirement, and the reason Stage 8's renderer has to change at all.
+   *
+   * Once a repair has run, the pack is no longer a description of one patch. It
+   * holds receipts measured against patch A and a plan written against those same
+   * bytes, and the workspace is now on B — so the same table that was honest an
+   * hour ago is now silently false. Printing the cycles is the minimum that keeps
+   * the pack truthful: which bytes each row describes, which cycle moved them, and
+   * the plain statement that the earlier evidence went stale *because* of that
+   * move. What the section may not do is read as an outcome; a repair is a thing
+   * that happened to files, and the only answer to whether it worked is the
+   * re-verification, which is a different set of rows.
+   */
+  const BASE = 'a'.repeat(40);
+  const AT = '2026-09-26T09:05:00.000Z';
+
+  async function cycle(how: 'moved' | 'unchanged') {
+    const verified = await verifiedRecord(['node', '--test']);
+    const before = measuredPatch(
+      [['src/parse.ts', 'export const PARSED = 1;\n', 'MODIFIED']],
+      BASE,
+    );
+    const after =
+      how === 'moved'
+        ? measuredPatch([['src/parse.ts', 'export const PARSED = 2;\n', 'MODIFIED']], BASE)
+        : before;
+    const plan = frozenPlan({
+      runId: verified.runId,
+      criteria: ['AC-1'],
+      patchIdentity: before.identity,
+      expectedChecks: ['VG-001'],
+      createdAt: AT,
+    });
+    const execution = cycleFor({
+      plan,
+      patch: before.description,
+      patchAfter: after.description,
+      implementation: stubImplementation(verified, ['AC-1'], BASE),
+      createdAt: AT,
+    });
+
+    return {
+      before,
+      after,
+      execution,
+      record: recordWith(verified, {
+        stage: 'repair',
+        outcome: 'REPAIR_APPLIED',
+        repairPlan: plan,
+        repairExecutions: [execution],
+      }),
+    };
+  }
+
+  /**
+   * The cycles section on its own, because a digest appears in the plan section
+   * too and a test that scans the whole page cannot tell the two apart.
+   */
+  function cyclesOf(report: string): string {
+    const start = report.indexOf('## Repair cycles');
+    expect(start, report).toBeGreaterThan(-1);
+    const rest = report.slice(start);
+    const end = rest.indexOf('\n## ', 1);
+    return end === -1 ? rest : rest.slice(0, end);
+  }
+
+  it('names both the patch the review read and the patch the repair left', async () => {
+    const { before, after, record } = await cycle('moved');
+
+    const cycles = cyclesOf(packOf(record).files['report.md']);
+    expect(before.identity).not.toBe(after.identity);
+    expect(cycles).toContain(before.identity);
+    expect(cycles).toContain(after.identity);
+  });
+
+  it('says which cycle it was, and to which frozen plan that cycle answered', async () => {
+    const { execution, record } = await cycle('moved');
+    const cycles = cyclesOf(packOf(record).files['report.md']);
+
+    expect(execution.planDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(cycles).toContain(execution.planDigest);
+    expect(cycles).toMatch(/repair cycle 1/i);
+  });
+
+  it('says the earlier receipts are stale because this cycle moved bytes, in the cycle’s own line', async () => {
+    const { before, record } = await cycle('moved');
+    const line = cyclesOf(packOf(record).files['report.md'])
+      .split('\n')
+      .find((entry) => entry.includes(before.identity));
+
+    expect(line).toBeDefined();
+    expect(line ?? '').toMatch(/stale/i);
+  });
+
+  it('does not call a cycle that changed nothing a reason to distrust the evidence', async () => {
+    const { before, record, execution } = await cycle('unchanged');
+    const line = cyclesOf(packOf(record).files['report.md'])
+      .split('\n')
+      .find((entry) => entry.includes(before.identity));
+
+    expect(execution.scope.outcome).toBe('REPAIR_LEFT_NO_TRACE');
+    expect(line).toBeDefined();
+    expect(line ?? '').not.toMatch(/stale/i);
+    expect(line ?? '').toMatch(/unchanged|no bytes|left the patch/i);
+  });
+
+  it('prints what the cycle reported about its own scope, and not whether it worked', async () => {
+    const { execution, record } = await cycle('moved');
+    const report = packOf(record).files['report.md'];
+    const cycles = cyclesOf(report);
+
+    expect(execution.scope.outcome).toBe('WITHIN_PLANNED_SCOPE');
+    expect(cycles).toContain('WITHIN_PLANNED_SCOPE');
+    expect(report).not.toMatch(/repair (succeeded|complete|passed|fixed)/i);
+    expect(report).not.toMatch(/CONTRIBUTION_READY|AI APPROVED/i);
+  });
+
+  it('carries the executions in report.json so a machine can order them', async () => {
+    const { execution, record } = await cycle('moved');
+    const json = JSON.parse(packOf(record).files['report.json']) as {
+      repairExecutions: unknown[];
+      contributionReady: boolean;
+    };
+
+    expect(json.repairExecutions).toEqual([execution]);
+    expect(json.contributionReady).toBe(false);
+  });
+
+  it('says nothing about repair when no cycle ran, rather than an empty section', async () => {
+    const report = packOf(await verifiedRecord(['node', '--test'])).files['report.md'];
+
+    expect(report).not.toContain('## Repair cycles');
+    expect(report).not.toMatch(/no repairs were needed|nothing to repair/i);
   });
 });

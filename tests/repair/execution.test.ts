@@ -21,6 +21,7 @@ import {
   type RepairPlan,
 } from '../../src/repair/plan.js';
 import { classifyRepairScope, routeRepairScope } from '../../src/repair/scope.js';
+import { measuredPatch } from '../helpers/repair.js';
 import { patchDescriptionSchema, type PatchDescription } from '../../src/verify/patch.js';
 
 /**
@@ -56,27 +57,12 @@ const BASE = 'b'.repeat(40);
 const RUN_ID = 'run-20260926t090000z-repair1';
 const NOW = '2026-09-26T09:30:00.000Z';
 
-/** A patch measured from disk carries a digest of its own bytes; this is one. */
-function measured(
-  files: readonly [string, string, 'ADDED' | 'MODIFIED' | 'DELETED'][],
-  baseSha: string = BASE,
-): { description: PatchDescription; identity: string } {
-  const facts = files.map(([filePath, content, change]) => ({
-    path: filePath,
-    tracked: change !== 'ADDED',
-    change,
-    contentSha256: change === 'DELETED' ? null : sha256Hex(content),
-  }));
-  const identity = sha256Hex(JSON.stringify(facts));
-  return {
-    description: patchDescriptionSchema.parse({
-      schemaVersion: 1,
-      baseSha,
-      identity,
-      files: facts,
-    }),
-    identity,
-  };
+/** A patch measured from disk carries a digest of its own bytes. */
+function measured(files: readonly [string, string, 'ADDED' | 'MODIFIED' | 'DELETED'][]): {
+  description: PatchDescription;
+  identity: string;
+} {
+  return measuredPatch(files, BASE);
 }
 
 /** The contribution under review: the file a finding names, and one it does not. */
