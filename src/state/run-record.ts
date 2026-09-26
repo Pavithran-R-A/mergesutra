@@ -4,6 +4,7 @@ import { AppError } from '../core/errors.js';
 import { repositoryContractSchema } from '../discovery/contract.js';
 import { implementationRecordSchema } from '../implement/state.js';
 import { implementationPlanSchema } from '../plan/schema.js';
+import { repairPlanSchema } from '../repair/plan.js';
 import { reviewDocumentSchema } from '../review/schema.js';
 import { VERSION } from '../version.js';
 import { executionConsentSchema } from '../verify/consent.js';
@@ -33,12 +34,17 @@ import { verificationPlanSchema } from '../verify/plan.js';
  * (what each criterion may claim). None of them can say the contribution is
  * ready — that word lives in no schema in this file, by design.
  *
- * Version 7 adds Stage 9's review document, and it is the first bump this file
- * has had to answer for: records written by 6 are already on disk, in runs a
+ * Version 7 adds Stage 9's two documents: the review, which is what a model said
+ * about a pinned patch, and the frozen repair plan, which is what the run decided
+ * to do about it. They are separate because a plan is not a finding and a finding
+ * is not a verdict — and neither of them can say the contribution is ready. It is
+ * also the first bump this file has had to answer for: records written by 6 are
+ * already on disk, in runs a
  * human may still be reading, and this product's whole promise is that a later
  * stage can pick up a run from the evidence on disk. So the bump is additive and
  * the reader is version-aware. A 6 record is validated as a 6 record, then given
- * `review: null` in memory — never an empty review, which would say a reviewer
+ * `review: null` and `repairPlan: null` in memory — never an empty review, which
+ * would say a reviewer
  * looked and found nothing. Nothing is rewritten on the way in; the file a human
  * audited stays the file the run wrote, and only a legitimate stage save writes
  * the current version. A version this build does not read is refused with the
@@ -250,6 +256,19 @@ export const runRecordSchema = z
      * can tell a review from a review that has gone stale.
      */
     review: reviewDocumentSchema.nullable().default(null),
+    /**
+     * Present once Stage 9 has frozen a work order from that review.
+     *
+     * Kept beside the review rather than inside it because the two answer
+     * different questions: the review is what a model said about these bytes,
+     * this is what the run decided to do about it. Writing it down before the
+     * workspace is touched is the whole point — a reader who finds changed files
+     * and no plan here is looking at an edit that nobody authorised.
+     *
+     * `null` is not "nothing needed fixing"; it is "no plan was frozen". The
+     * distinction survives migration, which gives a v6 record this null.
+     */
+    repairPlan: repairPlanSchema.nullable().default(null),
   })
   .strict();
 
@@ -286,6 +305,8 @@ export interface NewRunRecordInput {
   readonly evidence?: RunRecord['evidence'];
   /** Only the review stage sets this, and only from a review of these exact bytes. */
   readonly review?: RunRecord['review'];
+  /** Only the review stage sets this, and only after freezing it before any edit. */
+  readonly repairPlan?: RunRecord['repairPlan'];
   readonly checks: readonly RunCheck[];
   readonly nextStage: string;
   readonly limitations?: readonly string[];
@@ -313,6 +334,7 @@ export function createRunRecord(input: NewRunRecordInput): RunRecord {
     executionConsent: input.executionConsent ?? null,
     evidence: input.evidence ?? null,
     review: input.review ?? null,
+    repairPlan: input.repairPlan ?? null,
     checks: [...input.checks],
     nextStage: input.nextStage,
     limitations: [...(input.limitations ?? [])],
@@ -322,10 +344,11 @@ export function createRunRecord(input: NewRunRecordInput): RunRecord {
 /**
  * A 6 record, seen in memory as a 7 record.
  *
- * The transform adds one thing: the fact that Stage 9 never ran. It cannot add a
- * review, a finding, a disposition, a receipt or an approval, because a 6 record
- * has no such evidence and inventing one here would put words a reviewer never
- * said into a document a reader will trust.
+ * The transform adds one fact and no evidence: Stage 9 never ran, so its review
+ * and its frozen repair plan are both null. It cannot add a review, a finding, a
+ * disposition, a receipt or an approval, because a 6 record has no such evidence
+ * and inventing one here would put words a reviewer never said into a document a
+ * reader will trust.
  */
 function upgradeV6Record(record: z.infer<typeof runRecordV6Schema>): RunRecord {
   return runRecordSchema.parse({

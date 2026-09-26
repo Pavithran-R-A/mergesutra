@@ -13,6 +13,11 @@ import { createFileRunStore } from '../../src/state/run-store.js';
 import { buildReviewDocument } from '../../src/review/schema.js';
 import { assembleReviewContext } from '../../src/review/context.js';
 import {
+  REPAIR_PLAN_SCHEMA_VERSION,
+  parseRepairPlan,
+  type RepairPlan,
+} from '../../src/repair/plan.js';
+import {
   cleanUp,
   hasGit,
   recordWith,
@@ -31,10 +36,10 @@ import {
  * error it has always given.
  *
  * The part that matters most is what migration may not do. A v6 record has no
- * review, so the migrated record has `review: null` — not an empty review, not a
- * review with zero findings, and above nothing that could be read downstream as
- * "it was checked". Null is the honest value for "this stage never ran", and the
- * tests below are what keep it that way.
+ * review and no frozen repair plan, so the migrated record has both as null —
+ * not an empty review, not a plan with zero items, and above nothing that could
+ * be read downstream as "it was checked". Null is the honest value for "this
+ * stage never ran", and the tests below are what keep it that way.
  *
  * And a read is a read: opening an old file must not quietly rewrite it in the
  * current version, because then the file a human audited would no longer be the
@@ -58,19 +63,52 @@ beforeAll(async () => {
 /**
  * The same document as its author wrote it: v6 had no Stage 9 field at all.
  *
- * Stage 9's other documents — the frozen repair plan and the record of a repair
- * run — arrive with their own schemas, and their own failing tests, in the slice
- * that builds them. Adding a field here with no schema behind it would only
- * prove that a null can be defaulted.
+ * Stage 9's review and its frozen repair plan are both stripped here, which is
+ * what a real v6 file looks like: it has no key for either, rather than a key
+ * holding null.
  */
 function asV6(record: RunRecord): Record<string, unknown> {
-  const { schemaVersion: _version, review: _review, ...rest } = record;
+  const { schemaVersion: _version, review: _review, repairPlan: _plan, ...rest } = record;
   return { schemaVersion: 6, ...rest };
 }
 
 function fieldsOf(value: Record<string, unknown>): Record<string, unknown> {
   const { schemaVersion: _version, ...rest } = value;
   return rest;
+}
+
+/**
+ * A work order exactly as Stage 9 freezes one.
+ *
+ * It is built through the repair plan's own parser rather than written as a
+ * literal, so this file cannot pass by loosening the record while the schema
+ * behind the plan drifts. The ids are the fixture's: the file is one the reviewed
+ * patch touched, the gate is one the run already has a receipt for.
+ */
+function frozenPlan(overrides: Record<string, unknown> = {}): RepairPlan {
+  const criterion = fixture.criteria[0];
+  if (!criterion) throw new Error('the review fixture must carry a criterion');
+  return parseRepairPlan({
+    schemaVersion: REPAIR_PLAN_SCHEMA_VERSION,
+    runId: fixture.record.runId,
+    reviewCycle: 1,
+    repairCycle: 1,
+    reviewedPatchIdentity: fixture.patch.identity,
+    findings: [
+      {
+        findingId: 'RF-001',
+        criterionIds: [criterion],
+        intendedChange: 'Give the parser the branch the criterion asks for.',
+        expectedFiles: ['src/parse.ts'],
+        expectedChecks: ['VG-001'],
+      },
+    ],
+    criteria: [criterion],
+    expectedFiles: ['src/parse.ts'],
+    expectedChecks: ['VG-001'],
+    createdAt: '2026-09-26T09:30:00.000Z',
+    ...overrides,
+  });
 }
 
 describe.skipIf(!AVAILABLE)('a run record written by the previous version', () => {
@@ -81,10 +119,11 @@ describe.skipIf(!AVAILABLE)('a run record written by the previous version', () =
     expect(migrated.schemaVersion).toBe(RUN_SCHEMA_VERSION);
   });
 
-  it('gives it no review, because no review happened', () => {
+  it('gives it no review and no repair plan, because neither happened', () => {
     const migrated = parseRunRecord(asV6(fixture.record));
 
     expect(migrated.review).toBeNull();
+    expect(migrated.repairPlan).toBeNull();
   });
 
   it('carries every field the old record held, unchanged', () => {
@@ -142,6 +181,38 @@ describe.skipIf(!AVAILABLE)('the current version, and versions nobody knows', ()
     });
 
     expect(parseRunRecord(JSON.parse(JSON.stringify(current)))).toEqual(current);
+  });
+
+  it('round-trips a record that carries the repair plan it froze', () => {
+    const current = recordWith(fixture.record, { repairPlan: frozenPlan() });
+
+    const loaded = parseRunRecord(JSON.parse(JSON.stringify(current)));
+
+    expect(loaded.repairPlan).toEqual(current.repairPlan);
+    expect(loaded.repairPlan?.reviewedPatchIdentity).toBe(fixture.patch.identity);
+  });
+
+  it('gives a record that never planned a repair no plan, not an empty one', () => {
+    const { repairPlan: _plan, ...without } = recordWith(fixture.record, {
+      repairPlan: frozenPlan(),
+    });
+
+    const loaded = parseRunRecord(without);
+
+    expect(loaded.repairPlan).toBeNull();
+    expect(loaded.review).toBeNull();
+  });
+
+  it('refuses a repair plan the repair plan schema itself refuses', () => {
+    const smuggled = {
+      ...fixture.record,
+      repairPlan: { ...frozenPlan(), expectedChecks: ['npm test && rm -rf .'] },
+    };
+
+    const error = capture(() => parseRunRecord(smuggled));
+
+    expect(error.kind).toBe('validation');
+    expect(error.message).toMatch(/VG-\d{3}|gate id/i);
   });
 
   it('refuses a version from before the supported window, and says which one', () => {
@@ -235,6 +306,20 @@ describe.skipIf(!AVAILABLE)('what the store does to an old file', () => {
 
     expect(onDisk.schemaVersion).toBe(RUN_SCHEMA_VERSION);
     expect((await store.load(reviewed.runId)).review?.findings).toEqual([]);
+  });
+
+  it('keeps a frozen plan readable as the same document a later cycle would obey', async () => {
+    const runs = await runsDirectory('mergesutra-plan-');
+    const store = createFileRunStore(runs);
+    const planned = recordWith(fixture.record, { repairPlan: frozenPlan() });
+
+    await store.save(planned);
+    const loaded = await store.load(planned.runId);
+
+    expect(loaded.repairPlan).toEqual(planned.repairPlan);
+    expect(loaded.repairPlan?.findings.map((finding) => finding.expectedFiles)).toEqual([
+      ['src/parse.ts'],
+    ]);
   });
 
   it('migrates on the way in without touching the file a human already audited', async () => {

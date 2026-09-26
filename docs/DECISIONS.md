@@ -945,12 +945,13 @@ actual decisions taken while building Stages 0-8, not aspirations.
 
 ## ADR-047 — A record version is added, not replaced, and reading never rewrites
 
-- **Decision:** Stage 9 bumps the run record to `schemaVersion: 7` by adding one
-  nullable, defaulted field (`review`) beside the six stages' documents, and the
-  reader becomes version-aware: `RUN_SCHEMA_VERSIONS_SUPPORTED` names the window
-  (6 and 7), a record declaring 6 is validated against a v6-only shape, then
-  transformed in memory to v7 with `review: null` and validated again. Anything
-  outside the window is refused with the existing `Run record is not readable`
+- **Decision:** Stage 9 bumps the run record to `schemaVersion: 7` by adding the
+  Stage 9 documents beside the six stages' — `review` and the frozen `repairPlan`,
+  each nullable and defaulted — and the reader becomes version-aware:
+  `RUN_SCHEMA_VERSIONS_SUPPORTED` names the window (6 and 7), a record declaring 6
+  is validated against a v6-only shape, then transformed in memory to v7 with
+  `review: null` and `repairPlan: null` and validated again. Anything outside the
+  window is refused with the existing `Run record is not readable`
   error, and a numeric version that is simply unknown is named in the message.
   `store.load()` and `store.list()` never write; only a stage that legitimately
   saves persists, and what it persists is v7.
@@ -959,12 +960,15 @@ actual decisions taken while building Stages 0-8, not aspirations.
   the first bump where that assumption fails — records from Stage 8 exist, are
   gitignored rather than archived, and are the artifacts a human audits, so a
   literal-only parser would have made `mergesutra report <old-run>` and every
-  future `review`/`resume` against them fail. The migration adds exactly one
-  default and nothing else: a v6 record has no evidence of a review, so
-  inventing `findings: []` would report "a reviewer looked and found nothing"
-  about bytes nobody was shown, which is the same class of falsehood §5's
-  truthful-status rules forbid. Keeping the v6 shape strict is what stops a
-  hand-edited file from claiming to be a 6 while carrying a 7's `review`.
+  future `review`/`resume` against them fail. The migration adds only defaults: a
+  v6 record has no evidence of a review, so inventing `findings: []` would report
+  "a reviewer looked and found nothing" about bytes nobody was shown, and an empty
+  repair plan would say the same thing twice — which is the same class of
+  falsehood §5's truthful-status rules forbid. Keeping the v6 shape strict is what
+  stops a hand-edited file from claiming to be a 6 while carrying a 7's `review`.
+  The repair plan keeps its own `schemaVersion` inside the record, because the
+  record version says which fields a reader will find and the plan version says
+  what a work order is allowed to name; the two move for different reasons.
 - **Alternatives:** loosening `schemaVersion` to `z.number()` (a record would
   then be parsed by a schema that has never heard of its fields, and the
   `.strict()` guard — the thing that catches a hand-edited file — would go with
