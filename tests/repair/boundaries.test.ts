@@ -25,9 +25,10 @@ import { describe, expect, it } from 'vitest';
  * by the time it runs the editing is over. A module that writes down what hands
  * did does not itself need any.
  *
- * It also locks in the positive side of the bargain. The moment Stage 9 does gain
- * an execution path, it must be the loop's, and the boundary that keeps the rest
- * of src/repair clean is the one this file enforces.
+ * It also locks in the positive side of the bargain. Stage 9R did gain an
+ * execution path, and the file below that names it is the only one allowed to hold
+ * it: `stage.ts` reaches the loop, and every other module in this directory still
+ * cannot.
  */
 
 const REPAIR_DIR = path.join(process.cwd(), 'src', 'repair');
@@ -51,7 +52,7 @@ const DECISION_MODULES = [
 ] as const;
 
 /** Stage 9R's orchestrator: the only repair module allowed to reach the loop. */
-const EXECUTION_MODULES: readonly string[] = [];
+const EXECUTION_MODULES: readonly string[] = ['stage.ts'];
 
 /** Anything that could reach a byte, a process or a network port. */
 const FORBIDDEN = [
@@ -72,6 +73,39 @@ const FORBIDDEN = [
  * own. Reaching for GitHub, or for a model, from here would be a second of each.
  */
 const EXECUTION_FORBIDDEN = FORBIDDEN.filter((specifier) => specifier !== 'implement/loop.js');
+
+/**
+ * Every quoted token in a module, so a specifier is matched by what it *is*.
+ *
+ * A plain substring test for `'core/runner.js` would miss the way a sibling
+ * directory is actually imported — `'../core/runner.js'` — and the miss would be
+ * the whole loophole, since every module in `src/repair` reaches everything else
+ * in the project that way. So the scan reads the tokens rather than the raw text:
+ * a specifier counts as imported when it names a module (relative, absolute or
+ * `node:`) and ends with one of the forbidden paths.
+ */
+const QUOTED = /['"]([^'"\n]*)['"]/g;
+
+function importedSpecifiers(text: string): string[] {
+  return [...text.matchAll(QUOTED)]
+    .map((match) => match[1] ?? '')
+    .filter(
+      (token) => token.startsWith('.') || token.startsWith('/') || token.startsWith('node:'),
+    )
+    .map((token) => token.replace(/^node:/, ''));
+}
+
+function forbiddenHits(text: string, forbidden: readonly string[]): string[] {
+  const tokens = importedSpecifiers(text);
+  return forbidden.filter((specifier) => {
+    const bare = specifier.replace(/^node:/, '');
+    // A subpath is the same capability under a different prefix: `fs/promises` is
+    // still a file handle.
+    return tokens.some(
+      (token) => token === bare || token.startsWith(`${bare}/`) || token.endsWith(`/${bare}`),
+    );
+  });
+}
 
 async function repairSources(): Promise<Map<string, string>> {
   const entries = await readdir(REPAIR_DIR, { withFileTypes: true });
@@ -99,14 +133,23 @@ describe('what the repair modules may not reach for', () => {
     const hits: string[] = [];
     for (const [name, text] of sources) {
       const forbidden = EXECUTION_MODULES.includes(name) ? EXECUTION_FORBIDDEN : FORBIDDEN;
-      for (const specifier of forbidden) {
-        if (text.includes(`'${specifier}`) || text.includes(`"${specifier}`)) {
-          hits.push(`${name} imports ${specifier}`);
-        }
+      for (const specifier of forbiddenHits(text, forbidden)) {
+        hits.push(`${name} imports ${specifier}`);
       }
     }
 
     expect(hits).toEqual([]);
+  });
+
+  it('keeps the loop reachable from exactly the modules the execution group names', async () => {
+    const sources = await repairSources();
+
+    const callers = [...sources]
+      .filter(([, text]) => forbiddenHits(text, ['implement/loop.js']).length > 0)
+      .map(([name]) => name)
+      .sort();
+
+    expect(callers).toEqual([...EXECUTION_MODULES].sort());
   });
 
   it('names no capability the plan could hand to a model', async () => {

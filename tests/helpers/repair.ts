@@ -63,13 +63,14 @@ export function frozenPlan(input: {
   readonly patchIdentity: string;
   readonly expectedChecks: readonly string[];
   readonly expectedFiles?: readonly string[];
+  readonly reviewCycle?: number;
   readonly repairCycle?: number;
   readonly createdAt: string;
 }): RepairPlan {
   return parseRepairPlan({
     schemaVersion: REPAIR_PLAN_SCHEMA_VERSION,
     runId: input.runId,
-    reviewCycle: 1,
+    reviewCycle: input.reviewCycle ?? 1,
     repairCycle: input.repairCycle ?? 1,
     reviewedPatchIdentity: input.patchIdentity,
     findings: [

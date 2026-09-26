@@ -396,16 +396,16 @@ describe('a pack regenerated after a repair cycle', () => {
   const BASE = 'a'.repeat(40);
   const AT = '2026-09-26T09:05:00.000Z';
 
-  async function cycle(how: 'moved' | 'unchanged') {
+  async function cycle(how: 'moved' | 'unchanged' | 'moved-and-reverified') {
     const verified = await verifiedRecord(['node', '--test']);
     const before = measuredPatch(
       [['src/parse.ts', 'export const PARSED = 1;\n', 'MODIFIED']],
       BASE,
     );
     const after =
-      how === 'moved'
-        ? measuredPatch([['src/parse.ts', 'export const PARSED = 2;\n', 'MODIFIED']], BASE)
-        : before;
+      how === 'unchanged'
+        ? before
+        : measuredPatch([['src/parse.ts', 'export const PARSED = 2;\n', 'MODIFIED']], BASE);
     const plan = frozenPlan({
       runId: verified.runId,
       criteria: ['AC-1'],
@@ -420,16 +420,25 @@ describe('a pack regenerated after a repair cycle', () => {
       implementation: stubImplementation(verified, ['AC-1'], BASE),
       createdAt: AT,
     });
+    const carried = {
+      stage: 'repair',
+      outcome: 'REPAIR_APPLIED',
+      repairPlan: plan,
+      repairExecutions: [execution],
+    } as const;
 
     return {
       before,
       after,
       execution,
       record: recordWith(verified, {
-        stage: 'repair',
-        outcome: 'REPAIR_APPLIED',
-        repairPlan: plan,
-        repairExecutions: [execution],
+        // A pack regenerated *after* the re-verification carries receipts measured
+        // on B, so its rows describe the current bytes and the cycle that produced
+        // them is history, not a live defect in the evidence above.
+        ...(how === 'moved-and-reverified'
+          ? { evidence: { ...verified.evidence!, patchIdentity: after.identity } }
+          : {}),
+        ...carried,
       }),
     };
   }
@@ -484,6 +493,16 @@ describe('a pack regenerated after a repair cycle', () => {
     expect(line).toBeDefined();
     expect(line ?? '').not.toMatch(/stale/i);
     expect(line ?? '').toMatch(/unchanged|no bytes|left the patch/i);
+  });
+
+  it('stops calling the rows stale once a re-verification has measured the new bytes', async () => {
+    const { after, record } = await cycle('moved-and-reverified');
+    const cycles = cyclesOf(packOf(record).files['report.md']);
+    const line = cycles.split('\n').find((entry) => entry.includes(after.identity));
+
+    expect(line).toBeDefined();
+    expect(line ?? '').not.toMatch(/stale/i);
+    expect(line ?? '').toMatch(/measured (again|on these bytes)|current/i);
   });
 
   it('prints what the cycle reported about its own scope, and not whether it worked', async () => {

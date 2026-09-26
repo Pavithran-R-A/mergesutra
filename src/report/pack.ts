@@ -346,9 +346,12 @@ function repairCyclesSection(record: RunRecord): string[] {
     '## Repair cycles (edits that happened, not outcomes that were reached)',
     '',
   ];
+  // The rows above this section describe one patch, and the evidence document is
+  // the only thing in the record that says which.
+  const measuredIdentity = record.evidence?.patchIdentity ?? null;
   for (const execution of executions) {
     lines.push(
-      `- Repair cycle ${execution.repairCycle} of review ${execution.reviewCycle} · plan ${execution.planDigest} · patch ${execution.patchBeforeIdentity} → ${execution.patchAfterIdentity} · ${execution.scope.outcome} · ${consequenceOf(execution)}`,
+      `- Repair cycle ${execution.repairCycle} of review ${execution.reviewCycle} · plan ${execution.planDigest} · patch ${execution.patchBeforeIdentity} → ${execution.patchAfterIdentity} · ${execution.scope.outcome} · ${consequenceOf(execution, measuredIdentity)}`,
     );
   }
   lines.push('');
@@ -362,16 +365,27 @@ function repairCyclesSection(record: RunRecord): string[] {
 /**
  * Whether a cycle left the evidence above describing the workspace.
  *
- * Two clauses, chosen by the scope guard's own `patchChanged` flag: moved bytes
- * means the receipts over them are stale, unchanged bytes means nothing about them
- * has altered. The word `stale` is deliberately absent from the second — the
- * §19 rule the pack exists to expose is that green and stale are different claims,
- * and a renderer that used the word loosely would retire the distinction.
+ * Three clauses, and the middle one is why this function takes a second argument
+ * at all: a pack regenerated after a re-verification has receipts measured on the
+ * repaired bytes, so calling them stale would retire the exact distinction §19
+ * exists to expose — green and stale are different claims, and a renderer that
+ * used `stale` loosely would say a re-verification never happened.
+ *
+ * Which bytes the rows describe is not this renderer's guess. It is the identity
+ * the evidence document carries, and an absent document means absent rows, so the
+ * only sentence left is that the cycle moved bytes nothing above has measured.
  */
-function consequenceOf(execution: RunRecord['repairExecutions'][number]): string {
-  return execution.patchChanged
-    ? `the rows above were measured on ${execution.patchBeforeIdentity} and are stale for these bytes; only a re-verification can make them current`
-    : 'the cycle left the patch unchanged, so nothing above changed status because of it';
+function consequenceOf(
+  execution: RunRecord['repairExecutions'][number],
+  measuredIdentity: string | null,
+): string {
+  if (!execution.patchChanged) {
+    return 'the cycle left the patch unchanged, so nothing above changed status because of it';
+  }
+  if (measuredIdentity === execution.patchAfterIdentity) {
+    return 'the rows above were measured again on these bytes after this cycle moved them';
+  }
+  return `the rows above were measured on ${measuredIdentity ?? 'no patch this pack carries receipts for'} and are stale for these bytes; only a re-verification can make them current`;
 }
 
 function gatesSection(record: RunRecord): string[] {
