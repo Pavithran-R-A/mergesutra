@@ -139,9 +139,13 @@ describe.skipIf(!AVAILABLE)(
     it('never lets the pack written before the repair be read as the pack after it', () => {
       const pack = buildEvidencePack(fixture.record);
 
+      // The pack names the bytes it answers for, so a reader holding patch B can
+      // see that this document is about A without having to trust a receipt.
+      expect(pack.files['report.md']).toContain(patchA.identity);
       expect(pack.files['commands.jsonl']).toContain(patchA.identity);
       expect(pack.files['commands.jsonl']).not.toContain(patchB.identity);
       expect(pack.files['report.md']).not.toContain(patchB.identity);
+      expect(pack.files['report.json']).not.toContain(patchB.identity);
     });
 
     it('keeps a one-file repair just as disqualifying as a large one', async () => {

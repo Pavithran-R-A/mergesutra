@@ -1,4 +1,5 @@
 import { deriveAcceptanceCriteria } from '../../src/contract/derive.js';
+import type { VerificationRun } from '../../src/verify/engine.js';
 import { mapAcceptanceEvidence } from '../../src/verify/evidence.js';
 import {
   createRunRecord,
@@ -64,10 +65,25 @@ export function recordAt(overrides: Partial<NewRunRecordInput> = {}): RunRecord 
 export interface VerifiedOptions {
   readonly runId?: string;
   readonly currentPatchIdentity?: string;
+  /**
+   * The bytes the engine finds when it measures the workspace, when they are not
+   * the ones the plan named. Only the engine decides what that means; this
+   * helper does not get to call the result stale on its own.
+   */
+  readonly observedPatchIdentity?: string;
   readonly claims?: readonly { source: string; text: string }[];
   /** Caveats the earlier stages of this run left on the record. */
   readonly recordLimitations?: readonly string[];
 }
+
+/** The record outcome `verify` writes for each engine verdict — copied, not judged. */
+const OUTCOME_BY_VERDICT: Record<VerificationRun['result'], RunRecord['outcome']> = {
+  PASS: 'VERIFICATION_PASS',
+  FAIL: 'VERIFICATION_FAIL',
+  BLOCKED: 'VERIFICATION_BLOCKED',
+  INCONCLUSIVE: 'VERIFICATION_INCONCLUSIVE',
+  CANCELLED: 'VERIFICATION_CANCELLED',
+};
 
 /** A record holding a real engine run over a scripted process, and its evidence. */
 export async function verifiedRecord(
@@ -99,7 +115,11 @@ export async function verifiedRecord(
   });
   const plan = planOf([plannedGate({ id: 'VG-001', argv, relevantCriteria: ['AC-1'] })]);
   const consent = consentFor(plan, ['VG-001']);
-  const run = await verifyScripted(plan, [], { [argv.join(' ')]: SUCCEEDED }, consent);
+  const observed = options.observedPatchIdentity ?? plan.patchIdentity;
+  const run = await verifyScripted(plan, [], { [argv.join(' ')]: SUCCEEDED }, consent, [
+    observed,
+    observed,
+  ]);
   const evidence = mapAcceptanceEvidence({
     criteria: contract.criteria.map((c) => ({
       id: c.id,
@@ -115,7 +135,7 @@ export async function verifiedRecord(
   return recordAt({
     runId,
     stage: 'verify',
-    outcome: 'VERIFICATION_PASS',
+    outcome: OUTCOME_BY_VERDICT[run.result],
     acceptanceContract: contract,
     verificationPlan: plan,
     executionConsent: consent,

@@ -92,6 +92,14 @@ function markdown(record: RunRecord, rows: readonly CriterionRow[]): string {
         : 'none given — repository commands were not run'
     }`,
   );
+  lines.push(
+    `- Review: ${
+      record.review
+        ? `${record.review.findings.length} finding(s) recorded against ${record.review.reviewedPatchIdentity.slice(0, 12)}`
+        : 'none recorded — nothing has read these bytes a second time'
+    }`,
+  );
+  lines.push(...patchLines(record));
   lines.push('');
   lines.push(...gatesSection(record));
   lines.push('## Criteria');
@@ -115,6 +123,8 @@ function markdown(record: RunRecord, rows: readonly CriterionRow[]): string {
   );
   lines.push('');
   lines.push(...claimsSection(record));
+  lines.push(...reviewSection(record));
+  lines.push(...repairSection(record));
   lines.push(...notesSection(record, rows));
   return lines.join('\n');
 }
@@ -206,6 +216,111 @@ function notesSection(record: RunRecord, rows: readonly CriterionRow[]): string[
   return lines;
 }
 
+/**
+ * Which bytes the evidence describes, in a form a reader can check with git.
+ *
+ * A pack that reports `exit 0` without naming the patch it was measured on is
+ * unfalsifiable: after a repair the old rows are false, and nothing on the page
+ * says so. So the digest Stage 7 planned against and the digest the engine
+ * actually observed are printed side by side, with the engine's own precondition
+ * word between them. This adds no judgement — `STALE` is written by
+ * `runVerification`, and a run with no plan has no digest to name.
+ */
+function patchLines(record: RunRecord): string[] {
+  const planned = record.verificationPlan?.patchIdentity ?? null;
+  if (planned === null) {
+    return [
+      '- Patch: no patch identity — this run planned no gate, so its rows are pinned to no measured bytes',
+    ];
+  }
+  const precondition = record.verification?.patchPrecondition ?? null;
+  return [
+    `- Patch: ${planned} (base ${record.verificationPlan?.baseSha})${
+      precondition
+        ? ` · observed ${precondition.observedIdentity ?? 'not re-measured'} · ${precondition.status}`
+        : ' · no verification has run against it'
+    }`,
+  ];
+}
+
+/**
+ * The second pass over these bytes, printed as a reading rather than a ruling.
+ *
+ * Stage 9 exists because a green gate table cannot say whether the change is the
+ * one the contract asked for. That makes the review the most abusable paragraph in
+ * the pack — the one a reader is most tempted to treat as a sign-off — so the
+ * heading says what it is, each finding is printed with the disposition MergeSutra
+ * assigned rather than the severity the model chose, and a patch with no review
+ * says so plainly instead of leaving the section out and letting silence look
+ * like approval.
+ */
+function reviewSection(record: RunRecord): string[] {
+  const review = record.review;
+  if (!review) return [];
+  const lines: string[] = [
+    "## Review — a second reading of these bytes (a model's account; it decided nothing)",
+    '',
+    `- Reviewed patch: ${review.reviewedPatchIdentity} · current ${review.currentPatchIdentity} · ${review.patchPrecondition.status}`,
+    `- Asked of \`${review.modelId}\` on ${review.reviewedAt} (attempt ${review.attempts})`,
+    '',
+    review.summary,
+    '',
+  ];
+  if (review.findings.length === 0) {
+    lines.push(
+      'The reviewer filed no findings. That is not the same claim as "there are none".',
+      '',
+    );
+    return lines;
+  }
+  lines.push("| Finding | Severity | Category | MergeSutra's disposition | Why |");
+  lines.push('| --- | --- | --- | --- | --- |');
+  for (const finding of review.findings) {
+    lines.push(
+      `| ${finding.id} ${finding.statement} | ${finding.severity} | ${finding.category} | ${
+        finding.disposition
+      } | ${finding.dispositionReason} |`,
+    );
+  }
+  lines.push('');
+  lines.push('What the reviewer proposed (its words; a repair plan is a separate document):');
+  lines.push('');
+  for (const finding of review.findings) {
+    lines.push(`- ${finding.id}: ${finding.proposedAction}`);
+  }
+  lines.push('');
+  return lines;
+}
+/**
+ * The work order, and what it was frozen against.
+ *
+ * A repair plan names files and gate ids, never commands, so printing it cannot
+ * hand a reader a shell string to run. What this section is for is the comparison
+ * a reviewer needs: the plan says which files were meant to change, and Stage 7's
+ * receipts say what the patch actually is now.
+ */
+function repairSection(record: RunRecord): string[] {
+  const plan = record.repairPlan;
+  if (!plan) return [];
+  const lines: string[] = [
+    '## Repair plan (frozen before any edit; a scope, not a result)',
+    '',
+    `- Cycle ${plan.reviewCycle} review / ${plan.repairCycle} repair, against patch ${plan.reviewedPatchIdentity}.`,
+    `- Files it may change: ${plan.expectedFiles.join(', ')}`,
+    `- Gates it answers to: ${plan.expectedChecks.length > 0 ? plan.expectedChecks.join(', ') : 'none named'}`,
+    '',
+  ];
+  for (const item of plan.findings) {
+    lines.push(`- ${item.findingId}: ${item.intendedChange}`);
+  }
+  lines.push('');
+  lines.push(
+    'What this cycle achieved is not decided here. It is decided by verifying the bytes that are on disk now.',
+  );
+  lines.push('');
+  return lines;
+}
+
 function gatesSection(record: RunRecord): string[] {
   const outcomes = record.verification?.gates ?? [];
   const lines: string[] = ['## Gates', ''];
@@ -237,12 +352,24 @@ function document(record: RunRecord, rows: readonly CriterionRow[]): Record<stri
     outcome: record.outcome,
     nextStage: record.nextStage,
     issue: record.issueRef?.canonical ?? null,
+    patch: {
+      plannedIdentity: record.verificationPlan?.patchIdentity ?? null,
+      observedIdentity: record.verification?.patchPrecondition.observedIdentity ?? null,
+      precondition: record.verification?.patchPrecondition.status ?? null,
+      baseSha: record.verificationPlan?.baseSha ?? null,
+    },
     verification: record.verification?.result ?? null,
     contributionReady: false,
     criteria: rows.map((row) => ({ ...row })),
     verificationPlan: record.verificationPlan,
     executionConsent: record.executionConsent,
     evidence: record.evidence,
+    // Copied whole, and kept apart from the rows above: these two are a model's
+    // reading and a scope frozen before an edit, and neither is evidence of
+    // anything. Flattening them into the criteria table would make a finding read
+    // as a verdict.
+    review: record.review,
+    repairPlan: record.repairPlan,
     // Kept apart because they mean different things: the first is what the
     // stages of this run accumulated, carrying earlier lines forward as it
     // grew; the second is what the contract itself could not see. Merged,
