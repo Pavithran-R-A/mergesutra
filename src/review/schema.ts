@@ -277,7 +277,9 @@ export function buildReviewDocument(input: ReviewDocumentInput): ReviewDocument 
  * complaints: severity, category, the file it points at, the criteria it names,
  * and the statement with its spacing removed.
  */
-export function findingKey(finding: ReviewFinding): string {
+export function findingKey(
+  finding: Pick<ReviewFinding, 'severity' | 'category' | 'file' | 'criterionIds' | 'statement'>,
+): string {
   return sha256Hex(
     [
       'mergesutra-review-finding/1',

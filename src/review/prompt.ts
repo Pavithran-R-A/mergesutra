@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../bharatcode/types.js';
+import { defaultRedactor } from '../security/redaction.js';
 import type { ReviewContext, ReviewPatchFile } from './context.js';
 
 /**
@@ -163,6 +164,19 @@ export function buildReviewMessages(context: ReviewContext): ChatMessage[] {
     { role: 'system', content: `${SYSTEM}\n\nRequired JSON shape:\n${REVIEW_SCHEMA_HINT}` },
     { role: 'user', content: sections.join('\n\n') },
   ];
+}
+
+/** The text a reviewer was actually given, after the same masking the wire applies.
+ *
+ * Evidence is weighed against this, not against the run record: a quotation the
+ * prompt never carried cannot have come from reading the patch, whatever the
+ * reviewer says it did.
+ */
+export function reviewMaterial(context: ReviewContext): string {
+  return defaultRedactor
+    .deep(buildReviewMessages(context))
+    .map((message) => message.content)
+    .join('\n');
 }
 
 /** The user turn after a refused answer: what was wrong, and nothing the model said. */
