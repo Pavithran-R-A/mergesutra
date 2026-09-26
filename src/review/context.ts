@@ -6,6 +6,12 @@ import type { AcceptanceCriterion } from '../contract/schema.js';
 import type { RunRecord } from '../state/run-record.js';
 import { stalenessOf, type PatchChange, type PatchDescription } from '../verify/patch.js';
 import type { GateOutcome } from '../verify/engine.js';
+import {
+  assembleScopeFiles,
+  buildReviewManifest,
+  type ReviewContextManifest,
+  type ReviewScopeFile,
+} from './manifest.js';
 
 /**
  * What a reviewer is shown — Stage 9.
@@ -156,6 +162,16 @@ export interface ReviewContext {
   readonly limitations: readonly string[];
   readonly files: readonly ReviewPatchFile[];
   readonly skipped: readonly ReviewSkippedFile[];
+  /**
+   * Files the plan said it would change and this patch left alone, read from the
+   * workspace under the same confinement and budgets as the patch. A diff cannot
+   * show its own omissions, so the review would be unable to either.
+   */
+  readonly scope: readonly ReviewScopeFile[];
+  /** Why an in-scope file was not sent, and how much reading the budget allowed. */
+  readonly scopeLimitations: readonly string[];
+  /** The ids a finding may cite, authored here from the material on the page. */
+  readonly manifest: ReviewContextManifest;
   /** Bytes of patch content actually sent. */
   readonly bytes: number;
   readonly limits: ReviewContextLimits;
@@ -227,7 +243,9 @@ export async function assembleReviewContext(
     limits,
   });
 
-  return {
+  const scope = await assembleScopeFiles({ record, patch }, { reader });
+
+  const withoutManifest = {
     schemaVersion: REVIEW_CONTEXT_SCHEMA_VERSION,
     runId: record.runId,
     baseSha: patch.baseSha,
@@ -255,10 +273,14 @@ export async function assembleReviewContext(
     limitations,
     files: patchFiles.files,
     skipped: patchFiles.skipped,
+    scope: scope.files,
+    scopeLimitations: scope.limitations,
     bytes: patchFiles.bytes,
     limits,
     excluded: REVIEW_CONTEXT_EXCLUSIONS,
-  };
+  } satisfies Omit<ReviewContext, 'manifest'>;
+
+  return { ...withoutManifest, manifest: buildReviewManifest(withoutManifest, record.contract) };
 }
 
 function issueFact(record: RunRecord): ReviewIssueFact {

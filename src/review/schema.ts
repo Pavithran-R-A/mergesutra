@@ -3,6 +3,7 @@ import { AppError } from '../core/errors.js';
 import { sha256Hex } from '../security/digest.js';
 import { isRepositoryRelativePath } from '../security/path-safety.js';
 import { criterionIdSchema } from '../plan/schema.js';
+import { REVIEW_REF_PATTERN } from './manifest.js';
 
 /**
  * The review protocol — Stage 9.
@@ -91,7 +92,19 @@ export const reviewLineRangeSchema = z
  * The anchor rule is the substance of it: a complaint that names neither a file
  * nor a criterion cannot be checked by anyone, so it is not a finding — it is
  * the "this may have bugs" sentence the protocol exists to refuse.
+ *
+ * `contextRefs` is what makes the anchor checkable rather than merely specific.
+ * The ids come from the manifest this stage authored and rendered on the page, so
+ * citing one is a claim MergeSutra can verify — that the material named exists,
+ * that its bytes were sent, that as much of it as the finding describes was on
+ * the page. A path the reviewer prefers is not a claim about anything; it is a
+ * wish, and if it granted standing it would hand the model the power to choose
+ * which files a repair may touch.
  */
+export const reviewContextRefSchema = z.string().regex(REVIEW_REF_PATTERN, {
+  message: 'A context reference is an id of the form CTX-001, from the manifest in the prompt.',
+});
+
 export const reviewFindingBodySchema = z
   .object({
     severity: z.enum(REVIEW_SEVERITIES),
@@ -109,6 +122,7 @@ export const reviewFindingBodySchema = z
       .optional(),
     lineRange: reviewLineRangeSchema.optional(),
     criterionIds: z.array(criterionIdSchema).default([]),
+    contextRefs: z.array(reviewContextRefSchema).default([]),
     proposedAction: trimmedText('A proposed action', 1_000),
     confidence: z.enum(REVIEW_CONFIDENCES).optional(),
   })
@@ -140,6 +154,7 @@ export const reviewFindingSchema = z
     file: z.string().min(1).optional(),
     lineRange: reviewLineRangeSchema.optional(),
     criterionIds: z.array(criterionIdSchema),
+    contextRefs: z.array(reviewContextRefSchema),
     proposedAction: z.string().min(1),
     confidence: z.enum(REVIEW_CONFIDENCES).optional(),
     /** Assigned by MergeSutra after the factual checks in `disposition.ts`. */

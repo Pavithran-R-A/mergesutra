@@ -1,6 +1,10 @@
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
-import { createRunRecord, type RunRecord } from '../../src/state/run-record.js';
+import {
+  createRunRecord,
+  type NewRunRecordInput,
+  type RunRecord,
+} from '../../src/state/run-record.js';
 import { describePatch, type PatchDescription } from '../../src/verify/patch.js';
 import { mapAcceptanceEvidence } from '../../src/verify/evidence.js';
 import { runVerification } from '../../src/verify/engine.js';
@@ -209,6 +213,41 @@ export async function reviewFixture(
     criteria,
     calls,
   };
+}
+
+/**
+ * The same run, believing something different.
+ *
+ * Stage 9's rules are all about which document a later stage may quote, so a
+ * test needs to move one field at a time — the plan, the review, the consent —
+ * without hand-writing a record that never passed a schema. This one re-enters
+ * the real constructor, so an impossible combination still fails here rather
+ * than in a fixture that quietly got it wrong.
+ */
+export function recordWith(record: RunRecord, over: Partial<NewRunRecordInput> = {}): RunRecord {
+  const carried: NewRunRecordInput = {
+    runId: record.runId,
+    createdAt: record.createdAt,
+    stage: record.stage,
+    outcome: record.outcome,
+    issueRef: record.issueRef,
+    issue: record.issue,
+    repository: record.repository,
+    base: record.base,
+    local: record.local,
+    contract: record.contract,
+    acceptanceContract: record.acceptanceContract,
+    plan: record.plan,
+    implementation: record.implementation,
+    verificationPlan: record.verificationPlan,
+    verification: record.verification,
+    executionConsent: record.executionConsent,
+    evidence: record.evidence,
+    checks: record.checks,
+    limitations: record.limitations,
+    nextStage: record.nextStage,
+  };
+  return createRunRecord({ ...carried, ...over });
 }
 
 async function moveThePatch(repoDir: string, base: string): Promise<PatchDescription> {
