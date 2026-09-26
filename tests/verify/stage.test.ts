@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultRunner } from '../../src/core/runner.js';
+import { describePatch } from '../../src/verify/patch.js';
 import { scopeDigest } from '../../src/verify/consent.js';
 import { runVerifyStage } from '../../src/verify/stage.js';
+import { cycleFor, frozenPlan, reviewWithoutFindings } from '../helpers/repair.js';
+import { recordWith } from '../helpers/review.js';
 import {
   cleanUp,
   errorFrom,
@@ -151,6 +154,48 @@ describe.skipIf(!AVAILABLE)('runVerifyStage', () => {
       expect(entry.sufficiency, entry.criterionId).toBe('VERIFIED');
       expect(entry.gateIds.length, entry.criterionId).toBeGreaterThan(0);
     }
+  });
+
+  it('keeps what the stages after it established, because verify did not make those facts', async () => {
+    const { prepared, source, repoDir, base } = await implementedRun(tempDirs);
+    const implementation = source.implementation;
+    const criteria = source.acceptanceContract?.criteria.map((entry) => entry.id) ?? [];
+    if (!implementation || criteria.length === 0) {
+      throw new Error('the fixture must have implemented and contracted');
+    }
+    const patch = await describePatch({ workspace: repoDir, baseSha: base });
+    const plan = frozenPlan({
+      runId: source.runId,
+      criteria,
+      patchIdentity: patch.identity,
+      expectedChecks: ['VG-001'],
+      createdAt: NOW.toISOString(),
+    });
+    const later = recordWith(source, {
+      review: reviewWithoutFindings({
+        runId: source.runId,
+        baseSha: base,
+        patchIdentity: patch.identity,
+        at: NOW.toISOString(),
+      }),
+      repairPlan: plan,
+      repairExecutions: [cycleFor({ plan, patch, implementation, createdAt: NOW.toISOString() })],
+    });
+    await prepared.store.save(later);
+
+    const stage = await runVerifyStage(
+      { runId: source.runId },
+      { store: prepared.store, now: () => NOW, ...scriptedGates() },
+    );
+
+    // A repair cycle that ran is a thing that happened; a verification round that
+    // re-runs cannot un-write it.
+    expect(stage.record.review).toEqual(later.review);
+    expect(stage.record.repairPlan).toEqual(later.repairPlan);
+    expect(stage.record.repairExecutions).toEqual(later.repairExecutions);
+    // What verify does re-derive, it re-derives from scratch.
+    expect(stage.record.outcome).toBe('VERIFICATION_BLOCKED');
+    expect(stage.record.stage).toBe('verify');
   });
 
   it('refuses a workspace that has moved off the commit its run recorded', async () => {

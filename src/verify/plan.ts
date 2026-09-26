@@ -169,6 +169,15 @@ export interface RevisePlanInput extends PlanSources {
   readonly reason: string;
   readonly source: GateProvenance;
   readonly now?: () => Date;
+  /**
+   * The patch this revision will be run against, when it is not the one the plan
+   * was written for.
+   *
+   * A repair cycle is that case: the gates are the same gates, and the bytes they
+   * are about are different bytes. Omit it and the plan keeps its original
+   * binding, which is what a CI file gaining a step should do.
+   */
+  readonly patchIdentity?: string;
 }
 
 /** A gate with everything except the number this module assigns. */
@@ -197,6 +206,12 @@ export function buildVerificationPlan(input: BuildPlanInput): VerificationPlan {
  * that survives keeps its id wherever the new discovery happened to place it, and
  * only genuinely new commands are numbered. That is what lets a receipt written
  * against `VG-002` still mean something after CI gains a step.
+ *
+ * A revision may also be told it is for a different patch, which is the case when
+ * a repair cycle has moved the bytes under a plan that still describes the right
+ * checks. The binding and the gate list are kept apart on purpose: renumbering a
+ * plan because its patch changed would throw away the one thing that made the
+ * older receipts comparable to these ones.
  */
 export function reviseVerificationPlan(
   previous: VerificationPlan,
@@ -246,6 +261,7 @@ export function reviseVerificationPlan(
 
   return parseVerificationPlan({
     ...previous,
+    patchIdentity: input.patchIdentity ?? previous.patchIdentity,
     revision: revision.revision,
     gates,
     revisions: [...previous.revisions, revision],

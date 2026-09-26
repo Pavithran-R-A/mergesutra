@@ -238,12 +238,17 @@ describe('a plan written before anything runs', () => {
 });
 
 describe('a plan revised after it was written', () => {
-  function revised(gates: readonly DiscoveredGate[], reason = 'CI gained a build step') {
+  function revised(
+    gates: readonly DiscoveredGate[],
+    reason = 'CI gained a build step',
+    over: Partial<Parameters<typeof reviseVerificationPlan>[1]> = {},
+  ) {
     return reviseVerificationPlan(build(), {
       discovered: discovery(gates),
       reason,
       source: CI_SOURCE,
       now: () => new Date('2026-09-25T11:00:00.000Z'),
+      ...over,
     });
   }
 
@@ -324,6 +329,33 @@ describe('a plan revised after it was written', () => {
         now,
       }),
     ).toThrow(/reason/i);
+  });
+
+  it('binds a revision to the patch it will actually be run against', () => {
+    const moved = 'c'.repeat(64);
+
+    const plan = revised([TEST_GATE, LINT_GATE], 'a repair cycle moved the patch', {
+      patchIdentity: moved,
+    });
+
+    expect(plan.patchIdentity).toBe(moved);
+    expect(plan.revision).toBe(2);
+    expect(plan.gates.map((gate) => `${gate.id}:${gate.command}`)).toEqual([
+      'VG-001:npm test',
+      'VG-002:npm run lint',
+    ]);
+  });
+
+  it('keeps the patch it was written for when nothing has moved', () => {
+    expect(revised([TEST_GATE, LINT_GATE, BUILD_GATE]).patchIdentity).toBe(PATCH_IDENTITY);
+  });
+
+  it('refuses a revision bound to something that is not a patch digest', () => {
+    expect(() =>
+      revised([TEST_GATE, LINT_GATE], 'a repair cycle moved the patch', {
+        patchIdentity: 'HEAD',
+      }),
+    ).toThrow(/shape|digest/i);
   });
 });
 
