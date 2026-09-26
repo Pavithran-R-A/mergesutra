@@ -15,7 +15,7 @@ import {
   reviewedRun,
 } from '../helpers/repairRun.js';
 import { scriptedClient } from '../helpers/bharatcode.js';
-import { finishAction, writeAction } from '../helpers/implement.js';
+import { checkAction, digestOf, finishAction, writeAction } from '../helpers/implement.js';
 import { consentFor, planOf, plannedGate } from '../helpers/verification.js';
 import { cleanUp, errorFrom, hasGit, implementedRun, put, NOW } from '../helpers/verifyRun.js';
 import type { RunRecord } from '../../src/state/run-record.js';
@@ -374,6 +374,92 @@ describe.skipIf(!AVAILABLE)('runRepairStage', () => {
     // must not claim that they stopped describing it.
     expect(result.record.verification).toEqual(fixture.record.verification);
     expect(result.record.limitations.join(' ')).not.toMatch(/stale/i);
+  });
+
+  /**
+   * The one way a cycle can still reach outside its plan: a command.
+   *
+   * A `WRITE_FILE` to a file the brief does not name is refused before the writer
+   * is asked, which the test above covers. A process is a different matter — the
+   * tool policy lets `node scripts/scaffold.mjs` start because running the
+   * repository's own generator is what a verification stage exists to do, and it
+   * has no idea which files that generator will write. So this is the case the
+   * scope guard was built for: prevention stopped what it could see, and here the
+   * two patch measurements disagree with the plan.
+   *
+   * What a guard cannot do is decide. The unplanned file stays exactly where the
+   * command put it, the repair's own edit is not reverted, and the gates are not
+   * run over bytes nobody approved — re-verifying them would turn an unapproved
+   * edit into evidence for it.
+   */
+  it('files what a command wrote outside the plan, and touches neither it nor the edit', async () => {
+    const fixture = await reviewedRun(tempDirs, {
+      // Seeded before the patch is measured, so it is part of the reviewed patch
+      // and of the bytes the plan was frozen against — and still not a file the
+      // plan names, which is the whole question.
+      seedFiles: {
+        'scripts/scaffold.mjs':
+          "import { writeFileSync } from 'node:fs';\n" +
+          "writeFileSync('src/generated.ts', 'export const scaffold = 1;\\n');\n",
+      },
+    });
+    const current = await parserOf(fixture.workspace);
+    const roundsBefore = fixture.gateCalls.length;
+    const client = scriptedClient([
+      writeAction('src/parse.ts', REPAIRED, [...fixture.criteria], digestOf(current)),
+      checkAction(['node', 'scripts/scaffold.mjs'], 'run the repository’s generator'),
+      finishAction('Rewrote the guard and regenerated the scaffolding.', [...fixture.criteria]),
+    ]);
+
+    const result = await runRepairStage(
+      { runId: fixture.record.runId, approvePlan: repairPlanDigest(fixture.plan) },
+      {
+        store: fixture.store,
+        client,
+        now: () => NOW,
+        runsRoot: fixture.runsRoot,
+        runFor: fixture.runFor,
+      },
+    );
+
+    // The command really ran, in the real workspace, and really wrote the file.
+    expect(await readFile(path.join(fixture.workspace, 'src/generated.ts'), 'utf8')).toContain(
+      'export const scaffold = 1;',
+    );
+    expect(result.execution?.scope.outcome).toBe('OUTSIDE_PLANNED_SCOPE');
+    expect(result.execution?.scope.unexpectedFiles).toEqual(['src/generated.ts']);
+    expect(
+      result.execution?.scope.files.find((file) => file.path === 'src/generated.ts'),
+    ).toMatchObject({ delta: 'ADDED_BY_REPAIR', classification: 'UNEXPECTED' });
+    // The planned half of the cycle is still a fact about this patch.
+    expect(result.execution?.patchChanged).toBe(true);
+    expect(await parserOf(fixture.workspace)).toBe(REPAIRED);
+
+    // §10 in the only direction it can go here: no round over unapproved bytes.
+    expect(result.round).toBeNull();
+    expect(fixture.gateCalls).toHaveLength(roundsBefore);
+    expect(result.record.verification).toEqual(fixture.record.verification);
+    expect(result.record.outcome).toBe('REPAIR_NEEDS_HUMAN');
+    // One cycle, whatever the guard found — §17.
+    expect(client.calls).toHaveLength(3);
+    expect(result.record.repairExecutions).toHaveLength(1);
+
+    const told = [result.record.nextStage, ...result.record.limitations].join(' ');
+    expect(told).toMatch(/NEEDS_HUMAN_REVIEW/);
+    expect(told).toMatch(/src\/generated\.ts/);
+    // §13: it says so in as many words, and the workspace agrees.
+    expect(told).toMatch(/not reverted|nothing was reverted|Nothing was reverted/i);
+    await expect(
+      readFile(path.join(fixture.workspace, 'scripts/scaffold.mjs'), 'utf8'),
+    ).resolves.toContain('writeFileSync');
+
+    const scopeRow = result.record.checks.find((check) => check.name === 'Repair scope');
+    expect(scopeRow?.status).toBe('WARN');
+    expect(scopeRow?.detail).toMatch(/src\/generated\.ts/);
+    expect(scopeRow?.detail).toMatch(/did not name|outside/i);
+    const noRoundRow = result.record.checks.find((check) => check.name === 'Re-verification');
+    expect(noRoundRow?.status).toBe('WARN');
+    expect(noRoundRow?.detail).toMatch(/not run/);
   });
 
   it('regenerates the pack the cycle made stale, in the run’s own directory', async () => {

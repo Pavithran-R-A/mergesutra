@@ -25,7 +25,6 @@ import type { RunRecord } from '../../src/state/run-record.js';
  * has to live under is the one the product derived, and the frozen plan names the
  * gates and files that plan builder really produced. Only the model is scripted.
  */
-
 /** What the repair writes over the fixture's parser: the branch the criterion asks for. */
 export const REPAIRED =
   'export function parseDate(i: string): Date {\n' +
@@ -69,9 +68,22 @@ export async function reviewedRun(
     readonly findings?: boolean;
     readonly movePatchAfterPlan?: boolean;
     readonly reviewCycle?: number;
+    /**
+     * Repository files to plant before anything is measured.
+     *
+     * These have to be in the workspace while the patch is described and the plan
+     * frozen: a file written after that point moves the patch, and a cycle over a
+     * moved patch is refused for staleness before it ever reaches the scope guard.
+     * So a test that wants the cycle to *run* a repository tool seeds the tool
+     * here, and the frozen plan simply does not name it.
+     */
+    readonly seedFiles?: Record<string, string>;
   } = {},
 ): Promise<RepairFixture> {
   const { prepared, source, repoDir, base } = await implementedRun(tempDirs);
+  for (const [file, contents] of Object.entries(options.seedFiles ?? {})) {
+    await put(repoDir, file, contents);
+  }
   const gates = scriptedGates();
   const learning = await runVerifyStage(
     { runId: source.runId },
