@@ -17,6 +17,7 @@ import { classifyRepairScope, routeRepairScope } from '../../src/repair/scope.js
 import { repairPlanDigest } from '../../src/repair/digest.js';
 import { runRepairStage } from '../../src/repair/stage.js';
 import { formatReview } from '../../src/cli/review.js';
+import { formatRepair } from '../../src/cli/repair.js';
 import { createRenderer } from '../../src/cli/render.js';
 import { checkAction, digestOf, finishAction, writeAction } from '../helpers/implement.js';
 import { scriptedClient } from '../helpers/bharatcode.js';
@@ -542,6 +543,18 @@ describe.skipIf(!AVAILABLE)(
       expect(report).not.toMatch(/CONTRIBUTION_READY|APPROVED|LGTM/i);
       if (process.env.MERGESUTRA_HERO_CAPTURE) {
         process.stdout.write(`\n--- mergesutra review ${runId} ---\n${report}\n`);
+        const cycle = repaired.record.repairExecutions[0];
+        if (!cycle) throw new Error('the capture run filed no cycle to print');
+        const screen = formatRepair(repaired, createRenderer({ color: false }));
+        expect(screen).toContain('Re-verified');
+        // "The operator approved this exact plan" is true and must stay; what the
+        // screen may never say is that a model, or this stage, signed off on the
+        // patch. Readiness is Stage 10's word, and no cycle here earns it.
+        expect(screen).not.toMatch(/CONTRIBUTION_READY|LGTM|approved by the model/i);
+        expect(screen).not.toMatch(/^\s*Outcome\s+\S*READY/im);
+        process.stdout.write(
+          `\n--- mergesutra repair ${runId} --approve-plan ${cycle.planDigest} ---\n${screen}\n`,
+        );
         process.stdout.write(`\n--- evidence pack after the repair ---\n${rendered}`);
       }
 
