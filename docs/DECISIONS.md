@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
 Each record: **decision → reason → alternatives → consequence**. These are
-actual decisions taken while building Stages 0-9 and 9R, not aspirations.
+actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
 
 ## ADR-001 — MergeSutra sits above the model/runtime layer
 
@@ -1224,3 +1224,100 @@ actual decisions taken while building Stages 0-9 and 9R, not aspirations.
   `REPAIR` is now built, which closes that gap; what remains open there is that a repair
   reaches the same adapter, and possibly the same model family, as the review that
   ordered it.
+
+## ADR-054 — Human approval is digest-bound to a PublicationCandidate, and approval is not remote capability
+
+- **Decision:** Stage 10 freezes one document — `PublicationCandidate`
+  (`src/pr/candidate.ts`) — and a human's yes is only ever about that document's
+  digest. The shape is `.strict()` and carries no verdict field: no `approved`, no
+  `shouldPublish`, no `recommendation`, no score, no model id. `publicationDigestOf()`
+  (`src/pr/digest.ts`) hashes fifteen labelled lines over the repository, base SHA,
+  patch identity, both branch names, the title, `prBodySha256`, the evidence pack
+  identity, the issue plus whether the page closes it, the review cycle and the patch
+  it reviewed, both summaries and the limitation list *in recorded order*, and it
+  validates through the strict schema before hashing so a document with an extra field
+  is refused rather than digested. `PublicationApproval` (`src/pr/approval.ts`) is five
+  fields with `action` from a one-member enum (`CREATE_PULL_REQUEST`), compared by
+  `decidePublication()` into `MATCHED` / `ABSENT` / `STALE` with no wildcard, and
+  `approvePublication()` computes the digest instead of accepting one. Capability is a
+  separate object: `PublicationRemote` (`src/pr/publisher.ts`) has exactly two methods,
+  `pushBranch` and `createPullRequest`, both inputs re-validated at that boundary, and
+  its only implementation in this build is `unavailableRemote()`, which throws — and
+  which nothing calls, since `publisher.ts` has no production importer at all. The CLI
+  takes a yes from `--approve <64-hex>` in argv and never reads the environment for one.
+- **Reason:** Publication is the one act in this product that speaks for a person to a
+  repository that is not theirs, so the authorising fact has to name precisely what it
+  covered — and the only name for "this page over these bytes into this branch" that
+  goes stale by itself is a digest over the page. The two failures the design is
+  arranged against are opposite directions: an approval so loose it authorises work
+  nobody read (a boolean, a `--yes`, an `APPROVE_ALL`, a `createdAt`-sensitive digest
+  that expires on a rebuild and teaches the operator to reach for a blunter flag), and
+  an approval so powerful that saying yes to a page also handed over the hands that
+  publish it. Making the yes and the transport one object is the standard way to build
+  the second, which is why `allowed: true` lives in a module that imports no client and
+  `publish()` re-decides the digest rather than trusting its caller.
+- **Alternatives:** a boolean or `approvedAt` on the candidate (a document that is both
+  the proposal and its own approval, with nothing to go stale against); `--yes` /
+  `--force` / `--approve-all` (each approves a scope nobody was shown, and Stage 9R
+  established that a yes typed in advance is a yes given without reading); accepting a
+  digest prefix, a `*`, or the latest candidate (typoable, and a typo that matches a
+  *different* page is the bug); folding `createdAt` in (the same state frozen twice
+  would produce two numbers, so every re-render would silently void a decision);
+  a generic `gh` runner or REST client behind the seam (a shape with `endpoint` or
+  `command` in it lets anything be done on a yes for one pull request); letting
+  BharatCode summarise or author the approval (it has no field to do it with, and the
+  tests plant `"approved": true` in every model-written document a record holds to keep
+  it that way); deferring the boundary until a real publisher exists (the seam is the
+  only proof the disabling is structural rather than a missing flag).
+- **Consequence:** Editing the page, re-measuring a moved patch, or re-rendering the
+  evidence pack produces a new digest and the old yes reads as `STALE` while naming both
+  numbers — so `mergesutra report` after an approval expires it, which is documented
+  rather than smoothed over. `src/pr/record.ts` refuses at *read* time a stored record
+  whose approval names another candidate's digest, so a forged or cross-wired filing
+  never reaches a decision. Because a real pull request needs commits and MergeSutra has
+  never made one, the stage result types `published` as the literal `false`, the stored
+  publication holds only a candidate and a yes — no URL, no result, no merge timestamp —
+  and `prUrl` appears nowhere in the build. Every path through the command, including the
+  one where a person has just approved, ends with the same three lines:
+  `HUMAN APPROVAL RECORDED` / `REMOTE PUBLICATION NOT ENABLED` / `NO REMOTE CHANGE HAS
+  BEEN MADE.` That is the honest half-done state a later stage replaces by *adding a
+  transport*, not by widening a flag. `CONTRIBUTION_READY` remains unreachable:
+  `HUMAN_APPROVED_FOR_PR` means a person read this page, which is not a claim that the
+  code is good or that GitHub agreed.
+
+## ADR-055 — A pull request title quoted from an issue may not borrow a verdict word
+
+- **Decision:** `titleOf()` (`src/pr/draft.ts`) reuses the issue's own title only when
+  `overclaim()` finds nothing it would be lying to say; otherwise it emits the
+  deterministic `MergeSutra draft for <owner>/<repo>#<n>`. A run with no issue falls
+  back through the first contract criterion's statement to the same form carrying the run
+  id, so a headline always comes from one of three quoted, screened sources. The
+  classifier's last two patterns are not optimism vocabulary at all — they are words this
+  program owns: its state names and flag names (`human_approved_for_pr`,
+  `contribution_ready`, `approve_all`, `pr created`, `"approved": true`) and its closing
+  keywords (`fixes #n`, `closes #n`, `resolves #n`), so a headline can carry neither. The
+  whole title still passes through central redaction and a drive-letter/POSIX-home scrub
+  before it is fitted to GitHub's length limit.
+- **Reason:** A title is the one line of a pull request every reviewer reads first, and
+  the text inside it is not what makes it true. Issue titles are repository-controlled
+  strings — an input this project already treats as untrusted everywhere else. The
+  screen that refuses a reporter's optimism ("all tests passed", "production ready")
+  existed from the first draft of this stage; what it did not refuse was this program's
+  own vocabulary, so an issue titled `Fixes #999 # HUMAN_APPROVED_FOR_PR` walked
+  unedited into the page's headline. The closing-keyword case is worse than the branding
+  one: GitHub acts on `Fixes #123`, so a title borrowed from an issue could close an
+  issue the evidence never satisfied — a remote side effect smuggled in through
+  typography, on a line nobody thinks of as a claim this build is making.
+- **Alternatives:** strip or rewrite the offending words (a title that silently changes
+  somebody's wording is a new claim about their intent, and harder to notice); keep the
+  quote and add a disclaimer underneath (the disclaimer is read by the person the
+  headline already persuaded); block the run because its issue was badly named (the
+  defect is in this stage's judgment, not the repository's); allowlist per-word instead
+  of falling back (leaves a mangled headline and a much longer argument about nouns).
+- **Consequence:** `OVERCLAIMS` is a load-bearing list, so Stage 10's tests assert on
+  both halves — the borrowed-title case and the fallback that must still name the
+  issue — and `tests/pr/injection.test.ts` repeats the attack through a hostile issue
+  title and body. Any future state word this program owns has to be added to that list,
+  because the fallback is the only place a headline can come from now, and `Fixes #n`
+  exists solely where `closesTheIssue()` proved same-repository identity plus verified
+  evidence on the current patch.

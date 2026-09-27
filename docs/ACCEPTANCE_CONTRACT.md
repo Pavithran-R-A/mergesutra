@@ -11,7 +11,10 @@
 > action still has no field that could hold a `PASS`. The core principle is
 > implemented, not aspirational: **a `PASS` without evidence cannot be
 > constructed**, and a model cannot be the one to add a requirement, prove a
-> criterion, or be believed about either.
+> criterion, or be believed about either. **[STAGE 10 SHIPPED]** at the other end
+> of that chain: `mergesutra pr` reads the statuses below and assembles a page from
+> them, and it has no field on this contract — or on its own candidate — where a
+> verdict could be written. See "The publication pair" below.
 
 ## Why it exists
 
@@ -221,6 +224,63 @@ Two deltas from the earlier design sketch, both deliberate:
   schema-strict object rejects them, so an inflated self-assessment has nowhere
   to be written.
 
+### The publication pair (Stage 10)
+
+`src/pr/candidate.ts`, `src/pr/digest.ts`, `src/pr/approval.ts` and
+`src/pr/record.ts`. The contract above is the obligation; these are the two
+documents a run files beside it when it reaches the publication boundary. Both
+are `.strict()`, and — like the contract — neither one carries a verdict.
+
+```ts
+PublicationCandidate {                        // schemaVersion 1, no status field
+  runId, repository, baseSha, patchIdentity   // every one measured, none typed in
+  targetBranch, proposedBranch
+  prTitle, prBody, prBodySha256               // both bounded; the body is hashed
+  evidencePackIdentity                        // which pack's bytes this page repeats
+  issueCanonical: string | null, closesIssue: boolean
+  reviewCycle, reviewedPatchIdentity, reviewSummary
+  verificationSummary, knownLimitations: string[], createdAt
+}
+
+publicationDigestOf(candidate)                // sha256 of 15 labelled lines
+  // mergesutra-publication/1, run, repository, base, patch, target, source,
+  // title, body as prBodySha256, pack, issue + closes/relates, review cycle +
+  // patch, review-summary, verification, limitations joined with \u0000.
+  // `createdAt` is the only field left out: a yes covers a scope, not a minute.
+  // The candidate is parsed through its own schema before it is hashed.
+
+PublicationApproval {                         // five fields, authored by a person
+  schemaVersion, runId,
+  publicationDigest,                          // 64 hex — no prefix, no wildcard
+  approvedAt,
+  action: 'CREATE_PULL_REQUEST'               // the enum's only member
+}
+
+decidePublication → { status: 'MATCHED' | 'ABSENT' | 'STALE', allowed, … }
+  // equality against the recomputed digest, and nothing else
+
+PublicationRecord { candidate, approval: PublicationApproval | null }
+  // appended to `record.publications` (run schema version 9)
+```
+
+Three rules that live in the shapes rather than in prose:
+
+- **An approval can be about one thing.** `decidePublication` recomputes the
+  digest from the candidate in front of it and compares; it never accepts a
+  digest as a parameter, so there is no way to say yes to a page that was not
+  shown. A candidate re-rendered by `mergesutra report` after the yes comes back
+  `STALE`, naming both digests.
+- **A stored yes cannot be cross-wired.** `publicationRecordSchema`'s
+  `superRefine` refuses at read time a record whose approval names a different
+  candidate's digest — the pairing a decision-time check would already have
+  rejected, kept out of the history a later stage would trust.
+- **There is no result field.** No `prUrl`, no `published`, no merge timestamp
+  exists in either document, so nothing in Stage 10's stored state can read as a
+  publication that happened. `contributionReady` remains the literal `false` it
+  has been since Stage 7, and the criteria rows a page quotes are the same rows
+  with the same statuses — `pr` is a consumer of this contract, and has no field
+  on it to rewrite.
+
 ## Hard rules
 
 1. **Truthful states.** `PASS` only when the referenced evidence actually shows
@@ -311,3 +371,25 @@ that finished and moved nothing, and a plan escalated for reaching outside its o
 scope; `BLOCKED` is a loop that stopped on a bound or an outage, with the patch
 unchanged. None of the three is exit `0`, and `contributionReady` remains the literal
 `false` it was.
+
+Stage 10's are `PR_CANDIDATE_RECORDED`, `PR_APPROVED_LOCAL` and
+`PR_PUBLICATION_BLOCKED` — exits `3`, `3` and `4`, and no path through the command
+returns `0`, because none of the three is a publication. The first says the facts a
+page needs were all already on file and the page was assembled and shown; the second
+says a human then typed that page's digest back, which is the strongest sentence this
+stage can make and is still a sentence about a keystroke, not about GitHub; the third
+covers a run whose evidence is missing or stale and a yes that does not fit the page
+in front of the person typing it, and names which. The readiness decision behind them
+is eight named facts, not a score: `patch-measured`, `verification-current`,
+`verification-passed`, `review-current`, `no-repair-candidate-left`,
+`no-scope-violation`, `pack-current`, `human-approved`. All eight hold and the word is
+`HUMAN_APPROVED_FOR_PR`, which means exactly one thing — a person has agreed, by
+digest, to this page being opened as a pull request — and does not mean the AI thinks
+the code is good, that no defect remains, or that anything was published; the stage
+result beside it types `published` as the literal `false`, and the only publication
+transport this build defines throws when called — and has no production caller. Anything less is `NOT_READY_FOR_PUBLICATION`, whose blocking rows name
+the earlier stage that owns the missing fact, since Stage 10 consumes state and does
+not repair it. `CONTRIBUTION_READY` is still not in the outcome vocabulary: a run
+whose eight checks all hold has a human's yes on a page, which is a different kind of
+claim from every mandatory gate having passed, and Stage 10 has no field to write the
+stronger one into.

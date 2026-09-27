@@ -6,8 +6,11 @@
 > tool-classification and write/read-confinement boundaries (§3–§5) and the
 > implementation loop's prompt-injection enforcement (§2.1). What remains
 > **[DESIGNED]** is the full adversarial matrix over file *names* and
-> configuration shapes (§2), and every boundary a later stage adds when it runs
-> verification or publishes.
+> configuration shapes (§2). Sections 2.2 to 2.5 have been built and tested since
+> — the verification engine, the reviewer, the repair cycle and the publication
+> page — and what survives of that last clause is the boundary a real publisher
+> would stand in front of, which is a stage this build does not have: §2.5's
+> headline claim is that an approval buys no hands.
 
 ## 1. Authority hierarchy (higher cannot be overridden by lower)
 
@@ -328,7 +331,85 @@ repair is authorised by the text that describes it:
   buys a bounded executor with a narrower brief, not a diversity of judgment. The
   marking in §2.3's gap note still does not cover `plan` and general `implement`.
   Remote mutations remain refused outright: nothing in Stage 9R pushes, opens or
-  comments, and `mergesutra pr` remains Stage 10's planned command.
+  comments, and `mergesutra pr` remains Stage 10's planned command. *(Kept as written:
+  §2.5 below is what Stage 10 built when it arrived — the command exists, and the
+  refusal it holds is a remote that has no transport rather than a policy that says no.)*
+
+### 2.5 The publication page (Stage 10)
+
+Stage 10 turns text into a page and a page into a record, and it is the first stage
+whose output is *meant* to be read by a stranger. That makes two things attackable: the
+word "approved", and what the page says about the machine it was built on. Both are
+handled by the same rule as §2.1–§2.4 — no claim of authority is met with a
+counter-claim, it is met with a shape that has no field for it:
+
+- **`"approved": true` is not an approval.** It is planted in five shapes by
+  `tests/pr/injection.test.ts` — in each of the four model-authored documents a run
+  record holds, in the environment, in the record's own JSON, in a file inside the
+  repository, and in an issue title — and the answer is the same each time: no approval
+  on file, and not one word on the screen that a human's yes owns. The layers that
+  refuse differ, and that is the point: model text has no path to the page's authority
+  because `DraftInput` accepts no summary from it; a repository file only changes which
+  bytes exist, which is a fact about the patch and not about consent; the environment is
+  never read for a yes, which a test proves by *stubbing* the real `process.env` rather
+  than by asserting a negative; a hand-edited record is refused while it is still being
+  parsed, and says which field it choked on; and a headline that borrows this program's
+  own state words is not quoted at all (ADR-055).
+- **The approval shape cannot hold a wider yes.** `PublicationApproval` is five fields
+  with `.strict()` on the object and a one-member `action` enum
+  (`CREATE_PULL_REQUEST`), so `APPROVE_ALL`, `PUBLISH_ANYTHING`, `FORCE` and `MERGE` are
+  not values this document can be written with — and a sixth field, whatever it is
+  called, makes the record unreadable rather than ignored. `approvePublication()` derives
+  the digest and accepts no parameter for it, so a caller cannot construct a yes for a
+  page it did not generate.
+- **A candidate with a verdict inside it does not parse.** `publicationCandidateSchema`
+  is strict and defines no `approved`, `shouldPublish`, `score` or `recommendation`, so a
+  planner, a reviewer, a repository file or a forger that puts one there produces an
+  error rather than a proposal; `publicationDigestOf()` validates before it hashes, so
+  the forged document cannot even yield a number to point at.
+- **BharatCode authors nothing here, and spends nothing.** The stage imports no client,
+  no transport and no runner: closing Stage 10 made zero model calls and needed no
+  credential. The one input that is not derived from a record is the digest a person
+  types.
+- **Nothing private rides along into a public page.** A pull request body is published
+  to whoever reads the repository, so the machine it was built on must not be
+  mentioned: repository-relative paths only, central redaction on every field, plus the
+  two scrubs that a POSIX-only filter historically misses — a Windows drive-letter path
+  and a home-directory root. The tests assert the absence of `C:\Users\…`, `/home/…`,
+  the temp root this run used, the runs directory, credential-shaped tokens and any
+  environment dump, while asserting the *presence* of the repository-relative rows that
+  should survive — because a redactor that blanks the page also "passes". No model
+  reasoning is quoted; the body is bounded in length; a URL is never invented, only
+  echoed from the intake record.
+- **A closing keyword is evidence, not typography.** `Fixes #n` appears when the issue
+  identity, same-repository closure and a `PASS` on every criterion for the patch on disk
+  are all recorded; anything else — including a fork's copy of the same number — is
+  written as `Related to owner/repo#n` and closes nothing. A title that *says* `Fixes
+  #999` is refused rather than reproduced, because GitHub acts on the phrase wherever it
+  appears.
+- **The boundary is on the screen, on every path.** Each outcome — including the one
+  where a person has just typed the right digest — ends
+  `HUMAN APPROVAL RECORDED` / `NO HUMAN APPROVAL RECORDED`, then `REMOTE PUBLICATION NOT
+  ENABLED`, then `NO REMOTE CHANGE HAS BEEN MADE.` `published` is the type-level literal
+  `false` and `prUrl` exists nowhere in the build; there is no exit `0` to read as
+  "a PR was made".
+- **Two guards that behaviour cannot show are taken from source.**
+  `tests/pr/boundaries.test.ts` scans the specifiers of every module on the production
+  path and fails if the stage can reach the seam, a runner, a writer or a client;
+  `tests/pr/source-shape.test.ts` enumerates the argv arrays the stage's closure can
+  construct — its only commands are the measurements that read — classifies them with
+  the production risk oracle, and pins the result. `publisher.ts` is in the
+  no-hands group precisely because it declares the interface and returns the one
+  refusal, `unavailableRemote()`, which throws on both of its two methods; and the fake
+  transport in `tests/pr/publisher.test.ts` proves the seam is real in the other
+  direction too, so "disabled" is not indistinguishable from "never wired".
+- **Known gap, stated rather than smoothed over:** the risk oracle in §3 has no name for
+  `gh`, `npm` or `curl` — an unfamiliar program classifies as ordinary `EXECUTE` — so the
+  ban on reaching them rests on the argv enumeration and the import boundary above, not
+  on the classifier. And the reason nothing publishes is bigger than a missing transport:
+  MergeSutra has never made a commit, so there is nothing to push; a real pull request
+  would mean committing an operator's tree on their behalf, which no approval in this
+  build claims to cover.
 
 ## 3. Tool risk classes and policy
 
@@ -378,6 +459,21 @@ one outside the workspace, is refused. Note what this module is *not*: it is a
 judgement on strings, so it is not the enforcement point for writes. The only
 module that puts bytes on disk repeats the containment check after resolving
 links, and says so — see §4.
+
+Stage 10 does not exercise the REMOTE MUTATION row, and the reason is the stage's
+whole claim: `mergesutra pr` assembles a page out of bytes that already exist, so
+the argv its closure can construct is a handful of read-only `git` measurements,
+and there is no push, merge, rebase, reset, clean, comment or publish in it. That
+is proved from source text rather than by running anything
+(§2.5), because the interesting experiment — asking the stage to push and watching
+it refuse — would have to reach the boundary to be observed. Where the stage could
+be weakened is the classifier itself, and the limitation is named rather than
+skated over: `riskOf` knows `git` verbs, so `gh pr create`, `npm publish` or
+`curl -X POST` read as ordinary EXECUTE. The ban on those three therefore rests on
+the enumeration and the import boundary, not on a policy function saying no — which
+is also why `pr/publisher.ts` sits *beside* this table: it is a two-method
+interface whose only production value throws, and no `tool-policy` decision is ever
+consulted on the way to a refusal that is structural.
 
 ## 4. Workspace isolation & file safety
 
@@ -549,6 +645,15 @@ be given exact runtime secret values for literal masking.
   MergeSutra must record faithfully in shape but never in substance, so the
   value becomes `[REDACTED]` in the run record and in the rendered table; the
   file and line that produced it stay intact.
+- Stage 10 redacts the one document this product writes for readers who are not
+  the operator. A pull request body outlives the run, so a credential or a
+  username that reached it could not be recalled: the title, every body section
+  and every limitation line go through the central redactor, and then through the
+  two scrubs that catch what a POSIX-shaped filter misses — a Windows
+  drive-letter path and a home-directory root. `tests/pr/injection.test.ts` plants
+  a path and a token in the places a run cannot control (an issue title) and the
+  places it can (recorded limitations), and asserts both that nothing survives and
+  that the repository-relative rows a reviewer needs are still there.
 
 ## 7. Model/provider availability
 
@@ -585,6 +690,21 @@ delete unrelated branches, or `git clean` the user's primary repo. Use dedicated
 branches/worktrees, record the exact base SHA, and require human approval for
 any remote change.
 
+- **A page is not a publication.** `mergesutra pr` creates, renames, pushes and
+  deletes no branch and commits nothing; it reads two branch names out of Git
+  facts an earlier stage recorded and *proposes* one string derived from the run
+  id. `pushBranch` takes no force parameter to set, and a publication request that
+  arrives with a `force`, a refspec, an `autoMerge` or a `deleteBranch` field fails
+  the strict schema at the boundary before any transport could obey it — which is
+  twice moot in this build: the only transport the module defines is
+  `unavailableRemote()`, which throws, and no production module imports the publisher
+  at all, so there is no caller that could hand over any transport. That leaves
+  "require human approval for any
+  remote change" holding trivially rather than by vigilance: there is no remote
+  change this command can ask for. What Stage 10 does take from this section's
+  earlier stages is the branch-name rule, and tightens it — the ref alphabet is a
+  list of what is allowed, because Git accepts `fix; rm -rf /` as a name and a name
+  that will be typed near a shell should not survive that.
 - Stage 9R holds this at the moment it is most tempting to break. A cycle that
   changed something outside its plan is filed `OUTSIDE_PLANNED_SCOPE`, escalated to a
   human, and the edit — and any file it brought with it — is left exactly where it
@@ -594,4 +714,6 @@ any remote change.
 - The approval that lets a cycle run is bound to one plan's digest (§2.4) and is
   never a remote authorisation. Nothing in Stage 9R pushes, opens or comments;
   `mergesutra pr` is still Stage 10's planned command, and a remote mutation stays
-  refused outright.
+  refused outright. *(Kept as written: the command now exists, and it kept the
+  promise — §2.5 and the bullet above describe a Stage 10 whose remote is a
+  refusal, and whose approval buys a filing rather than a push.)*

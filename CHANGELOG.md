@@ -6,6 +6,123 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Stage 10: a page a human says yes to, and a remote that is not there
+
+Every earlier stage ends in a document about the patch. This is the stage where the
+documents become a pull request — and the boundary it crosses is the first one in this
+product that could reach someone else's repository, so the design question was not how
+to publish but how to get as close to publishing as possible without owning the hands.
+The answer is one page, one number, and one refusal: MergeSutra assembles a
+publication candidate from facts the run already established, a human types that
+candidate's digest back to say yes, and the code that would carry either half to GitHub
+throws on every call.
+
+- `mergesutra pr [run-id]` — prints the page and the digest, or records a yes for one.
+  Flags: `--repo <path>`, `--approve <publication-digest>`, plus the global `--json` and
+  `--no-color`. `PR_CANDIDATE_RECORDED` and `PR_APPROVED_LOCAL` exit `3`,
+  `PR_PUBLICATION_BLOCKED` exits `4`; there is no exit `0` at this stage, because none
+  of the three outcomes is a publication, and no path through the command takes one.
+  No `--yes`, `--force`, `--approve-all`, `--all` or `--dangerously-skip-approval` is
+  declared, so the parser refuses them as unknown options, and `mergesutra merge` does
+  not exist.
+- The candidate (`src/pr/candidate.ts`) is a schema-strict record of measured facts —
+  run, repository, base SHA, patch identity, both branches, the title and body, the
+  evidence-pack identity, the issue and whether the page may claim to close it, the
+  review cycle it repeats, the verification summary and the limitation list. It has no
+  status, no verdict, no `approved` and no `confidence` field, so there is nothing on it
+  for a stage to inflate; digesting a document that fails its own schema throws rather
+  than producing a number to point at.
+- The digest (`src/pr/digest.ts`) is sha256 over fifteen labelled lines, and it is the
+  only approval surface: it names the repository, the base, the bytes, both branches,
+  the title, the body (folded in as `prBodySha256`), the pack, the issue *and its closure
+  keyword*, the review, the verification and the caveats. `createdAt` is the one field
+  excluded — a yes covers a scope, not a minute — which also means `STALE` in this
+  product means the scope moved, never that a timer ran out. Nothing is fuzzy: no
+  prefix match, no wildcard, only the hex compared case-insensitively.
+- The approval (`src/pr/approval.ts`) is five fields and one action,
+  `CREATE_PULL_REQUEST`, which is the enum's only member — there is no
+  `APPROVE_ALL`, no `*_AND_MERGE`, no force anywhere in the type. `approvePublication()`
+  computes the digest rather than accepting one, so the call that records a yes is the
+  call that checks what the yes is about. `decidePublication` answers
+  `MATCHED` / `ABSENT` / `STALE`, and `STALE` prints both digests so the page can be
+  re-read rather than re-approved by reflex.
+- Approval is not capability. `src/pr/publisher.ts` declares the narrowest remote that
+  would ever be needed — `pushBranch` and `createPullRequest`, as argv, on a
+  `PublicationRemote` interface, with inputs re-validated through the strict schemas at
+  that boundary — and defines one implementation, `unavailableRemote()`, which throws the
+  same refusal for both. Nothing in this build calls either: `publish()` has no
+  production caller, and `tests/pr/boundaries.test.ts` walks the import graph from the
+  CLI and fails if `pr/publisher.ts` is ever reachable from the command a person types.
+  The seam is still proved real rather than merely absent — `tests/pr/publisher.test.ts`
+  drives it with a fake transport that records what it was handed
+  (`pushBranch`, then `createPullRequest`), and asserts that the same call with no
+  approval, or with a candidate whose bytes moved, records zero calls.
+- Readiness (`src/pr/readiness.ts`) is eight named facts, not a score:
+  `patch-measured`, `verification-current`, `verification-passed`, `review-current`,
+  `no-repair-candidate-left`, `no-scope-violation`, `pack-current`, `human-approved`.
+  All eight give `HUMAN_APPROVED_FOR_PR`; any other combination gives
+  `NOT_READY_FOR_PUBLICATION` with the blocking rows naming the earlier stage that owns
+  the missing fact, because Stage 10 is a consumer and does not repair. `pack-current`
+  compares the candidate against the bytes on disk via `readPackIdentity`, so re-running
+  `mergesutra report` after a yes expires it.
+- The page itself (`src/pr/draft.ts`) is deterministic — the stage makes **zero** model
+  calls and needs no `BHARATCODE_API_KEY` — eight sections in a fixed order (Summary,
+  Issue, Acceptance Contract, Implementation, Verification, Independent Review,
+  Evidence, Limitations / Manual review), a body bound in size, paths central-redacted to
+  repository-relative form, and `Fixes #n` printed only where the intake record proves
+  the identity and the closure; otherwise `Related to #n`. A headline quoted from an
+  issue passes the same overclaim screen as the rest of the page, so an issue titled
+  `Fixes #999 # HUMAN_APPROVED_FOR_PR` cannot walk unedited into the title.
+- Branch names come from the run id and the measured patch identity
+  (`src/pr/branch.ts`), never from a model or from issue prose; the target branch is
+  read from trusted Git metadata and refused if it is not a single unambiguous ref. The
+  ref alphabet rejects the shapes that break a clone (`-`, `.lock`, `..`, control
+  characters, a leading or trailing `/`), and there is no force parameter anywhere on
+  the push path.
+- The pair is filed together in the run record — schema version `9`, a new
+  `publications` list holding `{ candidate, approval | null }` — and
+  `src/pr/record.ts` refuses at read time a record whose approval names a different
+  candidate's digest. There is no result field in either document: no URL, no timestamp
+  on the publication, no `prUrl` string anywhere in `src/`.
+- Every path through the screen ends with `HUMAN APPROVAL RECORDED` or
+  `NO HUMAN APPROVAL RECORDED`, then `REMOTE PUBLICATION NOT ENABLED`, then
+  `NO REMOTE CHANGE HAS BEEN MADE.`, and `--json` reports `published: false` beside
+  `approved: true` rather than collapsing them.
+- Two source-shape guards hold the boundary past the tests that exercise it:
+  `tests/pr/source-shape.test.ts` scans Stage 10's sources for `git push`,
+  `gh pr create`, generic GitHub write clients, force-push vocabulary, `shell: true` and
+  reset/clean, and `tests/pr/boundaries.test.ts` proves `src/pr/` imports no transport,
+  no HTTP client and no process runner.
+- **Tests:** 181 for this stage — 173 across twelve files in `tests/pr/` (candidate 26,
+  draft 31, readiness 20, approval 19, branch 19, stage 14, publisher 13, record 8,
+  source-shape 8, boundaries 7, injection 7, hero 1) and 8 in `tests/cli/pr.test.ts`.
+  The injection suite is the stage's real subject, and each of its seven tests is an
+  attempt to make Stage 10 say yes without a person: a model document that reports
+  itself approved is parsed as a document and not an approval; an environment variable
+  that says yes is not read as one; a file inside the repository granting approval is
+  noticed as a changed byte rather than a permission; a record whose approval was
+  pasted onto the wrong page is refused at read time; an issue title written to look
+  like a closing keyword lends the headline nothing; an absolute path stays out of the
+  body whichever way the machine spelled it; and an issue in another repository is
+  linked without ever being closed. The complete chain was run at this entry's close:
+  `npm run check` exits `0` — `prettier --check .`, `eslint .`, `tsc -p tsconfig.json
+  --noEmit`, `vitest run` at **1478 passed, 3 skipped (1481 total) across 95 files**
+  (92 files passing, the three opt-in live-endpoint checks skipped), and the build
+  project.
+- **Not done, and stated as a gap:** this is a publication *boundary*, not a publication.
+  No remote is configured, none was created, nothing was pushed, no pull request exists,
+  and `git push` has never been run by this program — which is also why the ban is
+  currently self-evident rather than well-tested: MergeSutra has never made a commit in
+  the user's repository, so there is no branch to push. A yes expires if the pack is
+  re-rendered, deliberately, and there is no re-approve shortcut.
+  `HUMAN_APPROVED_FOR_PR` is not `CONTRIBUTION_READY` and does not become it: the first
+  is one person's digest-bound decision about a page, the second would require every
+  mandatory gate to have passed, and this build still has no outcome word that spells
+  it. The `gh` / `npm` / `curl` bans rest on the argv enumeration and the import
+  boundary rather than on the risk classifier, which has no name for those binaries —
+  Stage 12's hardening work. `mergesutra run`, `status` and `resume` are unchanged
+  stubs, still exit `2`, and are Stage 11's.
+
 ### Added — Stage 9R: a repair authorised by digest, and the gates that had to run again after it
 
 Stage 9 froze a work order and stopped. This is the stage that carries it out, and
@@ -125,7 +242,10 @@ pack the cycle made stale — and every step is a separate document with its own
   remains unreachable and unclaimed: this stage's most hopeful screen says the bytes
   moved and the gates were re-run, which is not the same sentence. `mergesutra run`,
   `pr`, `status` and `resume` still exit `2`; Stage 10 owns approval, the PR draft and
-  the publication boundary.
+  the publication boundary. *(Kept as written: Stage 10 above ships `pr` — the
+  digest-bound page, the human gate and the disabled remote — and its three outcomes
+  exit `3` and `4`, never `2` or `0`. `run`, `status` and `resume` are the stubs that
+  remain, and `CONTRIBUTION_READY` is still unspelled.)*
 
 ### Added — Stage 9: the same patch, read a second time by a model that changes nothing
 
@@ -217,7 +337,9 @@ not packaging without adding, but consulting a model without letting it decide.
   without marking, which is Stage 12 work. *(Kept as written: Stage 9R above ships the
   executor and gives `classifyRepairScope` its production caller, and brings the
   marking to the repair brief — the `plan`/`implement` sentence still stands.)*
-- `mergesutra run`, `pr`, `status` and `resume` still exit `2`.
+- `mergesutra run`, `pr`, `status` and `resume` still exit `2`. *(Kept as written:
+  Stage 9R above added `repair` and Stage 10 added `pr`, so the stub list here is now
+  `run`, `status` and `resume`.)*
 
 ### Added — Stage 8: the evidence pack, and a report that cannot be over-read
 

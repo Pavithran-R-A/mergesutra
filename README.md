@@ -14,15 +14,16 @@ becomes a PR."*
 
 ---
 
-> **Honest status: Stage 9R — a run can be verified, written down, read a second
-> time by a model that changes nothing, and — under a yes bound to one plan's
-> digest — repaired.**
+> **Honest status: Stage 10 — a run can be verified, written down, read a second
+> time by a model that changes nothing, repaired under a yes bound to one plan's
+> digest, and assembled into the page a person approves as a pull request.**
 > What you can run today is `mergesutra doctor`, `mergesutra issue <url>`,
 > `mergesutra inspect <dir>`, `mergesutra contract [run-id]`,
 > `mergesutra plan [run-id]`, `mergesutra implement [run-id]`,
 > `mergesutra verify [run-id]`, `mergesutra report [run-id]`,
-> `mergesutra review [run-id]` and
-> `mergesutra repair [run-id]`: intake
+> `mergesutra review [run-id]`,
+> `mergesutra repair [run-id]` and
+> `mergesutra pr [run-id]`: intake
 > reads a GitHub issue and pins the exact repository and base commit into a
 > versioned run record, `inspect` compiles what a repository itself requires
 > into a provenanced contract, `contract` turns those facts into the criteria a
@@ -39,23 +40,39 @@ becomes a PR."*
 > `review` asks a second model about exactly those bytes — it files findings it
 > can cite, routes them, freezes a repair plan before any edit, and returns with
 > the workspace byte-identical. `repair` is the stage that carries a frozen plan
-> out, and it is the only shipped command that edits a repository on the strength
+> out, and until `pr` it was the only shipped command that acts on the strength
 > of a human decision: nothing runs until you type `--approve-plan <digest>`, the
 > digest of the plan you read, there is no `--yes` and no `--force`, and reading a
 > plan asks for no credential at all. The cycle then runs through `implement`'s
 > own bounded loop under a brief narrowed to the plan's files, and because the
 > bytes moved, `verify`'s gates run again over them and `report`'s pack is
-> regenerated — a repair never gets to certify itself. **Nothing is published:**
-> no command of
-> MergeSutra's commits, pushes, comments or opens a PR, no stage hands out
-> `CONTRIBUTION_READY`, and no outcome in the repair vocabulary says a patch is
-> good. The BharatCode adapter,
+> regenerated — a repair never gets to certify itself. `pr` is the last command,
+> and the first whose subject is a person rather than a measurement: it assembles
+> a pull-request title and body out of what those stages already recorded — no
+> model is asked anything, no gate is re-run, no earlier verdict is re-read —
+> prints the page in full, and takes one thing as a yes: that page's 64-hex
+> digest, typed back after being read. The approval is filed in the run record,
+> and filing it is the end of what this build can do with it.
+>
+> **Shipped end to end:** intake, policy, contract, plan, implement, verify,
+> evidence pack, independent review, digest-approved repair, pack rebuild, and
+> **the PR candidate with a local human approval**.
+>
+> **Not yet live-published:** a real `git push` and a real GitHub pull request.
+> No command of MergeSutra's commits, pushes, comments or opens a PR; the only
+> publication transport this build defines throws when called and has no
+> production importer, and no output shape has a pull-request address to print.
+> So `HUMAN_APPROVED_FOR_PR` — the strongest word
+> Stage 10 has — means one person approved one page by digest, and does not mean
+> the code is good, that no defect remains, or that anything was accepted.
+> `CONTRIBUTION_READY` is still handed out by no stage, and `pr`'s result types
+> `published` as the literal `false` on the screen where the news is good.
+> **Nothing is published.** The BharatCode adapter,
 > configuration, central secret
 > redaction, structured errors, tests and CI are **implemented and green**. The
-> full `issue → PR` workflow is **under construction** — the page a person
-> approves (`mergesutra pr`) is built and its approval is local, but no command
-> of this product can open the pull request it authorises; `status`/`resume`
-> recovery UX, a publication transport and security
+> full `issue → PR` workflow is **under construction**: `mergesutra run`,
+> `status` and `resume` are still planned stubs that exit `2`, a publication
+> transport and security
 > hardening are the next
 > stages; see
 > [Roadmap](docs/ROADMAP.md). Where this README shows the finished experience,
@@ -1133,7 +1150,12 @@ mergesutra status | resume | pr                             # recovery + output
 `report` is missing from that list because it already works; see "Try it now".
 
 Global flags: `--dry-run`, `--verbose`, `--json`, `--no-color` (also honours
-`NO_COLOR`), `--yes`.
+`NO_COLOR`), `--yes`. *(Kept as written from the original spec. What ships is
+`--json` and `--no-color`, plus `--version` and `--help`; `--dry-run` and
+`--verbose` are still unimplemented, and `--yes` is now ruled out rather than
+merely missing — Stage 10's approval is a digest typed after reading a page, so a
+flag that agrees in advance to a document nobody has shown you would undo the
+thing that flag's absence is for. Stage 15 owns this list.)*
 
 ## Command surface
 
@@ -1404,7 +1426,21 @@ that need no key. One opt-in test (`tests/review/live.test.ts`) will ask the rea
 endpoint for one review — it stays skipped unless `MERGESUTRA_LIVE_BHARATCODE=1`,
 a key and a model id are all present together. Stage 9R deliberately adds no such
 live test of its own: a repair is the one path where a model gets a writer, and its
-proofs here are the deterministic ones.
+proofs here are the deterministic ones. Stage 10 closes no gap and adds one to state:
+`pr` asks nothing of a model, so it brings no new live-endpoint exposure, and its
+limitation is the opposite of a claim — an approval authorises an action this build has
+no hands for, so the strongest word it has (`HUMAN_APPROVED_FOR_PR`) is about a
+person's decision and not about GitHub, and the patch it names is uncommitted, because
+no stage of this product has ever run `git commit`. Two further limits are structural
+rather than unfinished: re-rendering the evidence pack expires an approval exactly as
+editing a byte does, with no re-approve shortcut, and the bans on `gh pr create` and
+`npm publish` cannot rest on the risk classifier — which has no name for those
+binaries and reads them as ordinary `EXECUTE` — so they rest on the argv enumeration
+and the import boundary that `tests/pr/source-shape.test.ts` scans, which is a weaker
+guarantee than a refusal and is recorded as one. `pr` will also refuse a run whose
+verification, review or pack has drifted from the patch on disk, and it says which
+earlier stage owes the update: it is a consumer of those records, and re-running a
+gate to make its own screen greener is exactly what it will not do.
 
 ## Benchmark
 

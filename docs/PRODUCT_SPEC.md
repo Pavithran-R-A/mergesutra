@@ -41,17 +41,19 @@ GitHub Issue
   → Diff review
   → Digest-approved repair, then verification over the bytes it changed
   → Acceptance Contract evidence mapping
-  → Human approval
-  → Pull-request draft
+  → Human approval of one page, by digest
+  → Pull-request draft (written and filed; not published)
 ```
 
 The hero command is `mergesutra issue <github-url>`. Phase commands
 (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`,
 `status`, `resume`) exist for transparency, debugging and recovery — not to
 expand scope. What ships today is `inspect`, `contract`, `plan`, `implement`,
-`verify`, `review`, `report` and `repair`, alongside `issue` and `doctor`; `run`,
-`pr`, `status` and `resume` are designed and exit `2` until their stage — Stage 10
-owns approval and the PR draft, Stage 11 owns recovery.
+`verify`, `review`, `report`, `repair` and `pr`, alongside `issue` and `doctor`.
+`pr` is Stage 10's, and it reaches as far as this build goes: it drafts the page,
+takes a human's digest-bound yes and files both — and no command here publishes
+anything. `run`, `status` and `resume` are designed and exit `2` until Stage 11
+owns recovery.
 
 ## 4. Core promise
 
@@ -68,7 +70,10 @@ Explicit verification states: `PASS`, `FAIL`, `SKIPPED`, `NOT_AVAILABLE`,
 defined mandatory gates pass — and in this build no command reaches it at all, the
 field being a literal `false` in the evidence schema (§10). Other run states:
 `PLAN_READY`, `PATCH_CREATED`, `VERIFICATION_FAILED`, `NEEDS_HUMAN_REVIEW`,
-`BLOCKED`, `INCONCLUSIVE`.
+`BLOCKED`, `INCONCLUSIVE`. Stage 10's most hopeful word is a different kind of claim
+from all of them: `HUMAN_APPROVED_FOR_PR` records that a person read one page and
+approved its digest, which says nothing about whether the code is good and nothing
+about whether anybody published it.
 
 One deviation, on purpose: the state after Stage 4 is named `PLAN_COMPLETE`, not
 `PLAN_READY`. Nothing in Stage 4 establishes that a plan is *ready* to execute —
@@ -144,6 +149,11 @@ injection and cannot override MergeSutra's security policy.
   DESTRUCTIVE), deriving the class from the argv rather than from what the
   caller says it is; remote mutations require explicit human approval of that
   exact action; destructive operations are refused with no approval path.
+- An approval is not a capability. Stage 10's yes is one digest typed for one page,
+  and what it buys is a filing: the publication seam is a two-method interface whose
+  only implementation in this build refuses both calls, and which no production
+  module imports at all, so no human's approval in this build can
+  reach a repository that is not theirs.
 - Commands run as argv arrays (no `shell: true`) with timeouts and bounded,
   redacted output.
 - Filesystem writes are proven to resolve inside the authorized workspace.
@@ -159,7 +169,7 @@ what was run, what passed, what failed or could not be checked — and decide
 whether to publish. Honest reporting of failures is a success condition, not a
 defect.
 
-## 10. Limitations (current, at Stage 9R)
+## 10. Limitations (current, at Stage 10)
 
 - Implemented today: CLI skeleton, BharatCode adapter, config, redaction,
   structured errors, `doctor`, **intake** (`mergesutra issue <url>` — parses the
@@ -197,7 +207,15 @@ defect.
   Stage 7's gates run again over them and Stage 8's pack is regenerated from the new
   receipts. Reading a plan costs nothing and changes nothing; running one needs a yes
   typed for that plan alone. No outcome in its vocabulary says a patch is good, and
-  there is no exit `0`.)
+  there is no exit `0`.), and the **publication boundary**
+  (`mergesutra pr [run-id]` — the run's evidence is re-measured, assembled into one
+  frozen `PublicationCandidate` and printed as the pull request page it drafts:
+  title, body, both branch names and the eight facts the page rests on. A yes is
+  `--approve <64-hex>`, the digest of exactly that document, and what it buys is a
+  filing: `published` is `false`, there is no pull request URL to print, and every
+  path through the command ends by saying so. There is no exit `0` here either. §3's
+  "decide whether to publish" has, at last, a command a person can answer with; the
+  limit of what that answer buys is stated below.
 - Stage 5 shipped the safety layer as **modules with no command**: the worktree
   manager (`src/git/workspace.ts`), the risk classifier
   (`src/process/tool-policy.ts`) and the confined writer
@@ -226,8 +244,19 @@ defect.
   instructions and no tools, not provider diversity — and the reviewer's world is
   the page it was shown: a defect inside a file the context withheld cannot be
   cited, so it can be filed as a fact about the patch but cannot route to a repair.
-- Everything from Stage 10 on — PR drafting
-  and resumability (`status` / `resume`) — is **[DESIGNED]** / **[PLANNED]**, not
+- Stage 10 shipped PR drafting and the human gate; it did not ship publication.
+  `mergesutra pr` stops at a page, a digest and a recorded yes, and the seam on the
+  other side of that — `src/pr/publisher.ts`, two methods — has one production
+  value, which is a refusal. The reason is not a missing flag: MergeSutra has never
+  made a commit, so the work a candidate describes is uncommitted bytes in a linked
+  worktree, and pushing would mean committing an operator's tree on their behalf.
+  Two consequences of binding a page to its evidence are stated rather than
+  smoothed: running `mergesutra report` after an approval changes the pack identity,
+  which changes the candidate, which makes that approval `STALE`; and the word a
+  full pass produces is `HUMAN_APPROVED_FOR_PR`, printed beside a literal
+  `published: false` — `CONTRIBUTION_READY` remains unreachable in every screen and
+  every record this build writes.
+- Resumability (`status` / `resume`) is **[DESIGNED]** / **[PLANNED]**, not
   yet functional. Planned commands exit `2` rather than imitating success. The
   pack `report` writes is three files rendered from one run record; the
   one-file-per-document bundle sketched in
@@ -235,8 +264,9 @@ defect.
   facts across files gives each fact two places to be wrong — including the review,
   whose findings live in the record and are rendered from it rather than into a
   separate `review.json`. A repair cycle's document is held the same way, in the
-  record's `repairExecutions` list, and its pack is the same three files
-  regenerated rather than a fourth kind of page.
+  record's `repairExecutions` list, a publication's the same way again — the
+  candidate and the approval beside it, in `record.publications` — and its pack is
+  the same three files regenerated rather than a fourth kind of page.
 - Every derived criterion is `PENDING` after `implement` finishes, and the
   CLI says so on screen: the loop ran no gate from the Acceptance Contract, and
   `Verification` is `NOT_AVAILABLE` in every implementation record. Attaching a
@@ -262,7 +292,11 @@ defect.
   4 and 6 do: without `BHARATCODE_API_KEY` they exit `78` and say why. Stage 6
   checks the key **before** it creates a workspace, so a keyless machine gets a
   configuration refusal and zero git invocations instead of a worktree and an
-  `INCONCLUSIVE` run. This build has still not been pointed at a live BharatCode
+  `INCONCLUSIVE` run. Stage 10 returns to the first group and stays there by
+  construction: `pr` imports no client at all, so reading a page, approving one and
+  filing the approval spend no request and need no key — which is what lets the
+  stage's own tests, including the ones that attack it with fabricated approvals,
+  run offline. This build has still not been pointed at a live BharatCode
   endpoint — no key exists on this machine — so the captured plan and implement
   samples both go through the real adapter against a local stub, with
   `BHARATCODE_API_BASE` overridden for the run. `tests/implement/live.test.ts`

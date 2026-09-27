@@ -666,13 +666,135 @@ must not be the thing that decides the change was good.
       it. `CONTRIBUTION_READY` remains unreachable and unclaimed: this stage's most
       hopeful screen says the bytes moved and the gates were re-run, which is not the
       same sentence. `mergesutra run`, `pr`, `status` and `resume` still exit `2` —
-      Stage 10 owns approval, the PR draft and the publication boundary.
+      Stage 10 owns approval, the PR draft and the publication boundary. *(Kept as
+      written: Stage 10 above replaces the `pr` stub with the digest-bound candidate, the
+      human gate and the disabled remote, and keeps the promise that no path through it
+      publishes. `run`, `status` and `resume` are still stubs, still exit `2`, and are
+      Stage 11's.)*
 
-## Stage 10 — Human approval + PR draft
+## Stage 10 — Human approval + PR draft — **[DONE]**
 
-- [ ] Full pre-publish summary; explicit approval gate
-- [ ] PR draft body (Summary / Issue / Contract / Implementation / Verification /
-      Evidence / Limitations)
+Stage 10 is the publication boundary, and the boundary is the feature: a person reads a
+page, says yes to that page by name, and nothing in the world changes. It is the only
+stage whose most important output is a refusal, and it was built against the two ways a
+stage like this one fails — an approval so loose it covers work nobody read, and an
+approval so powerful that saying yes to a draft also handed over the hands that publish
+it.
+
+- [x] `mergesutra pr [run-id]` replaces the planned stub. It assembles the page, prints
+      it, and takes a yes in exactly one form: `--approve <64-hex>`, the digest of the
+      candidate on screen. `--yes`, `--force`, `--approve-all`, `--all` and
+      `--dangerously-skip-approval` are not flags this command knows, and a test types
+      them to prove nothing is filed when they are used. Outcomes are
+      `PR_CANDIDATE_RECORDED` and `PR_APPROVED_LOCAL` at exit `3`, and
+      `PR_PUBLICATION_BLOCKED` at exit `4`; there is no exit `0`, because "a page exists
+      and nobody has approved it" is not a success and "a page exists and somebody has"
+      is not a publication.
+- [x] `PublicationCandidate` (`src/pr/candidate.ts`) is the one thing approvable: the
+      repository, the base SHA, the measured patch, both branch names, the title and
+      body, the evidence pack identity, the issue and whether the page closes it, the
+      review cycle and the bytes it reviewed, both summaries and the caveats in recorded
+      order. The schema is `.strict()` and carries no `approved`, no `shouldPublish`, no
+      recommendation and no model id, so a candidate with a verdict inside it — from a
+      planner, a reviewer, a repository file or a hand-edited record — does not parse at
+      all. ADR-054.
+- [x] The digest (`src/pr/digest.ts`) is fifteen labelled lines over exactly that, with
+      the body folded in as `prBodySha256` and `createdAt` excluded on purpose: the same
+      state frozen twice gives the same number, so recording an approval never expires
+      the approval it records, and `STALE` in this product means the scope moved rather
+      than a timer ran out. Nothing is fuzzy — and the document is validated through its
+      own schema *before* it is hashed, so a forged candidate cannot produce a number to
+      point at.
+- [x] Approval is a capability with one door (`src/pr/approval.ts`): five fields, an
+      `action` enum with the single member `CREATE_PULL_REQUEST`, and three states —
+      `MATCHED`, `ABSENT`, `STALE` — reached by equality and nothing else.
+      `approvePublication()` computes the digest rather than accepting one,
+      `decidePublication()` returns a reason on every path and performs no act, and the
+      CLI reads a yes from argv only: `process.env` is never consulted, which a test
+      proves by stubbing the environment rather than by asserting a negative. ADR-054.
+- [x] Readiness is a consumer's check, not a second verdict
+      (`src/pr/readiness.ts`): eight facts in the order a reader would want them —
+      `patch-measured`, `verification-current`, `verification-passed`, `review-current`,
+      `no-repair-candidate-left`, `no-scope-violation`, `pack-current`,
+      `human-approved` — each with its reason printed whether it passed or failed. Freshness
+      is measured by the stage immediately before asking and handed over as a
+      comparison, so this module cannot quietly re-interpret Stage 7 or Stage 9. Its two
+      words are `HUMAN_APPROVED_FOR_PR` and `NOT_READY_FOR_PUBLICATION`;
+      `CONTRIBUTION_READY` remains unreachable and unclaimed, and the module states its
+      own exclusions so an omission is visible on the screen.
+- [x] The draft is deterministic and holds no claims the run did not earn
+      (`src/pr/draft.ts`): exactly eight sections — `Summary`, `Issue`,
+      `Acceptance Contract`, `Implementation`, `Verification`, `Independent Review`,
+      `Evidence`, `Limitations / Manual review` — built from Git's file list, Stage 7's
+      receipts and Stage 9's findings, with the title and body bounded in length and run
+      through central redaction. `Fixes #n` appears only when the issue identity,
+      same-repository closure and verified evidence for every criterion are all on file
+      for the current patch; otherwise the page says `Related to #n` and closes nothing
+      it did not prove. A title quoted from the issue is refused if it borrows an
+      overclaim, this program's own state words, or a closing keyword; ADR-055.
+- [x] Both branch names come from recorded Git facts and nothing else
+      (`src/pr/branch.ts`). The target is read, never chosen: only
+      `repository.defaultBranch` and `local.defaultBranch` may name it, and where they
+      disagree the answer is a block — which is why the function's arguments are two
+      strings rather than a record, so no model document has a path into a target. The
+      source reuses the branch Stage 5's worktree was created on, since proposing a second
+      name for the same commits would misdescribe where the work lives. The alphabet rule
+      is a list of what is allowed, because Git accepts `fix; rm -rf /` as a ref name and
+      a name that will be typed near a shell should not survive that.
+- [x] The publication seam exists to prove the absence is structural
+      (`src/pr/publisher.ts`): `PublicationRemote` has two methods, `pushBranch` and
+      `createPullRequest`, and there is no `request()`, `endpoint` or `command()` that
+      could carry anything else. Both requests are re-validated through strict schemas at
+      that boundary, so a `force`, a refspec, an `autoMerge` or a reviewer list fails
+      there. The only transport this build ships is `unavailableRemote()`, which throws,
+      and `publish()` re-decides the digest before it hands anything over. A fake
+      transport in `tests/pr/publisher.test.ts` proves the seam can carry a publication —
+      otherwise "disabled" would be indistinguishable from "unwired".
+- [x] No stage after a review has to be re-run to look at a page, and no stage is run in
+      the looking. `runPrStage()` (`src/pr/stage.ts`) imports no client, no transport, no
+      writer and no runner: closing Stage 10 spent zero BharatCode calls and required no
+      credential. Stage 8's pack is read from disk and never re-rendered here, because the
+      renderer prints the record's own outcome and rebuilding it would expire an approval
+      because a status line changed. Where a proposal for the same digest is already on
+      file, that document wins over a fresh assembly of the same one.
+- [x] The run record grows to `publications` — one entry per proposal, each holding the
+      candidate and the yes beside it (**v9**, nullable and defaulted so older records
+      still read). The stored pair is checked on the way in: an approval that names
+      another candidate's digest makes the whole record unreadable rather than becoming
+      history, and there is no result field at all — no URL, no timestamp, no
+      `prUrl` anywhere in the build. A run's record can say a human approved a proposal;
+      only a publisher that does not exist could say more.
+- [x] Two guards that cannot be shown by behaviour are taken from source:
+      `tests/pr/boundaries.test.ts` holds the import-side rule that the production path
+      cannot reach the seam, a runner, a writer or a client, and
+      `tests/pr/source-shape.test.ts` enumerates every argv array the stage can construct
+      (its only commands are measurements that read) and classifies them with the
+      product's own risk oracle. `tests/pr/injection.test.ts` attacks the stage with the
+      sentence `"approved": true` written into every document it controls — four
+      model-authored fields, the environment, the record file, a repository file and an
+      issue title — and gets the same answer each time.
+- [x] `tests/pr/hero.test.ts` walks a repaired run to the boundary: `pr <run>` shows the
+      candidate, a wrong digest is refused with both numbers named, the exact digest
+      persists a local approval with `published: false` and no URL, and every path ends
+      `HUMAN APPROVAL RECORDED` / `REMOTE PUBLICATION NOT ENABLED` /
+      `NO REMOTE CHANGE HAS BEEN MADE.` `MERGESUTRA_HERO_CAPTURE=1` over that test prints
+      the screen the README quotes.
+- [x] 181 tests for the stage — 173 across twelve files in `tests/pr/` and 8 in
+      `tests/cli/pr.test.ts` — none of which needs a credential, a network or a remote.
+      `npm run check` is green at this stage's close; the measured totals are in the
+      CHANGELOG entry.
+- [x] **Not done, and stated as a gap:** nothing is published, and the reason is larger
+      than a missing flag — MergeSutra has never made a commit, so the work it describes
+      is uncommitted bytes in a linked worktree and the evidence pack is Git-ignored. A
+      real pull request means committing somebody's tree on their behalf, which no
+      approval in this build claims to cover. Re-running `mergesutra report` after an
+      approval changes the pack identity and so expires that yes; the digest is honest
+      about it and `STALE` says so with both numbers. The readiness word is not
+      `CONTRIBUTION_READY`, and `.mergesutra` is still not committed. `gh`, `npm` and
+      `curl` classify as ordinary `EXECUTE` to the risk oracle, so the ban on reaching
+      them rests on the argv enumeration and the import boundary rather than on the
+      classifier. `mergesutra run`, `status` and `resume` still exit `2` —
+      [Stage 11](#stage-11--resumerecovery--failure-ux) owns recovery and failure UX.
 
 ## Stage 11 — Resume/recovery + failure UX
 

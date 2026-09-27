@@ -1,8 +1,8 @@
 # MergeSutra — Architecture
 
-Status: Stages 0-9 and 9R implement the components marked **[IMPLEMENTED]**; the
-rest are **[DESIGNED]** / **[PLANNED]**. This document describes the whole intended
-architecture so the built pieces fit it.
+Status: Stages 0-9, 9R and 10 implement the components marked
+**[IMPLEMENTED]**; the rest are **[DESIGNED]** / **[PLANNED]**. This document
+describes the whole intended architecture so the built pieces fit it.
 
 ## 1. Trust model in one breath
 
@@ -12,6 +12,11 @@ architecture so the built pieces fit it.
 > Deterministic gates verify.
 > Evidence records what actually happened.
 > Human decides whether to publish.
+
+Stage 10 is where that last line was built, and it was built narrower than the
+sentence: a human decides, in this build, by approving one page's digest — and the
+decision is recorded with no hands attached to it, because a decision about a pull
+request and the act of opening one are two facts that need two implementations.
 
 ## 2. Component diagram
 
@@ -69,7 +74,9 @@ deterministically is **not** delegated to the model:
   runs at all** — path confinement, risk classification, budget accounting,
   no-progress detection; command execution and exit-code capture; verification
   gates; diff scope analysis; secret scanning; evidence mapping; final status
-  computation.
+  computation; and the whole of Stage 10 — the title, the body, the candidate, its
+  digest, the readiness checks and both branch names — which asks a model nothing
+  and takes one human's typed digest as its only new fact.
 
 Model output crosses the boundary only through Zod-validated schemas, and only
 gets as much authority as the schema has a field for — which is why the plan
@@ -96,7 +103,8 @@ to silently edit code.
 | Evidence      | A receipt, a model's claim, a stale workspace | `verify/evidence.ts`: one writer of a criterion's status, and it reads receipts only; a command that reaches no criterion's stated check proves nothing about it; a patch identity that no longer matches marks the rows `STALE`; `contributionReady` is a literal `false` in the schema, so no code path can set it |
 | A second model's review | Findings about the patch, from a reviewer with no tools | `review/manifest.ts`: MergeSutra authors the only citable ids, and the reviewer is shown the page assembled for it rather than the repository; `review/disposition.ts`: an unanchored finding is `UNSUPPORTED`, a repeat is `DUPLICATE`, and the answer's schema has no field that could hold a verdict; `review/prompt.ts`: material whose line is shaped like a section heading is quoted behind a marker so it cannot open one; `review/stage.ts`: the patch identity is pinned before the question and re-measured after the answer, so bytes that moved in the meantime make the account `STALE` instead of authoritative |
 | An approved repair | A frozen plan, the findings behind it, and the loop's account of what it did | `repair/digest.ts`: one canonical name for the scope; `repair/consent.ts`: an edit runs only under an approval whose digest equals that name, so re-freezing the plan or routing one finding differently voids the yes; `repair/limits.ts`: the cycle is narrower than Stage 6 on every axis, and asking for more clamps it rather than raising it; `implement/loop.ts`: a `WRITE_FILE` outside the plan's files is refused before the writer, and Stage 5's policy still outranks the plan; `repair/execution.ts`: the document cannot be built without the matching approval, carries no verdict field, and reads `verificationRequired` off the patch delta |
-| GitHub        | Any remote mutation                         | `tool-policy` approval gate: a remote action needs a human yes for that exact summary, and a destructive one has no yes that enables it. Stage 6 does not offer one: asking to push is a refusal, not a prompt |
+| GitHub        | Any remote mutation                         | `tool-policy` approval gate: a remote action needs a human yes for that exact summary, and a destructive one has no yes that enables it. Stage 6 does not offer one: asking to push is a refusal, not a prompt. *(Kept as written: Stage 10 added the second half — the publication remote that ships is `pr/publisher.ts`'s `unavailableRemote()`, which throws on both of its two methods.)* |
+| A publication proposal | A page assembled from a run, the text of an issue, and a yes that has to be about it | `pr/candidate.ts`: the thing approved is one strict document with no `approved`, `shouldPublish` or score field, so a candidate carrying a verdict does not parse; `pr/digest.ts`: fifteen labelled lines, validated before hashed, `createdAt` excluded so re-recording cannot expire a yes and the body folded in as `prBodySha256` so a rewrite cannot hide under one; `pr/approval.ts`: an `action` enum with one member and three states reached by equality, and `approvePublication()` computes the digest instead of accepting it; `pr/readiness.ts`: eight facts each printed with a reason, and the only two words it knows are `HUMAN_APPROVED_FOR_PR` and `NOT_READY_FOR_PUBLICATION`; `pr/stage.ts`: imports no client, transport, writer or runner, and re-measures the patch before it believes any staleness answer; `pr/publisher.ts`: two methods, both requests re-validated at that boundary, the only transport it defines a refusal that throws, and no production importer at all |
 | BharatCode    | Endpoint/credentials                        | Env-only config; central redaction; the key is required before a workspace is created |
 
 ## 5. Workflow state machine
@@ -135,7 +143,10 @@ machine that edits: `mergesutra repair` runs an approved plan through
 so `REPAIR → IMPLEMENT → VERIFY` is a real path with a real command at its start
 rather than a **[DESIGNED]** arrow. What is still **[DESIGNED]** is `HUMAN_APPROVAL`
 onward — which is why `mergesutra run`, `pr`,
-`status` and `resume` still exit `2` as planned.
+`status` and `resume` still exit `2` as planned. *(Kept as written: the last
+paragraph of this section describes what Stage 10 built instead — the `pr` command,
+which exits `3` or `4` and never `0`. The arrow out of `PR_DRAFT` is still unbuilt,
+still by design, and those three other commands are still stubs.)*
 
 What Stage 7 added to this machine is a boundary rather than a box: `VERIFY` is
 the only state that can move a criterion off `PENDING`, and it can do it only from
@@ -177,6 +188,16 @@ re-verification mandatory rather than optional. After a cycle the record still h
 the earlier review — as a review of the bytes it was actually shown — while the new
 round's receipts name the new identity, and the pack says which is which.
 
+`HUMAN_APPROVAL` is `PR_DRAFT`'s entrance rather than a box in front of it, and
+Stage 10 built both as one command. `mergesutra pr` measures the workspace, re-reads
+the pack identity from disk, assembles the candidate and prints the page; a yes is
+`--approve <digest>` naming that exact document, and the recorded fact is that a
+person approved a proposal — the state machine has no arrow out of `PR_DRAFT`,
+because the edge that used to leave it belongs to a transport this build does not
+have. What that leaves **[DESIGNED]** is everything past the boundary: commits, a
+push, and a pull request that exists. `mergesutra run`, `status` and `resume` are
+still stubs and still exit `2`.
+
 Explicit bounded limits: agent steps, tool calls, repair attempts, repeated
 identical failures, request/token budget, per-command runtime, and output size.
 If progress stalls, the run **stops with evidence** rather than burning requests.
@@ -197,7 +218,7 @@ src/
   cli/         command surface, rendering, doctor,        [IMPLEMENTED]
                issue (intake only), inspect, contract,
                plan, implement, verify, review, report,
-               repair, exit codes
+               repair, pr, exit codes
   intake/      issue URL parsing, local-repo reading,     [IMPLEMENTED]
                intake orchestrator
   github/      gh-CLI source + Zod-validated payloads     [IMPLEMENTED]
@@ -250,6 +271,15 @@ src/
                status, receipts re-emitted verbatim,
                caveats grouped by the document that wrote
                them, written atomically beside the record
+  pr/          the publication boundary: one strict       [IMPLEMENTED]
+               candidate with no verdict field, a digest
+               over the fifteen lines a yes is about, an
+               approval whose only action is opening a
+               pull request, eight readiness facts, a
+               deterministic redacted draft, both branch
+               names read from Git facts alone, and a
+               two-method remote whose only production
+               value refuses both calls
 ```
 
 The loop's dependencies are the whole point of that layout: `implement/` is the
@@ -271,6 +301,18 @@ allows exactly one module to reach the loop, and
 each command it constructs, classifies it with the production risk oracle and fails
 on a pinned snapshot if a new one appears — without ever starting a command to prove
 it would be refused.
+
+Stage 10 is the same claim one layer out, and easier to hold because a publication
+proposal is assembled from bytes that already exist. `pr/stage.ts` imports no client,
+no transport, no writer and no process runner: the only commands it can reach are the
+measurements `verify/patch.ts` makes to describe a workspace, and every one of them
+reads. The seam that *could* publish — `pr/publisher.ts`, two methods and a refusal —
+is therefore only reachable from a test file, and that is the arrangement the two
+guards check from source text: `tests/pr/boundaries.test.ts` on who imports what, and
+`tests/pr/source-shape.test.ts` on the argv arrays the stage's closure can construct.
+A fake transport in `tests/pr/publisher.test.ts` carries a publication through the
+seam in both directions, because a disabled boundary that nobody has ever crossed
+cleanly is indistinguishable from an unwired one.
 
 ## 7. Adapter rule (already implemented)
 
@@ -330,15 +372,32 @@ now documents in the record, and the pack renders them into `report.md` and
 behind it and no second copy of a finding to fall out of step with the first.
 What is left for later stages is the content those files would hold that no stage
 has established yet — a run-level `manifest.json`, if a later stage ever needs
-identity that the record does not already carry.
+identity that the record does not already carry. Stage 10 needed one and found it
+already there: `readPackIdentity()` hashes the three shipped files' bytes, with no
+fourth file, no metadata and no `mtime`, so the pack a reviewer can open has a name
+that a page can be bound to.
+
+`pr` is the one later stage that reads that name without writing it. Re-rendering a
+pack is Stage 8's job and `mergesutra report`'s command; a publication stage that
+rebuilt the evidence it was about to cite would move the identity of the pack behind
+its own approval every time it filed a record, so `pr` reads the bytes as they stand
+and blocks if they are gone. The consequence is stated rather than smoothed: running
+`mergesutra report` after an approval changes the pack, which changes the candidate,
+which makes that yes `STALE` — and `STALE` prints both digests so a person can see
+how far the page moved rather than being asked to trust a re-approval.
 
 Nothing here is committed automatically, and no pack contains a secret: output is
-redacted on the way into the receipt, and the receipts are what the pack copies.
-The record is schema version 8 — Stage 9 added `review` and `repairPlan`, Stage 9R
-added the `repairExecutions` list beside them, and every older document stays
+redacted on the way into the receipt, and the receipts are what the pack copies. The
+record is schema version 9 — Stage 9 added `review` and `repairPlan`, Stage 9R added
+the `repairExecutions` list beside them, Stage 10 added `publications` beside those,
+and every older document stays
 readable and interpretable on its own terms: a v6 or v7 record gains
 `repairExecutions: []` in memory, which is the honest fact that no repair ran, and no
 older record can claim the `repair` stage that only v8's vocabulary defines — and a
 file written by an earlier stage build is
 reported as unreadable rather than guessed at, so `report` refuses it instead of
-rendering an empty pack around the refusal.
+rendering an empty pack around the refusal. A publication entry is two documents and
+no third: the candidate exactly as it was shown, and beside it the approval that names
+that candidate's digest — which the record schema re-derives on the way in, so a
+hand-edited pairing does not become history. There is no result field in the shape,
+because the only thing that could fill one is a remote this build does not have.
