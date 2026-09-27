@@ -1,4 +1,5 @@
 import type { RunRecord } from '../state/run-record.js';
+import { sha256Hex } from '../security/digest.js';
 
 /**
  * The evidence pack: what a reviewer reads without running anything.
@@ -13,8 +14,27 @@ import type { RunRecord } from '../state/run-record.js';
 export const PACK_FILE_NAMES = ['report.md', 'report.json', 'commands.jsonl'] as const;
 export type PackFileName = (typeof PACK_FILE_NAMES)[number];
 
+/** The namespace a pack's identity is hashed under, so a digest says what it names. */
+export const PACK_IDENTITY_LABEL = 'mergesutra-evidence-pack/1';
+
 export interface EvidencePack {
   readonly runId: string;
+  /**
+   * A digest over the three files as rendered — the only way to say *which* pack
+   * a person was shown, and was relying on, at the moment they decided something.
+   *
+   * Stage 10 needs this because a publication approval has to go stale when the
+   * evidence under it changes. The alternative candidates were worse: the
+   * directory's mtime moves when anything is rewritten and says nothing about
+   * content, the run record's own `createdAt` predates every later stage, and the
+   * patch identity describes the code but not the report about it. This covers the
+   * bytes a reader actually opens, in a fixed order, and nothing else.
+   *
+   * It is deliberately not written into the files it digests. A pack that named
+   * its own digest would change the moment it carried it, so the number would be
+   * false on the page that quotes it.
+   */
+  readonly identity: string;
   readonly files: Readonly<Record<PackFileName, string>>;
 }
 
@@ -30,14 +50,27 @@ interface CriterionRow {
 
 export function buildEvidencePack(record: RunRecord): EvidencePack {
   const rows = rowsOf(record);
-  return {
-    runId: record.runId,
-    files: {
-      'report.md': markdown(record, rows),
-      'report.json': `${JSON.stringify(document(record, rows), null, 2)}\n`,
-      'commands.jsonl': commandsLog(record),
-    },
+  const files: Record<PackFileName, string> = {
+    'report.md': markdown(record, rows),
+    'report.json': `${JSON.stringify(document(record, rows), null, 2)}\n`,
+    'commands.jsonl': commandsLog(record),
   };
+  return { runId: record.runId, identity: identityOf(files), files };
+}
+
+/**
+ * The digest over the pack's own bytes, in the fixed order the files are named.
+ *
+ * Each entry is hashed separately and joined with a separator a file body cannot
+ * forge, so a pack whose report.md ends where commands.jsonl begins cannot be
+ * confused with one whose split falls elsewhere.
+ */
+function identityOf(files: Readonly<Record<PackFileName, string>>): string {
+  const lines = [PACK_IDENTITY_LABEL];
+  for (const name of PACK_FILE_NAMES) {
+    lines.push(`${name}\0${sha256Hex(files[name])}`);
+  }
+  return sha256Hex(lines.join('\n'));
 }
 
 /**

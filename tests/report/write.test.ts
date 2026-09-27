@@ -28,6 +28,9 @@ async function runsRoot(): Promise<string> {
 function packFor(runId: string): EvidencePack {
   return {
     runId,
+    // The writer never reads this field — it decides nothing about where bytes
+    // go — so a fixed digest is as good as a computed one here.
+    identity: '0'.repeat(64),
     files: { 'report.md': '# pack\n', 'report.json': '{}\n', 'commands.jsonl': '' },
   };
 }

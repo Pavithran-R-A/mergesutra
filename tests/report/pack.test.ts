@@ -534,3 +534,42 @@ describe('a pack regenerated after a repair cycle', () => {
     expect(report).not.toMatch(/no repairs were needed|nothing to repair/i);
   });
 });
+
+describe('naming the bytes a pack is made of', () => {
+  it('gives a pack a digest, so a human can be told which pack they relied on', () => {
+    expect(packOf(recordAt()).identity).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('names the same record the same way, however often the pack is rebuilt', () => {
+    const record = recordAt();
+    const identities = [packOf(record).identity, packOf({ ...record }).identity];
+
+    expect(identities[0]).toMatch(/^[0-9a-f]{64}$/);
+    expect(new Set(identities).size).toBe(1);
+  });
+
+  it('names a pack with one more caveat differently, because it is a different pack', () => {
+    const before = packOf(recordAt()).identity;
+    const after = packOf(
+      recordAt({ limitations: ['A gate was offered and nobody consented to it.'] }),
+    ).identity;
+
+    expect(after).not.toBe(before);
+  });
+
+  it('names the pack of a run that verified differently from one that ran other gates', async () => {
+    const tested = packOf(await verifiedRecord(['node', '--test'])).identity;
+    const versioned = packOf(await verifiedRecord(['node', '--version'])).identity;
+
+    expect(tested).not.toBe(versioned);
+  });
+
+  it('leaves its own digest out of the files it digests', () => {
+    const { identity, files } = packOf(recordAt());
+
+    expect(identity).toMatch(/^[0-9a-f]{64}$/);
+    for (const content of Object.values(files)) {
+      expect(content).not.toContain(identity);
+    }
+  });
+});
