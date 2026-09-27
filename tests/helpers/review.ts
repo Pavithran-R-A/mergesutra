@@ -246,6 +246,7 @@ export function recordWith(record: RunRecord, over: Partial<NewRunRecordInput> =
     review: record.review,
     repairPlan: record.repairPlan,
     repairExecutions: record.repairExecutions,
+    publications: record.publications,
     checks: record.checks,
     limitations: record.limitations,
     nextStage: record.nextStage,
