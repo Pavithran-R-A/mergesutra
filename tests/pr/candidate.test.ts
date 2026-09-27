@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { candidateOf, parsePublicationCandidate } from '../../src/pr/candidate.js';
 import { publicationDigestOf } from '../../src/pr/digest.js';
-import type { CandidateInput } from '../../src/pr/candidate.js';
+import {
+  BASE_SHA,
+  candidateInput,
+  OTHER_PATCH_IDENTITY,
+  PACK_IDENTITY,
+  PATCH_IDENTITY,
+  REVIEWED_PATCH,
+} from '../helpers/publication.js';
 
 /**
  * The one document a human approves — Stage 10.
@@ -13,30 +20,6 @@ import type { CandidateInput } from '../../src/pr/candidate.js';
  * at, which would make an approval expire for no reason).
  */
 
-const PATCH = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
-const OTHER_PATCH = 'b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9012';
-const PACK = 'c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9012ff';
-const REVIEWED = 'd4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9012ff00';
-const BASE_SHA = '3f2a1c9d8e7b6a5041322314f5e6d7c8b9a09182';
-
-function candidateInput(overrides: Partial<CandidateInput> = {}): CandidateInput {
-  return {
-    runId: 'run-20260925T000000Z-pack001',
-    createdAt: '2026-09-25T00:00:00.000Z',
-    issue: { canonical: 'projectbharat/datekit#123', number: 123, closes: false },
-    target: { fullName: 'projectbharat/datekit', branch: 'main' },
-    proposedBranch: 'mergesutra/run-20260925T000000Z-pack001',
-    baseSha: BASE_SHA,
-    patchIdentity: PATCH,
-    draft: { title: 'Parser accepts invalid empty dates', body: '## Summary\n\nBody.\n' },
-    evidencePackIdentity: PACK,
-    verificationSummary: 'PASS — 2 gates ran, 1 did not',
-    review: { cycle: 1, reviewedPatchIdentity: REVIEWED, summary: '1 finding, 0 unresolved' },
-    limitations: ['A gate was offered and nobody consented to it.'],
-    ...overrides,
-  };
-}
-
 describe('building the candidate', () => {
   it('carries every fact a publication would obey, under its own schema version', () => {
     const candidate = candidateOf(candidateInput());
@@ -46,11 +29,11 @@ describe('building the candidate', () => {
       runId: 'run-20260925T000000Z-pack001',
       repository: 'projectbharat/datekit',
       baseSha: BASE_SHA,
-      patchIdentity: PATCH,
+      patchIdentity: PATCH_IDENTITY,
       targetBranch: 'main',
       proposedBranch: 'mergesutra/run-20260925T000000Z-pack001',
       prTitle: 'Parser accepts invalid empty dates',
-      evidencePackIdentity: PACK,
+      evidencePackIdentity: PACK_IDENTITY,
     });
   });
 
@@ -83,7 +66,7 @@ describe('building the candidate', () => {
     const candidate = candidateOf(candidateInput());
 
     expect(candidate.reviewCycle).toBe(1);
-    expect(candidate.reviewedPatchIdentity).toBe(REVIEWED);
+    expect(candidate.reviewedPatchIdentity).toBe(REVIEWED_PATCH);
     expect(candidate.reviewSummary).toBe('1 finding, 0 unresolved');
   });
 
@@ -205,7 +188,9 @@ describe('the digest a human approves', () => {
 
   it('changes when the bytes change', () => {
     const before = publicationDigestOf(candidateOf(candidateInput()));
-    const after = publicationDigestOf(candidateOf(candidateInput({ patchIdentity: OTHER_PATCH })));
+    const after = publicationDigestOf(
+      candidateOf(candidateInput({ patchIdentity: OTHER_PATCH_IDENTITY })),
+    );
 
     expect(after).not.toBe(before);
   });
@@ -235,7 +220,11 @@ describe('the digest a human approves', () => {
     const after = publicationDigestOf(
       candidateOf(
         candidateInput({
-          review: { cycle: 2, reviewedPatchIdentity: REVIEWED, summary: '1 finding, 0 unresolved' },
+          review: {
+            cycle: 2,
+            reviewedPatchIdentity: REVIEWED_PATCH,
+            summary: '1 finding, 0 unresolved',
+          },
         }),
       ),
     );
@@ -246,7 +235,7 @@ describe('the digest a human approves', () => {
   it('changes when the evidence pack a reviewer was shown changes', () => {
     const before = publicationDigestOf(candidateOf(candidateInput()));
     const after = publicationDigestOf(
-      candidateOf(candidateInput({ evidencePackIdentity: REVIEWED })),
+      candidateOf(candidateInput({ evidencePackIdentity: REVIEWED_PATCH })),
     );
 
     expect(after).not.toBe(before);
