@@ -93,8 +93,14 @@ export async function prAction(
 export function formatPr(result: PrStageResult, renderer: Renderer): string {
   const lines: string[] = [];
 
+  // The readiness rows carry labels longer than any other screen's — `Readiness ·
+  // verification-current` overruns the column Stages 1→5 use, and two of the
+  // publication rows nearly do — so this page sizes itself to its own rows rather
+  // than inheriting one. A label that runs into its sentence is unreadable on the
+  // one page where somebody is deciding what to publish.
+  const labelWidth = Math.max(...result.checks.map((check) => check.name.length)) + 2;
   for (const check of result.checks) {
-    lines.push(`${renderer.status(check.status)} ${check.name.padEnd(24)}${check.detail}`);
+    lines.push(`${renderer.status(check.status)} ${check.name.padEnd(labelWidth)}${check.detail}`);
   }
   lines.push('');
 
@@ -138,13 +144,27 @@ export function formatPr(result: PrStageResult, renderer: Renderer): string {
   if (result.recordFile) lines.push(label('Record', result.recordFile));
   lines.push(label('Next', result.record.nextStage));
   lines.push('');
-  lines.push(renderer.heading('NO REMOTE CHANGE HAS BEEN MADE.'));
   lines.push(
     `  ${renderer.dim(
-      'No branch was pushed and no pull request was opened. An approval here records a decision ' +
-        'about one page; this build has no publication remote, so it has no action to take on it.',
+      'An approval here records a decision about one page. This build has no publication remote, ' +
+        'so it has no action to take on that decision, and no read of this screen can be mistaken ' +
+        'for a pull request that exists.',
     )}`,
   );
+  lines.push('');
+  // The last three lines are the whole of what this command did, in the order a
+  // reader should absorb them: whether a person said yes, whether anything was
+  // sent, and whether the state changed at all. They are printed last and in the
+  // same place on every path — including the path where a person has just approved,
+  // which is the one where an overclaim would be believed — because a boundary that
+  // only appears when the news is bad is a boundary readers learn to skip.
+  lines.push(
+    renderer.heading(
+      result.decision?.allowed === true ? 'HUMAN APPROVAL RECORDED' : 'NO HUMAN APPROVAL RECORDED',
+    ),
+  );
+  lines.push(renderer.heading('REMOTE PUBLICATION NOT ENABLED'));
+  lines.push(renderer.heading('NO REMOTE CHANGE HAS BEEN MADE.'));
   return lines.join('\n');
 }
 

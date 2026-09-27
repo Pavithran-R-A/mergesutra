@@ -218,6 +218,33 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
     expect((await prepared.store.load(source.runId)).publications).toEqual([]);
   });
 
+  it('leaves a gap between every row label and its sentence, on every row it prints', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const io = capture();
+
+    const code = await run(['node', 'mergesutra', 'pr', fixture.record.runId], {
+      ...io,
+      env: { NO_COLOR: '1' },
+      pr: depsFor(fixture),
+    });
+    // This stage's rows carry longer labels than any earlier screen's — a readiness
+    // row is named `Readiness · verification-current`, which overruns the column the
+    // other commands use — and a label that runs into its sentence is a screen that
+    // cannot be read on the one page where a person is deciding something. So the
+    // check is over every row the run files, not over a chosen few.
+    const text = io.text();
+    const saved = await fixture.store.load(fixture.record.runId);
+    expect(saved.checks.length).toBeGreaterThan(10);
+    for (const check of saved.checks) {
+      const pattern = new RegExp(
+        `^\\S+\\s+${check.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} +\\S`,
+        'm',
+      );
+      expect(pattern.test(text), `${check.name} ran into its detail`).toBe(true);
+    }
+    expect(code).toBe(EXIT.INCONCLUSIVE);
+  });
+
   it('takes no flag that approves in advance, and files nothing when one is typed', async () => {
     for (const forbidden of [
       '--yes',

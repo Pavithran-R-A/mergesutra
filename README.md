@@ -52,8 +52,10 @@ becomes a PR."*
 > good. The BharatCode adapter,
 > configuration, central secret
 > redaction, structured errors, tests and CI are **implemented and green**. The
-> full `issue → PR` workflow is **under construction** — the approval gate and PR
-> drafting (`mergesutra pr`), `status`/`resume` recovery UX and security
+> full `issue → PR` workflow is **under construction** — the page a person
+> approves (`mergesutra pr`) is built and its approval is local, but no command
+> of this product can open the pull request it authorises; `status`/`resume`
+> recovery UX, a publication transport and security
 > hardening are the next
 > stages; see
 > [Roadmap](docs/ROADMAP.md). Where this README shows the finished experience,
@@ -105,10 +107,13 @@ puts between them is real as `mergesutra review`; step 9's repair is real as
 `mergesutra repair`, under a digest-bound yes. The captures below in "Stage 7:
 the same run, verified", "Stage 8: the same run, written down", "Stage 9: the
 same patch, read a second time" and "Stage 9R: the same plan, carried out and
-measured again" are their output. The one-shot `issue` driver that
+measured again" are their output. Step 10's approval is real too, as
+`mergesutra pr`, and the capture under "Stage 10" is its output — what that
+command approves is a page, never a publication. The one-shot `issue` driver that
 runs all eight steps unattended is not, and neither is the PR at the end of the
 list, which is why this section is a target and the sections after it
-are output.)*
+are output. The `CONTRIBUTION_READY` line below is part of that mock of a later
+build: no stage of this product emits that word.)*
 
 ```text
 $ mergesutra issue https://github.com/example/project/issues/123
@@ -171,7 +176,20 @@ node dist/index.js review            # needs a key; asks a second model about th
 node dist/index.js review <run-id> --json
 node dist/index.js repair            # shows the newest run's frozen plan; needs no key, edits nothing
 node dist/index.js repair <run-id> --approve-plan <64-hex>   # the only command that edits, and only on that word
+node dist/index.js pr <run-id>                      # prints the page and the digest that approves it; needs no key
+node dist/index.js pr <run-id> --approve <64-hex>   # records that yes locally; opens nothing
 ```
+
+`pr` closes the chain, and unlike the commands before it it asks a person rather
+than a model. It needs a run whose verification, review and evidence pack all
+describe the patch currently on disk; if any of them has drifted it names the
+stage that owes the update and exits `4` rather than re-running anything to make
+its own screen greener. Given a digest typed back against the page it printed, it
+files that approval in the run record and still reports `published: false`, no
+pull-request address, and no remote touched — because this build has no
+publication transport, which is the point of the exercise: approval and
+capability are separate facts, and a test suite proves both halves. It needs no
+`BHARATCODE_API_KEY`, and it has no exit `0`.
 
 `repair` is the one command here that changes a repository because a person asked
 it to, so it has two halves and they need different things. Without
@@ -637,9 +655,11 @@ The story in those lines, in order:
   whitespace check, and the report says it wrote that check itself rather than
   dressing it up as a repository requirement.
 - **Stage 7 stops short of the verdict nobody earned.** The run ends in `REVIEW`.
-  `CONTRIBUTION_READY` arrives with [Stage 10](docs/ROADMAP.md)'s human approval
-  gate, is absent from the outcome vocabulary to this point, and the evidence
-  document beside this one types its own `contributionReady` as a literal `false`
+  `CONTRIBUTION_READY` is absent from the outcome vocabulary to this point and
+  still is after [Stage 10](docs/ROADMAP.md), which deliberately does not emit it:
+  a person's yes gets its own word, `HUMAN_APPROVED_FOR_PR`, because approving a
+  page is a different fact from a page being good. The evidence document beside
+  this one types its own `contributionReady` as a literal `false`
   — so there is no field to talk a run into.
 
 ### Stage 8: the same run, written down
@@ -737,8 +757,9 @@ Recorded by the stages of this run, oldest first:
   reviewer can check the table against the process rather than against this page.
 - **`contributionReady` in `report.json` is a constant `false`.** The renderer
   writes it and reads it from nowhere, so Stage 8 has no field for a run to talk
-  itself into being ready; that verdict is [Stage 10](docs/ROADMAP.md)'s, with a
-  diff reviewer and a human in it.
+  itself into being ready; that verdict belongs to a human with a diff in front of
+  them, and [Stage 10](docs/ROADMAP.md) ships the place they say so — a
+  digest-bound `HUMAN_APPROVED_FOR_PR` that is still not this field becoming true.
 
 ### Stage 9: the same patch, read a second time
 
@@ -943,6 +964,159 @@ What that screen is and is not:
   brief, not a diversity of judgment — and the `> [data] ` marking still does not cover
   the `plan` or general `implement` prompts, which is Stage 12's work.
 
+### Stage 10: the page a person approves, and that goes nowhere
+
+`mergesutra pr <run-id>` is the first command whose subject is a human decision
+rather than a measurement. It assembles the pull request body out of what the run
+already recorded — no model is asked anything, no gate is re-run, no earlier
+verdict is re-read — prints that body in full, and asks for one thing: the 64-hex
+digest of the page, typed back after reading it. There is no `--yes`, no
+`--force`, no `--approve-all` and no variable that stands in for the digest, and
+even the digest typed correctly performs no action, because this build has no
+publication remote to act through. Approval and publication are separated by
+construction here, not by a flag someone forgot to pass.
+
+The capture is one real run of `tests/pr/hero.test.ts`: the same fixture
+repository that produced the Stage 9 and 9R captures, repaired through Stage 9R's
+own loop, re-verified by Stage 7, re-reviewed by Stage 9, packaged by Stage 8,
+and then brought to `pr` four times — to read the page, to try a digest that
+belongs to another page, to approve, and once more after a byte moved underneath
+it. Its digests differ from the captures above for the same reason theirs differ
+from each other's: every run of every hero builds a fresh Git repository, so its
+base commit and patch identities are its own.
+
+```bash
+MERGESUTRA_HERO_CAPTURE=1 npx vitest run tests/pr/hero.test.ts
+```
+
+**Deterministic capture using the local BharatCode-compatible test stub for the
+reviewer and the repairer.** The repository, the worktree, the patch, the gate
+processes and the run records are real; every model turn is scripted, because no
+credential belongs in a test run. Paths and digests are shortened for this page —
+the screen prints a digest in full, because that is what has to be typed back.
+
+```text
+INFO          Readiness · patch-measured            The patch on disk is c7f550c24007….
+INFO          Readiness · verification-current      The verification on record is for c7f550c24007…, which is the patch now.
+INFO          Readiness · verification-passed       The recorded verdict is PASS, which covers the gates this run actually ran.
+INFO          Readiness · review-current            The independent review on record was written against the patch now.
+INFO          Readiness · no-repair-candidate-left  Nothing at BLOCKER or HIGH is still marked a repair candidate.
+INFO          Readiness · no-scope-violation        Every one of the 1 recorded repair cycle stayed inside the scope it was approved for.
+INFO          Readiness · pack-current              The evidence pack (ec44425340cd…) describes the patch now.
+WARN          Readiness · human-approved            No approval has been given for this proposal, so nothing is ready to publish.
+INFO          Publication proposal                  Parser accepts invalid empty dates — mergesutra/run-…-999999 into main (projectbharat/datekit); patch c7f550c24007…, evidence pack ec44425340cd…, body 3385 characters. Digest 269328f231a3…
+WARN          Publication approval                  No approval has been given for this candidate, so nothing will be published. Read the page above and run `mergesutra pr run-20260925T090000Z-999999 --approve 269328f231a3…` to record that you approved exactly it.
+INFO          Publication next step                 Every fact this stage reads is current, so the page above is the page a human is asked about. To agree to exactly it: `mergesutra pr run-20260925T090000Z-999999 --approve <digest>`. No branch was pushed and no pull request was opened: this build has no publication remote, so an approval here records a decision and performs no action.
+INFO          Publication boundary                  No branch was pushed and no pull request was opened: this build has no publication remote, so an approval here records a decision and performs no action.
+
+Run         run-20260925T090000Z-999999
+Outcome     PR_CANDIDATE_RECORDED
+Readiness   NOT_READY_FOR_PUBLICATION
+Page        mergesutra/run-20260925T090000Z-999999 → main (projectbharat/datekit)
+
+The page a reviewer would read
+  Parser accepts invalid empty dates
+
+  ## Summary
+
+  MergeSutra drafted this change from a run record. Every status below was written
+  by the stage that measured it; this page adds no verdict of its own, and a human
+  still has to read it.
+
+  - Repository: projectbharat/datekit → `main`
+  - Run: run-20260925T090000Z-999999
+  - Files: 2 files changed since the base commit
+  - Verification: PASS: 6 gate(s) recorded, 6 ran, over plan revision 2 on patch c7f550c24007… — 6 gates ran, 0 gates did not
+  - Review: cycle 2, 0 findings filed
+
+  ## Issue
+
+  Fixes #123 — this run is recorded as the whole of what that issue asked for.
+
+  https://github.com/projectbharat/datekit/issues/123
+
+…(the Acceptance Contract, Implementation, Verification, Independent Review,
+   Evidence and Limitations sections, printed in full on the real screen)
+
+  to record that you approve exactly the page above: mergesutra pr run-…-999999 --approve 269328f231a3…
+
+…(what the run itself could not settle, the record's path, and the `Next` line
+   naming the same digest… then the last three lines of the screen, on every path:)
+
+NO HUMAN APPROVAL RECORDED
+REMOTE PUBLICATION NOT ENABLED
+NO REMOTE CHANGE HAS BEEN MADE.
+```
+
+Then the same command with that digest typed back. The approval rows flip, the
+outcome changes, and the closing three change with them:
+
+```text
+INFO          Readiness · human-approved            A human approved this exact publication proposal.
+INFO          Publication approval                  A human approved this exact candidate (269328f231a3) at 2026-09-25T12:00:00.000Z.
+
+Run         run-20260925T090000Z-999999
+Outcome     PR_APPROVED_LOCAL
+Readiness   HUMAN_APPROVED_FOR_PR
+Page        mergesutra/run-20260925T090000Z-999999 → main (projectbharat/datekit)
+
+…the same page again, printed in full, because the approval is of the page and not
+   of a summary of it…
+
+Next        HUMAN_APPROVED_FOR_PR — a human approved digest 269328f231a3… for this run, and the page is filed. No branch was pushed and no pull request was opened: this build has no publication remote, so an approval here records a decision and performs no action.
+
+HUMAN APPROVAL RECORDED
+REMOTE PUBLICATION NOT ENABLED
+NO REMOTE CHANGE HAS BEEN MADE.
+```
+
+What those screens are and are not:
+
+- **Eight rows of facts, and none of them is the decision.** Each readiness row
+  names one condition this stage *reads* — is the patch on disk the one
+  verification measured, is the review about these bytes, does a pack a reviewer
+  could open describe them, is any BLOCKER or HIGH finding still marked a repair
+  candidate — and each one is answered against the run record, never re-derived.
+  A run missing a fact is told which earlier stage owes it (`mergesutra verify`,
+  `mergesutra report`) and exits `4`: Stage 10 is a consumer, not a repair loop,
+  and it will not quietly re-run a gate to make its own screen greener.
+- **The digest is the page.** It covers the repository, the target branch, the
+  proposed branch, the title, the body, the patch identity and the evidence-pack
+  identity, so one more byte in the workspace — the hero test adds a sentence to
+  `notes.md` after the approval, and that is the end of the approval — makes the
+  yes a person gave name a page that no longer exists. Comparison is exact
+  hex-to-hex; there is no prefix matching, no "close enough", and nothing to edit
+  in place, because an edited page earns a new digest by being assembled again.
+- **`Fixes #123` appears only because the run really recorded the issue.** A
+  candidate whose issue identity or closure semantics are missing says
+  `Related to #123` instead, and a run with no issue says nothing about one. The
+  model is never asked to write that line: the number, the URL and the word come
+  from the record Stage 1 filed.
+- **Approved and published are separate fields, not separate sentences.** The JSON
+  answer carries `approved: true` beside `published: false`, and there is no
+  `prUrl`, `html_url` or any pull-request address in any output shape — the test
+  greps the serialised publications for one. Nothing on either screen reads as a
+  PR that exists, and the boundary line is last on both, including on the screen
+  where the news is good, because a caveat that only appears when something went
+  wrong is a caveat readers learn to skip.
+- **Nothing left this machine, and that is measured.** The hero test reads the
+  patch identity, `git remote -v` and every ref with its object before the first
+  `pr` and after the last: same digests, same remotes (none), same refs. A build
+  with no transport cannot push; what the test proves is that no accidental
+  `git commit`, no stray ref and no re-labelled state slipped in either, on the
+  path where a person has just said yes.
+- **Exit codes:** `PR_CANDIDATE_RECORDED` and `PR_APPROVED_LOCAL` exit `3`,
+  `PR_PUBLICATION_BLOCKED` exits `4`. There is no exit `0` in Stage 10 — the
+  highest a publication-less build can honestly claim is "a human agreed, and
+  nothing happened".
+- **Known gaps:** the approval authorises a `CREATE_PULL_REQUEST` action this
+  build has no hands for, and what it names is an uncommitted patch — Stage 5's
+  worktree is on a real branch, but no stage of this product has ever run `git
+  commit`, so committing and pushing belong to whoever wires a publisher later,
+  not to a stage that says it does neither. Re-rendering the evidence pack changes
+  the page's identity and expires an approval exactly as editing the patch does.
+  See [docs/DECISIONS.md](docs/DECISIONS.md).
+
 ## Installation *(planned)*
 
 Today MergeSutra is run from a checkout. A published npm package comes at
@@ -976,13 +1150,15 @@ Global flags: `--dry-run`, `--verbose`, `--json`, `--no-color` (also honours
 | `report` | Render a run's evidence pack — `report.md`, `report.json`, `commands.jsonl` — from its record, deciding nothing and exiting with the outcome already recorded | Ready |
 | `review` | A second reader for the exact patch a run left: a model files findings, MergeSutra dispositions them, and the workspace comes back byte-identical | Ready |
 | `repair` | Carry out a frozen plan, and only under `--approve-plan <digest>`: one bounded cycle through `implement`'s own loop, then the gates run again over the bytes that exist now | Ready |
+| `pr` | Assemble the pull request a run's evidence supports, print the page in full, and accept one yes bound to its digest — opening nothing, pushing nothing, deciding nothing about whether the code is good | Ready |
 | `issue`     | Intake: read an issue, pin the repository + base commit into a run record | **Partial — intake only** |
 | `issue` *(full workflow)* | Hero workflow: issue → evidence-backed PR draft | Planned  |
-| `run` `pr` `status` `resume` | Phase / recovery commands | Planned |
+| `run` `status` `resume` | Phase / recovery commands | Planned |
 
 A planned command reports honestly and exits non-zero — it never fakes success.
 `mergesutra run` — the unattended pipeline from issue to PR — is still planned,
-and stays planned: `pr` does not exist yet, and `repair` runs only when a human
+and stays planned: `pr` records a human's approval and has no publication
+transport to act on it, and `repair` runs only when a human
 has typed a yes for one plan's digest, so a command that promised the whole
 product unattended would be a lie with a nice name.
 
@@ -1009,8 +1185,8 @@ A script or editor can tell these apart without parsing prose:
 | `0`  | Did what it claimed (`doctor` ready; `inspect` reached `INSPECT_COMPLETE`; `contract` reached `CONTRACT_DERIVED`; `plan` reached `PLAN_COMPLETE`) |
 | `1`  | Failed for a stated reason (bad input, unusable configuration, nothing to plan or implement against) |
 | `2`  | Command is planned, not implemented — nothing was done                        |
-| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`, `contract`, `plan`), an implementation run that changed files without proving anything (`IMPLEMENTED_BY_MODEL`, `IMPLEMENTATION_INCONCLUSIVE`, `IMPLEMENTATION_NEEDS_REVIEW`), a review that was filed but settled nothing (`REVIEW_RECORDED`, `REVIEW_NEEDS_HUMAN`, `REVIEW_INCONCLUSIVE`), or a repair cycle that ran and re-verified without earning a word like "good" (`REPAIR_APPLIED`, `REPAIR_NEEDS_HUMAN`) |
-| `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue), a loop that stopped on a bound or on cancellation, a review of bytes that have already moved (`REVIEW_STALE`), or a repair that could not be run as approved (`REPAIR_BLOCKED`) |
+| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`, `contract`, `plan`), an implementation run that changed files without proving anything (`IMPLEMENTED_BY_MODEL`, `IMPLEMENTATION_INCONCLUSIVE`, `IMPLEMENTATION_NEEDS_REVIEW`), a review that was filed but settled nothing (`REVIEW_RECORDED`, `REVIEW_NEEDS_HUMAN`, `REVIEW_INCONCLUSIVE`), a repair cycle that ran and re-verified without earning a word like "good" (`REPAIR_APPLIED`, `REPAIR_NEEDS_HUMAN`), or a publication page that was proposed — or approved — without anything being sent (`PR_CANDIDATE_RECORDED`, `PR_APPROVED_LOCAL`) |
+| `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue), a loop that stopped on a bound or on cancellation, a review of bytes that have already moved (`REVIEW_STALE`), a repair that could not be run as approved (`REPAIR_BLOCKED`), or a page this run cannot honestly propose (`PR_PUBLICATION_BLOCKED` — a stale gate, an approval for a different page) |
 | `78` | Configuration error (cf. `EX_CONFIG`) — e.g. `plan`, `implement`, `review` or `repair` with no `BHARATCODE_API_KEY` |
 
 `implement` has **no exit `0`**. A loop that ended because the model said
@@ -1024,7 +1200,13 @@ again". `REPAIR_APPLIED` is the outcome where Stage 7's re-run really passed, an
 it still exits `3` — the command reports the receipt, it does not convert it into
 a verdict — while `REPAIR_NEEDS_HUMAN` covers a cycle whose gates did not, and
 exits `3` beside it. A script therefore cannot read a repaired run as a successful
-one, whatever the patch looks like.
+one, whatever the patch looks like. `pr` has none either, and its reason is the
+simplest in the set: nothing this command can do has an outcome worth a `0`,
+because it has no transport. `PR_APPROVED_LOCAL` is the best case — a person read
+the page and said yes to exactly it — and it exits `3`, so no script can print a
+pull request into existence by checking a return code. It is also the only command
+of this product that never calls a model: showing a page and recording a yes ask
+nothing of BharatCode, so `pr` works with no `BHARATCODE_API_KEY` set.
 
 ## Safety model
 
@@ -1032,7 +1214,11 @@ Repository content, issue text and model output are untrusted. The authority
 hierarchy, risk-classified tools, worktree isolation, confined writes, argv-only
 command execution, and central redaction are described in
 [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). **Remote actions always
-require explicit human approval.**
+require explicit human approval** — and in this build there is nothing on the
+other side of that approval to act: no command of MergeSutra's pushes, comments,
+opens or merges anything, Stage 10's digest-bound yes included. It records the
+decision and stops at the boundary, which is the only way a product that has no
+remote can promise a human is the one who decides.
 
 ## How BharatCode powers it
 
@@ -1053,7 +1239,10 @@ request that fails after the adapter's own bounded retries ends the run as
 `MODEL_UNAVAILABLE` instead of trying again, so an unavailable model cannot drive
 an open-ended spend. The reviewer is offered the same adapter with a smaller
 world: it gets one question, no tools, and a JSON shape that has no field for a
-verdict, so there is nothing for it to grant. This project is
+verdict, so there is nothing for it to grant. `mergesutra pr` closes the chain
+without joining those four: it calls no model and holds no client, because a page
+a person approves is assembled from recorded facts, and whether to publish is not
+a question to put to a model. This project is
 not a clone or replacement of the official BharatCode CLI; it is truthfully
 *powered by* it.
 
@@ -1246,7 +1435,13 @@ also done: `mergesutra repair` runs a frozen plan through Stage 6's own loop, on
 under `--approve-plan <digest>` — the yes that starts it is bound to the scope it
 names, there is no `--yes` — and then sends the bytes it changed back through
 Stage 7's gates and regenerates the pack from the new receipts, so a repair reports
-what ran rather than what it thinks it fixed. The commands that still report
+what ran rather than what it thinks it fixed. [Stage
+10](docs/ROADMAP.md)
+is done to its boundary: `mergesutra pr` assembles the pull request body out of the
+run's own records, prints the page with the digest that approves it, and files a
+person's yes as a local fact — with no publication transport behind it, deliberately,
+so nothing it approves can turn into an action by accident. The commands that still
+report
 themselves as planned are
 next.
 
