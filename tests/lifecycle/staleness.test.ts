@@ -215,6 +215,18 @@ describe('the arrows in the graph', () => {
       }),
     ).toBe('CURRENT');
   });
+
+  it('leaves the candidate alone once the plan behind it is only history', () => {
+    expect(state('candidate', { repairPlan: { recorded: PATCH_A, current: PATCH_B } })).toBe(
+      'CURRENT',
+    );
+  });
+
+  it('does not expire a repair approval because the repair it authorised was carried out', () => {
+    expect(state('repairApproval', { repairPlan: { recorded: PATCH_A, current: PATCH_B } })).toBe(
+      'CURRENT',
+    );
+  });
 });
 
 describe('the bindings that are not about the patch', () => {

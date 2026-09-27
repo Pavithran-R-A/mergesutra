@@ -69,7 +69,7 @@ const BINDINGS: Readonly<Record<LifecycleArtifact, { noun: string; boundTo: stri
   repairPlan: { noun: 'repair plan', boundTo: 'the patch in the workspace' },
   executionConsent: { noun: 'execution consent', boundTo: 'the verification plan scope' },
   pack: { noun: 'evidence pack', boundTo: 'the pack directory on disk' },
-  candidate: { noun: 'PR candidate', boundTo: 'the candidate rebuilt from the current pack' },
+  candidate: { noun: 'PR candidate', boundTo: 'the patch in the workspace' },
   publicationApproval: { noun: 'publication approval', boundTo: 'the candidate now on the page' },
   repairApproval: { noun: 'repair approval', boundTo: 'the repair plan now on record' },
 };
@@ -79,14 +79,23 @@ const BINDINGS: Readonly<Record<LifecycleArtifact, { noun: string; boundTo: stri
  *
  * This table is the reason the module exists. A run whose patch moved has not
  * only gone stale verification: the evidence drawn from it, the review that read
- * it, the plan frozen from that review, the page assembled from the plan's
- * outcome and the approval given for that page are all about bytes that are
- * gone. Each of those rows can be measured on its own and still look correct —
+ * it and the plan frozen from that review are all about bytes that are gone.
+ * Each of those rows can be measured on its own and still look correct —
  * the page on disk can match the page that was approved while the patch underneath
  * it has already moved twice — so a status screen that only ever compares each
  * row with its own fact would report a lifecycle as current when nothing in it
  * is. The arrows say which direction is allowed to travel: a moved patch
  * expires the page, an expired page does not retroactively move the patch.
+ *
+ * A repair plan ends a chain rather than starting one, and that is a fact about
+ * what a plan is for. Its job was to change the bytes it describes, so a
+ * workspace that no longer matches one is the plan having *worked* — which is
+ * what its own row says, and not a defect the approval of it, or a page written
+ * after it, should inherit. The page is judged through the review and the pack
+ * instead, both of which are meant to describe the same bytes forever: a run that
+ * repaired, re-verified and re-reviewed has a current review and a current page,
+ * while a run whose files were edited behind everyone's back expires all the way
+ * down.
  */
 const DEPENDS_ON: Readonly<Record<LifecycleArtifact, readonly LifecycleArtifact[]>> = {
   verification: [],
@@ -94,10 +103,10 @@ const DEPENDS_ON: Readonly<Record<LifecycleArtifact, readonly LifecycleArtifact[
   review: ['evidence'],
   repairPlan: ['review'],
   pack: [],
-  candidate: ['pack', 'repairPlan'],
+  candidate: ['pack', 'review'],
   publicationApproval: ['candidate'],
   executionConsent: [],
-  repairApproval: ['repairPlan'],
+  repairApproval: [],
 };
 
 /** How much worse one state is than another, for folding an arrow into a row. */
