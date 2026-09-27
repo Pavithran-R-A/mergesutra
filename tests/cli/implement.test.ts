@@ -398,7 +398,9 @@ describe('mergesutra implement — the commands around it', () => {
   });
 
   it('exits PLANNED for the pipeline commands that do not exist yet', async () => {
-    for (const command of ['run', 'pr']) {
+    // `pr` left this list at Stage 10: it is a wired command now, and
+    // tests/cli/program.test.ts is what proves it no longer says "planned".
+    for (const command of ['run']) {
       const stage = await harness([finishAction()]);
       const c = capture();
       const code = await cli(stage, [command], c);

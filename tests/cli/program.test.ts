@@ -56,7 +56,7 @@ describe('mergesutra CLI', () => {
 
   it('a planned command says so truthfully and exits non-zero', async () => {
     const c = capture();
-    const code = await run(['node', 'mergesutra', 'pr'], {
+    const code = await run(['node', 'mergesutra', 'status'], {
       write: c.write,
       env: { NO_COLOR: '1' },
     });
@@ -67,7 +67,7 @@ describe('mergesutra CLI', () => {
   });
 
   it('does not pretend a later stage ran: no planned command exits 0', async () => {
-    for (const name of ['run', 'pr', 'status', 'resume']) {
+    for (const name of ['run', 'status', 'resume']) {
       const c = capture();
       const code = await run(['node', 'mergesutra', name], {
         write: c.write,
@@ -75,6 +75,23 @@ describe('mergesutra CLI', () => {
       });
       expect(code, name).toBe(2);
     }
+  });
+
+  it('has stopped treating `pr` as planned, and asks for the run it means', async () => {
+    const c = capture();
+    const err = capture();
+    const code = await run(['node', 'mergesutra', 'pr'], {
+      write: c.write,
+      writeErr: err.write,
+      env: { NO_COLOR: '1' },
+    });
+
+    expect(code).not.toBe(2);
+    expect(c.out()).not.toContain('is planned, not yet implemented');
+    // The run id is required rather than guessed, so the usage error is the honest
+    // answer to a publication command with nothing pointed at it.
+    expect(code).not.toBe(0);
+    expect(err.out()).toMatch(/required argument/i);
   });
 
   it('has stopped treating `report` as planned, and writes nothing without a run', async () => {
