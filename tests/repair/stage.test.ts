@@ -16,7 +16,7 @@ import {
 } from '../helpers/repairRun.js';
 import { scriptedClient } from '../helpers/bharatcode.js';
 import { checkAction, digestOf, finishAction, writeAction } from '../helpers/implement.js';
-import { consentFor, planOf, plannedGate } from '../helpers/verification.js';
+import { consentFor, planOf, plannedGate, SUCCEEDED } from '../helpers/verification.js';
 import { cleanUp, errorFrom, hasGit, implementedRun, put, NOW } from '../helpers/verifyRun.js';
 import type { RunRecord } from '../../src/state/run-record.js';
 
@@ -538,5 +538,160 @@ describe.skipIf(!AVAILABLE)('runRepairStage', () => {
     expect(result.packDir).toBeNull();
     expect(result.packError).not.toBeNull();
     expect(result.checks.map((check) => check.name)).toContain('Evidence pack');
+  });
+
+  describe('a cycle someone interrupts', () => {
+    /**
+     * Cancellation, §26, at the three points a person can actually press Ctrl+C.
+     *
+     * An interrupt is not a verdict. It says nothing about whether the finding was
+     * right or the edit good, and a record that read it that way would be the one
+     * lie a cancelled run can tell. So each row below holds to three things: the
+     * disk is left as the interrupt found it — no rollback, because reverting a
+     * person's workspace is not MergeSutra's to do — the cycle is filed as the fact
+     * that it ran and stopped, and no gate result, receipt or route toward a pull
+     * request survives a round that did not finish.
+     *
+     * What differs between them is where the stopping lands, and that is the part
+     * worth pinning: before the model is asked anything, after the edit is on disk
+     * but before the gates are, and after some gates have already produced
+     * receipts. The last is the dangerous one, because half a round looks like a
+     * round to anything that only checks whether one ran.
+     */
+    it('stops before asking the model anything, and files a cycle that edited nothing', async () => {
+      const fixture = await reviewedRun(tempDirs);
+      const controller = new AbortController();
+      controller.abort();
+      const client = scriptedClient(repairedAnswers('unused', fixture.criteria));
+      const roundsBefore = fixture.gateCalls.length;
+
+      const result = await runRepairStage(
+        {
+          runId: fixture.record.runId,
+          approvePlan: repairPlanDigest(fixture.plan),
+          signal: controller.signal,
+        },
+        {
+          store: fixture.store,
+          client,
+          now: () => NOW,
+          runsRoot: fixture.runsRoot,
+          runFor: fixture.runFor,
+        },
+      );
+
+      expect(client.calls).toHaveLength(0);
+      expect(await parserOf(fixture.workspace)).not.toBe(REPAIRED);
+      expect(result.execution?.implementation.status).toBe('CANCELLED');
+      expect(result.execution?.patchChanged).toBe(false);
+      expect(result.execution?.scope.outcome).toBe('REPAIR_LEFT_NO_TRACE');
+      // Nothing moved, so no round is owed — and none is invented.
+      expect(result.round).toBeNull();
+      expect(fixture.gateCalls).toHaveLength(roundsBefore);
+      expect(result.record.outcome).toBe('REPAIR_BLOCKED');
+      // The receipts still describe these bytes, so the record keeps them.
+      expect(result.record.verification).toEqual(fixture.record.verification);
+      expect(result.record.limitations.join(' ')).not.toMatch(/stale/i);
+      expect(result.record.nextStage).toMatch(/NEEDS_HUMAN_REVIEW/);
+    });
+
+    it('keeps an edit that landed and runs no gate when the interrupt arrives first', async () => {
+      const fixture = await reviewedRun(tempDirs);
+      const current = await parserOf(fixture.workspace);
+      const roundsBefore = fixture.gateCalls.length;
+      const controller = new AbortController();
+      const client = scriptedClient(repairedAnswers(current, fixture.criteria));
+      const asked = client.complete.bind(client);
+      let turn = 0;
+      client.complete = async (request) => {
+        turn += 1;
+        // The person stops the run while its final turn is outstanding.
+        if (turn === 2) controller.abort();
+        return asked(request);
+      };
+
+      const result = await runRepairStage(
+        {
+          runId: fixture.record.runId,
+          approvePlan: repairPlanDigest(fixture.plan),
+          signal: controller.signal,
+        },
+        {
+          store: fixture.store,
+          client,
+          now: () => NOW,
+          runsRoot: fixture.runsRoot,
+          runFor: fixture.runFor,
+        },
+      );
+
+      // Cancellation is not a rollback: the file the cycle wrote stays written.
+      expect(await parserOf(fixture.workspace)).toBe(REPAIRED);
+      expect(result.execution?.patchChanged).toBe(true);
+      expect(result.execution?.scope.outcome).toBe('WITHIN_PLANNED_SCOPE');
+      // The round is owed, so one is filed — and it names itself as cancelled
+      // rather than quietly reporting the gates it never started.
+      expect(result.round).not.toBeNull();
+      expect(result.round?.run.result).toBe('CANCELLED');
+      expect(fixture.gateCalls).toHaveLength(roundsBefore);
+      expect(result.record.outcome).toBe('REPAIR_NEEDS_HUMAN');
+      expect(result.record.nextStage).toMatch(/VERIFY/);
+      expect(result.record.nextStage).toMatch(/CANCELLED/);
+    });
+
+    it('files a half-run round as cancelled and keeps no verdict out of it', async () => {
+      const fixture = await reviewedRun(tempDirs);
+      const current = await parserOf(fixture.workspace);
+      const controller = new AbortController();
+      const started: string[] = [];
+      const runFor = () => async () => {
+        started.push('gate');
+        // Stopped partway: the first gate answered, the rest were never started.
+        controller.abort();
+        return SUCCEEDED;
+      };
+
+      const result = await runRepairStage(
+        {
+          runId: fixture.record.runId,
+          approvePlan: repairPlanDigest(fixture.plan),
+          signal: controller.signal,
+        },
+        {
+          store: fixture.store,
+          client: scriptedClient(repairedAnswers(current, fixture.criteria)),
+          now: () => NOW,
+          runsRoot: fixture.runsRoot,
+          runFor,
+        },
+      );
+
+      expect(started.length).toBe(1);
+      expect(result.round?.run.result).toBe('CANCELLED');
+      expect(result.record.outcome).toBe('REPAIR_NEEDS_HUMAN');
+      expect(result.record.nextStage).toMatch(/CANCELLED/);
+
+      // Half a round is not a verification, and the record says so at the top: the
+      // verdict is the cancellation, and nothing is contribution-ready.
+      const evidence = result.record.evidence;
+      expect(evidence?.verification).toBe('CANCELLED');
+      expect(evidence?.contributionReady).toBe(false);
+
+      // What the cancellation leaves is not equality between the criteria. The one
+      // gate that was reached really ran and really passed, so its criterion keeps a
+      // PASS built on that receipt — evidence from receipts is the whole rule, and
+      // pretending a command that ran said nothing would be its own lie. Every
+      // criterion the stop arrived at first is INCONCLUSIVE, and says why.
+      const rows = evidence?.criteria ?? [];
+      expect(rows.filter((row) => row.status === 'PASS')).toHaveLength(1);
+      expect(rows.filter((row) => row.status === 'INCONCLUSIVE')).toHaveLength(3);
+      expect(JSON.stringify(rows)).toContain('cancelled before the gate was reached');
+
+      // The cycle's own row carries the warning a reader acts on.
+      const row = result.checks.find((check) => check.name === 'Re-verification');
+      expect(row?.status).toBe('WARN');
+      expect(row?.detail).toMatch(/verdict CANCELLED/);
+      expect(await parserOf(fixture.workspace)).toBe(REPAIRED);
+    });
   });
 });
