@@ -4,6 +4,7 @@ import { REVIEW_SEVERITIES } from '../review/schema.js';
 import { RUN_OUTCOMES, RUN_STAGES, type RunRecord } from '../state/run-record.js';
 import { GATE_RESULTS } from '../verify/receipt.js';
 import { stalenessOf } from '../verify/patch.js';
+import { loopBudgetOf } from './budget.js';
 import { WORKSPACE_STATES, type LifecycleObservation } from './observe.js';
 import { LIFECYCLE_ARTIFACTS, type LifecycleState, type LifecycleVerdict } from './staleness.js';
 
@@ -468,15 +469,24 @@ function patchOf(
   return { recorded, current, status: stalenessOf(recorded, current).status };
 }
 
+/**
+ * The loop's spend, in the snapshot's flat field names.
+ *
+ * The subtraction lives in `budget.ts` and nowhere else, so the numbers a person
+ * reads on a status screen are the numbers a resume plan uses to decide whether
+ * there is anything to resume into. An over-spend stays negative here for the same
+ * reason: a snapshot that clamped it would report room where the budget module
+ * reports none.
+ */
 function budgetOf(implementation: NonNullable<RunRecord['implementation']>) {
-  const { limits, summary } = implementation;
+  const { steps, writes, commands } = loopBudgetOf(implementation);
   return {
-    stepsUsed: summary.steps,
-    stepsLeft: limits.maxSteps - summary.steps,
-    writesUsed: summary.writes,
-    writesLeft: limits.maxWrites - summary.writes,
-    commandsUsed: summary.commands,
-    commandsLeft: limits.maxCommands - summary.commands,
+    stepsUsed: steps.spent,
+    stepsLeft: steps.left,
+    writesUsed: writes.spent,
+    writesLeft: writes.left,
+    commandsUsed: commands.spent,
+    commandsLeft: commands.left,
   };
 }
 

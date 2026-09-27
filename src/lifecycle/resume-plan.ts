@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { sha256Hex } from '../security/digest.js';
 import { RUN_STAGES } from '../state/run-record.js';
+import { hasRoomIn } from './budget.js';
 import { LIFECYCLE_COMMANDS } from './next-actions.js';
 import { type SafeNextAction, type StatusSnapshot } from './snapshot.js';
 
@@ -255,7 +256,10 @@ function decide(snapshot: StatusSnapshot): Decision {
  * to check — that run is not interrupted, it is finished as far as the loop is
  * allowed to be. Anything else is a loop that stopped mid-work, and the only thing
  * that separates "continue it" from "ask a person" is whether the bounds it was
- * given still have room in them.
+ * given still have room in them — which is `hasRoomIn`, the same rule the budget
+ * module uses to decide whether it can hand out limits at all. A plan that offered
+ * to continue a loop the budget says is spent would be a plan for a command that
+ * cannot run.
  */
 function stoppedLoopOf(snapshot: StatusSnapshot): Decision | null {
   const loop = snapshot.implementation;
@@ -267,7 +271,7 @@ function stoppedLoopOf(snapshot: StatusSnapshot): Decision | null {
     writes: spent.writesUsed + spent.writesLeft,
     commands: spent.commandsUsed + spent.commandsLeft,
   };
-  const hasRoom = spent.stepsLeft > 0 && spent.writesLeft > 0 && spent.commandsLeft > 0;
+  const hasRoom = hasRoomIn(spent);
 
   if (loop.status === 'NEEDS_HUMAN_REVIEW') {
     return {
