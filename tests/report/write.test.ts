@@ -2,8 +2,10 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { buildEvidencePack } from '../../src/report/pack.js';
 import type { EvidencePack } from '../../src/report/pack.js';
-import { writeEvidencePack } from '../../src/report/write.js';
+import { readPackIdentity, writeEvidencePack } from '../../src/report/write.js';
+import { PACK_RUN_ID, recordAt } from '../helpers/report.js';
 
 /**
  * Where the pack goes, and what a wrong name must not be able to do to it.
@@ -83,5 +85,60 @@ describe('writing the pack', () => {
     await expect(writeEvidencePack(root, packFor('..'))).rejects.toThrow(/run id/i);
 
     expect(await readFile(neighbour, 'utf8')).toBe('a file that belongs to somebody else\n');
+  });
+});
+
+/**
+ * Reading a pack's identity back off disk.
+ *
+ * Stage 10 binds a human's yes to the evidence pack, which means it has to name
+ * the pack somebody can actually open — not a pack re-rendered from the current
+ * record, since a later stage filing its own outcome would otherwise silently
+ * expire an approval nobody revisited. So the answer comes from the three files,
+ * and the two cases that are not answers are said as `null` rather than guessed:
+ * a run with no pack, and a run whose pack is missing one of its three files.
+ */
+describe('reading the identity of the pack that is on disk', () => {
+  it('names the pack a renderer wrote, from the bytes on disk', async () => {
+    const root = await runsRoot();
+    const pack = buildEvidencePack(recordAt());
+
+    const where = await writeEvidencePack(root, pack);
+
+    expect(await readPackIdentity(root, PACK_RUN_ID)).toBe(pack.identity);
+    expect(where.dir).toBe(path.join(root, PACK_RUN_ID));
+  });
+
+  it('follows the bytes: a rewritten file is a different pack', async () => {
+    const root = await runsRoot();
+    const pack = buildEvidencePack(recordAt());
+    await writeEvidencePack(root, pack);
+    const before = await readPackIdentity(root, PACK_RUN_ID);
+
+    const target = path.join(root, PACK_RUN_ID, 'report.md');
+    await writeFile(target, `${await readFile(target, 'utf8')}\nan added line\n`);
+
+    const after = await readPackIdentity(root, PACK_RUN_ID);
+    expect(after).toMatch(/^[0-9a-f]{64}$/);
+    expect(after).not.toBe(before);
+    expect(await readPackIdentity(root, PACK_RUN_ID)).toBe(after);
+  });
+
+  it('says there is no pack rather than naming a partial one', async () => {
+    const root = await runsRoot();
+    await writeEvidencePack(root, packFor(PACK_RUN_ID));
+    await rm(path.join(root, PACK_RUN_ID, 'commands.jsonl'));
+
+    expect(await readPackIdentity(root, PACK_RUN_ID)).toBeNull();
+    expect(await readPackIdentity(root, 'run-without-a-pack')).toBeNull();
+  });
+
+  it('refuses a run id that would read outside the run directory', async () => {
+    const container = await mkdtemp(path.join(tmpdir(), 'mergesutra-pack-'));
+    scratch.push(container);
+    const root = path.join(container, 'runs');
+    await writeEvidencePack(root, packFor('someone-else'));
+
+    await expect(readPackIdentity(root, '..')).rejects.toThrow(/run id/i);
   });
 });

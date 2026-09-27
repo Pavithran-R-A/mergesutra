@@ -55,7 +55,7 @@ export function buildEvidencePack(record: RunRecord): EvidencePack {
     'report.json': `${JSON.stringify(document(record, rows), null, 2)}\n`,
     'commands.jsonl': commandsLog(record),
   };
-  return { runId: record.runId, identity: identityOf(files), files };
+  return { runId: record.runId, identity: packIdentityOf(files), files };
 }
 
 /**
@@ -64,8 +64,12 @@ export function buildEvidencePack(record: RunRecord): EvidencePack {
  * Each entry is hashed separately and joined with a separator a file body cannot
  * forge, so a pack whose report.md ends where commands.jsonl begins cannot be
  * confused with one whose split falls elsewhere.
+ *
+ * Exported because the identity of a pack is also readable from the files alone:
+ * a later stage that has to name *the pack a person was shown* hashes what is on
+ * disk rather than re-rendering from a record that has since moved on.
  */
-function identityOf(files: Readonly<Record<PackFileName, string>>): string {
+export function packIdentityOf(files: Readonly<Record<PackFileName, string>>): string {
   const lines = [PACK_IDENTITY_LABEL];
   for (const name of PACK_FILE_NAMES) {
     lines.push(`${name}\0${sha256Hex(files[name])}`);
