@@ -5,15 +5,16 @@ import type { ImplementationRecord } from '../implement/state.js';
 import type { LoopBrief } from '../implement/prompt.js';
 import { buildEvidencePack } from '../report/pack.js';
 import { writeEvidencePack } from '../report/write.js';
-import { createRunRecord, parseRunRecord, type RunCheck, type RunRecord } from '../state/run-record.js';
+import {
+  createRunRecord,
+  parseRunRecord,
+  type RunCheck,
+  type RunRecord,
+} from '../state/run-record.js';
 import { createFileRunStore, defaultRunStoreRoot, type RunStore } from '../state/run-store.js';
 import { verdictIsPassed, type GateExecutionSpec } from '../verify/engine.js';
 import { describePatch } from '../verify/patch.js';
-import {
-  loopClaim,
-  verifyWorkspace,
-  type WorkspaceVerification,
-} from '../verify/workspace.js';
+import { loopClaim, verifyWorkspace, type WorkspaceVerification } from '../verify/workspace.js';
 import { resolveLimit, type RepairLimits } from './bounds.js';
 import {
   decideRepairApproval,
@@ -434,7 +435,10 @@ function cycleRows(loop: ImplementationRecord, execution: RepairExecution): RunC
  * of a repaired run looks for first, and a record that simply still held the old
  * receipts would let them miss that a cycle happened at all.
  */
-function reverificationRow(execution: RepairExecution, round: WorkspaceVerification | null): RunCheck {
+function reverificationRow(
+  execution: RepairExecution,
+  round: WorkspaceVerification | null,
+): RunCheck {
   if (!round) {
     return {
       name: 'Re-verification',
@@ -450,7 +454,8 @@ function reverificationRow(execution: RepairExecution, round: WorkspaceVerificat
   return {
     name: 'Re-verification',
     status: verdictIsPassed(round.run.result) ? 'INFO' : 'WARN',
-    detail: `the gates ran again on ${round.plan.patchIdentity.slice(0, 12)}… at revision ` +
+    detail:
+      `the gates ran again on ${round.plan.patchIdentity.slice(0, 12)}… at revision ` +
       `${String(round.plan.revision)} — verdict ${round.run.result}`,
   };
 }
@@ -582,8 +587,7 @@ async function newestPlannedRunId(store: RunStore): Promise<string> {
   }
   throw new AppError({
     kind: 'validation',
-    message:
-      'No run in this directory has a frozen repair plan, so there is nothing to repair.',
+    message: 'No run in this directory has a frozen repair plan, so there is nothing to repair.',
     remediation:
       'Pass a run id explicitly, or finish `mergesutra verify` and `mergesutra review` first; a ' +
       'repair may only answer a finding a reviewer filed.',

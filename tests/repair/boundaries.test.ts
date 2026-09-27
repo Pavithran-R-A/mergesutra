@@ -89,9 +89,7 @@ const QUOTED = /['"]([^'"\n]*)['"]/g;
 function importedSpecifiers(text: string): string[] {
   return [...text.matchAll(QUOTED)]
     .map((match) => match[1] ?? '')
-    .filter(
-      (token) => token.startsWith('.') || token.startsWith('/') || token.startsWith('node:'),
-    )
+    .filter((token) => token.startsWith('.') || token.startsWith('/') || token.startsWith('node:'))
     .map((token) => token.replace(/^node:/, ''));
 }
 
