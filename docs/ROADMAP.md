@@ -670,7 +670,10 @@ must not be the thing that decides the change was good.
       written: Stage 10 above replaces the `pr` stub with the digest-bound candidate, the
       human gate and the disabled remote, and keeps the promise that no path through it
       publishes. `run`, `status` and `resume` are still stubs, still exit `2`, and are
-      Stage 11's.)*
+      Stage 11's. Stage 11 has since taken `status` out of that list: it is a wired,
+      read-only command that exits `0` for a blocked lifecycle and `1` only when there
+      was nothing to describe — ADR-056. `run` and `resume` remain stubs, and `resume`
+      is the rest of this stage.)*
 
 ## Stage 10 — Human approval + PR draft — **[DONE]**
 

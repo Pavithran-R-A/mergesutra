@@ -49,11 +49,13 @@ The hero command is `mergesutra issue <github-url>`. Phase commands
 (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`,
 `status`, `resume`) exist for transparency, debugging and recovery — not to
 expand scope. What ships today is `inspect`, `contract`, `plan`, `implement`,
-`verify`, `review`, `report`, `repair` and `pr`, alongside `issue` and `doctor`.
+`verify`, `review`, `report`, `repair`, `pr` and `status`, alongside `issue` and `doctor`.
 `pr` is Stage 10's, and it reaches as far as this build goes: it drafts the page,
 takes a human's digest-bound yes and files both — and no command here publishes
-anything. `run`, `status` and `resume` are designed and exit `2` until Stage 11
-owns recovery.
+anything. `status` is Stage 11's read-only half: it describes a run and the bytes
+beside it, changes nothing, and exits `0` for a blocked lifecycle because describing
+a blocked lifecycle is what it was asked to do (ADR-056). `run` and `resume` are
+designed and exit `2` until the rest of Stage 11 owns recovery.
 
 ## 4. Core promise
 
@@ -256,7 +258,10 @@ defect.
   full pass produces is `HUMAN_APPROVED_FOR_PR`, printed beside a literal
   `published: false` — `CONTRIBUTION_READY` remains unreachable in every screen and
   every record this build writes.
-- Resumability (`status` / `resume`) is **[DESIGNED]** / **[PLANNED]**, not
+- Recovery is split in two, and shipped in that order. Reading it (`status`) is
+  **[IMPLEMENTED]**: it describes a run beside the bytes that exist now, changes
+  nothing, and exits `0` for a blocked lifecycle. Acting on it (`resume`) is
+  **[DESIGNED]** / **[PLANNED]**, not
   yet functional. Planned commands exit `2` rather than imitating success. The
   pack `report` writes is three files rendered from one run record; the
   one-file-per-document bundle sketched in

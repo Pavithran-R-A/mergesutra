@@ -142,11 +142,12 @@ machine that edits: `mergesutra repair` runs an approved plan through
 `IMPLEMENT`'s own loop, then goes back through `VERIFY` on the bytes that exist now,
 so `REPAIR → IMPLEMENT → VERIFY` is a real path with a real command at its start
 rather than a **[DESIGNED]** arrow. What is still **[DESIGNED]** is `HUMAN_APPROVAL`
-onward — which is why `mergesutra run`, `pr`,
-`status` and `resume` still exit `2` as planned. *(Kept as written: the last
+onward — which is why `mergesutra run` and
+`resume` still exit `2` as planned, while `status` is the read-only half of recovery
+that Stage 11 shipped. *(Kept as written: the last
 paragraph of this section describes what Stage 10 built instead — the `pr` command,
 which exits `3` or `4` and never `0`. The arrow out of `PR_DRAFT` is still unbuilt,
-still by design, and those three other commands are still stubs.)*
+still by design, and `run` and `resume` are still stubs.)*
 
 What Stage 7 added to this machine is a boundary rather than a box: `VERIFY` is
 the only state that can move a criterion off `PENDING`, and it can do it only from

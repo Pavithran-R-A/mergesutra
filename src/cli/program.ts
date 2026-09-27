@@ -10,6 +10,8 @@ import { reviewAction, type ReviewCommandOptions } from './review.js';
 import { repairAction, type RepairCommandOptions } from './repair.js';
 import { prAction, type PrCommandOptions } from './pr.js';
 import { reportAction, type ReportCommandOptions, type ReportDeps } from './report.js';
+import { statusAction, type StatusCommandOptions } from './status.js';
+import type { StatusStageDeps } from '../lifecycle/status.js';
 import type { IntakeDeps } from '../intake/intake.js';
 import type { InspectDeps } from '../discovery/inspect.js';
 import type { ContractDeps } from './contract.js';
@@ -32,16 +34,18 @@ import { defaultRedactor } from '../security/redaction.js';
  *
  * The one-command hero workflow is `mergesutra issue <url>`. The phase commands
  * (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `repair`, `report`, `pr`)
- * exist for transparency, debugging and recovery. Through Stage 10, `doctor`,
+ * exist for transparency, debugging and recovery. Through Stage 11, `doctor`,
  * the intake half of `issue`, `inspect`, `contract`, `plan`, `implement`,
- * `verify`, `review`, `repair`, `report` and `pr` are wired up; every unfinished
+ * `verify`, `review`, `repair`, `report`, `status` and `pr` are wired up; every unfinished
  * command says
  * so truthfully rather than pretending to work. `run` — the unattended
  * end-to-end pipeline — is deliberately still planned: a pipeline that skipped
  * the human consent that `verify` requires would be unsafe, not convenient, so
  * the stages after it must land before an unattended mode can honestly exist.
- * `pr` is wired but does not publish: it prepares and approves a page locally, and
- * this build has no remote to open one against.
+ * `status` is the read-only half of recovery: it describes a run and its workspace
+ * and has no act in it, which is why it exits 0 for a blocked run and 1 only when
+ * there was nothing to describe. `pr` is wired but does not publish: it prepares and
+ * approves a page locally, and this build has no remote to open one against.
  */
 
 export interface ProgramDeps {
@@ -56,6 +60,7 @@ export interface ProgramDeps {
   repair?: Partial<RepairStageDeps>;
   pr?: Partial<PrStageDeps>;
   report?: Partial<ReportDeps>;
+  status?: Partial<StatusStageDeps>;
   write?: (line: string) => void;
   writeErr?: (line: string) => void;
   env?: NodeJS.ProcessEnv;
@@ -64,7 +69,6 @@ export interface ProgramDeps {
 
 const PLANNED = [
   { name: 'run', summary: 'Unattended end-to-end pipeline across all stages.' },
-  { name: 'status', summary: 'Show the current run state.' },
   { name: 'resume', summary: 'Resume an interrupted run.' },
 ];
 
@@ -374,6 +378,26 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       setExitCode(await prAction(runId, options, deps.pr, write));
     });
 
+  program
+    .command('status [run-id]')
+    .description(
+      'Describe where a run stands against the bytes here now; reads only, and changes nothing',
+    )
+    .option(
+      '--repo <path>',
+      'primary checkout whose workspace this run owns (default: its recorded one)',
+    )
+    .action(async (runId: string | undefined, opts: { repo?: string }) => {
+      const globals = program.opts();
+      const options: StatusCommandOptions = {
+        json: globals.json === true,
+        noColor: globals.color === false,
+        env,
+        repo: opts.repo,
+      };
+      setExitCode(await statusAction(runId, options, deps.status, write));
+    });
+
   for (const planned of PLANNED) {
     const [name] = planned.name.split(' ');
     program
@@ -389,7 +413,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
             renderer.row('INFO', planned.summary),
             '',
             renderer.dim(
-              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, verify, review, repair, report, pr, --help, --version.',
+              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, verify, review, repair, report, status, pr, --help, --version.',
             ),
             renderer.dim(
               'Of those, `pr` prepares and approves a page; no command in this build opens one.',

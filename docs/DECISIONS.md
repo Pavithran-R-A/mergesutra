@@ -1321,3 +1321,41 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   because the fallback is the only place a headline can come from now, and `Fixes #n`
   exists solely where `closesTheIssue()` proved same-repository identity plus verified
   evidence on the current patch.
+
+## ADR-056 — `status` exits 0 for a blocked run, and 1 only when there was nothing to describe
+
+- **Decision:** `mergesutra status` returns `0` whenever it produced a snapshot — including
+  a snapshot of a run whose workspace is gone, whose evidence expired, whose verification
+  failed or whose review is waiting for a human — and returns `1` when it could not produce
+  one at all, which happens on exactly two paths: no run record where it was told to look,
+  and a run record that cannot be parsed. `--json` carries the lifecycle state either way,
+  and the snapshot is the only place the blocked-ness is recorded. The exit code of the
+  *described* run is not this command's exit code, and `exitForOutcome()` is deliberately
+  not called here, unlike every other stage command.
+- **Reason:** §36 asks for two states a script must be able to tell apart — STATUS COMMAND
+  FAILED and STATUS REPORTED A FAILED RUN — and the existing convention cannot express that
+  pair, because it puts the run's outcome in the number. A recovery command is read before a
+  decision, usually by something that will then be re-run: if describing a stale lifecycle
+  exited 3 or 4, `status` would look exactly like the stage that failed, and the operator's
+  only way to distinguish "this page told me the run is broken" from "this page did not run"
+  would be the text. That is the wrong place to put the burden, since this command's whole
+  job is the telling. The number says whether the observation happened; the document says
+  what was observed.
+- **Alternatives:** `exitForOutcome(record.outcome)` for consistency with `report` (a
+  consistent lie — `report` writes the pack a human signs off on, so its number should carry
+  the run's verdict, while `status` is asked "what is true now" and there is a true answer
+  even when the answer is bad); exit 0 always, including on a missing record (a command that
+  found nothing and a command that found a dead run would be indistinguishable to the one
+  consumer that cannot read prose); exit 3 for a blocked lifecycle (it collides with every
+  stage's "finished with a gap", and this command finished with no gap in *itself*); a new
+  exit code for "reported a failed run" (a fourth meaning for a number a script already has
+  to branch on, when the JSON has a name for that state and a field for every row of it).
+- **Consequence:** `tests/cli/status.test.ts` asserts both halves of the pair on purpose —
+  the blocked-workspace case expects `0` and the missing/corrupt-record cases expect `1` with
+  an empty stdout — so a later change that "makes status consistent with report" fails a test
+  rather than quietly confusing every caller. It also means `status` is the one command here
+  whose exit code is *about the command*, which is why `resume`'s preview must not borrow it:
+  §37 makes a preview's number come from what the run is, and only an executed stage returns
+  its own outcome. Nothing about this makes `status` a success signal for the run; the
+  snapshot's `recorded.outcome`, `lifecycle.states` and `blockers` are the verdict, and the
+  screen prints them under words that say which of the two is being claimed.

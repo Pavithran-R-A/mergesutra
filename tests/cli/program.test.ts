@@ -56,7 +56,7 @@ describe('mergesutra CLI', () => {
 
   it('a planned command says so truthfully and exits non-zero', async () => {
     const c = capture();
-    const code = await run(['node', 'mergesutra', 'status'], {
+    const code = await run(['node', 'mergesutra', 'run'], {
       write: c.write,
       env: { NO_COLOR: '1' },
     });
@@ -67,7 +67,7 @@ describe('mergesutra CLI', () => {
   });
 
   it('does not pretend a later stage ran: no planned command exits 0', async () => {
-    for (const name of ['run', 'status', 'resume']) {
+    for (const name of ['run', 'resume']) {
       const c = capture();
       const code = await run(['node', 'mergesutra', name], {
         write: c.write,
@@ -75,6 +75,28 @@ describe('mergesutra CLI', () => {
       });
       expect(code, name).toBe(2);
     }
+  });
+
+  it('has stopped treating `status` as planned, without letting it invent a run', async () => {
+    const c = capture();
+    const err = capture();
+    const cwd = await mkdtemp(path.join(tmpdir(), 'mergesutra-status-planned-'));
+    tempDirs.push(cwd);
+
+    const code = await run(['node', 'mergesutra', 'status'], {
+      write: c.write,
+      writeErr: err.write,
+      env: { NO_COLOR: '1' },
+      status: { store: memoryRunStore(), cwd },
+    });
+
+    expect(code).not.toBe(2);
+    expect(c.out()).not.toContain('is planned, not yet implemented');
+    // §36: a run that was blocked would still exit 0, so the only way this exits 1
+    // is that there was nothing to describe at all — which is the failure this
+    // command is allowed to have, and the one `resume` will have to respect.
+    expect(code).toBe(1);
+    expect(err.out()).toMatch(/no run/i);
   });
 
   it('has stopped treating `pr` as planned, and asks for the run it means', async () => {

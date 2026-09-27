@@ -70,8 +70,9 @@ becomes a PR."*
 > **Nothing is published.** The BharatCode adapter,
 > configuration, central secret
 > redaction, structured errors, tests and CI are **implemented and green**. The
-> full `issue → PR` workflow is **under construction**: `mergesutra run`,
-> `status` and `resume` are still planned stubs that exit `2`, a publication
+> full `issue → PR` workflow is **under construction**: `mergesutra run` and
+> `resume` are still planned stubs that exit `2`, `status` is wired and reads
+> without changing anything, a publication
 > transport and security
 > hardening are the next
 > stages; see
