@@ -95,7 +95,15 @@ const WINDOWS_PATH = /\b[A-Za-z]:[\\/][^\s"'`,;()]*/g;
 const POSIX_HOME =
   /(?:^|[\s"'`(])(\/(?:home|users?|tmp|temp|private|var|root|mnt|media|srv|opt|builds?|actions-runner|github|workspace|documents)[\\/][^\s"'`,)]*)/gi;
 
-/** The claims a draft may not make on a run's behalf, however the issue was worded. */
+/**
+ * The claims a draft may not make on a run's behalf, however the issue was worded.
+ *
+ * The first group is optimism a reporter may feel about their own bug. The last two
+ * are words this program owns: a state name only a human's reading produces, and a
+ * closing keyword only the evidence decides. Those two are the more dangerous,
+ * because a title is the one line of a pull request everybody reads first, and text
+ * inside it is not what makes it true.
+ */
 const OVERCLAIMS: readonly RegExp[] = [
   /\ball (?:the )?tests? (?:passed|pass)\b/i,
   /\bevery test\b/i,
@@ -104,6 +112,8 @@ const OVERCLAIMS: readonly RegExp[] = [
   /\bai approved\b|\bapproved by (?:ai|bharatcode|the model)\b/i,
   /\bsecurity (?:guarantee|guaranteed|assured)\b|\bno vulnerabilities\b/i,
   /\b100% ?(?:tested|coverage|working)\b/i,
+  /\b(?:fixes|closes|resolves)\s+#\d+\b/i,
+  /\bhuman_approved_for_pr\b|\bcontribution_ready\b|\bapprove_all\b|\bpr[\s_]*created\b|["']?approved["']?\s*[:=]\s*true\b/i,
 ];
 
 /**
