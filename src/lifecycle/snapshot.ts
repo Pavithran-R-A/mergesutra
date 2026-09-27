@@ -349,7 +349,8 @@ export const statusSnapshotSchema = z
     publication: publicationSectionSchema.nullable(),
     lifecycle: z
       .object({
-        states: z.record(z.string(), lifecycleStateSchema),
+        /** Keyed by the closed artifact vocabulary, so a reader cannot ask for a row that does not exist. */
+        states: z.record(z.enum(LIFECYCLE_ARTIFACTS), lifecycleStateSchema),
         rows: z.array(lifecycleRowSchema).readonly(),
       })
       .strict(),

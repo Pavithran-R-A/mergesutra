@@ -1,28 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
-  buildStatusSnapshot,
   NEXT_ACTION_REQUIREMENTS,
   STATUS_SCHEMA_VERSION,
   statusSnapshotSchema,
   type SafeNextAction,
 } from '../../src/lifecycle/snapshot.js';
-import { observeRun } from '../../src/lifecycle/observe.js';
 import { runPrStage } from '../../src/pr/stage.js';
 import { publicationDigestOf } from '../../src/pr/digest.js';
 import { writeEvidencePack } from '../../src/report/write.js';
 import { buildEvidencePack } from '../../src/report/pack.js';
 import { describePatch } from '../../src/verify/patch.js';
 import { cleanUp, contractBackedRun, NOW } from '../helpers/plan.js';
+import { scratch, snapshotOf } from '../helpers/snapshot.js';
 import { put } from '../helpers/verifyRun.js';
 import { recordWith } from '../helpers/review.js';
 import { REPAIRED, reviewedRun } from '../helpers/repairRun.js';
 import { proposedRun } from '../helpers/publicationRun.js';
 import { cycleFor } from '../helpers/repair.js';
 import { hasGit } from '../helpers/git.js';
-import type { RunRecord } from '../../src/state/run-record.js';
 
 /**
  * The snapshot: one document that holds what a run recorded and what is on this
@@ -49,31 +45,6 @@ afterEach(async () => {
   await cleanUp(tempDirs);
   tempDirs.length = 0;
 });
-
-async function scratch(prefix: string): Promise<string> {
-  const dir = await mkdtemp(path.join(tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
-
-async function snapshotOf(
-  record: RunRecord,
-  runsRoot: string,
-  extra: { repo?: string; nextActions?: readonly SafeNextAction[] } = {},
-) {
-  const observation = await observeRun({
-    record,
-    runsRoot,
-    cwd: record.local?.toplevel ?? runsRoot,
-    repo: extra.repo,
-  });
-  return buildStatusSnapshot({
-    record,
-    observation,
-    observedAt: NOW.toISOString(),
-    nextActions: extra.nextActions ?? [],
-  });
-}
 
 describe.skipIf(!AVAILABLE)('what a snapshot separates', () => {
   it('carries the recorded stage words and the observed facts as two different things', async () => {
@@ -433,7 +404,7 @@ describe.skipIf(!AVAILABLE)('the parts a reader acts on', () => {
     const record = recordWith(prepared.record, {
       plan: undefined,
     });
-    const runsRoot = await scratch('mergesutra-snapshot-runs-');
+    const runsRoot = await scratch('mergesutra-snapshot-runs-', tempDirs);
 
     const snapshot = await snapshotOf(record, runsRoot);
 
@@ -453,7 +424,7 @@ describe.skipIf(!AVAILABLE)('the parts a reader acts on', () => {
 
   it('round-trips through JSON without gaining or losing a claim', async () => {
     const fixture = await reviewedRun(tempDirs);
-    const runsRoot = await scratch('mergesutra-snapshot-runs-');
+    const runsRoot = await scratch('mergesutra-snapshot-runs-', tempDirs);
     await writeEvidencePack(fixture.runsRoot, buildEvidencePack(fixture.record));
 
     const snapshot = await snapshotOf(fixture.record, fixture.runsRoot);
