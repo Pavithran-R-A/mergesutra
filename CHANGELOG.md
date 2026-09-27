@@ -6,6 +6,127 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Stage 9R: a repair authorised by digest, and the gates that had to run again after it
+
+Stage 9 froze a work order and stopped. This is the stage that carries it out, and
+its design question is the one an editing stage cannot dodge: a thing that changes a
+patch must not also be the thing that decides the change was good. So one cycle runs
+a fixed path — read the plan, ask a human for a yes naming its digest, edit through
+the loop that already owns the writer, re-verify the bytes that exist now, remake the
+pack the cycle made stale — and every step is a separate document with its own proof.
+
+- `mergesutra repair [run-id]` — the only shipped command that edits a repository,
+  and it edits only under `--approve-plan <digest>`: the 64-hex digest of the plan
+  Stage 9 froze, typed after reading it. There is no `--yes`, no `--force`, no
+  `--approve-all` and no environment variable that stands in for the digest, because
+  a repair that could be approved in advance would be approved without being read.
+  The command has two halves with different needs: without an approval it prints the
+  plan, the files it names and the exact command line that would authorise it, and
+  asks for no credential — the half a person uses to *decide* may not cost a request.
+  With one, a missing `BHARATCODE_API_KEY` is a configuration refusal at exit `78`,
+  raised before a byte moves rather than as a cycle that ran and did nothing.
+  `REPAIR_APPLIED` and `REPAIR_NEEDS_HUMAN` exit `3`, `REPAIR_BLOCKED` exits `4`;
+  there is no exit `0`, and no outcome in the vocabulary that says a patch is good.
+  `--repo`, `--max-review-cycles`, `--max-repair-cycles` (lowering only), `--json`,
+  `--no-color`.
+- The digest is the approval surface (`src/repair/digest.ts`): canonical JSON with
+  every list order-normalised, covering which run, which cycles, which patch the
+  findings described, which findings, files, criteria and gates and what each asked
+  for. `createdAt` and the model id are excluded on purpose — re-freezing the same
+  scope over the same bytes authorises the same edit, and a digest that moved with
+  the clock or with a re-sorted list would train a human to reach for a blunter flag.
+  The function decides nothing and holds no consent.
+- Consent is a separate capability (`src/repair/consent.ts`): `{ planDigest,
+  approvedAt }`, stored beside the plan rather than inside it, with three states —
+  `MATCHED`, `ABSENT`, `STALE` — and no wildcard field of any kind. A yes spent on
+  cycle 1 does not authorise cycle 2, and a yes typed for another plan is reported as
+  stale while naming both digests; nothing is mutated to find out either way.
+- A cycle runs on a smaller budget than Stage 6 did (`src/repair/limits.ts`): 6 steps,
+  3 writes, 2 commands by default, ceilings of 8 / 4 / 3, and every axis clamped
+  against Stage 6's *default* as well as this file's own. Asking for more is a clamp,
+  not a refusal — the approved thing was the plan's scope, never a bigger budget — and
+  the record says which numbers actually ran.
+- The repairer is briefed with the plan's scope and nothing wider
+  (`src/repair/context.ts`). It ships the findings the plan carried, the criteria
+  those findings name, the receipts the plan answers to and the files the plan froze;
+  it withholds the reviewer's closing summary, the earlier loop's account of its own
+  work, and any criterion or file the plan never named — and states its own exclusions
+  on the page, so an omission is visible instead of silent. A finding whose text is
+  shaped like a section heading is quoted behind the shared `> [data] ` marker
+  (§29), whole findings are dropped rather than truncated when the brief outgrows its
+  budget, and a plan from another run, another patch or a finding a human was routed
+  is refused rather than reinterpreted.
+- The loop refuses an out-of-scope write before the writer sees it
+  (`src/implement/loop.ts`, `src/implement/prompt.ts`): given a brief, a `WRITE_FILE`
+  to a path outside it is rejected as a refusal, the scope is restated in MergeSutra's
+  voice under its own heading, and Stage 5's policy still outranks the brief — a plan
+  that lists `.git/config` gets no write either. There is no second editing engine:
+  the cycle calls `runImplementationLoop`, so there is one writer, one precondition
+  rule and one place a `shell: true` could ever appear.
+- What a cycle did is its own document (`src/repair/execution.ts`) and the run record
+  grows to hold the list of them (**v8**, `repairExecutions`, nullable and defaulted so
+  a v6 or v7 record still reads). It cannot be constructed without an approval whose
+  digest matches the plan handed to it — the digest is recomputed, never accepted — it
+  carries no verdict field, no criterion status and no room for the model's reasoning
+  beyond the loop's own action log, and its `verificationRequired` is read off the
+  patch delta: bytes moved, so the gates run again, and that stays true when the cycle
+  is being escalated rather than relaxing to whatever was green before.
+- `src/repair/stage.ts` runs the path end to end and encodes it in state: the cycle,
+  then `classifyRepairScope` on the real A→B delta, then — only when the bytes moved —
+  Stage 7's own verification round over those bytes through the reusable entry point
+  (`verifyWorkspace` in `src/verify/workspace.ts`), under §16's rule that the consent
+  already on file may be reused only for the same commands and is reported as missing
+  otherwise. The evidence
+  is remapped from the new receipts, and Stage 8's `buildEvidencePack` /
+  `writeEvidencePack` regenerate `report.md`, `report.json` and `commands.jsonl` from
+  this cycle's record; a pack that cannot be regenerated is reported in the checks and
+  the old one is left standing, not quietly re-labelled.
+- Nothing is cleaned up. A cycle that reached outside its plan is filed as
+  `OUTSIDE_PLANNED_SCOPE`, routed to `NEEDS_HUMAN_REVIEW`, and the edit and the extra
+  file are both left exactly where they are; there is no revert, no `git clean`, no
+  `git reset` and no automatic second repair because a gate failed. A cycle that left
+  no trace is not re-verified either — the page says why: the gates already on file
+  still describe this workspace, and nothing here retired them.
+- An interrupt is a fact, not a verdict (`tests/repair/stage.test.ts`): cancelling
+  before the first request files a cycle that edited nothing, cancelling after the
+  edit runs no gate at all, and cancelling mid-round files the half-run with verdict
+  `CANCELLED`, one PASS where a gate genuinely produced a receipt and the rest
+  `INCONCLUSIVE` — the document never collapses into a pass because a round started.
+- Two guards that cannot be run without executing something are proven from the source
+  instead: `tests/repair/source-shape.test.ts` walks every module a repair cycle can
+  reach, enumerates each command it constructs, classifies it with the production risk
+  oracle, and fails on a snapshot list if a new one appears — with a positive control,
+  so an empty scan cannot read as clean, and without ever starting a destructive
+  command to show it would be refused. `tests/bharatcode/client.test.ts` pins the
+  endpoints a default-configured client calls, so a repair cannot silently widen where
+  the patch's text goes.
+- 191 offline, deterministic tests for the stage — 181 across `tests/repair/*`, 10 in
+  `tests/cli/repair.test.ts` — none of which needs a credential. `tests/review/hero.test.ts`
+  now walks the whole way round on real Git and real `node --test` processes: the
+  approved digest, the edit through the loop, new receipts naming the new patch, the
+  pack regenerated over them, a second reading that files nothing, and the fixture's
+  teeth — the case the repair added is checked to *fail* against the patch it replaced.
+  One defect surfaced there and is fixed: a later `review` or `implement` over a
+  repaired run used to drop the filed cycles from the record it re-saved.
+- At this stage's close the full `npm run check` chain was run over the whole
+  repository and measured **1263 passed | 3 skipped (1266) across 79 test files | 3
+  skipped (82), in 143.11s**, with Prettier, ESLint, `tsc --noEmit` and the build
+  project all green in the same pass. The 3 skips are the pre-existing live smokes —
+  `tests/plan/live.test.ts`, `tests/implement/live.test.ts`, `tests/review/live.test.ts`
+  — each of which needs a real `BHARATCODE_API_KEY`; no test was skipped, weakened or
+  deleted to reach that number. The sweep caught a real defect on its first run:
+  `src/repair/stage.ts` and `tests/repair/boundaries.test.ts` had been committed
+  unformatted in earlier Stage 9R slices, so `prettier --check .` failed at HEAD; both
+  were reformatted with no behaviour change and the complete chain was run again.
+- **Not done, and stated as a gap:** the `> [data] ` guard now covers the reviewer's
+  page and the repair brief, and still not the `plan` or general `implement` prompts —
+  Stage 12's adversarial work. A repair cycle still reaches the same adapter, and
+  possibly the same model family, as the review that ordered it. `CONTRIBUTION_READY`
+  remains unreachable and unclaimed: this stage's most hopeful screen says the bytes
+  moved and the gates were re-run, which is not the same sentence. `mergesutra run`,
+  `pr`, `status` and `resume` still exit `2`; Stage 10 owns approval, the PR draft and
+  the publication boundary.
+
 ### Added — Stage 9: the same patch, read a second time by a model that changes nothing
 
 Stage 7 said what the repository's own gates prove. Stage 9 asks the question a
@@ -93,7 +214,9 @@ not packaging without adding, but consulting a model without letting it decide.
   and possibly the same model family, so this is an *independent review*, not an
   independent model; and the `> [data] ` guard covers the reviewer's page only — the
   `plan` and `implement` prompts still interpolate `===`-shaped text with labelling but
-  without marking, which is Stage 12 work.
+  without marking, which is Stage 12 work. *(Kept as written: Stage 9R above ships the
+  executor and gives `classifyRepairScope` its production caller, and brings the
+  marking to the repair brief — the `plan`/`implement` sentence still stands.)*
 - `mergesutra run`, `pr`, `status` and `resume` still exit `2`.
 
 ### Added — Stage 8: the evidence pack, and a report that cannot be over-read

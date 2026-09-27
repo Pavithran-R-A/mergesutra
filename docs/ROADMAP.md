@@ -438,7 +438,7 @@ human reader rather than deriving anything new:
       like any other pack. Stage 10's PR draft is where a reader is told which pack
       is complete enough to review.
 
-## Stage 9 — Independent diff review + bounded repair — **[DONE]**
+## Stage 9 — Independent diff review + bounded repair routing — **[DONE]**
 
 Stage 7 established what a repository's own gates prove and Stage 8 wrote it down.
 This stage answers the question a green suite cannot: is the requirement actually
@@ -510,6 +510,8 @@ finding into a work order is deterministic code, not the model's opinion of itse
       `REVIEW_*` outcomes and the `review` stage. A v6 record still parses and is
       rendered without invented findings, receipts or approvals — the pack says no
       review was recorded rather than implying one (`docs/DECISIONS.md`).
+      *(Kept as written: v7 was the version at this stage's close. Stage 9R adds
+      `repairExecutions` and becomes v8 — see below.)*
 - [x] 192 offline, deterministic tests for the stage — 134 across `tests/review/*`,
       48 in `tests/repair/*`, 10 in `tests/cli/review.test.ts` — with no network, no
       credential and no live BharatCode call. `npm run check` is green at this
@@ -517,6 +519,8 @@ finding into a work order is deterministic code, not the model's opinion of itse
       live-endpoint checks: `tests/plan/live.test.ts`,
       `tests/implement/live.test.ts` and `tests/review/live.test.ts`,
       which skip unless a flag, a key and a model id are all present).
+      *(Measured at this stage's close. Stage 9R re-counts both figures below rather
+      than quietly restating them here.)*
 - [x] One explicit opt-in live review smoke test (§35 of the stage brief):
       `tests/review/live.test.ts` asks the real endpoint once, about a real patch,
       and stays silent unless invited. It asserts only structural truths — the model
@@ -532,6 +536,11 @@ finding into a work order is deterministic code, not the model's opinion of itse
       `src/repair/scope.ts` have **no production caller** — the scope guard is proven
       by tests over the delta the hero run really produced, and the stage that wires
       it is the one that does not exist yet.
+      *(Kept as written: this was true at Stage 9's close, and the sentence about a
+      second unrestricted writer is why Stage 9R reuses Stage 6's loop instead of
+      building one — see below. Both no-production-caller claims are now false:
+      `classifyRepairScope` is called by `repair/execution.ts` and `routeRepairScope`
+      by `repair/stage.ts`.)*
 - [x] Not done on purpose: no verdict. There is no `REVIEW_PASS` outcome and no code
       path to a word like `PASS` from this stage; readiness stays in gate receipts
       and criterion statuses, where Stage 7 put it.
@@ -544,6 +553,9 @@ finding into a work order is deterministic code, not the model's opinion of itse
       repository, issue and model text into their prompts ungarded; the shared
       primitive exists for them to call and the adversarial suite around it is
       [Stage 12](#stage-12--security-hardening) work.
+      *(Narrowed, not closed, by Stage 9R: the repair brief the same reviewer's
+      findings feed is now marked through the primitive too. `plan` and `implement`
+      still only label their material — the gap below and the Stage 12 work stand.)*
 - [x] Known gap: one question, one answer. A review is a single request (plus at most
       one bounded repair round for a malformed JSON answer), so a reviewer that
       misreads a file cannot be asked again within the run; `attempts` records how
@@ -552,6 +564,109 @@ finding into a work order is deterministic code, not the model's opinion of itse
       `WITHHELD` or `NOT_SENT` is listed and its content is not, so a defect that
       lives in a credential-shaped entry or a binary is reported as *the fact that it
       is in the patch* and nothing more — by rule, and the rule is tested.
+
+## Stage 9R — Carrying out a frozen repair plan, and re-verifying what it changed — **[DONE]**
+
+Stage 9 could say *this finding is worth a repair* and freeze the scope, and could
+not act on it. This stage is the acting half — the only place in the product where a
+run changes bytes after a person has read a plan — and it is built around the one
+asymmetry an editing stage cannot design away: the thing that authorises the change
+must not be the thing that decides the change was good.
+
+- [x] `mergesutra repair [run-id]` — the only shipped command that edits a repository,
+      and it edits only under `--approve-plan <64-hex>`, the digest of the plan Stage 9
+      froze, typed after reading it. No `--yes`, no `--force`, no `--approve-all`, no
+      environment variable that stands in for the digest: a repair approvable in
+      advance is a repair approved without being read. The command's two halves have
+      different needs — without an approval it prints the plan, the files, the gates
+      and the exact line that would authorise it, and asks for no credential; with one,
+      a missing `BHARATCODE_API_KEY` is a configuration refusal at exit `78` raised
+      before a byte moves. `REPAIR_APPLIED` / `REPAIR_NEEDS_HUMAN` exit `3`,
+      `REPAIR_BLOCKED` exits `4`; there is no exit `0` and no outcome that says a patch
+      is good.
+- [x] Approval is a capability, not a field in a document (`src/repair/digest.ts`,
+      `src/repair/consent.ts`). The digest is canonical JSON with every list
+      order-normalised, excluding `createdAt` and the model id; consent is stored
+      beside the plan as `{ planDigest, approvedAt }` with three states — `MATCHED`,
+      `ABSENT`, `STALE` — and no wildcard. A yes spent on cycle 1 does not authorise
+      cycle 2; a yes typed for another plan is reported stale while naming both
+      digests, and nothing is mutated to find out either way. `buildRepairExecution`
+      recomputes the digest rather than accepting one, so the cycle's own document
+      cannot be constructed without the match. ADR-052.
+- [x] There is no second editing engine. A cycle calls Stage 6's
+      `runImplementationLoop`, so there is one writer, one compare-before-write rule,
+      one confined filesystem and one place a `shell: true` could ever appear — and it
+      calls it under a `LoopBrief` (`src/implement/loop.ts`, `implement/prompt.ts`)
+      that narrows the files the cycle may write: a `WRITE_FILE` outside the brief is
+      refused before the writer sees it, and Stage 5's policy still outranks the plan,
+      so a plan that names `.git/config` gets no write either. A repair gets a smaller
+      budget than an implementation (`src/repair/limits.ts`: 6 steps / 3 writes / 2
+      commands by default, ceilings 8 / 4 / 3, each axis also clamped against Stage
+      6's *default*); asking for more clamps it rather than raising it, and the record
+      says which numbers ran. ADR-053.
+- [x] The cycle is briefed, not regaled (`src/repair/context.ts`): the findings the
+      plan carried, the criteria those findings name, the receipts the plan answers to,
+      the files the plan froze — and not the reviewer's closing summary, not the
+      earlier loop's account of its own work, not a criterion the plan never named.
+      The page states its own exclusions so an omission is visible. Review-finding
+      text shaped like a section heading is quoted behind the shared `> [data] `
+      marker, whole findings are dropped rather than truncated when the brief outgrows
+      its budget, and a plan from another run, another patch, or a finding already
+      routed to a human is refused rather than reinterpreted.
+- [x] Verification after a repair is not optional and not a new product. The stage
+      classifies the real A→B delta, and only when bytes moved runs Stage 7's own
+      round through the reusable entry point (`verifyWorkspace` in
+      `src/verify/workspace.ts`), reusing the consent on file only for the same
+      commands under §16's rule and reporting it as missing otherwise; the evidence is
+      remapped from the new receipts and Stage 8's `buildEvidencePack` /
+      `writeEvidencePack` regenerate `report.md`, `report.json` and `commands.jsonl`.
+      A pack that cannot be written is said so in the checks and the old one is left
+      standing, not re-labelled. A cycle that left no trace is not re-verified either,
+      and the page says why.
+- [x] Nothing is cleaned up, and nothing is retried into green. A cycle that reached
+      outside its plan is filed `OUTSIDE_PLANNED_SCOPE`, routed to
+      `NEEDS_HUMAN_REVIEW`, with the edit and the extra file left exactly where they
+      are: no revert, no `git clean`, no `git reset`, no automatic second repair
+      because a gate failed.
+- [x] An interrupt is a fact, not a verdict. Cancelling before the first request files
+      a cycle that edited nothing; cancelling after the edit runs no gate at all;
+      cancelling mid-round files the half-run with verdict `CANCELLED`, one `PASS`
+      where a gate genuinely produced a receipt and the rest `INCONCLUSIVE`.
+- [x] `RepairExecution` (`src/repair/execution.ts`) is the record's shape for a cycle,
+      and the run record grows to hold the list of them (**v8**, `repairExecutions`,
+      nullable and defaulted so a v6 or v7 record still reads). It carries no verdict
+      field, no criterion status and no room for model reasoning beyond the loop's own
+      action log; `verificationRequired` is read off the patch delta. One defect was
+      found and fixed here: a later `review` or `implement` over a repaired run used to
+      drop the filed cycles from the record it re-saved.
+- [x] Two guards that cannot be proven by running them are proven from the source:
+      `tests/repair/source-shape.test.ts` enumerates every command a repair cycle can
+      construct, classifies it with the production risk oracle and fails on a snapshot
+      if a new one appears — with a positive control, so an empty scan cannot read as
+      clean, and without ever starting a destructive command;
+      `tests/repair/boundaries.test.ts` holds the import-side rule that only
+      `src/repair/stage.ts` reaches the loop. `tests/bharatcode/client.test.ts` pins
+      the endpoints a default-configured client calls, so a repair cannot silently
+      widen where the patch's text goes.
+- [x] 191 offline, deterministic tests for the stage — 181 across `tests/repair/*`, 10
+      in `tests/cli/repair.test.ts` — none of which needs a credential.
+      `tests/review/hero.test.ts` walks the whole way round on real Git objects and
+      real `node --test` processes: `inspect → contract → plan → implement → verify →
+      review → repair → verify → report`, with patch A's receipts and review shown to
+      be about patch A, patch B minting new ones, and the fixture carrying its teeth —
+      the case the repair added is asserted to *fail* against the patch it replaced.
+      `MERGESUTRA_HERO_CAPTURE=1` over that test prints the screen the README quotes
+      for Stage 9R, so the capture is a real stage's real output rather than prose
+      about it. `npm run check`
+      is green at this stage's close; the measured totals are in the CHANGELOG entry.
+- [x] **Not done, and stated as a gap:** the `> [data] ` guard covers the reviewer's
+      page and the repair brief and still not the `plan` or general `implement`
+      prompts — [Stage 12](#stage-12--security-hardening) work. A repair cycle reaches
+      the same adapter, and possibly the same model family, as the review that ordered
+      it. `CONTRIBUTION_READY` remains unreachable and unclaimed: this stage's most
+      hopeful screen says the bytes moved and the gates were re-run, which is not the
+      same sentence. `mergesutra run`, `pr`, `status` and `resume` still exit `2` —
+      Stage 10 owns approval, the PR draft and the publication boundary.
 
 ## Stage 10 — Human approval + PR draft
 

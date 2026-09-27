@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
 Each record: **decision → reason → alternatives → consequence**. These are
-actual decisions taken while building Stages 0-9, not aspirations.
+actual decisions taken while building Stages 0-9 and 9R, not aspirations.
 
 ## ADR-001 — MergeSutra sits above the model/runtime layer
 
@@ -987,6 +987,15 @@ actual decisions taken while building Stages 0-9, not aspirations.
   than a silent edit. v6 records remain v6 on disk, so a pack rendered from a
   migrated record carries the fields the run actually wrote — and when Stage 10
   wants pack history, ADR-046's recorded gap still stands.
+- **Consequence (amended when Stage 9R added `8`):** the rule held without amendment,
+  and v8 is the case that tested it. A v6 or v7 record gains
+  `repairExecutions: []` in memory, because an absent field is the honest fact that no
+  repair ran and inventing a cycle would attribute writes to a run that never made
+  them; the stage and outcome vocabularies are split per version at the same time
+  (`RUN_STAGES_THROUGH_REVIEW` for 6 and 7, `repair` only in 8's list) so a hand-edited
+  older file cannot arrive reading `stage: repair, repairExecutions: []` — true words in
+  a false order. Nothing on disk is rewritten, so a repaired run's cycles exist only
+  because a stage saved them.
 
 ## ADR-048 — A finding's authority is a citation MergeSutra issued, not a quotation the model picked
 
@@ -1081,6 +1090,16 @@ actual decisions taken while building Stages 0-9, not aspirations.
   Stage 12 adversarial work with tests beside it, not a Stage 9 drive-by, and the gap
   is written into `docs/SECURITY_MODEL.md` and the README's Limitations rather than
   left implied.
+- **Consequence (amended when Stage 9R shipped):** the guard covers one more page, for
+  the reason this record gave. A repair cycle hands the *editing* loop a reviewer's
+  words, so `src/repair/context.ts` renders its brief through `markQuoted()` before the
+  loop sees it — a finding whose line is shaped like `=== … ===` arrives as quotation,
+  the count of marked lines is filed with the brief, and the whole finding is dropped
+  rather than cut short when the brief outgrows its budget. That is the minimum §29
+  asked for and no more: the brief is the only repair-specific material path, because
+  it is the only path where review output reaches a stage that can write. `plan` and
+  general `implement` still label without marking, and that gap is Stage 12's, restated
+  here rather than moved.
 
 ## ADR-051 — Stage 9 ships routing with no executor, so the scope guard has no production caller
 
@@ -1113,3 +1132,95 @@ actual decisions taken while building Stages 0-9, not aspirations.
   required to consult it; that requirement lives in `tests/repair/lifecycle.test.ts`
   and this record, which is exactly the kind of rule a future implementer could
   otherwise skip by forgetting.
+
+## ADR-052 — A frozen repair plan is not repair consent; execution is a separate digest-bound capability
+
+- **Decision:** The `RepairPlan` Stage 9 freezes stays a document — a statement of
+  scope, with no field that could read "allowed". Consent is its own capability
+  (`src/repair/consent.ts`): `{ planDigest, approvedAt }`, where `planDigest` is the
+  64-hex `repairPlanDigest()` of one specific plan (`src/repair/digest.ts`), compared
+  by equality and nothing else, with three states — `MATCHED`, `ABSENT`, `STALE` — and
+  no wildcard in the shape. The check happens twice on the way to a write: the stage
+  asks before running anything, and `buildRepairExecution()` recomputes the digest of
+  the plan it was handed and refuses to construct a document for a cycle whose approval
+  does not name it. `mergesutra repair` offers exactly one way to say yes,
+  `--approve-plan <digest>`; there is no `--yes`, no `--force`, no `--approve-all`, no
+  environment variable that stands in for the digest, and a test asserts the command
+  surface has no such flag.
+- **Reason:** A repair is the only thing in this product that edits a repository, and
+  the plan it acts on was assembled from a model's findings. A document authored from
+  model output cannot also be the human's authorisation, so the two facts need separate
+  shapes; and an approval has to name a *set of files*, which a boolean, a cycle number
+  or "the latest plan" does not. A digest over the scope is the only name that goes
+  stale when the scope changes: re-freeze the plan, or route one finding differently,
+  and the yes on file is about some other job — which is reported as `STALE` with both
+  digests printed rather than resolved by a bigger flag. Consent that could be given in
+  advance is consent that will be given without reading.
+- **Alternatives:** `--yes` / `--force` (approves an unread scope, and trains the
+  operator to reach for it); a boolean or `approvedAt` inside the `RepairPlan` (then a
+  plan and its approval are one document that can disagree with itself, and nothing has
+  a digest to go stale against); approving by `repairCycle` number (cycle 2 would
+  inherit cycle 1's yes, which is the exact widening §21 forbids); accepting a prefix of
+  the digest because it is long (a shortened yes is a typoable one, and a typo that
+  matches nothing fails loudly while a typo that matches a *different* plan is the bug
+  this record exists to prevent); re-approving automatically when the digest changed.
+- **Consequence:** Showing a plan must cost nothing, so the command is split into two
+  halves with different credential needs — the unapproved half prints the plan and the
+  full `mergesutra repair <run-id> --approve-plan <digest>` line so nobody has to
+  re-derive a number, and asks for no key; the approved half checks for one *before*
+  editing and refuses at exit `78` without it. Every field added to `RepairPlan`
+  silently enters the approval surface, so `tests/repair/digest.test.ts` pins both the
+  inclusions and the two exclusions (`createdAt`, the model id) that make re-freezing
+  the same scope authorise the same edit. A second cycle needs a second read; a
+  `STALE` approval runs no cycle, changes no byte, prints both digests, and leaves the
+  record on disk exactly as it was — the refusal is a screen, not a new state a later
+  stage could mistake for progress.
+
+## ADR-053 — Stage 9R executes through Stage 6's loop and re-verifies through Stage 7's round, so a repair is a lifecycle and not a second product
+
+- **Decision:** `runRepairStage()` (`src/repair/stage.ts`) is an orchestrator over
+  stages that already exist. It calls `runImplementationLoop()` with a brief assembled
+  by `src/repair/context.ts`, so there is one writer, one compare-before-write rule and
+  one process runner in the product; it calls `verifyWorkspace()`, the entry point
+  `mergesutra verify` uses, so the re-verification is the same round with the same
+  consent semantics; and it regenerates the evidence pack with Stage 8's
+  `buildEvidencePack()` / `writeEvidencePack()`. It ships no editor, no shell, no
+  delete, no revert and no second gate runner. Re-verification is not a policy choice:
+  `src/repair/execution.ts` derives `verificationRequired` from whether the patch
+  identity changed, a patch-changing cycle's record is replaced only by the new round's
+  documents, and the outcome vocabulary (`REPAIR_APPLIED`, `REPAIR_NEEDS_HUMAN`,
+  `REPAIR_BLOCKED`, exits `3`/`4`, never `0`) has no word for "repaired, therefore
+  good". A cycle that reached outside its plan is filed with its `OUTSIDE_PLANNED_SCOPE`
+  delta intact and escalated with the edit and the out-of-scope file left exactly where
+  they are.
+- **Reason:** The dangerous version of this stage was easy to write: a repair-specific
+  agent with its own writer and its own idea of "the tests pass". Two editing engines
+  means one whose checks nobody inherited, and two verification entry points means a
+  repair can produce a verdict no gate produced. Encoding the order in state —
+  consent, patch A, what the loop did, patch B, the round that must run — is the only
+  form a later reader can audit; a rule in prose is the same claim made by somebody who
+  might forget. Deleting or reverting an over-scope edit would destroy the evidence a
+  human needs to judge it, which is the thing the scope guard exists to surface.
+- **Alternatives:** a repair-specific loop (a second writer, rejected by the stage
+  brief's non-negotiable); trusting the reused consent to cover the *verdict* as well as
+  the commands (the commands being the same is not the patch being the same — §16's
+  reuse is for scope digests, and receipts are re-minted); auto-reverting or `git
+  clean`-ing an unexpected file (the workspace becomes evidence of nothing, and a
+  recovery the operator did not ask for); letting a cycle that changed no byte
+  re-verify anyway (a fresh round over unchanged bytes retires nothing, and would read
+  as though something had been repaired); a `--repair` loop that retries until gates
+  pass (§17's endless-fixing failure); marking the run ready when the second review
+  files nothing (readiness is Stage 10's sentence).
+- **Consequence:** `implement` now has two callers with different powers, so `LoopBrief`
+  is part of its public shape and its tests must keep proving a brief cannot *widen*
+  anything — including that Stage 5's policy still outranks a plan that names
+  `.git/config`. Repair budgets are below Stage 6's defaults on every axis and are
+  clamped rather than raised, so a repair that genuinely needs more room ends as a
+  human's decision instead of a bigger flag. Every pack written after a cycle describes
+  that cycle, and the rows the cycle retired say so. An interrupt is filed as an
+  interrupt: a half-run round keeps the one `PASS` whose receipt actually exists and
+  marks the rest `INCONCLUSIVE`, with the document's verdict `CANCELLED`, because a
+  round that started is not a round that decided. ADR-051's advertised-but-unbuilt
+  `REPAIR` is now built, which closes that gap; what remains open there is that a repair
+  reaches the same adapter, and possibly the same model family, as the review that
+  ordered it.

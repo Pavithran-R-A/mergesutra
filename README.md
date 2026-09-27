@@ -14,13 +14,15 @@ becomes a PR."*
 
 ---
 
-> **Honest status: Stage 9 — a run can now be verified, written down, and read a
-> second time by a model that changes nothing.**
+> **Honest status: Stage 9R — a run can be verified, written down, read a second
+> time by a model that changes nothing, and — under a yes bound to one plan's
+> digest — repaired.**
 > What you can run today is `mergesutra doctor`, `mergesutra issue <url>`,
 > `mergesutra inspect <dir>`, `mergesutra contract [run-id]`,
 > `mergesutra plan [run-id]`, `mergesutra implement [run-id]`,
-> `mergesutra verify [run-id]`, `mergesutra report [run-id]` and
-> `mergesutra review [run-id]`: intake
+> `mergesutra verify [run-id]`, `mergesutra report [run-id]`,
+> `mergesutra review [run-id]` and
+> `mergesutra repair [run-id]`: intake
 > reads a GitHub issue and pins the exact repository and base commit into a
 > versioned run record, `inspect` compiles what a repository itself requires
 > into a provenanced contract, `contract` turns those facts into the criteria a
@@ -36,14 +38,23 @@ becomes a PR."*
 > it measured. `report` renders those receipts into an evidence pack, and
 > `review` asks a second model about exactly those bytes — it files findings it
 > can cite, routes them, freezes a repair plan before any edit, and returns with
-> the workspace byte-identical. **Nothing is published:** no command of
+> the workspace byte-identical. `repair` is the stage that carries a frozen plan
+> out, and it is the only shipped command that edits a repository on the strength
+> of a human decision: nothing runs until you type `--approve-plan <digest>`, the
+> digest of the plan you read, there is no `--yes` and no `--force`, and reading a
+> plan asks for no credential at all. The cycle then runs through `implement`'s
+> own bounded loop under a brief narrowed to the plan's files, and because the
+> bytes moved, `verify`'s gates run again over them and `report`'s pack is
+> regenerated — a repair never gets to certify itself. **Nothing is published:**
+> no command of
 > MergeSutra's commits, pushes, comments or opens a PR, no stage hands out
-> `CONTRIBUTION_READY`, and no shipped command yet executes the repair a review
-> can only route. The BharatCode adapter,
+> `CONTRIBUTION_READY`, and no outcome in the repair vocabulary says a patch is
+> good. The BharatCode adapter,
 > configuration, central secret
 > redaction, structured errors, tests and CI are **implemented and green**. The
-> full `issue → PR` workflow is **under construction** — executing a frozen
-> repair plan, `status`/`resume` recovery UX and PR drafting are the next
+> full `issue → PR` workflow is **under construction** — the approval gate and PR
+> drafting (`mergesutra pr`), `status`/`resume` recovery UX and security
+> hardening are the next
 > stages; see
 > [Roadmap](docs/ROADMAP.md). Where this README shows the finished experience,
 > it is labelled **target**. What you can run today is shown under
@@ -69,7 +80,9 @@ evidence chain the product:
   model picks one action per turn from a closed list, and MergeSutra decides
   whether it runs at all. `mergesutra verify` then judges the result by exit
   codes, and `mergesutra review` reads those same bytes a second time — neither
-  decides anything the gates did not measure.
+  decides anything a receipt did not. `mergesutra repair` is the one command that
+  changes bytes on a person's word, and the word is a digest, the loop is the
+  bounded one above, and the gates run again afterwards.
 
 ## How it differs from a normal coding agent
 
@@ -88,11 +101,13 @@ Full positioning and competitor notes: [docs/COMPETITIVE_ANALYSIS.md](docs/COMPE
 
 *(Steps 6 and 7 of that list are real today as `mergesutra verify`, step 8's
 packaging is real as `mergesutra report`, and the second pair of eyes the roadmap
-puts between them is real as `mergesutra review`; the captures below in "Stage 7:
-the same run, verified", "Stage 8: the same run, written down" and "Stage 9: the
-same patch, read a second time" are their output. The one-shot `issue` driver that
-runs all eight steps unattended is not, and no command executes the repair a
-review can route, which is why this section is a target and the sections after it
+puts between them is real as `mergesutra review`; step 9's repair is real as
+`mergesutra repair`, under a digest-bound yes. The captures below in "Stage 7:
+the same run, verified", "Stage 8: the same run, written down", "Stage 9: the
+same patch, read a second time" and "Stage 9R: the same plan, carried out and
+measured again" are their output. The one-shot `issue` driver that
+runs all eight steps unattended is not, and neither is the PR at the end of the
+list, which is why this section is a target and the sections after it
 are output.)*
 
 ```text
@@ -154,7 +169,19 @@ node dist/index.js report            # render the newest run's evidence pack
 node dist/index.js report <run-id> --json
 node dist/index.js review            # needs a key; asks a second model about this run's patch
 node dist/index.js review <run-id> --json
+node dist/index.js repair            # shows the newest run's frozen plan; needs no key, edits nothing
+node dist/index.js repair <run-id> --approve-plan <64-hex>   # the only command that edits, and only on that word
 ```
+
+`repair` is the one command here that changes a repository because a person asked
+it to, so it has two halves and they need different things. Without
+`--approve-plan` it prints the plan `review` froze, the files and gates it names and
+the exact line that would authorise it — no credential, no request, no byte moved.
+With one it needs `BHARATCODE_API_KEY` (missing is exit `78`, before anything is
+edited), runs one bounded cycle through `implement`'s own loop, and sends the bytes it
+changed back through `verify`'s gates. It has no exit `0`: `REPAIR_APPLIED` means the
+plan ran and the gates ran again, `REPAIR_NEEDS_HUMAN` means a person owes the next
+decision, and `REPAIR_BLOCKED` (exit `4`) means nothing moved.
 
 `review` needs a plan, a patch and gate receipts in the run it is pointed at, and
 it refuses with exit `78` if `BHARATCODE_API_KEY` is missing — once the run has
@@ -729,6 +756,10 @@ like the others it is one command:
 MERGESUTRA_HERO_CAPTURE=1 npx vitest run tests/review/hero.test.ts
 ```
 
+That test now walks two stages further, so the patch digests it prints today are not
+the ones below: adding the repair leg changed the fixture's bytes, and this block is
+kept as the capture Stage 9 shipped rather than quietly re-taken.
+
 **Deterministic capture using the local BharatCode-compatible test stub for the
 reviewer.** The repository, the worktree, the patch and the gate processes are
 real; the second reader's answer is scripted, because a model's agreement is not
@@ -801,9 +832,116 @@ Next        REPAIR — the frozen plan is the work order, executed only through 
   review of the old bytes is dropped from the record rather than carried forward,
   fresh receipts name the new digest, and the regenerated pack says plainly that
   no second reader has looked at these bytes yet.
-- **No shipped command executes that repair.** Stage 9 routes work and freezes the
-  scope; running a frozen plan is the next stage's, and until it exists the
-  evidence that the routing works is the test suite, not a command line.
+- **A frozen plan is not permission to run it.** Stage 9 routes work and freezes the
+  scope, and it shipped without a command that executes one: the evidence that the
+  routing works was the test suite, not a command line. That command exists now —
+  see the next section — and it asks for a yes bound to this plan's digest before a
+  byte moves.
+
+### Stage 9R: the same plan, carried out and measured again
+
+`mergesutra repair [run-id]` is the only shipped command that changes a repository on
+the strength of a human decision, and the decision is one flag: `--approve-plan
+<64-hex>`, the digest of the plan `review` froze, typed after reading it. There is no
+`--yes`, no `--force`, no `--approve-all` and no environment variable that stands in
+for that digest — a repair you could approve in advance is a repair approved without
+being read. Run the command without the flag and it costs nothing: it prints the plan,
+the files and gates it names and the exact line that would authorise it, and asks for
+no credential, because the half of the command you use to *decide* should not spend a
+request.
+
+The capture below comes from the same test that produced Stage 9's, run all the way
+round:
+`tests/review/hero.test.ts` walks `inspect → contract → plan → implement → verify →
+review → repair → verify → report` on real Git objects and real `node --test`
+processes, and
+
+```bash
+MERGESUTRA_HERO_CAPTURE=1 npx vitest run tests/review/hero.test.ts
+```
+
+prints what it printed. **Deterministic capture using the local
+BharatCode-compatible test stub for the repairer.** The repository, the worktree, the
+writer, the patch and the gate processes are real; the loop's turns are scripted,
+because no credential belongs in a test run. Paths are shortened for this page.
+
+```text
+INFO          Repair approval         The operator approved this exact plan (cb7ac1b78570) at 2026-09-25T09:00:00.000Z.
+INFO          Repair cycle            cycle 1 of review 1 ran through Stage 6’s loop: 4 turn(s), 2 write(s), 0 refusal(s) — patch cf61e67a2969… to 6288da4f98e8…
+INFO          Repair scope            every file this cycle moved is one the approved plan named: src/date.mjs, test/parse.test.mjs
+INFO          Re-verification         the gates ran again on 6288da4f98e8… at revision 2 — verdict PASS
+PASS          Verification plan       3 gates at revision 2, bound to patch 6288da4f98e8
+PASS          Execution consent       2 repository gate(s) named by the operator: VG-001, VG-002
+PASS          Verification run        3/3 gates executed, 3 passed — verdict PASS
+INFO          Acceptance evidence     3/3 criteria carry enough receipts to be called PASS; the rest keep their own status
+INFO          Evidence pack           report.md, report.json and commands.jsonl regenerated from this cycle's record at …/.mergesutra/runs/run-20260925T090000Z-7fffff
+
+Run         run-20260925T090000Z-7fffff
+Outcome     REPAIR_APPLIED
+Workspace   …/datekit · .mergesutra/worktrees/run-20260925T090000Z-7fffff
+Approved    cb7ac1b78570fdd9c9588020982a30ec3bc58a34b8a5f8317de02e74fc36366e
+Patch       cf61e67a2969… → 6288da4f98e8… — the round below measures these bytes
+Re-verified PASS at revision 2 · 3 gate(s) · 6288da4f98e8…
+
+The cycle, as measured
+  4 action(s) by bharatcode-test-model, ended finish
+  bounds it ran under: 6 step(s), 3 write(s), 2 command(s)
+  scope: within_planned_scope
+    changed_by_repair  src/date.mjs  (expected)
+    changed_by_repair  test/parse.test.mjs  (expected)
+  the loop’s account above is untrusted input kept for the record; every status on this screen came from a gate that ran.
+
+Next        REVIEW — the patch on disk now has never been reviewed; run `mergesutra review run-20260925T090000Z-7fffff` over these bytes and let a second reader weigh them again. The review in this record describes cf61e67a2969…, which is gone.
+```
+
+What that screen is and is not:
+
+- **The yes names a scope, not a run.** The digest covers which run, which cycles,
+  which patch the findings described, and which findings, files, criteria and gates
+  with what each asked for — with lists order-normalised and the timestamp and model
+  id left out, so re-freezing the same scope over the same bytes authorises the same
+  edit. Consent is stored beside the plan as its own document with three states
+  (`MATCHED`, `ABSENT`, `STALE`) and no wildcard: a yes spent on cycle 1 does not
+  authorise cycle 2, and a yes typed for a different plan is refused while naming both
+  digests — without mutating anything to find out.
+- **There is no second editing engine.** The cycle calls the same
+  `runImplementationLoop` as `implement`, under a brief narrowed to the plan's own
+  files, with a smaller budget (6 steps, 3 writes, 2 commands by default; ceilings
+  8 / 4 / 3, each axis also clamped against Stage 6's default). Asking for a bigger
+  budget clamps it rather than raising it — the thing you approved was the plan's
+  scope, never a larger loop. A `WRITE_FILE` outside the brief is refused before the
+  confined writer is asked, and Stage 5's policy still outranks the plan: a plan that
+  names `.git/config` earns no write.
+- **The reviewer's words arrive as data.** The brief carries the findings the plan
+  recorded, the criteria they name, the receipts they answer to and the files it
+  froze; it withholds the reviewer's closing summary and the earlier loop's account of
+  its own work, and states its exclusions on the page. Text shaped like one of this
+  product's section headings is quoted behind a `> [data] ` marker, and a brief that
+  outgrows its budget drops whole findings rather than truncating them.
+- **A repair cannot certify itself.** `REPAIR_APPLIED` means the bytes moved and the
+  gates ran again — it does not mean they passed, and it is not exit `0`. There is no
+  outcome in this vocabulary that says a patch is good, `contributionReady` is still a
+  literal `false` in the schema, and the cycle's own `FINISH` sentence is filed as a
+  claim in the record's `repairExecutions` list, which has no verdict field to fill in.
+- **What moved makes what was said stale.** The old receipts described `cf61e67a2969…`,
+  which is gone, so the pack is regenerated from the new receipts and the `Next` line
+  above says the plainly uncomfortable thing: these bytes have never been reviewed.
+  Re-verification is owed because the patch identity changed, not because a model
+  asked, and a cycle that left no trace is not re-verified either — the page says why.
+- **Nothing is cleaned up, and nothing is retried into green.** A cycle that reached
+  outside its plan is filed `OUTSIDE_PLANNED_SCOPE`, escalated to a human, and the edit
+  is left exactly where it is: no revert, no `git clean`, no `git reset`, no second
+  automatic repair because a gate failed. An interrupt is filed as what it was —
+  cancelling mid-round leaves the one `PASS` whose gate really produced a receipt and
+  marks the rest `INCONCLUSIVE`, verdict `CANCELLED`.
+- **Exit codes:** `REPAIR_APPLIED` and `REPAIR_NEEDS_HUMAN` exit `3`, `REPAIR_BLOCKED`
+  exits `4`, and a missing `BHARATCODE_API_KEY` when an approval was actually typed is
+  a configuration refusal at `78` — raised before a byte moves, not as a cycle that ran
+  and did nothing. There is no exit `0`.
+- **Known gap:** a repair cycle reaches the same adapter, and possibly the same model
+  family, as the review that ordered it. This buys a bounded executor with a narrower
+  brief, not a diversity of judgment — and the `> [data] ` marking still does not cover
+  the `plan` or general `implement` prompts, which is Stage 12's work.
 
 ## Installation *(planned)*
 
@@ -837,15 +975,16 @@ Global flags: `--dry-run`, `--verbose`, `--json`, `--no-color` (also honours
 | `verify` | The deterministic engine: plan the repository's own gates against the patch a run left on disk, run only what the operator named, and judge each one by its exit code | Ready |
 | `report` | Render a run's evidence pack — `report.md`, `report.json`, `commands.jsonl` — from its record, deciding nothing and exiting with the outcome already recorded | Ready |
 | `review` | A second reader for the exact patch a run left: a model files findings, MergeSutra dispositions them, and the workspace comes back byte-identical | Ready |
+| `repair` | Carry out a frozen plan, and only under `--approve-plan <digest>`: one bounded cycle through `implement`'s own loop, then the gates run again over the bytes that exist now | Ready |
 | `issue`     | Intake: read an issue, pin the repository + base commit into a run record | **Partial — intake only** |
 | `issue` *(full workflow)* | Hero workflow: issue → evidence-backed PR draft | Planned  |
 | `run` `pr` `status` `resume` | Phase / recovery commands | Planned |
 
 A planned command reports honestly and exits non-zero — it never fakes success.
 `mergesutra run` — the unattended pipeline from issue to PR — is still planned,
-and stays planned: `pr` does not exist yet, and no command of MergeSutra's
-executes a repair, so a command that promised the whole product would be a lie
-with a nice name.
+and stays planned: `pr` does not exist yet, and `repair` runs only when a human
+has typed a yes for one plan's digest, so a command that promised the whole
+product unattended would be a lie with a nice name.
 
 `inspect` and `contract` are read-only: they never execute a command from the
 repository they read, never call a model, and write only their own run record
@@ -856,7 +995,10 @@ could execute a command could execute the command the model just proposed.
 still bounded: writes go through a confined writer, commands through a
 risk-classified policy that derives the risk from the argv rather than being
 told it, both rooted in one worktree, and no action in its vocabulary can push,
-comment, delete or verify.
+comment, delete or verify. `repair` reaches the same two boundaries through the
+same loop — it owns no writer and no runner of its own — and narrows them
+further: a smaller budget, a brief that names the only files it may write, and a
+cycle that cannot be started by anything but the digest bound to that scope.
 
 ### Exit codes
 
@@ -867,15 +1009,22 @@ A script or editor can tell these apart without parsing prose:
 | `0`  | Did what it claimed (`doctor` ready; `inspect` reached `INSPECT_COMPLETE`; `contract` reached `CONTRACT_DERIVED`; `plan` reached `PLAN_COMPLETE`) |
 | `1`  | Failed for a stated reason (bad input, unusable configuration, nothing to plan or implement against) |
 | `2`  | Command is planned, not implemented — nothing was done                        |
-| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`, `contract`, `plan`), an implementation run that changed files without proving anything (`IMPLEMENTED_BY_MODEL`, `IMPLEMENTATION_INCONCLUSIVE`, `IMPLEMENTATION_NEEDS_REVIEW`), or a review that was filed but settled nothing (`REVIEW_RECORDED`, `REVIEW_NEEDS_HUMAN`, `REVIEW_INCONCLUSIVE`) |
-| `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue), a loop that stopped on a bound or on cancellation, or a review of bytes that have already moved (`REVIEW_STALE`) |
-| `78` | Configuration error (cf. `EX_CONFIG`) — e.g. `plan`, `implement` or `review` with no `BHARATCODE_API_KEY` |
+| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`, `contract`, `plan`), an implementation run that changed files without proving anything (`IMPLEMENTED_BY_MODEL`, `IMPLEMENTATION_INCONCLUSIVE`, `IMPLEMENTATION_NEEDS_REVIEW`), a review that was filed but settled nothing (`REVIEW_RECORDED`, `REVIEW_NEEDS_HUMAN`, `REVIEW_INCONCLUSIVE`), or a repair cycle that ran and re-verified without earning a word like "good" (`REPAIR_APPLIED`, `REPAIR_NEEDS_HUMAN`) |
+| `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue), a loop that stopped on a bound or on cancellation, a review of bytes that have already moved (`REVIEW_STALE`), or a repair that could not be run as approved (`REPAIR_BLOCKED`) |
+| `78` | Configuration error (cf. `EX_CONFIG`) — e.g. `plan`, `implement`, `review` or `repair` with no `BHARATCODE_API_KEY` |
 
 `implement` has **no exit `0`**. A loop that ended because the model said
 `FINISH` produced files and a claim, not a verified result, and the number a
 script reads has to say so. `review` has none either, for the same reason in the
 other direction: a second reader agreeing with you is still not a verdict, so
-every completed review exits `3` and a stale one exits `4`.
+every completed review exits `3` and a stale one exits `4`. `repair` has none
+either, and for a third reason: it is the only command that edits a repository on
+a human's word, and the most that word can buy is "the plan ran and the gates ran
+again". `REPAIR_APPLIED` is the outcome where Stage 7's re-run really passed, and
+it still exits `3` — the command reports the receipt, it does not convert it into
+a verdict — while `REPAIR_NEEDS_HUMAN` covers a cycle whose gates did not, and
+exits `3` beside it. A script therefore cannot read a repaired run as a successful
+one, whatever the patch looks like.
 
 ## Safety model
 
@@ -894,8 +1043,8 @@ harness above it. All model access goes through a single adapter
 bounded retries honouring `Retry-After`, timeouts and cancellation.
 Credentials come **only** from `BHARATCODE_API_KEY` (environment) — never
 arguments, fixtures, logs, reports, or screenshots. `mergesutra plan` was the
-first command to use that adapter, `mergesutra implement` the second, and
-`mergesutra review` the third: each
+first command to use that adapter, `mergesutra implement` the second,
+`mergesutra review` the third and `mergesutra repair` the fourth: each
 answer is treated as data, parsed under a `strict()` schema, refused if it drops
 or invents a criterion, and stored with the model, the round-trip count and the
 token counts MergeSutra observed — never with anything the model claimed about
@@ -963,13 +1112,18 @@ and, when a finding is routable, a **repair plan** frozen before any edit, namin
 the files and gates a later stage is allowed to touch. The pack renders both, and
 when a run has no review it says `none recorded — nothing has read these bytes a
 second time` rather than leaving the section out and letting the silence read as a
-clean bill. What is still ahead is a command that *executes* a frozen repair plan:
-Stage 9 routes the work and Stage 6 owns the only writer, but no shipped command
-joins them yet. The adversarial hardening continues at
+clean bill. Stage 9R joins the routing to the writer: `mergesutra repair` runs a
+frozen plan through Stage 6's own loop, only under `--approve-plan <digest>`, files
+the cycle as a **`repairExecutions`** entry — the loop's account of what it did, kept
+as untrusted input with no verdict field to fill in — and then goes back through
+Stage 7's gates over the bytes that exist now and regenerates the pack from the new
+receipts. The adversarial hardening continues at
 [Stage 12](docs/ROADMAP.md). Nothing
-here is ever committed automatically. The record is schema version 7; a file
-written by an earlier stage build is reported as unreadable rather than guessed
-at, so re-run the stage after upgrading.
+here is ever committed automatically. The record is schema version 8, and this build
+reads v6, v7 and v8: a v6 or v7 record still loads and gains an empty
+`repairExecutions` list, while a record outside that range is reported as unreadable
+rather than guessed at, so re-run the stage after upgrading. No older record can
+claim the `repair` stage, which only v8's vocabulary defines.
 Layout: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Architecture
@@ -981,6 +1135,7 @@ flowchart LR
   Contract --> Plan[BharatCode Planner] --> Worktree[Safe Worktree + Tool Controller]
   Worktree --> Impl[BharatCode Implementer] --> Verify[Deterministic Verification]
   Verify --> Review[BharatCode Diff Reviewer] --> Map[Evidence Mapper]
+  Review -.digest-approved plan.-> Repair[Bounded Repair Cycle] -.gates run again.-> Verify
   Map --> Human[Human Approval] --> PR[PR Draft]
 ```
 
@@ -998,7 +1153,11 @@ repository's own commands, and it runs only the ones a human named by gate id
 still holds the patch the plan was written for. Stage 9 reads those same bytes and
 asks a second model about them: it runs no command from the repository's manifest,
 and the workspace it reviews is byte-identical when it returns — including on the
-run that found a real defect, because a finding is not a fix. Nothing is
+run that found a real defect, because a finding is not a fix. Stage 9R is the one
+stage that changes bytes after that reading, and it does so without acquiring new
+powers: it drives Stage 6's loop under a brief narrowed to the approved plan's files,
+and it runs the repository's commands only by calling Stage 7's engine over the
+patch it just produced. Nothing is
 committed, pushed or
 opened.
 Planned initial target:
@@ -1035,21 +1194,28 @@ manifest it authored and drops one that cites nothing however well it reads; the
 disposition on a surviving finding says where the work is routed, not whether the
 complaint is right; and the reviewer sees only what the context carried, so a
 defect in a file the context withheld is invisible to it rather than forgivable.
-Two pieces of Stage 9 have **no production caller yet**, and the fact is stated
-rather than implied otherwise: the scope guard that compares a frozen plan to the
-delta a repair actually left (`classifyRepairScope`) is proven only by tests —
-including the hero run above — because the command that would consult it does not
-exist; and a frozen repair plan authorises a later stage without anything shipped
-acting on that authorisation. Adversarial hardening is likewise partial by design:
+Stage 9R gives those two pieces their caller and states what it does not close: the
+scope guard that compares a frozen plan to the delta a repair actually left
+(`classifyRepairScope`) now runs inside every cycle, and a plan's authorisation is
+acted on only through `--approve-plan <digest>` — but a cycle that reaches outside its
+plan is escalated with the bytes left in place, because reverting an unrequested write
+would be a second unrequested write. Adversarial hardening is likewise partial by design:
 quoted text that shapes itself like one of the page's own section headings is now
-neutralised on the reviewer's page, and the same guard on the planner and
-implementer prompts is [Stage 12](docs/ROADMAP.md) work. Neither `plan`,
-`implement` nor `review` has been run against a live BharatCode endpoint from this
+neutralised on the reviewer's page and on the repair brief, and the same guard on the
+planner and general implementer prompts is [Stage 12](docs/ROADMAP.md) work. Two of a
+repair's guards cannot be tested by running them — the commands they refuse would have
+to be started to be refused — so they are tested against the source instead: every
+command a cycle can construct is enumerated and classified by the production risk
+oracle (`tests/repair/source-shape.test.ts`), and only `src/repair/stage.ts` is allowed
+to reach the loop at all (`tests/repair/boundaries.test.ts`). Neither `plan`,
+`implement`, `review` nor `repair` has been run against a live BharatCode endpoint from this
 machine (no key was set here); the samples above go through the same adapter
 against a local stub, and the real-Git behaviour around them is covered by tests
 that need no key. One opt-in test (`tests/review/live.test.ts`) will ask the real
 endpoint for one review — it stays skipped unless `MERGESUTRA_LIVE_BHARATCODE=1`,
-a key and a model id are all present together.
+a key and a model id are all present together. Stage 9R deliberately adds no such
+live test of its own: a repair is the one path where a model gets a writer, and its
+proofs here are the deterministic ones.
 
 ## Benchmark
 
@@ -1074,8 +1240,14 @@ report` renders the `.mergesutra/runs/<id>/` evidence pack — `report.md`,
 single status in it. Stage 9 is done too: `mergesutra review` asks a second model
 about the exact bytes a run pinned, files what comes back with a citation or
 refuses it, freezes a repair plan before any edit, and leaves the workspace
-byte-identical — what it does *not* settle is the execution of that plan, which no
-command yet performs. The commands that still report themselves as planned are
+byte-identical — what it does *not* settle is the execution of that plan. That
+execution is [Stage 9R](docs/ROADMAP.md#stage-9r--carrying-out-a-frozen-repair-plan-and-re-verifying-what-it-changed--done),
+also done: `mergesutra repair` runs a frozen plan through Stage 6's own loop, only
+under `--approve-plan <digest>` — the yes that starts it is bound to the scope it
+names, there is no `--yes` — and then sends the bytes it changed back through
+Stage 7's gates and regenerates the pack from the new receipts, so a repair reports
+what ran rather than what it thinks it fixed. The commands that still report
+themselves as planned are
 next.
 
 ## Contributing

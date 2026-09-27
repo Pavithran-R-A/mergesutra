@@ -1,7 +1,7 @@
 # MergeSutra — Architecture
 
-Status: Stages 0-7 implement the components marked **[IMPLEMENTED]**; the rest
-are **[DESIGNED]** / **[PLANNED]**. This document describes the whole intended
+Status: Stages 0-9 and 9R implement the components marked **[IMPLEMENTED]**; the
+rest are **[DESIGNED]** / **[PLANNED]**. This document describes the whole intended
 architecture so the built pieces fit it.
 
 ## 1. Trust model in one breath
@@ -95,6 +95,7 @@ to silently edit code.
 | A repository's own gate | CI steps and declared scripts, discovered from an untrusted repository | `verify/consent.ts`: an entry runs only under an operator `--allow VG-00n` bound to this plan's digest, this command and this patch, so renaming a gate or editing the patch voids the yes; `verify/patch.ts`: a workspace sitting on another commit is refused; `verify/engine.ts`: the patch is re-described after every gate and a gate that moved it voids the verdict |
 | Evidence      | A receipt, a model's claim, a stale workspace | `verify/evidence.ts`: one writer of a criterion's status, and it reads receipts only; a command that reaches no criterion's stated check proves nothing about it; a patch identity that no longer matches marks the rows `STALE`; `contributionReady` is a literal `false` in the schema, so no code path can set it |
 | A second model's review | Findings about the patch, from a reviewer with no tools | `review/manifest.ts`: MergeSutra authors the only citable ids, and the reviewer is shown the page assembled for it rather than the repository; `review/disposition.ts`: an unanchored finding is `UNSUPPORTED`, a repeat is `DUPLICATE`, and the answer's schema has no field that could hold a verdict; `review/prompt.ts`: material whose line is shaped like a section heading is quoted behind a marker so it cannot open one; `review/stage.ts`: the patch identity is pinned before the question and re-measured after the answer, so bytes that moved in the meantime make the account `STALE` instead of authoritative |
+| An approved repair | A frozen plan, the findings behind it, and the loop's account of what it did | `repair/digest.ts`: one canonical name for the scope; `repair/consent.ts`: an edit runs only under an approval whose digest equals that name, so re-freezing the plan or routing one finding differently voids the yes; `repair/limits.ts`: the cycle is narrower than Stage 6 on every axis, and asking for more clamps it rather than raising it; `implement/loop.ts`: a `WRITE_FILE` outside the plan's files is refused before the writer, and Stage 5's policy still outranks the plan; `repair/execution.ts`: the document cannot be built without the matching approval, carries no verdict field, and reads `verificationRequired` off the patch delta |
 | GitHub        | Any remote mutation                         | `tool-policy` approval gate: a remote action needs a human yes for that exact summary, and a destructive one has no yes that enables it. Stage 6 does not offer one: asking to push is a refusal, not a prompt |
 | BharatCode    | Endpoint/credentials                        | Env-only config; central redaction; the key is required before a workspace is created |
 
@@ -128,9 +129,12 @@ writing a run record that the next one reads, and `report` rendering whatever th
 chain has established into the pack a reviewer reads. `REVIEW` is a filing state,
 not a driving one: it reads the patch Stage 7 measured, records findings and — when
 one is routable — a repair plan frozen before any edit, and then returns the
-workspace byte-identical. `REPAIR` onward is
-**[DESIGNED]** — which is why a reviewed run points its `nextStage` at a loop that
-no command starts yet, and why `mergesutra run`, `pr`,
+workspace byte-identical. `REPAIR` is now built too, and it is the one state in this
+machine that edits: `mergesutra repair` runs an approved plan through
+`IMPLEMENT`'s own loop, then goes back through `VERIFY` on the bytes that exist now,
+so `REPAIR → IMPLEMENT → VERIFY` is a real path with a real command at its start
+rather than a **[DESIGNED]** arrow. What is still **[DESIGNED]** is `HUMAN_APPROVAL`
+onward — which is why `mergesutra run`, `pr`,
 `status` and `resume` still exit `2` as planned.
 
 What Stage 7 added to this machine is a boundary rather than a box: `VERIFY` is
@@ -165,9 +169,13 @@ disposition, not a ruling on its merit. The only document with authority over a
 later edit is the `RepairPlan`, and it is frozen before anything changes: Stage 9
 holds no writer and runs no gate, and the workspace it reviewed comes back
 byte-identical. A repair therefore re-enters `IMPLEMENT` and voids the old
-documents as state, not as prose — the record a repair writes carries no review, and
-Stage 7 must mint receipts against the new patch identity before any criterion row
-means anything again.
+documents as state, not as prose. Stage 9R is what that sentence describes: the
+plan's digest is what a human approves (`consent.ts` decides, and the approval is a
+separate document from the plan), the cycle runs through Stage 6's loop under a
+brief it cannot widen, and the patch identity that changes is the event that makes
+re-verification mandatory rather than optional. After a cycle the record still holds
+the earlier review — as a review of the bytes it was actually shown — while the new
+round's receipts name the new identity, and the pack says which is which.
 
 Explicit bounded limits: agent steps, tool calls, repair attempts, repeated
 identical failures, request/token budget, per-command runtime, and output size.
@@ -188,7 +196,8 @@ src/
                retry, timeouts, cancellation
   cli/         command surface, rendering, doctor,        [IMPLEMENTED]
                issue (intake only), inspect, contract,
-               plan, implement, verify, exit codes
+               plan, implement, verify, review, report,
+               repair, exit codes
   intake/      issue URL parsing, local-repo reading,     [IMPLEMENTED]
                intake orchestrator
   github/      gh-CLI source + Zod-validated payloads     [IMPLEMENTED]
@@ -203,8 +212,10 @@ src/
   implement/   the bounded loop: closed action protocol,  [IMPLEMENTED]
                context assembler, prompt shaping, twelve
                enforced limits, no-progress identity,
-               implementation record (no status field a
-               criterion could be marked PASS in)
+               an optional brief that narrows the files a
+               cycle may write, and the implementation
+               record (no status field a criterion could be
+               marked PASS in)
   git/         worktree at the pinned base SHA,           [IMPLEMENTED]
                ignore pre-flight, dirty-state report,
                idempotent reuse, never a cleanup
@@ -223,6 +234,17 @@ src/
                findings weighed against that manifest,
                dispositions, a RepairPlan frozen before any
                edit, and the workspace left byte-identical
+  repair/      the bounded repair cycle, authorised by      [IMPLEMENTED]
+               digest: a canonical digest of the frozen
+               plan, an approval that is a separate
+               digest-bound document, a brief built from the
+               plan's scope and nothing wider, stricter loop
+               limits than Stage 6 runs with, and the
+               RepairExecution record of consent → patch A →
+               what the loop did → patch B → the round it
+               owes. The orchestrator calls Stage 6's loop,
+               Stage 7's round and Stage 8's pack writer
+               rather than holding an editor of its own
   report/      the evidence pack: record in, the three    [IMPLEMENTED]
                reviewer files out, copied status for
                status, receipts re-emitted verbatim,
@@ -236,6 +258,19 @@ it reaches nothing directly. It imports the Stage 5 writer, the Stage 5 reader,
 the Stage 5 tool policy, the bounded runner and `git/workspace.ts` — so the
 answer to "could a stage after this one bypass the boundaries?" is that there is
 no bypass to take, only the same five modules.
+
+Stage 9R is the test of that claim rather than an exception to it. `repair/stage.ts`
+runs an editing cycle while naming no client type, no writer and no process runner
+of its own: it forwards a client into the loop's own dependency slot and reaches the
+workspace only through `implement/loop.ts`, `verify/workspace.ts` and
+`report/write.ts`. Two source-shaped tests hold that line, because a rule about
+imports is only a rule: `tests/repair/boundaries.test.ts` scans `src/repair/*.ts`
+for the specifiers that would grant a file handle, a child process or a writer and
+allows exactly one module to reach the loop, and
+`tests/repair/source-shape.test.ts` walks everything a cycle can reach, enumerates
+each command it constructs, classifies it with the production risk oracle and fails
+on a pinned snapshot if a new one appears — without ever starting a command to prove
+it would be refused.
 
 ## 7. Adapter rule (already implemented)
 
@@ -269,7 +304,9 @@ changes a config value and every recorded id, not a line of prompt code.
 ```
 .mergesutra/runs/<run-id>/
   <run-id>.json       the run record every stage writes — SHIPPED, and it is the
-                      only file a stage other than `report` writes here
+                      only file written here by anything other than `report`'s own
+                      pack writer (which `repair` also calls, to remake the pack a
+                      cycle made stale — the same writer, not a second one)
   report.md           human-readable report          — SHIPPED
   report.json         machine-readable report        — SHIPPED
   commands.jsonl      one receipt per executed gate  — SHIPPED
@@ -297,8 +334,11 @@ identity that the record does not already carry.
 
 Nothing here is committed automatically, and no pack contains a secret: output is
 redacted on the way into the receipt, and the receipts are what the pack copies.
-The record is schema version 7 — Stage 9 added `review` and `repairPlan` to it and
-kept every v6 document readable and interpretable on its own terms; a v6 record
-gains no findings it never had — and a file written by an earlier stage build is
+The record is schema version 8 — Stage 9 added `review` and `repairPlan`, Stage 9R
+added the `repairExecutions` list beside them, and every older document stays
+readable and interpretable on its own terms: a v6 or v7 record gains
+`repairExecutions: []` in memory, which is the honest fact that no repair ran, and no
+older record can claim the `repair` stage that only v8's vocabulary defines — and a
+file written by an earlier stage build is
 reported as unreadable rather than guessed at, so `report` refuses it instead of
 rendering an empty pack around the refusal.

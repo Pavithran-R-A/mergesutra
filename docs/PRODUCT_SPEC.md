@@ -39,6 +39,7 @@ GitHub Issue
   → BharatCode-powered implementation
   → Repository-native verification
   → Diff review
+  → Digest-approved repair, then verification over the bytes it changed
   → Acceptance Contract evidence mapping
   → Human approval
   → Pull-request draft
@@ -47,7 +48,10 @@ GitHub Issue
 The hero command is `mergesutra issue <github-url>`. Phase commands
 (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`,
 `status`, `resume`) exist for transparency, debugging and recovery — not to
-expand scope.
+expand scope. What ships today is `inspect`, `contract`, `plan`, `implement`,
+`verify`, `review`, `report` and `repair`, alongside `issue` and `doctor`; `run`,
+`pr`, `status` and `resume` are designed and exit `2` until their stage — Stage 10
+owns approval and the PR draft, Stage 11 owns recovery.
 
 ## 4. Core promise
 
@@ -61,8 +65,10 @@ Evidence is always truthful:
 
 Explicit verification states: `PASS`, `FAIL`, `SKIPPED`, `NOT_AVAILABLE`,
 `BLOCKED`, `INCONCLUSIVE`. A run may reach `CONTRIBUTION_READY` only when the
-defined mandatory gates pass. Other run states: `PLAN_READY`, `PATCH_CREATED`,
-`VERIFICATION_FAILED`, `NEEDS_HUMAN_REVIEW`, `BLOCKED`, `INCONCLUSIVE`.
+defined mandatory gates pass — and in this build no command reaches it at all, the
+field being a literal `false` in the evidence schema (§10). Other run states:
+`PLAN_READY`, `PATCH_CREATED`, `VERIFICATION_FAILED`, `NEEDS_HUMAN_REVIEW`,
+`BLOCKED`, `INCONCLUSIVE`.
 
 One deviation, on purpose: the state after Stage 4 is named `PLAN_COMPLETE`, not
 `PLAN_READY`. Nothing in Stage 4 establishes that a plan is *ready* to execute —
@@ -153,7 +159,7 @@ what was run, what passed, what failed or could not be checked — and decide
 whether to publish. Honest reporting of failures is a success condition, not a
 defect.
 
-## 10. Limitations (current, at Stage 9)
+## 10. Limitations (current, at Stage 9R)
 
 - Implemented today: CLI skeleton, BharatCode adapter, config, redaction,
   structured errors, `doctor`, **intake** (`mergesutra issue <url>` — parses the
@@ -183,7 +189,15 @@ defect.
   (`mergesutra review [run-id]` — the patch Stage 7 measured is pinned, a second
   model with no tools describes it, MergeSutra weighs each finding against the
   citation list it authored before asking, and a repair plan is frozen before any
-  edit; the workspace the stage reviewed comes back byte-identical).
+  edit; the workspace the stage reviewed comes back byte-identical), and the
+  **digest-approved repair cycle** (`mergesutra repair [run-id]` — the only command
+  that edits a repository, and it edits only under `--approve-plan <64-hex>`, the
+  digest of the plan `review` froze: the cycle runs through Stage 6's own bounded
+  loop under a brief narrowed to that plan's files, and once bytes have moved
+  Stage 7's gates run again over them and Stage 8's pack is regenerated from the new
+  receipts. Reading a plan costs nothing and changes nothing; running one needs a yes
+  typed for that plan alone. No outcome in its vocabulary says a patch is good, and
+  there is no exit `0`.)
 - Stage 5 shipped the safety layer as **modules with no command**: the worktree
   manager (`src/git/workspace.ts`), the risk classifier
   (`src/process/tool-policy.ts`) and the confined writer
@@ -200,6 +214,13 @@ defect.
   comparison has no production caller and a reviewed run's `nextStage` names a
   `REPAIR` that does not exist yet. Building that is a later stage's decision, with
   its own consent, not a flag on `review`.
+  *(That later stage is Stage 9R, and it is built: `mergesutra repair` starts
+  Stage 6's loop under a brief narrowed to the plan's own files, so the scope
+  comparison now has its production caller — a cycle that reached outside the plan is
+  escalated to a human with the bytes left in place, never reverted — and a repaired
+  run goes back through Stage 7's gates and Stage 8's pack writer. The last sentence
+  holds: the yes that runs a plan is a separate digest-bound capability with its own
+  flag and its own proof, not a field on `review` and not a `--yes`.)*
 - A review is a **second pass, not a second vendor.** It runs through the same
   adapter, possibly on the same model family, so what Stage 9 buys is different
   instructions and no tools, not provider diversity — and the reviewer's world is
@@ -213,7 +234,9 @@ defect.
   [ARCHITECTURE.md](ARCHITECTURE.md) §8 stays a sketch, because splitting the same
   facts across files gives each fact two places to be wrong — including the review,
   whose findings live in the record and are rendered from it rather than into a
-  separate `review.json`.
+  separate `review.json`. A repair cycle's document is held the same way, in the
+  record's `repairExecutions` list, and its pack is the same three files
+  regenerated rather than a fourth kind of page.
 - Every derived criterion is `PENDING` after `implement` finishes, and the
   CLI says so on screen: the loop ran no gate from the Acceptance Contract, and
   `Verification` is `NOT_AVAILABLE` in every implementation record. Attaching a

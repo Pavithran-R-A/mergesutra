@@ -100,7 +100,10 @@ is not a thing this stage can be asked to do, let alone do on its own.
 ## Where the evidence lands
 
 Stage 7 is the only stage that can move a criterion off `PENDING`, and it does
-not do it by editing this contract. `mergesutra verify` writes a separate
+not do it by editing this contract. Stage 9R's repair cycle changes a criterion's
+row only by running Stage 7's round again over the patch it just produced — it
+holds no evidence writer of its own, which is why a repaired run's statuses are
+receipts rather than the loop's opinion. `mergesutra verify` writes a separate
 document beside it — `record.evidence` — with one row per criterion keyed by the
 contract's own id:
 
@@ -293,3 +296,18 @@ this stage makes no claim on. `CONTRIBUTION_READY` is still not in the outcome
 vocabulary at all, so no run in this build can spell it — and the evidence
 document beside it types `contributionReady` as the literal `false`, so there is
 no field to write it into either.
+
+Stage 9's are named for what was filed, not for what was thought: `REVIEW_RECORDED`,
+`REVIEW_NEEDS_HUMAN`, `REVIEW_INCONCLUSIVE` and `REVIEW_STALE`. There is no
+`REVIEW_PASS`, because the answer came from a model that was shown the patch rather
+than from a gate that ran against it.
+
+Stage 9R's are `REPAIR_APPLIED`, `REPAIR_NEEDS_HUMAN` and `REPAIR_BLOCKED`.
+`APPLIED` is the weakest sentence that is still true when a cycle ran and Stage 7's
+re-run passed on the new bytes — bytes moved and the gates were re-run, which is not
+the same claim as *the patch is good* — and the repair vocabulary has no `READY`
+member to mistake it for. `NEEDS_HUMAN` covers a cycle whose gates did not pass, one
+that finished and moved nothing, and a plan escalated for reaching outside its own
+scope; `BLOCKED` is a loop that stopped on a bound or an outage, with the patch
+unchanged. None of the three is exit `0`, and `contributionReady` remains the literal
+`false` it was.

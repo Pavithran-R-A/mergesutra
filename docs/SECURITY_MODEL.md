@@ -31,7 +31,7 @@ Repository contents, issue bodies, comments and filenames may contain text like
 All such text is **data**, never authority.
 
 The rule, then how far it is enforced today (the fixture matrix that closes it is
-Stage 12; the shipped pieces are §2.1, §2.2 and §2.3):
+Stage 12; the shipped pieces are §2.1, §2.2, §2.3 and §2.4):
 
 - Never execute arbitrary model text as a shell command.
 - Never place repository text in a position that can change tool permissions.
@@ -107,9 +107,9 @@ contents and filenames — injection strings placed in paths, in YAML, and insid
 asserted against, and §2.1's planted-file test is its first entry; the name- and
 config-shaped halves are still open. So is the prompt-level half for two of the
 three prompts: Stage 9 shipped the first structural guard against repository text
-reshaping a model's page (§2.3), and `plan` and `implement` still label their
-material as untrusted without that guard, which §2.3 states as a gap rather than a
-completion.
+reshaping a model's page (§2.3), Stage 9R brought it to the repair brief (§2.4), and
+`plan` and the general `implement` prompt still label their material as untrusted
+without that guard, which §2.3 states as a gap rather than a completion.
 
 ### 2.1 The implementation loop (Stage 6)
 
@@ -251,11 +251,84 @@ issue body can re-shape, and a false finding that reads well enough to route its
   unchanged after a review that found a real defect — the case where an editor would
   be most tempted.
 - **Known gap, stated rather than smoothed over:** the structural guard above covers
-  the reviewer's page only. `plan` and `implement` still interpolate repository,
-  issue and model text into their prompts with labelling but without the `> [data] `
-  marking, so the same planted-heading trick remains live there. Widening it is
-  Stage 12 work with adversarial tests beside it, and this document keeps it as an
-  open item rather than a shipped property.
+  the reviewer's page and — since Stage 9R — the repair brief in §2.4, which is the
+  other place a reviewer's quoted text reaches a model. `plan` and `implement` still
+  interpolate repository, issue and model text into their prompts with labelling but
+  without the `> [data] ` marking, so the same planted-heading trick remains live
+  there. Widening it is Stage 12 work with adversarial tests beside it, and this
+  document keeps it as an open item rather than a shipped property.
+
+### 2.4 The repair cycle (Stage 9R)
+
+Stage 9R is the first stage that changes bytes after a model has been consulted about
+them, so it is where the two failures this document exists to prevent — an untrusted
+string raising its own authority, and a claim of work that did not happen — could
+finally be worth something to an attacker. The design answer is that no part of a
+repair is authorised by the text that describes it:
+
+- **A plan is not consent, and consent is not a field in a plan.** Stage 9's frozen
+  `RepairPlan` names the scope; running it needs `--approve-plan <64-hex>`, the digest
+  of that plan as `repair/digest.ts` canonicalises it (lists order-normalised,
+  `createdAt` and the model id excluded). Consent is a separate stored capability,
+  `{ planDigest, approvedAt }`, with exactly three states — `MATCHED`, `ABSENT`,
+  `STALE` — and no wildcard, `*`, "any" or "all" of any kind. There is no `--yes`, no
+  `--force`, no `--approve-all` and no environment variable that stands in for the
+  digest, because a repair approvable in advance is a repair approved without being
+  read. A yes spent on cycle 1 does not authorise cycle 2.
+- **The capability cannot be worked around by constructing its output.**
+  `buildRepairExecution` recomputes the plan's digest instead of accepting one and
+  returns nothing unless the approval matches, so the document that says "a cycle
+  ran" is not buildable for an unapproved plan. The read-only half of the command
+  proves the same thing from the other side: showing a plan asks for no credential,
+  files no record, and changes no byte.
+- **Scope is prevented before the writer, by the loop that already owns it.** A
+  repair runs through Stage 6's `runImplementationLoop` under a `LoopBrief` of the
+  plan's own files, and a `WRITE_FILE` outside that brief is refused as a failed step
+  before `security/writer.ts` is asked — so there is still exactly one writer, one
+  compare-before-write precondition and one confined filesystem in the product.
+  Stage 5's policy outranks the plan: a plan that names `.git/config`, a credential
+  path or a path outside the workspace earns no write, because a frozen document is
+  model-derived text and sits at the bottom of §1's hierarchy.
+- **Review findings cross the boundary as quoted data.** The brief
+  (`src/repair/context.ts`) carries the findings the plan itself recorded, the
+  criteria they name, the receipts they answer to and the files they froze — through
+  `markQuoted()`, so a finding whose line is shaped like `=== … ===` cannot open a
+  section of the implementer's page. It withholds the reviewer's closing summary, the
+  earlier loop's account of its own work, and any criterion or file the plan never
+  named; the exclusions are printed on the page. Whole findings are dropped rather
+  than truncated when the brief exceeds its budget.
+- **A cycle's self-report is evidence of nothing.** `RepairExecution` has no verdict
+  field, no criterion status and no place for the model's reasoning beyond the loop's
+  action log; the `FINISH` text is kept as a claim, and a repair that overwrites or
+  deletes a file a passing gate was about does not relax anything — the old receipts
+  go `STALE` because the patch identity moved, which is what makes the re-run of
+  Stage 7's gates mandatory rather than cosmetic.
+- **No cleanup, because cleanup is a second unrequested write.** A cycle that
+  changed something outside its plan is filed `OUTSIDE_PLANNED_SCOPE`, escalated to
+  `NEEDS_HUMAN_REVIEW`, and the edit — and any file it brought — is left exactly where
+  it is. There is no revert, no `git clean`, no `git reset`; the product does not
+  destroy work in order to look tidy, and the operator sees what actually happened.
+- **An interruption leaves receipts, not a story.** Cancelling before the first
+  request files a cycle that edited nothing; cancelling after the edit runs no gate
+  and files no pass; cancelling mid-round files the half-run as verdict `CANCELLED`,
+  keeping the one `PASS` whose gate really produced a receipt and marking the rest
+  `INCONCLUSIVE`. A started round never collapses into a pass.
+- **Two guards that cannot be tested by running them are tested against the source.**
+  The dangerous commands a repair can reach are refused before spawn, so proving the
+  refusal by execution would mean attempting them. Instead
+  `tests/repair/source-shape.test.ts` enumerates every command string a cycle can
+  construct, classifies each with the production risk oracle, and fails on a snapshot
+  if a new one appears — with a positive control so an empty scan cannot read as
+  clean; `tests/repair/boundaries.test.ts` holds the rule that only
+  `src/repair/stage.ts` may reach the loop at all; and `tests/bharatcode/client.test.ts`
+  pins the endpoints a default-configured client calls, so a repair cannot silently
+  widen where a patch's text goes.
+- **Known gap, stated rather than smoothed over:** a repair cycle reaches the same
+  adapter, and possibly the same model family, as the review that ordered it — this
+  buys a bounded executor with a narrower brief, not a diversity of judgment. The
+  marking in §2.3's gap note still does not cover `plan` and general `implement`.
+  Remote mutations remain refused outright: nothing in Stage 9R pushes, opens or
+  comments, and `mergesutra pr` remains Stage 10's planned command.
 
 ## 3. Tool risk classes and policy
 
@@ -351,7 +424,10 @@ methods on the object are `writeText` and `exists`. A writer that cannot delete
 cannot be talked into emptying a checkout. Stage 6 gave it exactly one caller —
 the implementation loop — and one protocol: a `WRITE_FILE` action carries a whole
 file, which the loop writes through this API and records as a byte count plus a
-SHA-256 digest rather than as content.
+SHA-256 digest rather than as content. Stage 9R's repair cycle keeps that
+property rather than adding to it: it runs through the same loop (§2.4), so the
+writer still has one caller and the one out-of-workspace rule sits in one place,
+with the plan's scope enforced a layer above it.
 
 The workspace itself (Stage 5, `src/git/workspace.ts`) is a real Git worktree at
 the exact base SHA the run recorded, on its own branch
@@ -386,10 +462,13 @@ binary does with its own arguments.
 
 ### 4.1 The evidence pack (Stage 8)
 
-`mergesutra report` is the only stage that writes files into the human's primary
-checkout rather than its own worktree, and it is the stage with the least reason
-to: it reads one run record and writes three files beside it under
-`.mergesutra/runs/<run-id>/`. Three rules hold that in place.
+`mergesutra report` is the stage whose whole job is writing the pack into the human's
+primary checkout rather than a worktree of its own: it reads one run record and writes
+three files beside it under `.mergesutra/runs/<run-id>/`. Stage 9R's `repair`
+regenerates the pack its own cycle made stale by calling this same writer
+(`buildEvidencePack` / `writeEvidencePack`), so there is one pack format and one set
+of rules, and a cycle whose pack cannot be written says so and leaves the older pack
+standing rather than re-labelling it. Three rules hold that in place.
 
 - **The run id is a name, not a path.** `assertSafePathSegment` judges it (1-80
   characters from `[A-Za-z0-9._-]`, starting with a letter or digit) before any
@@ -491,6 +570,13 @@ cancellation. A provider failure yields a useful status, never corrupted work.
   per-request budget; a secret-shaped path or a binary is listed with its reason and
   its bytes never go near the wire, and the page prints what it left out so the
   omission is visible to whoever reads the run afterwards.
+- Stage 9R keeps the same discipline on the way back in. The repair brief is built
+  from what the frozen plan already named — its findings, criteria, receipts and
+  files — and the cycle then runs through Stage 6's context rules, which reject
+  credential paths and binaries and bound what a request may carry. The brief states
+  its own exclusions, and whole findings are dropped rather than truncated when the
+  budget runs out, so a pressure to send more never buys it by sending less of
+  something important without saying so.
 
 ## 9. Git safety (implemented stance)
 
@@ -498,3 +584,14 @@ Never: force push, merge, rewrite user branches, hard-reset the user's checkout,
 delete unrelated branches, or `git clean` the user's primary repo. Use dedicated
 branches/worktrees, record the exact base SHA, and require human approval for
 any remote change.
+
+- Stage 9R holds this at the moment it is most tempting to break. A cycle that
+  changed something outside its plan is filed `OUTSIDE_PLANNED_SCOPE`, escalated to a
+  human, and the edit — and any file it brought with it — is left exactly where it
+  is. There is no revert, no `git clean` and no `git reset`: undoing an unrequested
+  write is itself an unrequested write, and the product cannot know which of those
+  bytes a person wanted.
+- The approval that lets a cycle run is bound to one plan's digest (§2.4) and is
+  never a remote authorisation. Nothing in Stage 9R pushes, opens or comments;
+  `mergesutra pr` is still Stage 10's planned command, and a remote mutation stays
+  refused outright.
