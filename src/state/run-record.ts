@@ -4,6 +4,7 @@ import { AppError } from '../core/errors.js';
 import { repositoryContractSchema } from '../discovery/contract.js';
 import { implementationRecordSchema } from '../implement/state.js';
 import { implementationPlanSchema } from '../plan/schema.js';
+import { publicationRecordSchema } from '../pr/record.js';
 import { repairExecutionSchema } from '../repair/execution.js';
 import { repairPlanSchema } from '../repair/plan.js';
 import { reviewDocumentSchema } from '../review/schema.js';
@@ -69,10 +70,25 @@ import { verificationPlanSchema } from '../verify/plan.js';
  * `stage: repair, repairExecutions: []`: true words in a false order, which is the
  * exact class of thing the record exists to prevent.
  *
+ * Version 9 adds Stage 10's one document: the list of publication proposals, each of
+ * which is the candidate a human was shown plus the yes they gave it, if they gave
+ * one. It is a list for the same reason the executions are — a run can be proposed
+ * twice (an edited title is a new candidate, and the old approval dies with the old
+ * digest), and which proposal came first is not recoverable afterwards. The
+ * migration gives an empty list rather than a candidate: a v8 record was never put in
+ * front of anyone as a pull request, and inventing one would manufacture the only
+ * document in this file that a later stage could read as consent.
+ *
+ * `pr` is v9's stage word, and its three outcomes are the last place in this file
+ * where a stage is allowed to sound like success and is not. `PR_APPROVED_LOCAL` is
+ * the strongest thing Stage 10 can say, and it says a person agreed: nothing was
+ * pushed, no pull request exists, and no field anywhere in this record can say
+ * otherwise.
+ *
  * Nothing secret belongs in here. There is no credential field to fill in.
  */
 
-export const RUN_SCHEMA_VERSION = 8;
+export const RUN_SCHEMA_VERSION = 9;
 
 /**
  * The record versions this build reads, oldest first.
@@ -81,7 +97,7 @@ export const RUN_SCHEMA_VERSION = 8;
  * schema that validates exactly what its author wrote and a transform that can
  * say what that record did not contain.
  */
-export const RUN_SCHEMA_VERSIONS_SUPPORTED: readonly number[] = [6, 7, RUN_SCHEMA_VERSION];
+export const RUN_SCHEMA_VERSIONS_SUPPORTED: readonly number[] = [6, 7, 8, RUN_SCHEMA_VERSION];
 
 /** What existed before Stage 9R: seven stages, and no way to say a repair ran. */
 export const RUN_STAGES_THROUGH_REVIEW = [
@@ -102,7 +118,16 @@ export const RUN_STAGES_THROUGH_REVIEW = [
  * what each of them did. Older records are validated against the list above, so
  * this word cannot be backdated into them.
  */
-export const RUN_STAGES = [...RUN_STAGES_THROUGH_REVIEW, 'repair'] as const;
+export const RUN_STAGES_THROUGH_REPAIR = [...RUN_STAGES_THROUGH_REVIEW, 'repair'] as const;
+
+/**
+ * What existed before Stage 10, plus every stage that could have run through 9R.
+ *
+ * Kept separate from v8's list only to name what v9 adds; a v8 file is still
+ * validated against `RUN_STAGES_THROUGH_REPAIR`, so `pr` cannot be backdated into it
+ * any more than `repair` could be backdated into a v7 file.
+ */
+export const RUN_STAGES = [...RUN_STAGES_THROUGH_REPAIR, 'pr'] as const;
 export const RUN_OUTCOMES_THROUGH_REVIEW = [
   'INTAKE_COMPLETE',
   'INSPECT_COMPLETE',
@@ -156,11 +181,40 @@ export const RUN_OUTCOMES_THROUGH_REVIEW = [
  * `MAX_WRITES` or `MODEL_UNAVAILABLE` here would be a second copy of a fact that can
  * then disagree with the first.
  */
-export const RUN_OUTCOMES = [
+export const RUN_OUTCOMES_THROUGH_REPAIR = [
   ...RUN_OUTCOMES_THROUGH_REVIEW,
   'REPAIR_APPLIED',
   'REPAIR_NEEDS_HUMAN',
   'REPAIR_BLOCKED',
+] as const;
+
+/**
+ * Stage 10's three, and the last words this record is allowed to say about a run.
+ *
+ * They describe what happened to a proposal, not whether it was any good.
+ * `PR_CANDIDATE_RECORDED` means the facts were complete enough to assemble a
+ * candidate and show it; `PR_APPROVED_LOCAL` means a human then named that
+ * candidate's digest, which is the strongest statement available in this build and
+ * still says nothing about GitHub; `PR_PUBLICATION_BLOCKED` means the run stopped
+ * with a gap — stale evidence, a refused approval, or a publication that cannot be
+ * attempted.
+ *
+ * There is no `PR_CREATED`, `PR_PUBLISHED` or `PR_READY`, and that is not caution for
+ * its own sake: Stage 10 has no remote, so a word meaning "the pull request exists"
+ * would describe an event nothing in this repository is capable of causing. When a
+ * publisher lands, it will be the publisher's own document that says so, and the
+ * record will hold that document rather than a promise of one.
+ *
+ * `PR_APPROVAL_REQUIRED` and `PR_CANDIDATE_STALE` are deliberately absent too. The
+ * first is `PR_CANDIDATE_RECORDED` with an unapproved entry, which the entry itself
+ * already says; the second is a block with a reason, and the reason is stored where
+ * it was measured. Two words for one state is two chances to contradict each other.
+ */
+export const RUN_OUTCOMES = [
+  ...RUN_OUTCOMES_THROUGH_REPAIR,
+  'PR_CANDIDATE_RECORDED',
+  'PR_APPROVED_LOCAL',
+  'PR_PUBLICATION_BLOCKED',
 ] as const;
 export const RUN_CHECK_STATUSES = [
   'PASS',
@@ -315,76 +369,110 @@ const runRecordFieldsV6 = {
 const runRecordV6Schema = z.object({ schemaVersion: z.literal(6), ...runRecordFieldsV6 }).strict();
 
 /**
- * What Stage 9 wrote, read as it was written.
+ * What Stage 9 wrote, shared by every version from 7 onward.
  *
- * The two documents below are the whole of v7's addition, and this schema is what
- * keeps the version honest: a file that says it is a 7 cannot carry a repair
- * execution, a consent to repair, or a stage word only v8 defines. The stage and
- * outcome enums come from the shared fields, which stop at `review` — so the
- * narrowest reading of "review was the last stage" is enforced on the older
- * shapes rather than only remembered by this one.
+ * The two documents are v7's whole addition, and they are written once here so the
+ * v7, v8 and v9 shapes all validate the same review against the same schema. What
+ * differs between those versions is what they *add* and which stage words they may
+ * speak, not what they re-read.
  */
+const runRecordFieldsV7 = {
+  /**
+   * Present once Stage 9 has reviewed these exact bytes.
+   *
+   * `null` and "zero findings" are different facts and only one of them is a
+   * review: null says no reviewer was ever shown this patch, while a document
+   * with an empty `findings` list says one was and reported nothing. A
+   * migrated v6 record gets the first, because that is what happened to it.
+   * The document also carries the patch identity it vouches for, so a reader
+   * can tell a review from a review that has gone stale.
+   */
+  review: reviewDocumentSchema.nullable().default(null),
+  /**
+   * Present once Stage 9 has frozen a work order from that review.
+   *
+   * Kept beside the review rather than inside it because the two answer
+   * different questions: the review is what a model said about these bytes,
+   * this is what the run decided to do about it. Writing it down before the
+   * workspace is touched is the whole point — a reader who finds changed files
+   * and no plan here is looking at an edit that nobody authorised.
+   *
+   * `null` is not "nothing needed fixing"; it is "no plan was frozen". The
+   * distinction survives migration, which gives a v6 record this null.
+   */
+  repairPlan: repairPlanSchema.nullable().default(null),
+};
+
 const runRecordV7Schema = z
   .object({
     schemaVersion: z.literal(7),
     ...runRecordFieldsV6,
-    review: reviewDocumentSchema.nullable().default(null),
-    repairPlan: repairPlanSchema.nullable().default(null),
+    ...runRecordFieldsV7,
   })
   .strict();
+
+/**
+ * What Stage 9R wrote, shared by v8 and v9.
+ *
+ * v8 also widens the stage and outcome vocabularies over the shared v6 fields: only
+ * a record that can hold the executions may name the stage that produced them. v9
+ * widens them again, and the override is written where it happens rather than being
+ * inherited, so this object stays exactly what a v8 author wrote.
+ */
+const runRecordFieldsV8 = {
+  ...runRecordFieldsV6,
+  ...runRecordFieldsV7,
+  stage: z.enum(RUN_STAGES_THROUGH_REPAIR),
+  outcome: z.enum(RUN_OUTCOMES_THROUGH_REPAIR),
+  /**
+   * Every repair cycle this run has been through, oldest first.
+   *
+   * A list, not a slot, because the order is the one fact about two cycles that
+   * nobody can recover afterwards: which cycle put the current bytes on disk,
+   * and which one was escalated to a human instead of re-verified. Each entry
+   * is written by Stage 9R's own builder, which refuses a cycle nobody approved,
+   * so this array is a record of things that were allowed to happen rather than
+   * of things a model says it did.
+   *
+   * `[]` means no repair cycle ran. It does not mean a cycle ran and found
+   * nothing to do — that cycle would be in here, saying `REPAIR_LEFT_NO_TRACE`
+   * in its scope. The default is a real state, not an omission, and that is why
+   * the migration fills it with an empty list rather than with a plausible cycle.
+   */
+  repairExecutions: z.array(repairExecutionSchema).readonly().default([]),
+};
+
+const runRecordV8Schema = z.object({ schemaVersion: z.literal(8), ...runRecordFieldsV8 }).strict();
 
 export const runRecordSchema = z
   .object({
     schemaVersion: z.literal(RUN_SCHEMA_VERSION),
-    ...runRecordFieldsV6,
+    ...runRecordFieldsV8,
     /**
-     * v8's own stage and outcome words, overriding the shared fields.
+     * v9's own stage and outcome words, overriding v8's.
      *
-     * Only a record that can hold the executions may name the stage that produced
-     * them; see the header.
+     * Only a record that can hold a publication may name the stage that proposes
+     * one; see the header.
      */
     stage: z.enum(RUN_STAGES),
     outcome: z.enum(RUN_OUTCOMES),
     /**
-     * Present once Stage 9 has reviewed these exact bytes.
+     * Every candidate this run has put in front of a human, oldest first.
      *
-     * `null` and "zero findings" are different facts and only one of them is a
-     * review: null says no reviewer was ever shown this patch, while a document
-     * with an empty `findings` list says one was and reported nothing. A
-     * migrated v6 record gets the first, because that is what happened to it.
-     * The document also carries the patch identity it vouches for, so a reader
-     * can tell a review from a review that has gone stale.
+     * A list rather than a slot because a proposal can be revised: a human who
+     * edits the title is looking at a different digest, the old approval stops
+     * being about this document, and what a reader needs to reconstruct is which
+     * yes belonged to which proposal. Each entry is built by Stage 10, which
+     * refuses to file an approval that names some other candidate's digest, so
+     * this array is a record of consents that were genuinely given.
+     *
+     * `[]` means Stage 10 never assembled a candidate. One entry with a null
+     * approval means one was shown and nobody has agreed to it yet — which is
+     * the state most runs will be left in, and the reason the approval is a
+     * nullable document rather than a boolean that could be read either way.
+     * Nothing in this list can say a pull request exists.
      */
-    review: reviewDocumentSchema.nullable().default(null),
-    /**
-     * Present once Stage 9 has frozen a work order from that review.
-     *
-     * Kept beside the review rather than inside it because the two answer
-     * different questions: the review is what a model said about these bytes,
-     * this is what the run decided to do about it. Writing it down before the
-     * workspace is touched is the whole point — a reader who finds changed files
-     * and no plan here is looking at an edit that nobody authorised.
-     *
-     * `null` is not "nothing needed fixing"; it is "no plan was frozen". The
-     * distinction survives migration, which gives a v6 record this null.
-     */
-    repairPlan: repairPlanSchema.nullable().default(null),
-    /**
-     * Every repair cycle this run has been through, oldest first.
-     *
-     * A list, not a slot, because the order is the one fact about two cycles that
-     * nobody can recover afterwards: which cycle put the current bytes on disk,
-     * and which one was escalated to a human instead of re-verified. Each entry
-     * is written by Stage 9R's own builder, which refuses a cycle nobody approved,
-     * so this array is a record of things that were allowed to happen rather than
-     * of things a model says it did.
-     *
-     * `[]` means no repair cycle ran. It does not mean a cycle ran and found
-     * nothing to do — that cycle would be in here, saying `REPAIR_LEFT_NO_TRACE`
-     * in its scope. The default is a real state, not an omission, and that is why
-     * the migration fills it with an empty list rather than with a plausible cycle.
-     */
-    repairExecutions: z.array(repairExecutionSchema).readonly().default([]),
+    publications: z.array(publicationRecordSchema).readonly().default([]),
   })
   .strict();
 
@@ -431,6 +519,15 @@ export interface NewRunRecordInput {
    * be indistinguishable from a run that never had one.
    */
   readonly repairExecutions?: RunRecord['repairExecutions'];
+  /**
+   * Only the `pr` command sets this, and only with a candidate it assembled from
+   * the evidence already on file — never one it inferred from a model's say-so.
+   *
+   * As with the executions, an appending caller passes the whole prior list plus its
+   * own entry: this is the only place the record is written, and dropping an earlier
+   * proposal would erase the history of which candidate a human actually agreed to.
+   */
+  readonly publications?: RunRecord['publications'];
   readonly checks: readonly RunCheck[];
   readonly nextStage: string;
   readonly limitations?: readonly string[];
@@ -460,6 +557,7 @@ export function createRunRecord(input: NewRunRecordInput): RunRecord {
     review: input.review ?? null,
     repairPlan: input.repairPlan ?? null,
     repairExecutions: [...(input.repairExecutions ?? [])],
+    publications: [...(input.publications ?? [])],
     checks: [...input.checks],
     nextStage: input.nextStage,
     limitations: [...(input.limitations ?? [])],
@@ -491,18 +589,37 @@ function upgradeV6Record(
 }
 
 /**
- * A 7 record, seen in memory as an 8 record.
+ * A 6 or 7 record, seen as an 8 record.
  *
  * One empty list and nothing else. Stage 9R never ran on this run, so there is no
  * cycle to describe, no approval to name and no patch identity to vouch for — and
  * an empty list is the honest reading of that, unlike a slot a later stage could
  * mistake for a repair that found nothing to do.
  */
-function upgradeV7Record(record: z.infer<typeof runRecordV7Schema>): RunRecord {
+function upgradeToV8Record(
+  record: z.infer<typeof runRecordV7Schema>,
+): z.infer<typeof runRecordV8Schema> {
+  return runRecordV8Schema.parse({
+    ...record,
+    schemaVersion: 8,
+    repairExecutions: [],
+  });
+}
+
+/**
+ * An 8 record, seen in memory as a 9 record.
+ *
+ * Still only ever an empty list. Stage 10 never showed this run to anybody as a pull
+ * request proposal, so there is no candidate to store and — decisively — no approval
+ * to store: a migrated record that arrived holding a human's yes would hand a later
+ * stage a consent nobody gave. The stage and outcome words cannot come along either,
+ * which is why v8 is validated against its own narrower vocabulary first.
+ */
+function upgradeV8Record(record: z.infer<typeof runRecordV8Schema>): RunRecord {
   return runRecordSchema.parse({
     ...record,
     schemaVersion: RUN_SCHEMA_VERSION,
-    repairExecutions: [],
+    publications: [],
   });
 }
 
@@ -540,14 +657,20 @@ export function parseRunRecord(unknown: unknown): RunRecord {
 
   if (declared === 6) {
     const asV6 = runRecordV6Schema.safeParse(unknown);
-    if (asV6.success) return upgradeV7Record(upgradeV6Record(asV6.data));
+    if (asV6.success) return upgradeV8Record(upgradeToV8Record(upgradeV6Record(asV6.data)));
     return refuseRunRecord(`as written for version 6: ${issueDetail(asV6.error.issues)}`);
   }
 
   if (declared === 7) {
     const asV7 = runRecordV7Schema.safeParse(unknown);
-    if (asV7.success) return upgradeV7Record(asV7.data);
+    if (asV7.success) return upgradeV8Record(upgradeToV8Record(asV7.data));
     return refuseRunRecord(`as written for version 7: ${issueDetail(asV7.error.issues)}`);
+  }
+
+  if (declared === 8) {
+    const asV8 = runRecordV8Schema.safeParse(unknown);
+    if (asV8.success) return upgradeV8Record(asV8.data);
+    return refuseRunRecord(`as written for version 8: ${issueDetail(asV8.error.issues)}`);
   }
 
   if (typeof declared === 'number' && !RUN_SCHEMA_VERSIONS_SUPPORTED.includes(declared)) {

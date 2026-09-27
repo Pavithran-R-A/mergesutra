@@ -20,6 +20,10 @@ import {
 import { buildRepairExecution, type RepairExecution } from '../../src/repair/execution.js';
 import { repairPlanDigest } from '../../src/repair/digest.js';
 import { approveRepairPlan } from '../../src/repair/consent.js';
+import { approvePublication } from '../../src/pr/approval.js';
+import { candidateOf } from '../../src/pr/candidate.js';
+import { buildPublicationRecord, type PublicationRecord } from '../../src/pr/record.js';
+import { candidateInput, OTHER_PATCH_IDENTITY } from '../helpers/publication.js';
 import {
   cleanUp,
   hasGit,
@@ -43,12 +47,16 @@ import {
  * not an empty review, not a plan with zero items, and above nothing that could
  * be read downstream as "it was checked". A v7 record has never run a repair
  * cycle, so its execution list is empty rather than populated with a plausible
- * cycle. Null is the honest value for "this stage never ran", and the tests below
- * are what keep it that way.
+ * cycle. A v8 record has never been put in front of a human as a pull request
+ * proposal, so its publication list is empty too — and a candidate that was
+ * proposed but not approved stays absent rather than arriving with a yes that
+ * nobody gave. Null is the honest value for "this stage never ran", and the tests
+ * below are what keep it that way.
  *
  * Keeping the older shapes strict is the other half of the rule: a v7 file that
  * smuggles in v8's execution list, or claims v8's `repair` stage, is refused as the
- * version it says it is rather than upgraded on trust.
+ * version it says it is rather than upgraded on trust — and the same holds for a v8
+ * file that carries v9's publications or claims v9's `pr` stage.
  *
  * And a read is a read: opening an old file must not quietly rewrite it in the
  * current version, because then the file a human audited would no longer be the
@@ -72,9 +80,9 @@ beforeAll(async () => {
 /**
  * The same document as its author wrote it: v6 had no Stage 9 field at all.
  *
- * Stage 9's review, its frozen repair plan and Stage 9R's execution list are all
- * stripped here, which is what a real v6 file looks like: it has no key for any of
- * them, rather than a key holding null.
+ * Stage 9's review, its frozen repair plan, Stage 9R's execution list and Stage 10's
+ * publications are all stripped here, which is what a real v6 file looks like: it has
+ * no key for any of them, rather than a key holding null or an empty list.
  */
 function asV6(record: RunRecord): Record<string, unknown> {
   const {
@@ -82,6 +90,7 @@ function asV6(record: RunRecord): Record<string, unknown> {
     review: _review,
     repairPlan: _plan,
     repairExecutions: _executions,
+    publications: _publications,
     ...rest
   } = record;
   return { schemaVersion: 6, ...rest };
@@ -89,8 +98,24 @@ function asV6(record: RunRecord): Record<string, unknown> {
 
 /** A v7 file: Stage 9 had run, and no repair cycle had. */
 function asV7(record: RunRecord): Record<string, unknown> {
-  const { schemaVersion: _version, repairExecutions: _executions, ...rest } = record;
+  const {
+    schemaVersion: _version,
+    repairExecutions: _executions,
+    publications: _publications,
+    ...rest
+  } = record;
   return { schemaVersion: 7, ...rest };
+}
+
+/**
+ * A v8 file: a repair cycle had been recorded, and no candidate had been assembled.
+ *
+ * Stage 10's publications are stripped the way Stage 9's review was: an old file has
+ * no key for them at all, rather than a key holding an empty list.
+ */
+function asV8(record: RunRecord): Record<string, unknown> {
+  const { schemaVersion: _version, publications: _publications, ...rest } = record;
+  return { schemaVersion: 8, ...rest };
 }
 
 function fieldsOf(value: Record<string, unknown>): Record<string, unknown> {
@@ -288,6 +313,98 @@ describe.skipIf(!AVAILABLE)('a run record written by version 7', () => {
   });
 });
 
+/**
+ * One proposed candidate for this run, approved the way the CLI approves one.
+ *
+ * Built from the helper's facts with this run's id, so the document the record holds
+ * is one Stage 10 would genuinely have written rather than a literal that could drift
+ * from the candidate schema.
+ */
+function publicationFor(record: RunRecord, approved = true): PublicationRecord {
+  const candidate = candidateOf(candidateInput({ runId: record.runId }));
+  return buildPublicationRecord({
+    candidate,
+    ...(approved
+      ? { approval: approvePublication({ candidate, approvedAt: '2026-09-27T09:00:00.000Z' }) }
+      : {}),
+  });
+}
+
+describe.skipIf(!AVAILABLE)('a run record written by version 8', () => {
+  /**
+   * Stage 10's slot is a list of candidate/approval pairs, and a v8 run has never
+   * filled it: no human was shown a title, so there is no digest to name and no yes
+   * to store. The migration therefore gives an empty list — the same reading a v7
+   * record gets for repairs — and the tests below keep the two directions apart: an
+   * old record must stay loadable, and must not gain a publication on the way in.
+   */
+  it('loads a real Stage 9R record and calls it the current version', () => {
+    const migrated = parseRunRecord(asV8(fixture.record));
+
+    expect(RUN_SCHEMA_VERSION).toBeGreaterThan(8);
+    expect(migrated.schemaVersion).toBe(RUN_SCHEMA_VERSION);
+  });
+
+  it('gives it no publications, because no candidate was ever assembled', () => {
+    const migrated = parseRunRecord(asV8(fixture.record));
+
+    expect(migrated.publications).toEqual([]);
+    expect(migrated.repairExecutions).toEqual(fixture.record.repairExecutions);
+  });
+
+  it('carries every field the v8 record held, unchanged', () => {
+    const original = asV8(fixture.record);
+    const carried = fieldsOf(parseRunRecord(original) as unknown as Record<string, unknown>);
+
+    for (const [key, value] of Object.entries(fieldsOf(original))) {
+      expect(carried[key], key).toEqual(value);
+    }
+  });
+
+  it('invents no candidate, approval or publication outcome on the way in', () => {
+    const migrated = parseRunRecord(asV8(fixture.record));
+
+    expect(migrated.stage).toBe(fixture.record.stage);
+    expect(migrated.outcome).toBe(fixture.record.outcome);
+    expect(JSON.stringify(migrated)).not.toMatch(/PR_APPROVED_LOCAL|CREATE_PULL_REQUEST/);
+  });
+
+  it('is a record a candidate can genuinely be recorded against', () => {
+    const migrated = parseRunRecord(asV8(fixture.record));
+
+    const proposed = recordWith(migrated, {
+      stage: 'pr',
+      outcome: 'PR_CANDIDATE_RECORDED',
+      publications: [publicationFor(migrated, false)],
+    });
+
+    expect(proposed.publications).toHaveLength(1);
+    expect(proposed.publications[0]?.approval).toBeNull();
+    expect(proposed.publications[0]?.candidate.runId).toBe(fixture.record.runId);
+  });
+
+  it('will not accept a v8 field that v8 never had', () => {
+    const smuggled = { ...asV8(fixture.record), publications: [] };
+
+    expect(capture(() => parseRunRecord(smuggled)).kind).toBe('validation');
+  });
+
+  it('will not let an old record claim the publication stage', () => {
+    const error = capture(() => parseRunRecord({ ...asV8(fixture.record), stage: 'pr' }));
+
+    expect(error.kind).toBe('validation');
+    expect(error.message).toMatch(/stage|pr/i);
+  });
+
+  it('will not let an old record carry a publication outcome', () => {
+    const error = capture(() =>
+      parseRunRecord({ ...asV8(fixture.record), outcome: 'PR_APPROVED_LOCAL' }),
+    );
+
+    expect(error.kind).toBe('validation');
+  });
+});
+
 describe.skipIf(!AVAILABLE)('the current version, and versions nobody knows', () => {
   it('round-trips a record that has a Stage 9 review in it', () => {
     const current = recordWith(fixture.record, {
@@ -386,6 +503,77 @@ describe.skipIf(!AVAILABLE)('the current version, and versions nobody knows', ()
     expect(error.message).toMatch(/contributionReady/);
   });
 
+  it('round-trips a record that carries the candidate Stage 10 showed a human', () => {
+    const current = recordWith(fixture.record, {
+      stage: 'pr',
+      outcome: 'PR_APPROVED_LOCAL',
+      publications: [publicationFor(fixture.record)],
+    });
+
+    const loaded = parseRunRecord(JSON.parse(JSON.stringify(current)));
+
+    expect(loaded).toEqual(current);
+    expect(loaded.publications[0]?.approval?.action).toBe('CREATE_PULL_REQUEST');
+  });
+
+  it('keeps two proposals in the order they were shown, the first one unapproved', () => {
+    const edited = candidateOf(
+      candidateInput({
+        runId: fixture.record.runId,
+        draft: { title: 'Revised title', body: 'B.\n' },
+      }),
+    );
+    const current = recordWith(fixture.record, {
+      publications: [
+        publicationFor(fixture.record, false),
+        buildPublicationRecord({
+          candidate: edited,
+          approval: approvePublication({
+            candidate: edited,
+            approvedAt: '2026-09-27T09:20:00.000Z',
+          }),
+        }),
+      ],
+    });
+
+    const loaded = parseRunRecord(JSON.parse(JSON.stringify(current)));
+
+    expect(loaded.publications.map((entry) => entry.candidate.prTitle)).toEqual([
+      'Parser accepts invalid empty dates',
+      'Revised title',
+    ]);
+    expect(loaded.publications[0]?.approval).toBeNull();
+    expect(loaded.publications[1]?.approval).not.toBeNull();
+  });
+
+  it('tells a run that never reached Stage 10 from one whose candidate was never approved', () => {
+    const never = parseRunRecord(asV8(fixture.record));
+    const shown = recordWith(fixture.record, {
+      publications: [publicationFor(fixture.record, false)],
+    });
+
+    expect(never.publications).toEqual([]);
+    expect(shown.publications).toHaveLength(1);
+    expect(shown.publications[0]?.approval).toBeNull();
+  });
+
+  it('refuses a stored approval that names some other candidate of this run', () => {
+    const onDisk = publicationFor(fixture.record);
+    const approval = approvePublication({
+      candidate: candidateOf(
+        candidateInput({ runId: fixture.record.runId, patchIdentity: OTHER_PATCH_IDENTITY }),
+      ),
+      approvedAt: '2026-09-27T09:00:00.000Z',
+    });
+
+    const smuggled = {
+      ...recordWith(fixture.record, { publications: [onDisk] }),
+      publications: [{ candidate: onDisk.candidate, approval }],
+    };
+
+    expect(capture(() => parseRunRecord(smuggled)).kind).toBe('validation');
+  });
+
   it('refuses a version from before the supported window, and says which one', () => {
     const old = { ...asV6(fixture.record), schemaVersion: 5 };
     const error = capture(() => parseRunRecord(old));
@@ -394,10 +582,11 @@ describe.skipIf(!AVAILABLE)('the current version, and versions nobody knows', ()
     expect(error.message).toMatch(/version 5|schemaVersion/i);
     expect(RUN_SCHEMA_VERSIONS_SUPPORTED).toContain(6);
     expect(RUN_SCHEMA_VERSIONS_SUPPORTED).toContain(7);
+    expect(RUN_SCHEMA_VERSIONS_SUPPORTED).toContain(8);
   });
 
   it('refuses a future version rather than guessing what it meant', () => {
-    for (const version of [9, 99, 'eight', null]) {
+    for (const version of [RUN_SCHEMA_VERSION + 1, 99, 'eight', null]) {
       const error = capture(() =>
         parseRunRecord({ ...asV6(fixture.record), schemaVersion: version }),
       );
@@ -443,6 +632,36 @@ describe.skipIf(!AVAILABLE)('what the store does to an old file', () => {
 
     expect(loaded.schemaVersion).toBe(RUN_SCHEMA_VERSION);
     expect(await readFile(file, 'utf8')).toBe(text);
+  });
+
+  it('reads a v8 record without rewriting the bytes on disk', async () => {
+    const runs = await runsDirectory('mergesutra-v8-');
+    const store = createFileRunStore(runs);
+    const text = JSON.stringify(asV8(fixture.record), null, 2) + '\n';
+    const file = await seedRunFile(runs, fixture.record.runId, text);
+
+    const loaded = await store.load(fixture.record.runId);
+
+    expect(loaded.publications).toEqual([]);
+    expect(await readFile(file, 'utf8')).toBe(text);
+  });
+
+  it('saves and reloads the candidate a human approved, which is what Stage 11 needs', async () => {
+    const runs = await runsDirectory('mergesutra-published-');
+    const store = createFileRunStore(runs);
+    const approved = recordWith(fixture.record, {
+      stage: 'pr',
+      outcome: 'PR_APPROVED_LOCAL',
+      publications: [publicationFor(fixture.record)],
+    });
+
+    const file = await store.save(approved);
+    const loaded = await store.load(approved.runId);
+
+    expect(loaded.publications).toEqual(approved.publications);
+    expect(JSON.parse(await readFile(file, 'utf8'))).toMatchObject({
+      schemaVersion: RUN_SCHEMA_VERSION,
+    });
   });
 
   it('lists an old record rather than reporting it unreadable', async () => {

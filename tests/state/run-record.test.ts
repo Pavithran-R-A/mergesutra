@@ -9,6 +9,10 @@ import {
   type RunRecord,
 } from '../../src/state/run-record.js';
 import { deriveAcceptanceCriteria } from '../../src/contract/derive.js';
+import { approvePublication } from '../../src/pr/approval.js';
+import { candidateOf } from '../../src/pr/candidate.js';
+import { buildPublicationRecord } from '../../src/pr/record.js';
+import { candidateInput } from '../helpers/publication.js';
 import { mapAcceptanceEvidence } from '../../src/verify/evidence.js';
 import { toIssueDocument, toRepositoryIdentity } from '../../src/github/schemas.js';
 import { issuePayload, repositoryPayload } from '../fixtures/github-payloads.js';
@@ -204,6 +208,81 @@ describe('a record that has reached a repair cycle', () => {
     expect(capture(() => parseRunRecord({ ...written, outcome: 'REPAIR_READY' })).kind).toBe(
       'validation',
     );
+  });
+});
+
+/**
+ * Stage 10's slot: every publication proposal this run has put in front of a human.
+ *
+ * The list is the run's own history of a decision that is always somebody else's to
+ * make, so the tests below keep three things apart: a run that never reached Stage 10
+ * (an empty list), a candidate shown and left unapproved (one entry, `approval` null),
+ * and a candidate a human said yes to (one entry naming a digest). None of them is
+ * evidence that a pull request exists, and no outcome word here is allowed to become
+ * one: `PR_PUBLISHED` is not in this vocabulary because nothing has published.
+ */
+describe('a record that has reached the publication stage', () => {
+  function proposed(approved: boolean) {
+    const candidate = candidateOf(candidateInput({ runId: 'run-20260924T213207Z-abc123' }));
+    return buildPublicationRecord({
+      candidate,
+      ...(approved
+        ? { approval: approvePublication({ candidate, approvedAt: '2026-09-27T09:00:00.000Z' }) }
+        : {}),
+    });
+  }
+
+  it('lists no publications for a run that never assembled a candidate', () => {
+    expect(minimalRecord().publications).toEqual([]);
+  });
+
+  it('defaults the slot instead of inventing one when the field is absent', () => {
+    const { publications: _publications, ...written } = minimalRecord();
+
+    expect(parseRunRecord(written).publications).toEqual([]);
+  });
+
+  it('tells a candidate nobody approved from one a human approved', () => {
+    const shown = minimalRecord({
+      stage: 'pr',
+      outcome: 'PR_CANDIDATE_RECORDED',
+      publications: [proposed(false)],
+    });
+    const approved = minimalRecord({
+      stage: 'pr',
+      outcome: 'PR_APPROVED_LOCAL',
+      publications: [proposed(true)],
+    });
+
+    expect(shown.publications[0]?.approval).toBeNull();
+    expect(approved.publications[0]?.approval?.publicationDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(parseRunRecord(JSON.parse(JSON.stringify(approved)))).toEqual(approved);
+  });
+
+  it('names a publication that never ran as its own outcome, and round-trips it', () => {
+    const blocked = minimalRecord({ stage: 'pr', outcome: 'PR_PUBLICATION_BLOCKED' });
+
+    expect(blocked.outcome).toBe('PR_PUBLICATION_BLOCKED');
+    expect(parseRunRecord(JSON.parse(JSON.stringify(blocked)))).toEqual(blocked);
+  });
+
+  it('still refuses a publication outcome nobody defined', () => {
+    const written = JSON.parse(JSON.stringify(minimalRecord({ stage: 'pr' })));
+
+    for (const outcome of ['PR_PUBLISHED', 'PR_READY', 'PR_MERGED']) {
+      expect(capture(() => parseRunRecord({ ...written, outcome })).kind, outcome).toBe(
+        'validation',
+      );
+    }
+  });
+
+  it('refuses a publication entry that reaches past a proposal', () => {
+    const written = JSON.parse(JSON.stringify(minimalRecord({ publications: [proposed(true)] })));
+    const entry = written.publications[0] as Record<string, unknown> | undefined;
+    if (!entry) throw new Error('the record must carry the publication it was given');
+    entry['prUrl'] = 'https://github.com/projectbharat/datekit/pull/1';
+
+    expect(capture(() => parseRunRecord(written)).kind).toBe('validation');
   });
 });
 

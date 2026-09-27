@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EXIT, exitForOutcome } from '../../src/cli/exit-codes.js';
-import type { RunOutcome } from '../../src/state/run-record.js';
+import { RUN_OUTCOMES, type RunOutcome } from '../../src/state/run-record.js';
 
 /**
  * One outcome, one code, so a script can tell the stages apart without
@@ -61,10 +61,43 @@ describe('exit codes for Stage 7 outcomes', () => {
       'REPAIR_APPLIED',
       'REPAIR_NEEDS_HUMAN',
       'REPAIR_BLOCKED',
+      'PR_CANDIDATE_RECORDED',
+      'PR_APPROVED_LOCAL',
+      'PR_PUBLICATION_BLOCKED',
     ] as const satisfies readonly RunOutcome[];
     for (const outcome of all) {
       expect(code(outcome), outcome).toBeTypeOf('number');
     }
+    // The list above is the whole domain, not a sample of it: an outcome a stage can
+    // write has to have a code, or a script sees `undefined` where it expected news.
+    expect([...all].sort()).toEqual([...RUN_OUTCOMES].sort());
+  });
+});
+
+/**
+ * Stage 10 ends a run without ending it in the way a script hopes for. Nothing it
+ * can do changes anything on GitHub, so none of its outcomes has earned exit 0: the
+ * candidate is a proposal, the approval is a human's yes about a proposal, and both
+ * mean the next step belongs to somebody else — a publisher that does not exist in
+ * this build. `PR_PUBLICATION_BLOCKED` exits 4 because the run stopped with an
+ * approval on file that cannot be obeyed, which is the news a wrapper has to see.
+ */
+describe('exit codes for Stage 10 publication outcomes', () => {
+  it('never exits 0 for a candidate, however complete its evidence reads', () => {
+    expect(code('PR_CANDIDATE_RECORDED')).toBe(EXIT.INCONCLUSIVE);
+  });
+
+  it('exits 3 when a human has approved and nothing has been published', () => {
+    expect(code('PR_APPROVED_LOCAL')).toBe(EXIT.INCONCLUSIVE);
+  });
+
+  it('exits 4 when publication could not have gone ahead at all', () => {
+    expect(code('PR_PUBLICATION_BLOCKED')).toBe(EXIT.BLOCKED);
+  });
+
+  it('does not treat a local approval as the old success code', () => {
+    expect(code('PR_APPROVED_LOCAL')).not.toBe(EXIT.OK);
+    expect(code('PR_APPROVED_LOCAL')).not.toBe(EXIT.ERROR);
   });
 });
 
