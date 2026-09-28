@@ -1568,3 +1568,59 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   by a sha-256 check before and after each run, so every mutation result reported here is
   attached to a verified file state; earlier mutation counts that predate the check were
   discarded and re-run.
+
+## ADR-061 — The status screen says who holds the run, and the lock is out of the digest that expires a plan
+
+- **Decision:** `src/lifecycle/lock-state.ts` (new) owns the only mapping from the lock
+  module's `LockReading` to a sentence a person may read, in a closed five-word vocabulary:
+  `UNHELD`, `HELD_LIVE`, `HELD_ELSEWHERE`, `HELD_PROVABLY_GONE`, `UNREADABLE`. An occupied
+  lock path and an owner record this build cannot parse are `UNREADABLE`, never `UNHELD`;
+  `UNKNOWABLE` liveness is `HELD_ELSEWHERE`, never `HELD_PROVABLY_GONE`. The module imports
+  no `node:fs` function and its output type has no token field, so a lock cannot be touched
+  while describing it and cannot be released by reading about it; a host or timestamp from
+  the owner record is printed only when every code point is in 0x20–0x7e, and a refusal
+  appears as `null` rather than as an empty string (`printable`,
+  `src/lifecycle/lock-state.ts:145`). `status` gets its answer from `readRunLock`
+  (`src/lifecycle/lock.ts:290`) — the reader Stage 11 wrote for exactly this purpose and left
+  uncalled — once per read, fed to both snapshot builds (`src/lifecycle/status.ts:84`), with
+  the caller's pid, host and liveness probe injected through `StatusStageDeps.lock` rather
+  than defaulted (`:55`). The `lock` section is *required* on the snapshot and on the
+  builder's input (`src/lifecycle/snapshot.ts:351`, `:391`), which stays filesystem-free, and
+  `Run lock` is the first row of the status screen (`src/cli/status.ts:100-101`).
+  `observedStateDigestOf` excludes the section deliberately
+  (`src/lifecycle/resume-plan.ts:435`).
+- **Reason:** the gap was legibility, not enforcement: the lock already refused, and refused
+  with a reason the person choosing between `status` and `resume` had no way to see, so the
+  destructive guess ("nobody holds it") was the default read of an empty screen. That is the
+  same principle Stage 12 opens with, pointed the other way — the *absence* of a datum is not
+  permission either, and a field that is missing when a process holds the run is a field a
+  reader will fill in wrong. `UNKNOWABLE` and `GONE` are different claims about the world and
+  must not share a word, because "gone" is the one a person acts on. The token stays out of
+  the type because it is a capability, not a description. And the digest excludes the lock
+  because `resume --execute` acquires it *before* re-reading the snapshot it was previewed
+  against: hashing a description of the lock would expire every legitimate execution with
+  `STATE_CHANGED`, and a real collision is refused by `acquireRunLock` at the moment of the
+  act, which is where the authority lives anyway.
+- **Alternatives:** an optional `lock` field defaulting to `UNHELD` (the absence is the bug
+  being closed, and a default reproduces it silently); reusing `acquireRunLock`'s block text
+  (sentences written for a refusal at the moment of refusing, and a second owner of the same
+  wording); hashing the lock into the observed-state digest (mutation D proved the cost: an
+  execution expiring on its own lock, `expected 'BLOCKED' to be 'RAN'`); letting each CLI
+  choose the words (every screen re-decides whether an unreadable lock is a stale one);
+  having `status` take and release the lock to test it (turns a read-only observation into a
+  write, which is the promise `status` exists to keep); rendering a single `locked: true`
+  boolean (throws away the only distinction that matters — gone, elsewhere, unreadable);
+  putting the mapping in `lock.ts` (the snapshot builder would then depend on a module that
+  touches the filesystem, and purity becomes discipline instead of shape).
+- **Consequence:** `tests/lifecycle/status-lock.test.ts` (10 cases) holds the five words, the
+  read-only promise (byte-identical lock directory before and after, no directory created
+  when there was none), the token's absence from both the screen and the JSON, the
+  unprintable-owner-string refusals, and the digest exclusion in both directions with a
+  positive control. Eight single-change mutations (A–G, F2) each turned at least one case
+  red, including the two that report an unreadable lock as unheld and the one that prints the
+  literal `'UNHELD'` in the CLI instead of the snapshot's state. Two truths are recorded
+  rather than smoothed: `status` cannot see a lock that appears between a preview and its
+  execution, because that is the price of not expiring every run; and `src/cli/resume.ts:318`
+  uses the same label `Run lock` for a different fact — what happened to a lock this command
+  took. The register's sketched words (`NONE` / `ACTIVE` / `STALE_PROVABLE` / `UNCERTAIN`)
+  shipped renamed, because `STALE_PROVABLE` reads as a licence to delete.

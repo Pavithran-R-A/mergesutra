@@ -489,16 +489,46 @@ in this section is that a document cannot substitute for one.
   `NOTHING WAS RUN.` at exit `4`. The residual budget from `lifecycle/budget.ts` closes the
   other classic recovery escalation: a re-entered loop is bounded by what the previous
   entry spent, so resuming cannot buy a second allowance (§19).
-- **Known gap, stated rather than smoothed over:** `status` does not report lock state,
-  so a second service learns a run is held by colliding with it rather than by reading it —
-  a disclosure gap, and now a proved one, since the collision is the exclusion working and
-  the window where the exclusion could have been lost (a contender that proved a holder gone
-  and arrived late to find the takeover finished) is closed and tested in §2.5. The
-  observed-state comparison is not settable from the command line, so the cross-process
-  form of it is available only to programmatic callers. The ban on reaching `gh`, `npm` or
-  `curl` from anywhere on this path now has two layers: the argv enumeration and source-shape
-  guard that stop a stage from building such a command, and the risk oracle in §3, which names
-  each of those three and refuses what it names.
+- **Who holds the run is on the page, in five words and no more.** A person choosing
+  between `status` and `resume` used to learn that a run was held only by colliding with it,
+  because the screen had no lock row and an empty screen reads as "nobody is here" — the
+  destructive guess, with the refusal arriving afterwards as a reason that could have been
+  shown. `status` now reads through `readRunLock` (`lifecycle/lock.ts:290`), the read-only
+  reader Stage 11 wrote for this purpose and left uncalled, and prints the answer as the
+  first row of its observation block (`src/cli/status.ts:100-101`). The vocabulary is closed
+  in `lifecycle/lock-state.ts`: `UNHELD`, `HELD_LIVE`, `HELD_ELSEWHERE`,
+  `HELD_PROVABLY_GONE`, `UNREADABLE`. Two of those exist to stop a misreading: a lock path
+  that is occupied, or an owner file this build cannot parse, is `UNREADABLE` and never
+  `UNHELD` (an unheld row is what a person acts on), and a holder on another host is
+  `HELD_ELSEWHERE`, never `HELD_PROVABLY_GONE`, because this host has no evidence about a
+  process it cannot ask. No row of this screen says `STALE` — that word belongs to the
+  artifact-grading rows above, where it means a patch moved — and no row carries the release
+  **token**, which is absent from the report's type, so no branch can print it, and a screen
+  that carried it would be handing out the capability to release somebody else's lock. Every
+  string in the owner file is somebody else's bytes, so a host or timestamp reaches the
+  screen only after a code-point check (0x20–0x7e), and a refusal shows as `null` rather than
+  as a blank that a renderer could fill in. Describing a lock does not touch one: the module
+  imports no `node:fs` function, `status` creates no lock directory where there was none, and
+  `tests/lifecycle/status-lock.test.ts` compares the store's bytes before and after each read.
+- **The lock is out of the digest that expires a plan, and that is a decision, not an
+  oversight.** `observedStateDigestOf` (`lifecycle/resume-plan.ts:435`) excludes the `lock`
+  section because `resume --execute` acquires the lock *before* it re-reads the state it was
+  previewed against; hashing a description of the lock would expire every legitimate
+  execution with `STATE_CHANGED`. Exclusion is enforced where the act happens —
+  `acquireRunLock` refuses the second holder — and not by a hash of a snapshot of a
+  directory. The cost is stated plainly: a preview cannot see a lock that appeared between
+  the preview and the execution, so the read row can be a moment out of date. Two further
+  truths stay disclosed rather than smoothed: `src/cli/resume.ts:318` reuses the label
+  `Run lock` to report what happened to a lock this command took, which is a different
+  question from the one `status` answers; and liveness still rests on this host's process
+  probe, so a reused pid makes a dead holder look `HELD_LIVE` — which blocks, the safe
+  direction.
+- **Known gap, stated rather than smoothed over:** the observed-state comparison is not
+  settable from the command line, so the cross-process form of it is available only to
+  programmatic callers. The ban on reaching `gh`, `npm` or `curl` from anywhere on this path
+  now has two layers: the argv enumeration and source-shape guard that stop a stage from
+  building such a command, and the risk oracle in §3, which names each of those three and
+  refuses what it names.
 
 ## 3. Tool risk classes and policy
 

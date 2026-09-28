@@ -307,6 +307,9 @@ lifecycleStaleness(facts) → { states, rows }
   // only state that does not travel along an arrow.
 
 StatusSnapshot { schemaVersion 1, runId, observedAt,               // .strict()
+  lock:       { state, detail, directory, holder | null }
+  //            state ∈ UNHELD / HELD_LIVE / HELD_ELSEWHERE / HELD_PROVABLY_GONE /
+  //            UNREADABLE — five words, and the release token is in no field of it.
   recorded:   { stage, outcome, nextStage, createdAt, mergeSutraVersion }
   workspace:  { state, path, recordedBaseSha, observedHead,
                 currentPatchIdentity, recordedPatchIdentity, detail }

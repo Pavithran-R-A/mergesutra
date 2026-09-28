@@ -1184,10 +1184,11 @@ record of it. It ships two commands, and the distance between them is the point 
 stage:
 
 - **`mergesutra status <run-id>` is a read-only observation.** It reads the run record,
-  asks Git what the workspace looks like, and prints whether each recorded thing still
-  describes the bytes that are here now. It calls no model, runs no gate command, writes
-  no file, and exits `0` even when what it found is a dead run — because the number says
-  whether the observation happened, and the document says what was observed.
+  asks Git what the workspace looks like, says who holds the run's lock, and prints whether
+  each recorded thing still describes the bytes that are here now. It calls no model, runs
+  no gate command, writes no file, and exits `0` even when what it found is a dead run —
+  because the number says whether the observation happened, and the document says what was
+  observed.
 - **`mergesutra resume <run-id>` is an explicit lifecycle continuation.** With no flag it
   prints a *plan* and nothing else. `--execute` is the only word that makes it act, and
   even then it acts by running a stage that already exists — `verify`, `review`, `report`,
@@ -1215,6 +1216,8 @@ exists now.
 
 ```text
 What is here now, read without changing it
+  Run lock              UNHELD
+  No lock directory for this run, and looking at it did not make one.
   Workspace             PRESENT_PATCH_CHANGED
   The bytes here measure 1ca4ada661e1, but this run last described c0eeef694c8f. The files changed after that document was recorded.
   Base                  933075913bec recorded / 933075913bec at HEAD
@@ -1281,10 +1284,12 @@ NOTHING HAS BEEN RUN.
 
 Six cost rows print every time, including the ones that say "none", so a short screen is
 never a screen that read as safe. The state digest is the preview made durable: it hashes
-every fact the plan was read from except the moment they were read, and `--execute`
-re-reads them and stops if they have moved. That is why there is no `--confirm <digest>`
-flag to carry a preview forward — compare immediately before acting, and a plan that
-changed underneath is a different plan.
+every fact the plan was read from except the moment they were read and the row saying who
+holds the run's lock — `--execute` takes that lock before it re-reads anything, so hashing
+it would expire every legitimate run, and a real collision is refused by the lock itself at
+the moment of the act — and `--execute` re-reads the rest and stops if it has moved. That is
+why there is no `--confirm <digest>` flag to carry a preview forward — compare immediately
+before acting, and a plan that changed underneath is a different plan.
 
 **`mergesutra resume <run-id> --execute --allow <the five gate ids>` — Stage 7, the real
 one, over the bytes that are here.**

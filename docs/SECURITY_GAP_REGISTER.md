@@ -167,6 +167,9 @@ and the read-only lock reader is currently dead code.
 `src/lifecycle/status.ts:51-81` and the snapshot schema (`src/lifecycle/snapshot.ts`)
 contain no lock field; `src/cli/resume.ts:316-323` prints a `Run lock` row only after an
 execution.
+_(Line numbers are as found at `f0a8e2c`, when this register was opened. `82d2958` grew the
+takeover path in `lock.ts` and `readRunLock` moved to `:290`; the row in `src/cli/resume.ts`
+is now at `:318`.)_
 
 **Protection today.** The reader is side-effect-free by construction (`:258-262`): it calls
 `inspect` and never `mkdir`/`unlink`.
@@ -184,6 +187,104 @@ carries structured metadata, and the status call provably does not create, mutat
 the lock (directory contents byte-identical before and after).
 
 **Closure.** CODE (wire the existing reader).
+
+**Closed — CODE + TEST.** The reader now has its caller, and the answer is on the page.
+
+*What changed.*
+
+- **`src/lifecycle/lock-state.ts` (new, 152 lines)** is the only place a `LockReading`
+  becomes a sentence. `LOCK_REPORT_STATES` (`:37`) is the closed five-word vocabulary —
+  `UNHELD`, `HELD_LIVE`, `HELD_ELSEWHERE`, `HELD_PROVABLY_GONE`, `UNREADABLE` — and
+  `describeLock` (`:69`) maps it: an occupied path (`:86`) and an owner record this build
+  cannot parse (`:93`) are `UNREADABLE`, never `UNHELD`; `UNKNOWABLE` liveness (`:115`) is
+  `HELD_ELSEWHERE`, not `HELD_PROVABLY_GONE`; `ALIVE` (`:122`) is `HELD_LIVE`; proven-absent
+  on this host is `HELD_PROVABLY_GONE`. The module imports no `node:fs` function, so
+  "describing a lock is not touching one" is a fact about its shape rather than about
+  discipline. The release **token is not in the output type at all** (`:55-65`), so no
+  branch can carry it out by accident. `printable` (`:145`) admits a host or timestamp only
+  when every code point is 0x20–0x7e — tested by `codePointAt`, not by a control-character
+  regex, because the regex is itself the banned construct — and a refusal is visible as
+  `null` rather than as an empty string.
+- **`src/lifecycle/snapshot.ts`**: the `lock` section is required (`:351`), the input is
+  required (`:391`), and the mapping happens once inside the builder (`:420`). An optional
+  field would be read as "no lock" by exactly the person about to run `resume`, which is the
+  bug being closed.
+- **`src/lifecycle/status.ts`**: `StatusStageDeps.lock` (`:55`) carries who is asking (pid,
+  host, liveness probe), and `readRunLock` is called once per status read (`:84`) and fed to
+  both snapshot builds, so the screen and the suggestions it seeds are built from one look.
+- **`src/cli/status.ts` (`:100-101`)**: `Run lock` is the first row of "What is here now,
+  read without changing it", with the sentence dimmed underneath.
+- **`src/lifecycle/resume-plan.ts` (`:435`)** excludes `lock` from
+  `observedStateDigestOf`, with the reason in the comment above it: `resume --execute`
+  acquires the lock *before* it re-reads the snapshot, so hashing the lock would expire
+  every execution with `STATE_CHANGED`. The collision is refused by `acquireRunLock`, at the
+  moment of the act.
+- **`tests/helpers/snapshot.ts` (`:42`)** now *looks* — a Stage 11 test helper that
+  fabricated an `UNHELD` reading would hide this gap from every suite that uses it.
+
+*RED, witnessed before implementing* (`tests/lifecycle/status-lock.test.ts`, 9 cases at that
+point): `Test Files 1 failed (1) / Tests 9 failed (9)`, with
+`TypeError: Cannot read properties of undefined (reading 'state')` on the snapshot's absent
+section and `the status screen has a Run lock row: expected -1 to be greater than -1`.
+GREEN after wiring: `Tests 10 passed (10)`.
+
+*Anti-vacuity mutations* (each applied alone, run focused, then restored byte-for-byte and
+verified with `cmp` against a pre-mutation copy):
+
+| # | Mutation | Witness |
+| --- | --- | --- |
+| A | `UNKNOWABLE` branch reports `HELD_PROVABLY_GONE` instead of `HELD_ELSEWHERE` | 2 failed / 8 passed |
+| B | `printable()` returns the record's string without the code-point loop | 3 failed / 7 passed (ESC timestamp, newline timestamp, ESC host) |
+| C | The `HELD_LIVE` sentence interpolates `holding.owner.token` | 1 failed / 9 passed (`not.toContain(TOKEN)`) |
+| D | `observedStateDigestOf` stops excluding `lock` | 5 failed / 23 passed across `status-lock` + `resume`, including `expected 'BLOCKED' to be 'RAN'` — the execution expiring on its own lock |
+| E | `runStatusStage` calls `mkdir(runLockDirectory(...))` after reading | 2 failed / 8 passed (the store listing gains a `.lock` entry; the plain-file case throws `EEXIST`) |
+| F | An unparseable owner record reports `UNHELD` | 1 failed / 9 passed |
+| F2 | An occupied lock path reports `UNHELD` | 1 failed / 9 passed |
+| G | The CLI prints the literal `'UNHELD'` instead of `snapshot.lock.state` | 5 failed / 5 passed |
+
+A first form of E (`mkdir(lock.directory)`, undefined on a `HELD` reading) failed all 10
+cases by crashing rather than by touching the lock; it was discarded and re-run as E above.
+
+*Acceptance mapping.* The register sketched the states as NONE / ACTIVE / STALE_PROVABLE /
+UNCERTAIN / UNREADABLE. The shipped words are `UNHELD` / `HELD_LIVE` /
+`HELD_PROVABLY_GONE` / `HELD_ELSEWHERE` / `UNREADABLE` — one-to-one, renamed so that
+`STALE_PROVABLE` cannot be read as a licence to delete: the row says what was proved about
+one process on this host, and nothing more.
+
+*Sweep.* On the final state, twice with the same counts: **112 test files passed / 3 skipped
+(115)**, **1758 tests passed / 3 skipped (1761)**, exit `0` (420.27 s, then 401.32 s). The
+baseline this entry is measured against is S12-06's closing sweep (111 files / 1748 tests), so
+the +1 file and +10 tests are exactly this entry's `tests/lifecycle/status-lock.test.ts` —
+nothing moved and nothing else gained. Both runs were made with the session's own MCP node
+processes and another workspace's `vite preview` alive (§55: nothing was killed to make room);
+no test in either run was retried, and the raw logs with their exit codes are the evidence.
+`format:check`, `lint`, `typecheck` and `build` each exit `0` on the same state.
+
+*Residuals, stated rather than smoothed over.*
+
+1. A preview cannot detect that a lock appeared between the preview and the execution,
+   because the lock is out of the digest. This is a deliberate trade: the alternative
+   expires every legitimate execution. `acquireRunLock` is the enforcement point, and Stage
+   11's lock hero tests hold that.
+2. Two screens use the label `Run lock` for different facts: `status` reports the state
+   before an act, `resume` reports what happened to the lock it took
+   (`src/cli/resume.ts:316-324`). They are different questions and neither row is a summary
+   of the other, but a reader who expects one word to mean one thing should know they differ.
+3. Liveness still rests on this host's `kill(pid, 0)`: a reused pid makes a dead holder look
+   `HELD_LIVE`, which blocks — the safe direction, unchanged from Stage 11.
+4. `HELD_PROVABLY_GONE` on a screen is not an instruction to remove anything. This build
+   still has no `--force` path, and `status` performed no removal in the cases above even
+   where the holder was provably gone.
+
+*Docs.* `docs/DECISIONS.md` ADR-061, `docs/SECURITY_MODEL.md` §2.6 (two new bullets, and the
+"status does not report lock state" gap removed from the known-gaps line because it is
+closed), `docs/ACCEPTANCE_CONTRACT.md` (the `StatusSnapshot` shape gains its `lock` section),
+`README.md` (the status bullet, the captured crash screen's `Run lock` row, and the state-
+digest sentence, which used to claim the digest hashes "every fact the plan was read from"
+and now names the two fields it leaves out and why). The README capture was re-run
+(`MERGESUTRA_HERO_CAPTURE=1 npx vitest run tests/lifecycle/hero.test.ts`, 1 passed) and only
+the two new lines were copied in — the recorded digests stay as the earlier capture printed
+them, because the fixture makes new commits each run.
 
 ---
 
