@@ -21,6 +21,7 @@ import {
 import { scriptedClient } from '../helpers/bharatcode.js';
 import { REPAIRED, repairedAnswers, parserOf, reviewedRun } from '../helpers/repairRun.js';
 import { proposedRun } from '../helpers/publicationRun.js';
+import { storeThatCannotSave } from '../helpers/store.js';
 import { cleanUp, hasGit, implementedRun, NOW } from '../helpers/verifyRun.js';
 import type { LifecycleArtifact } from '../../src/lifecycle/staleness.js';
 import type { StatusSnapshot } from '../../src/lifecycle/snapshot.js';
@@ -647,22 +648,4 @@ describe.skipIf(!AVAILABLE)('an interrupted run, read back', () => {
 /** The three coordinates a record is read at, named once so a case cannot mix roots. */
 function whereOf(store: RunStore, cwd: string, runsRoot: string, record: RunRecord): Where {
   return { store, cwd, runsRoot, record };
-}
-
-/**
- * A store that reads fine and cannot write.
- *
- * The interruption has to land after the stage's work and inside its filing, and a
- * real crash at that instant is not reproducible on a schedule. What is reproducible
- * is the state it leaves: the workspace edited, the record not written. So the seam
- * is the store, and only its `save` — `load` still answers from disk, which is what
- * makes the assertions below claims about persistence rather than about a stub.
- */
-function storeThatCannotSave(store: RunStore): RunStore {
-  return {
-    ...store,
-    async save(): Promise<string> {
-      throw new Error('the disk went away mid-write');
-    },
-  };
 }
