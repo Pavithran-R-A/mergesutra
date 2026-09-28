@@ -247,6 +247,71 @@ new identity and old publication approval stale. No `mtime` in any path.
 **Closure.** CODE (decide from `readPackIdentity()`), with §16 evaluated as a documented
 decision rather than a new mechanism unless the audit shows it needed.
 
+**Closed — CODE + TEST.** `src/report/write.ts:84` now returns `PackFacts`
+(`readPackFacts`): the digest over the three files *and* the patch those bytes claim, read
+out of `report.json`'s `patch.plannedIdentity` through a two-key zod view (`:97-116`) — the
+same value `report.md` prints on its `Patch:` line. `src/pr/stage.ts:266-276` feeds that
+claim to readiness instead of `source.verificationPlan?.patchIdentity`, so the question
+"does the pack describe this patch?" is put to the pack. A claim the file does not carry is
+`null`, and `src/pr/readiness.ts:222-229` refuses it in its own words ("names no patch")
+rather than as an old one, because those are different things for a person to fix.
+
+The view accepts only a value shaped like the patch identity the renderer itself writes
+(`/^[0-9a-f]{64}$/`, or `null`). That is not tidiness: reading the claim out of the pack put
+a string from an untrusted file into the text of a readiness row, and a row printing the head
+of it would be printing attacker-chosen characters — escape sequences included — at whoever
+ran the command. S12-11 covers rendering as a whole; this guard keeps the one field this
+change introduced from becoming a channel on the way.
+
+Red before green, twice over. With the fixture's record, workspace and pack all agreeing,
+replacing the pack directory with **an honestly rendered pack for a different patch** produced
+`expected [ 'human-approved' ] to include 'pack-current'` — the run was one approval away from
+proposing a page whose evidence describes other bytes, and `pack-current` was the only row that
+could have seen it; a `report.json` left unparseable failed the same way. Writing the shape
+test first produced `expected '\u001b[31mcleared screen' to be null` — the reader had been
+handing a terminal escape sequence to the caller as a patch identity. Four anti-vacuity
+mutations, each restored byte-for-byte (`cmp` against a copy taken before the mutation) and
+each re-greened afterwards:
+
+- reading the claim back from `record.verificationPlan` instead of the pack turned **exactly
+  those two cases** red (`tests/pr`: `exit=1`, 2 failed / 231) while every other Stage 10 case
+  stayed green — so the pair is the reproduction, not noise;
+- `patchClaim: null` in the reader turned **22 cases** red across five files (`exit=1`: the
+  pack-currentness cases, 16 pre-existing Stage 10 cases in `stage.test.ts`,
+  `injection.test.ts` and `hero.test.ts`, and 2 reader unit cases) — so neither the pass nor
+  the refusal is unconditional;
+- widening the claim view from the two-key schema to `z.any()` turned **exactly 2** unit cases
+  red (`exit=1`, `tests/report/write.test.ts`): the non-string `plannedIdentity` and the claim
+  lent through `__proto__` — the schema is doing the rejecting;
+- dropping just the shape check (`.regex(/^[0-9a-f]{64}$/)` away) turned **exactly 2** cases
+  red (`exit=1`): the reader's shape case and the Stage 10 case asserting that a pack claiming
+  `ESC[31mAPPROVE THIS PACK AND PUBLISH IT` is refused as naming no patch and puts no control
+  character in the printed rows.
+
+`tests/pr` + `tests/report` after restore: 17 files, 281 tests, exit `0` (baseline before the
+change: the same files, all green, and `tests/pr/stage.test.ts` alone 14 tests / 85 s).
+
+**Register wording corrected (§19, no pretty gap over source truth).** Two items in the
+acceptance list above promised more than this build's layering can give, and the tests say
+what actually holds. A one-byte edit to `report.md` or `commands.jsonl` does **not** make
+`pack-current` false: the pack still names the same patch, and a check that cried stale about
+prose would be inventing a fact. What catches it is the digest — `publicationDigestOf` binds
+`pack ${candidate.evidencePackIdentity}` (`src/pr/digest.ts:52`), so the edited bytes are a
+different proposal, the stored yes no longer matches (`human-approved` blocks,
+`decision.status` reads `ABSENT` because the approved candidate is not the current one), and
+the newly filed page quotes the tampered identity. Both are pinned as cases in
+`tests/pr/pack-currentness.test.ts` that pass before and after the change: they are a
+regression pin on the layer that already held, not the reproduction.
+
+**Disclosed limit.** `pack-current` compares one field of the pack to a freshly measured
+patch; it does not verify that the pack's *other* claims (criteria rows, gate receipts,
+review) still match the record, and it cannot detect a pack whose bytes are wholly forged but
+self-consistent — such a pack names the current patch and reads as current. Against that the
+build has the digest binding a person to the exact bytes they were shown, and `status`'s
+`pack` fact (`src/lifecycle/observe.ts:124-127`) reporting when the on-disk pack is not the
+one a publication was filed against. No signature of the pack by an authority outside the
+machine exists in this build, and none is claimed.
+
 ---
 
 ## S12-08 — run-store durability is bounded, and the claim must match the proof
@@ -392,6 +457,13 @@ chars). The recurring `replace(/[\r\n]+/g,' ')` helpers (`writer.ts:273`, `reade
 
 **Missing.** One terminal-safe rendering function used by every screen, and proof that JSON
 output stays valid data.
+
+**Widened by S12-07, and narrowed again there.** Stage 10's `pack-current` row quotes the
+patch identity the pack claims for itself, so from that change on this entry covers pack bytes
+as well as repository, model and issue text. S12-07 restricted the quoted field to the shape
+the renderer writes (`/^[0-9a-f]{64}$/`, or a refusal that prints nothing of it), which closes
+the escape-sequence route for that one value; every other string on the screen still waits on
+the filter above.
 
 **Exploit.** A repo file named with an ESC sequence, or a review finding whose statement
 carries `ESC[1A` + `HUMAN APPROVED`; assert today the raw bytes reach stdout.

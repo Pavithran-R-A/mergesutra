@@ -655,6 +655,24 @@ standing rather than re-labelling it. Three rules hold that in place.
   as a convention and not as the guarantee: on Windows that mode does not map to
   an ACL, and the pack's safety comes from the redaction upstream of it, not
   from a permission bit.
+- **A later stage asks the pack, not the record, what the pack says.** Stage 10's
+  `pack-current` row is a claim about these bytes, so it is decided from them:
+  `readPackFacts` returns the digest over the three files and the patch
+  `report.json` names for itself — the value `report.md` prints after `Patch:` —
+  and readiness compares that with the patch measured from the workspace
+  (ADR-059). Reading the run record's plan field instead would have answered a
+  different question and printed it as this one: a directory holding the pack
+  rendered for another patch, beside a record that has moved on, used to read as
+  current evidence. Only a value shaped like the digest the renderer writes is taken
+  as a claim (`/^[0-9a-f]{64}$/`, or `null`): a row that quotes the claim would
+  otherwise be quoting arbitrary characters — escape sequences included — from the
+  pack at a terminal. Two limits are stated rather than smoothed over. A pack whose
+  bytes are wholly forged but self-consistent names whatever it likes, and no
+  authority outside this machine vouches for it; and a prose edit under an
+  approval is caught by the *other* layer — the publication digest binds the yes to
+  the bytes shown, so the edited pack is a different proposal and `pack-current`
+  honestly stays true. `tests/pr/pack-currentness.test.ts` pins which layer catches
+  which tampering.
 
 `report` starts no processes and reads no credential, so it adds no EXECUTE or
 NETWORK surface (§3) and no secret-protection surface (§6). Its exit code is the

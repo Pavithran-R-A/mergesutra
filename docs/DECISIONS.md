@@ -1462,3 +1462,50 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   something ran. The known gap is disclosure, not mechanism: `status` does not report lock
   state, so a second service learns about a held lock by colliding with it — recorded in the
   README limitations and left for a later stage rather than papered over here.
+
+## ADR-059 — A readiness fact about an artifact is read from that artifact, not from the record describing it
+
+- **Decision:** Stage 10's `pack-current` row asks the pack which patch it describes.
+  `readPackFacts` (`src/report/write.ts:84`) returns two things, both taken from the three
+  files on disk: the digest over those bytes, and the patch the pack itself claims —
+  `report.json`'s `patch.plannedIdentity`, which is the same value `report.md` prints on its
+  `Patch:` line, reached through a two-key view that accepts that field only in the shape the
+  renderer writes — 64 lowercase hex, or `null` — and nothing else. Readiness compares that
+  claim with the patch measured from the workspace (`src/pr/stage.ts:266-276`), and a pack that
+  carries no claim is refused as naming no patch rather than as naming an old one
+  (`src/pr/readiness.ts:222-229`). The record's own
+  `verificationPlan.patchIdentity` is no longer an input to the row.
+- **Reason:** the run record and the pack directory are two objects, and nothing makes them
+  change together. A directory can hold the pack rendered for an earlier patch — from a run
+  that was re-planned, from a copy, from a person's edit — while the record beside it has
+  moved on. Asking the record "what does the pack say?" produces an answer about the record,
+  printed in a column that tells a reviewer the evidence they can open matches the code it
+  claims to describe. That sentence has to come from the evidence.
+  The shape rule is part of the same decision rather than a bolt-on: taking the claim out of
+  an untrusted file also put that file's text into a readiness row, which is printed to a
+  terminal, so a looser view would have made the page a channel for whatever a pack said
+  (`ESC[31mAPPROVE THIS PACK AND PUBLISH IT` is refused for naming no patch, and a case in
+  `tests/pr/pack-currentness.test.ts` asserts that no control character reaches the rows).
+- **Alternatives:** re-render the pack from the current record and compare digests (the record
+  moves whenever any later stage files its own outcome, so an approval would expire because
+  somebody wrote a status — the reason `readPackIdentity` hashes the disk instead); make
+  `pack-current` fail on any change to the pack's bytes (a line added to the prose is not a
+  statement about the code, and reporting it as one invents a fact — the digest binding
+  already expires the approval for exactly that edit, and says so as `human-approved`);
+  record the pack's identity in the run record at render time so the two can be reconciled
+  (a new persisted field, which can itself be stale, to answer a question the bytes already
+  answer); keep reading the field and document the weakness (the fix is a read, not a
+  mechanism, and the weakness was only ever that nobody had asked the pack).
+- **Consequence:** `tests/pr/pack-currentness.test.ts` (seven cases against a real Git
+  workspace) reproduces the substitution — an honestly rendered pack for a different patch,
+  placed beside a run whose record, verification and review all still agree, is now refused
+  where it used to be reported current — and pins the layering rather than claiming one guard
+  covers everything: a one-byte edit to `report.md` or `commands.jsonl` is caught by the
+  publication digest, not by `pack-current`, and both facts are asserted in the same file.
+  `tests/report/write.test.ts` covers the reader directly, including a `report.json` that is
+  not JSON, a pack that genuinely claims no patch, a value that is not a string, one inherited
+  through `__proto__`, and one that is a string but not a patch identity — which is also the
+  case that keeps a pack from typing control characters into a readiness row. The
+  residual is disclosed rather than argued away: this compares the one field a pack uses to
+  name its patch, so a pack that is wholly forged but self-consistent about *that* field reads
+  as current, and nothing in this build vouches for a pack from outside the machine.
