@@ -1509,3 +1509,62 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   residual is disclosed rather than argued away: this compares the one field a pack uses to
   name its patch, so a pack that is wholly forged but self-consistent about *that* field reads
   as current, and nothing in this build vouches for a pack from outside the machine.
+
+## ADR-060 — Which run an omitted id means is one question, and it is allowed to refuse
+
+- **Decision:** `src/state/run-selection.ts` owns the answer to "which run does an omitted
+  run id mean" (`newestRunId(store, accept?)`), and the eight places that asked it —
+  `status`, `report`, `contract`, `plan`, `implement`, `verify`, `review`, `repair` — call it
+  instead of holding their own copy. It reads the store's readable list *and* its unreadable
+  list as one question. When a record this build cannot parse is dated at or after the newest
+  record it can read, or cannot be dated from its filename at all, the selector throws
+  (`kind: 'validation'`) naming those files and the id it would otherwise have chosen;
+  `run-selection.ts:57-81`. When nothing is readable it returns `null` and leaves each command
+  to say "no run here" in its own words. An id a person typed is never routed through any of
+  this. Ages come from the filename only (`run-<yyyymmddThhmmssZ>-<suffix>`, the shape
+  `newRunId` writes, `src/state/run-record.ts:690`); no `mtime` is consulted anywhere.
+- **Reason:** "the newest run I can parse" and "the current run" are different questions, and
+  the first one, printed under a heading that says the second, is a lie with a true excuse.
+  Eight private copies of `runs[0]` each stepped around an unreadable newer record, so a
+  directory with one corrupt file answered `status` with the run before it, `verify` picked
+  that older run's workspace, and `resume` planned on top of it. This is the same
+  data-not-authority rule turned on our own store: a file that cannot be read is still a fact
+  about the directory, and silently walking past it makes the walk's authorship invisible.
+  Refusing rather than "older run, but warned" is deliberate — a caveat under the wrong
+  screen does not un-show the wrong screen, and §12 requires the `status` and `resume` pages to
+  be honest. Filenames rather than `mtime` because a filesystem timestamp is not a claim the
+  record makes: copying, restoring from a zip, or an editor save all rewrite mtimes without
+  changing which run is newer, while the id is the timestamp the run was created with. A name
+  outside that shape has no age anybody can establish, so it blocks instead of being assumed
+  old.
+- **Alternatives:** keep taking the newest readable record and print a warning line (the
+  fallback *is* the gap, and a warning is the same silent choice with a disclaimer); repair or
+  quarantine the unreadable file so the command can proceed (§27 forbids quietly repairing
+  untrusted bytes, and moving a record destroys evidence a person came to read); sort by
+  `mtime` (a restored backup directory makes every file equally "now", so the pick becomes
+  arbitrary and looks authoritative); persist a "a newer record is unreadable" flag on the
+  record or in a sidecar (a new field that can itself go stale, to answer a question the
+  directory already answers — the same mistake ADR-059 names); quote the store's parse-failure
+  reason into the refusal (the reason is derived from the unreadable record's own bytes, which
+  is exactly the text this build cannot promise is safe to print); make the selector return the
+  older run plus a boolean and let each command decide (eight chances to remember to check it).
+- **Consequence:** `tests/state/run-selection.test.ts` (12 cases) covers the shared rule,
+  `tests/cli/status.test.ts` and `tests/cli/resume.test.ts` each carry one case proving the
+  refusal reaches the two surfaces §12 names, and `tests/state/run-selection-shape.test.ts`
+  (2 cases) is the durability guard: no module outside the owner may re-implement the walk,
+  and every module that resolves an omitted id must import the shared selection. The guard is
+  not decoration — reverting one stage to its own private copy turned the guard red while
+  `tsc` stayed clean and all 28 behavioural repair tests passed, so the hole was otherwise
+  unwitnessed. Two things are documented rather than smoothed over. A *filtered* walk (`plan`,
+  `implement`, `verify`, `review`, `repair`) measures indeterminacy against the newest
+  readable record overall, not against the older record the filter picks, so a filtered
+  command can be asked about a run that is not the newest; that is stated in the module's own
+  comment. And a refusal re-reads the list once, on the failure path only, so a command that
+  has already refused can describe why in its own words — the second read costs a directory
+  listing on a path that ends in an error. The observed caveat belongs here, not in a footnote:
+  during this work an out-of-band process repeatedly rewrote `src/state/run-selection.ts` back
+  to an earlier snapshot mid-run, which silently turned a mutation run into a test of different
+  code than the one described. Mutations after that were applied with the editor and bracketed
+  by a sha-256 check before and after each run, so every mutation result reported here is
+  attached to a verified file state; earlier mutation counts that predate the check were
+  discarded and re-run.

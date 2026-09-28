@@ -215,6 +215,87 @@ all unreadable ⇒ honest empty-with-reasons. Proved at the `status` and `resume
 
 **Closure.** CODE.
 
+**Closed — CODE + TEST.** `src/state/run-selection.ts` (new, 104 lines) is the one place that
+answers "which run does an omitted id mean". `newestRunId(store, accept?)` (`:88-104`) reads
+`store.list()` once and hands both halves of it to `refuseOverread` (`:57-81`): a record this
+build cannot parse blocks the answer when it is dated at or after the newest record it *can*
+parse, and also when its name carries no date at all. Ages come only from the filename
+(`stampOf`, `:42-49`, matching the `run-<yyyymmddThhmmssZ>-` shape `newRunId` writes at
+`src/state/run-record.ts:690`); `mtime` is consulted nowhere, because a filesystem timestamp is
+not a claim the record makes — copying or restoring a run directory rewrites it. `>=` at `:65`
+means a record made in the same second as the newest readable one blocks too, since the suffix
+carries no ordering this build can establish. All eight copies now call it:
+`src/lifecycle/status.ts:99`, `src/cli/report.ts:94`, `src/cli/contract.ts:160`,
+`src/plan/plan.ts:295`, `src/implement/implement.ts:321`, `src/verify/stage.ts:178`,
+`src/review/stage.ts:392`, `src/repair/stage.ts:584`; the five stage-side ones keep their own
+predicate and their own "nothing matched" wording, and nothing is readable returns `null` so the
+caller still speaks for itself. A run id a person typed is never routed through this: an
+explicit id loads that record, and a corrupt one stays corrupt on the page.
+
+What reaches a terminal is names and nothing else — `listRecordNames` (`:51-55`) prints at most
+five basenames and counts the rest, and the parse-failure *reason* is deliberately not included,
+because that string is derived from the unreadable record's own bytes. §27 forbids quoting those
+bytes back; §29 forbids the build implying it has repaired them. The refusal therefore also
+names the id it would have chosen, so the way forward is one copy.
+
+Red before green, witnessed at the surface §12 names. With the newest record's JSON truncated
+beside an older readable one, `mergesutra status` **exited 0** and printed the older run's
+screen — the case failed as `expected +0 to be 1` before the selector existed, and `resume`
+(planned on top of the same wrong choice) the same way; the record was never touched, only
+described. Seven anti-vacuity mutations, each applied to the source, each re-greened after, and
+each restored byte-for-byte (`cmp`, and the pristine sha `a4d7af6e2d…bb29a` re-measured):
+
+- **A — the filter never finds a blocker** (`refuseOverread` computes no blockers): **7 failures**
+  — the 5 refusal cases in `tests/state/run-selection.test.ts`, the `status` surface case, and
+  the `resume` surface case (`exit=1`, 7 failed / 37 passed across the three files). This is the
+  gap's own footprint: the shared rule plus the two screens §12 requires.
+- **B — `>= chosen` relaxed to `> chosen`**: **1 failure**, exactly the same-second-sibling case.
+- **C — an undatable name treated as harmless** (`if (stamp === null) return false`): **1
+  failure**, exactly the `run-oldschema.json` case.
+- **D — the remediation drops the candidate id**: **2 failures** (unit + `status`) — the offered
+  id is part of the refusal, not decoration.
+- **E — `MAX_NAMED` 5 → 100**: **1 failure**, the "names a few and counts the rest" case, which
+  then finds seven names and no count.
+- **F — the refusal carries the store's parse reason instead of the filenames**: **1 failure**,
+  the case asserting that neither `SECRET_TOKEN` nor the record's content appears in the message
+  or remediation.
+- **H — one walker put its private copy back** (`src/repair/stage.ts` reverted to its own
+  `runs[0]` walk, import dropped): `tsc` clean and **28 behavioural repair tests green** while
+  `tests/state/run-selection-shape.test.ts` failed **both** of its assertions. That is the
+  evidence for the guard: a re-implemented rule is invisible to every behavioural suite, so
+  `run-selection-shape.test.ts` holds the two properties a future change can break — no module
+  outside the owner may walk the readable list, and every module resolving an omitted id must
+  import the shared selection.
+
+`tests/state` after restore: 5 files, 98 tests, exit `0`. Authoritative clean full sweep on the
+final state: **111 test files passed / 3 skipped (114)**, **1748 tests passed / 3 skipped
+(1751)**, exit `0`, 305.41 s (baseline before this change: 109 files / 1732 tests — the +16 are
+12 unit cases, 1 `status`, 1 `resume`, and the 2 shape-guard cases). The sweep was run a second
+time after renaming two private helpers in `src/cli`, for the same counts and the same exit
+`0`, because the register's numbers are meant to describe the state that gets committed.
+`format:check`, `lint`, `typecheck` and `build` each exit `0`.
+
+**Residuals, stated rather than argued away.** (i) A *filtered* walk measures indeterminacy
+against the newest readable record overall, not against the older record the filter happens to
+pick; that is the only rule consistent with both filtered cases the unit suite carries, and it
+means a filtered command can be pointed at a run that is not the newest in the directory — the
+command's own wording still names the run it chose, so the page is not false, but the choice is
+not "the current run". (ii) The five walker surfaces are covered by the shared unit cases and
+the shape guard, not by a per-command screen test; adding six near-identical CLI cases was
+rejected as duplication, and mutation H records exactly what that leaves unwitnessed. (iii) A
+refusal re-reads the list once, on the failure path only, so a command that has already refused
+can keep its own words — the cost is one directory listing on a path that ends in an error.
+(iv) Environment caveat, disclosed because it changes how much the earlier numbers would have
+been worth: while this work was in progress an out-of-band process repeatedly rewrote
+`src/state/run-selection.ts` back to an older snapshot mid-run, which silently made one
+"mutation" run test different code than the one described (and one first-version mutation of A
+crashed the all-unreadable path, inflating its count to 11). Every mutation reported above was
+after that: applied through the editor, and bracketed by a sha-256 check of the file before and
+after the run, each printing `STABLE`. The raw logs and exit codes are the evidence, per §55.
+
+Docs updated with the narrowed claim, not a widened one: README (omitted `<run-id>` section),
+`docs/SECURITY_MODEL.md` §2.6, and `docs/DECISIONS.md` ADR-060.
+
 ---
 
 ## S12-07 — "pack is current" is decided from a stored field, not the pack bytes

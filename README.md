@@ -210,6 +210,14 @@ node dist/index.js resume <run-id> --execute                        # the only w
 node dist/index.js resume <run-id> --execute --allow VG-001 --allow VG-002
 ```
 
+An omitted `<run-id>` means the newest run recorded in this directory. When the
+directory also holds a newer record this build cannot read, every command above
+refuses instead of describing the older run: which record is current is no longer
+a question the directory can answer, and a screen that guessed would send a person
+to the wrong run's workspace, patch and evidence. The refusal names the file it
+could not read and the id it would otherwise have used, and nothing is repaired,
+rewritten or quietly skipped.
+
 `pr` closes the chain, and unlike the commands before it it asks a person rather
 than a model. It needs a run whose verification, review and evidence pack all
 describe the patch currently on disk; if any of them has drifted it names the

@@ -433,6 +433,23 @@ in this section is that a document cannot substitute for one.
   current, approved or finished is read as a document about some bytes: if the bytes
   moved, the row says `STALE` and no wording anywhere in the record changes that. This is
   the same rule §1 authority hierarchy states, applied to a run's own history.
+- **Which run an omitted id means is one rule, and it can refuse.** Every command that
+  takes an optional run id used to hold its own copy of "take the newest record", and each
+  copy asked only the records it could parse: a directory holding a newer record a human
+  had truncated answered "here is your current run" with the *older* run, and the screen,
+  the workspace, the patch and the evidence pack that followed all described it. The rule
+  now lives in `state/run-selection.ts` and reads the unreadable list as part of the same
+  question. A record this build cannot parse still dates itself through its own name
+  (`run-<timestamp>-<suffix>`, the shape `newRunId` writes), and that name is the only
+  ordering evidence it offers — no `mtime` is consulted, because a filesystem timestamp is
+  not a claim the run record makes, and a copied or restored directory can make one mean
+  anything. When an unreadable record is dated at or after the newest readable one, or
+  cannot be dated at all, the command refuses: it names the files it could not read (up to
+  five, the rest counted), offers the id it would otherwise have used, and quotes none of
+  their bytes (§27) and repairs none of them to make the screen go up (§29). An id a person
+  typed is never run through any of this. `tests/state/run-selection-shape.test.ts` holds
+  the line, because a private copy of the ordering put back into a stage leaves every
+  behavioural suite green — the guard is the only witness, and that is the finding.
 - **The lock's owner file is untrusted input, handled as one.** It is read from a
   filesystem an operator may have edited, so it is shape-checked before it is believed,
   its pid is bounded (`MAX_PID`) rather than passed anywhere, and it is never used to
