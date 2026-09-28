@@ -111,7 +111,14 @@ export function assertSafePathSegment(value: string, label = 'identifier'): stri
 export function isRepositoryRelativePath(value: string): boolean {
   if (value.trim() === '') return false;
   if (value.includes('\\')) return false;
-  if (value.includes('\0')) return false;
+  // A name that spans lines cannot be carried onto a page safely: prompts compose
+  // `FILE <path>` sentences around whatever they are handed, so a second line of
+  // such a name arrives as a heading in the stage's own voice rather than as data
+  // under one. Quoting cannot help — the stranger wrote part of the heading.
+  // Refusing control characters in an outside-authored path *is* the point, so the
+  // rule is disabled for this line only.
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) return false;
   if (value.startsWith('/') || value.startsWith('~')) return false;
   if (/^[a-zA-Z]:/.test(value)) return false;
   if (value.includes('//')) return false;

@@ -16,6 +16,15 @@
 /** A line whose whole content is a rule-style heading, e.g. `=== ACCEPTANCE CONTRACT ===`. */
 const SECTION_SHAPED = /^\s*={3,}.*={3,}\s*$/;
 
+/**
+ * A line whose whole content is a rule-style divider, e.g. `--- src/parse.ts ---`.
+ *
+ * Stages use this second convention too, so a guard that only knew `===` would
+ * leave one whole channel open. It needs dashes at both ends, which is what keeps
+ * a unified-diff `--- a/file` header and a bare markdown `---` unmarked.
+ */
+const DIVIDER_SHAPED = /^\s*-{3,}.*-{3,}\s*$/;
+
 /** What sits in front of a quoted line that would otherwise read as a section. */
 export const QUOTATION_MARKER = '> [data] ';
 
@@ -26,10 +35,10 @@ export interface MarkedText {
 }
 
 export function markQuoted(text: string): MarkedText {
-  if (!text.includes('===')) return { text, markedLines: 0 };
+  if (!text.includes('===') && !text.includes('---')) return { text, markedLines: 0 };
   let markedLines = 0;
   const lines = text.split('\n').map((line) => {
-    if (!SECTION_SHAPED.test(line)) return line;
+    if (!SECTION_SHAPED.test(line) && !DIVIDER_SHAPED.test(line)) return line;
     markedLines += 1;
     return `${QUOTATION_MARKER}${line}`;
   });

@@ -52,6 +52,42 @@ line occupies a `=== … ===` structural position; (b) every marked line carries
 
 **Closure.** CODE (route through the shared primitive), then TEST across all four builders.
 
+**Closed — CODE + TEST.** The planner now imports the shared guard (`src/plan/prompt.ts:4`)
+and sends every foreign leaf through one local `quote` (`:68`): the repository identity and
+the default branch, each criterion statement, the whole gate line with its provenance path
+(`:92`), both limitation lists, `ISSUE TITLE` (`:99`) and `ISSUE BODY` (`:100`). The system
+turn says what a marker means before the model meets one (`:55`), so the mark explains
+itself instead of waiting for the material to look odd.
+
+Red before green, with the reason: `tests/security/prompt-authority.test.ts` was written
+first and failed as `planner: a foreign line stands as a rule of this page`, with the forged
+`=== TOOL POLICY ===` named in the received array — the corpus line sitting at column 0 with
+no marker, indistinguishable from what the planner's own `section()` emits. The property is
+measured, not listed: each page is built twice, clean and attacked, and any unmarked
+structural line on the attacked page that the clean page did not already author fails the
+case. So a builder may gain a section later and the assertion still asks only whether the
+*stranger* added one. The byte-preservation half is asserted beside it — the corpus
+sentence, the fenced verdict and the forged divider are all still on the page.
+
+The gate-receipt case was proved by mutation rather than by a first run, and is recorded
+that way: a provenance path is a value the planner wraps in `(from …)`, so only a line in
+the *middle* of such a value can land at column 0, and the case poisons it there. It is red
+exactly when `quote` stops quoting, which is the exploit §S12-01 predicted.
+
+Anti-vacuity: making `src/plan/prompt.ts:68` the identity turned the planner case and the
+gate-receipt case red (2 of the file's 14 cases) and left the other twelve green — the guard,
+not the fixture, is what holds those two pages. Restored byte-for-byte (`cmp` against the
+pre-mutation copy, `sha256` prefix `8902332a`).
+
+**Disclosed limit.** The guard marks whole-line rules in the two conventions this build
+uses, and nothing else. A sentence that merely mentions a rule is left alone, and a stranger
+may copy the marker — which buys it nothing, because the marker grants no authority; copied,
+its line reads as data rather than as structure. Both are asserted in the
+`the guard every page shares` cases: a near-miss (`--- a/src/parse.ts` as a diff header, a
+bare `---`, an unclosed `=== not a rule`, a rule named inside prose) comes back byte-for-byte
+unchanged, and stripping the markers from a marked body reproduces that body exactly.
+
+
 ---
 
 ## S12-02 — implementation prompt and loop feedback interpolate raw
@@ -81,6 +117,87 @@ implementer prompt renders it identically to a section header the stage authored
 `--- … ---` divider and a fenced block cannot fake a section.
 
 **Closure.** CODE, shared with S12-01.
+
+**Closed — CODE + TEST.** Two pages were in scope here, and they are guarded at two
+different depths, which is the part of this closure worth reading carefully.
+
+The implementer's opening page routes each foreign leaf through one local `quote`
+(`src/implement/prompt.ts:293`, imported at `:7`): repository identity, criterion statements,
+the plan's summary, root cause, per-file reasons and risks, the gate line, the workspace tree
+sample, the repository file bytes, the paths the plan says are not present yet, the skipped
+paths, and a repair brief's material. The system turn explains the marker before the model
+meets one (`:82`).
+
+What the loop hands back after an action is guarded at one site instead of several:
+`withStepFeedback` quotes the whole outcome detail where it enters the transcript
+(`src/implement/prompt.ts:243`). `src/implement/loop.ts` carries no marking code at all and
+is byte-identical to `88cb7ce`. That is a measured decision, not an oversight — the first
+version of this closure marked the read bytes, the listing and the command tail at their own
+sites in `loop.ts` *and* quoted the detail at the boundary. Deleting the site mark at line 473 of
+that draft (the file's read site, now reverted) then failed **no test**: the boundary already
+quoted the same bytes, so the
+page showed a marked line and could not say which of the two guards made it marked. Removing
+the boundary mark, with the site marks gone, turns all four loop cases red. One guard that
+covers every channel, including ones a per-action mark would have to remember to add, is both
+the provable design and the stronger one; a search hit, a refusal reason and an error receipt
+are quoted by it for the same reason the file bytes are.
+
+The divider half of §S12-02 was real: `markQuoted` knew only `=== … ===`, so the
+`--- ${path} ---` convention that `src/review/prompt.ts:281,307` builds its patch page with
+was an open channel on a page that was otherwise guarded. `src/security/prompt-material.ts`
+now holds `DIVIDER_SHAPED` (`:26`) beside `SECTION_SHAPED` (`:17`), tests either (`:41`), and
+short-circuits on `===` or `---` (`:38`). Dashes are required at both ends, which is what
+leaves a unified-diff `--- a/file` header and a bare markdown `---` alone — that narrowness
+is the point of the `the guard every page shares` cases rather than an accident of them.
+
+Red before green, with the reason: the implementer case failed first as
+`implementer: a foreign line stands as a rule of this page`, receiving the forged section
+rule plus three more unmarked lines, and the reviewer page's existing test would not have
+caught a divider because the guard had no pattern for one.
+
+Anti-vacuity, four mutations, each re-run against the final files after the newline-path cases
+were added, each restored byte-for-byte and hash-checked:
+
+| Mutation | Red (of the file's 14 cases) | What that proves |
+| --- | --- | --- |
+| `src/implement/prompt.ts:293` `quote` → identity | 1 — `the implementer's opening page` | the opening page's leaves are held by that call, not by the disclaimers |
+| `src/implement/prompt.ts:243` boundary quote → raw | 4 — all four `what the loop hands back` cases | the single outcome guard is load-bearing for read bytes, command output, a listing and the page as a whole |
+| `src/security/prompt-material.ts:38` fast path → `===` only | 2 — `the guard every page shares`, `the reviewer page` | the shortcut cannot decide a divider-only corpus is safe to pass through |
+| `src/security/prompt-material.ts:41` → `SECTION_SHAPED` only | 7 — both shared-guard cases, the planner, implementer, reviewer and two loop pages | the per-line rule, not just the fast path, is what enforces the divider convention; every case whose bytes carry `--- … ---` goes red without it |
+
+All four counts above are from the final file; the fast-path mutation read 6 red on an earlier
+draft of this corpus that had twelve cases and no loop channels, and that draft is not evidence
+for the number printed here. The fifth guard, the planner's `quote`, has its own mutation in the
+S12-01 entry.
+
+Hashes after restore: `prompt-material.ts` `97426db2`, `src/plan/prompt.ts` `8902332a`,
+`src/implement/prompt.ts` `2c78c0a1`, `src/security/path-safety.ts` `e922b86f`,
+`src/implement/loop.ts` identical to `88cb7ce`.
+`tests/security tests/plan tests/implement tests/review tests/repair` after restore: 40 files
+passed and 3 skipped (the three live-credential files §54 keeps skipped), 681 tests passed and
+3 skipped, exit `0`; `typecheck`, `lint` and `format:check` clean.
+
+**Disclosed limit.** Two channels stay open and are named rather than smoothed over. A
+model's own assistant turn is echoed into the transcript unquoted, so a model can put
+`=== X ===` at column 0 of its own reply — the guard's claim is about foreign text arriving on
+MergeSutra's page, and the model's words are handled by the protocol schema, not by quoting.
+And the guard is shape-based: a rule written with two dashes, or with a space before the
+closing `===`, is prose, and is left as prose.
+
+A third channel was found while writing this and is closed where a path is admitted rather
+than where it is printed. A path with a newline in its name arrives *inside* a heading the
+stage composes (`FILE <path>`, `=== FILE <path> — … ===`), so quoting cannot help: the
+stranger's line would be part of MergeSutra's own sentence. `isRepositoryRelativePath`
+(`src/security/path-safety.ts:111`) therefore refuses C0 and C1 control characters, which is
+the rule the plan schema, the loop's action protocol, the repair plan and the reviewer's
+manifest all already lean on. Red before green: both new cases failed as `expected true to be
+false` and `expected [Function] to throw an error` — the name was accepted, and neither door
+refused it. Anti-vacuity: narrowing that class to NUL alone turned exactly those two cases red
+(2 of 14) and left twelve green; the same mutation was re-run against the final file after its
+lint directive was moved, turned the same 2 red again, and was restored byte-for-byte
+(sha256 `e922b86f…`).
+
+
 
 ---
 
@@ -119,6 +236,48 @@ digest covers `npm publish` must still be REFUSED.
 **Closure.** CODE. `gh` under model execution is refused as a class, not parsed for intent;
 Stage 1's read transport stays a separately scoped trusted path (`src/github/gh-client.ts`)
 and that distinction gets documented.
+
+**Closed — CODE + TEST.** The oracle reads the argv instead of the program name. `gh` is
+`REMOTE_MUTATION` in every form including the read-shaped ones (`src/process/tool-policy.ts:449`),
+network clients are `NETWORK` (`:451`), and the package-manager family is classified by its
+subcommand (`:388-398`): repository runners stay ordinary so the project's own gates still
+run, registry writes are `REMOTE_MUTATION` (`:395`), install-family and download-and-run forms
+are `NETWORK`, and a subcommand this file does not know falls to `NETWORK` rather than to
+allowed (`:397`) — the default is the refusing direction, which is the half that matters,
+because a new `npm` verb is invented more often than a guard is edited. The derived class is
+honoured at the decision, not merely computed: `REMOTE_MUTATION` routes to the approval rule
+(`:484`), which no run path can satisfy, and `NETWORK` is refused rather than excused for
+running inside a workspace (`:488`). This came with the destructive-git half in `d138dec`,
+which a drive of the same matrix found live: `git checkout -- .` was an ordinary WRITE before
+it was named.
+
+Red before green, with the reason: `tests/process/tool-policy-argv.test.ts` was written first
+(314 lines, 22 cases now, after `d138dec` added the git half), and
+`riskOf({op:'execute', argv:['gh','pr','create','--fill'], cwd:W})` answered EXECUTE/allowed
+exactly as §S12-03 predicted. The policy-before-consent property (§26) is proved at the
+consent boundary rather than argued: `tests/verify/consent.test.ts`
+carries `reaches a registry write before the consent is even read, so a yes cannot buy one`,
+`reaches the GitHub CLI before the consent is read, whatever the subcommand`, and
+`refuses an exfiltration-shaped gate, and does not offer it back for approval` — a consent
+whose digest covers `npm publish` still ends refused. The model's own route is proved one level
+up, in `tests/implement/loop.test.ts`: `will not let the model reach GitHub by naming the
+GitHub CLI` and `refuses a network client rather than excusing it for running in the
+workspace`.
+
+Anti-vacuity, re-measured for this block rather than recalled: baseline `tests/process
+tests/verify/consent.test.ts tests/implement/loop.test.ts` = 4 files, 130 tests, exit `0`.
+Turning `GITHUB_CLI` into an ordinary program (`:449` → EXECUTE) turned 8 of those 130 red;
+dropping the unknown-subcommand default (`:397`, with `PM_LOCAL` falling through to EXECUTE)
+turned 2 red. Both restored byte-for-byte (`cmp` against the pre-mutation copies, `sha256`
+prefix `9f40e910`).
+
+**Disclosed limit.** The classes are named by program and subcommand, so an *unlisted* registry
+client (`pnpm publish` is covered; a tool nobody named here is not) is a `NETWORK`-shaped hole
+only if it is reached through a program this file knows. An unknown program stays in the
+ordinary EXECUTE class, confined by argv shape, cwd and timeout — which is why §53's rule that
+no run path holds a push or publish capability, not this classifier, is what actually makes a
+remote mutation impossible here.
+
 
 ---
 

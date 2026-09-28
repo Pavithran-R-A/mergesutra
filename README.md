@@ -1020,8 +1020,10 @@ What that screen is and is not:
   and did nothing. There is no exit `0`.
 - **Known gap:** a repair cycle reaches the same adapter, and possibly the same model
   family, as the review that ordered it. This buys a bounded executor with a narrower
-  brief, not a diversity of judgment — and the `> [data] ` marking still does not cover
-  the `plan` or general `implement` prompts, which is Stage 12's work.
+  brief, not a diversity of judgment. The `> [data] ` marking now covers all four
+  builders — `plan`, the implementer's opening page, what the loop hands back after an
+  action, and this brief — which Stage 12 closed with one shared corpus run against every
+  page (`docs/SECURITY_MODEL.md` §2.7).
 
 ### Stage 10: the page a person approves, and that goes nowhere
 

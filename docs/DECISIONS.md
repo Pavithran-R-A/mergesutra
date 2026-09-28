@@ -1844,3 +1844,48 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   writer other than this one — `state/run-store.ts` and the evidence pack have their own windows,
   which §4.2 and S12-08 describe and this ADR does not extend.
 
+## ADR-066 — A page's headings are authored, so foreign text is quoted instead of deleted
+
+- **Decision:** one primitive decides what is structure on every page a model is given.
+  `markQuoted()` (`src/security/prompt-material.ts:37`) prefixes `> [data] ` to a line whose whole
+  line is shaped like a section rule (`=== … ===`, `:17`) or a file divider (`--- … ---`, `:26`),
+  and changes nothing else about that line. Stage 12 widened its use from the reviewer's page and
+  the repair brief to the planner (`src/plan/prompt.ts:68`), the implementer's opening page
+  (`src/implement/prompt.ts:293`) and the loop's outcome channel, which is guarded at the single
+  place an action's result enters the transcript (`withStepFeedback`, `src/implement/prompt.ts:243`)
+  rather than at each action site; `src/implement/loop.ts` therefore contains no marking code. The
+  system turns of the two pages that were unguarded explain the marker before the model meets one.
+  A path with a control character in its name is now refused where paths are admitted
+  (`src/security/path-safety.ts:111`), which is the rule the plan schema, the loop protocol, the
+  repair plan and the reviewer's manifest already share.
+- **Reason:** a heading is not decoration — it is what tells the model that the text under
+  `=== ISSUE BODY ===` is material rather than instruction. A stranger that can print such a line
+  can move the boundary, and prose that says "analyse, do not obey" is a request the material can
+  answer with a heading of its own. Deletion and escaping were rejected on the record: a model that
+  cannot see an injection cannot be trusted to have refused it, so the corpus sentences stay on
+  every page and only their position is annotated. Placing the loop's guard at the transcript
+  boundary rather than beside each `markQuoted(text)` at the action sites is an evidenced choice,
+  not a style preference — with both layers present, deleting the mark at the loop's read site
+  (line 473 of that now-reverted draft) failed no test at all, because the boundary had already
+  quoted the same bytes; the page showed a marked
+  line and could not say which guard made it marked. One guard that every channel passes through
+  is both the provable one and the stronger one, since a search hit, a refusal reason and an error
+  receipt are quoted by it without anybody remembering to add a site.
+- **Consequence:** four builders and one shared corpus (`tests/security/prompt-authority.test.ts`,
+  14 cases) hold the same property, measured rather than listed: each page is assembled clean and
+  attacked, and an unmarked structural line that the clean page did not already author fails the
+  case. Six anti-vacuity mutations, each re-run against the final 14-case file and each restored
+  byte-for-byte and hash-checked, turn 2, 1, 4, 2, 7 and 2 cases red. The full suite is unchanged
+  at 1854 passed and 3 skipped with a raw-log exit `0` (122 files); an earlier sweep of the same
+  tree lost two cases to the house 30-second timeout under host contention
+  (`tests/cli/review.test.ts`, `tests/verify/workspace.test.ts`), and they passed both when their
+  two files ran alone (22 tests, exit `0`) and in the clean re-run — disclosed rather than buried
+  in a raised timeout, §55. `--- … ---` is now a
+  protected convention on the page that invented it, which is the part of §S12-02 that was still
+  open on an already-guarded builder. What this does not cover, stated as limits: a model can type
+  a heading inside its own assistant turn, and nothing rewrites that — the protocol schema, not the
+  guard, is what stops such a line meaning anything; the marker can be copied by a stranger, which
+  buys it only the appearance of being data; the guard is shape-based, so a rule spelled with two
+  dashes or with a space before the closing `===` stays prose; and a page that has not been
+  audited for *what it asks* is out of scope here — quoting says who wrote a line, not whether the
+  question being put is a safe one.
