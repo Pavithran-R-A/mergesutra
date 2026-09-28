@@ -162,5 +162,12 @@ describe.skipIf(!AVAILABLE)('§53 a run resumed by two services', () => {
     // left behind, so what B was allowed to do after the release changed a directory
     // and not the run's account of itself.
     expect(await stored()).toBe(recordBefore);
+
+    if (process.env.MERGESUTRA_HERO_CAPTURE) {
+      process.stdout.write(
+        `\n--- service B, mergesutra resume ${runId} --execute, while A holds the run ---\n${refused}\n`,
+      );
+      process.stdout.write(`\n--- service B, the same command after A released ---\n${screen}\n`);
+    }
   });
 });

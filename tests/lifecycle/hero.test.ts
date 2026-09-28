@@ -373,5 +373,20 @@ describe.skipIf(!AVAILABLE)('§52 the recovery hero', () => {
     expect(await parserOf(fixture.workspace)).toBe(REPAIRED);
     expect(await headOf(fixture.workspace)).toBe(fixture.base);
     expect((await statusOf(fixture.workspace)).trim()).not.toBe('');
+
+    if (process.env.MERGESUTRA_HERO_CAPTURE) {
+      const out = (title: string, body: string): void => {
+        process.stdout.write(`\n--- ${title} ---\n${body}\n`);
+      };
+      out(`mergesutra status ${runId}`, crashPage);
+      out(`mergesutra resume ${runId}`, page('preview'));
+      out(`mergesutra resume ${runId} --execute --allow <the five gate ids>`, page('verify'));
+      out(`mergesutra status ${runId}`, formatStatus(afterVerify, renderer));
+      out(`mergesutra resume ${runId} --execute`, page('review'));
+      out(`mergesutra resume ${runId} --execute`, page('report'));
+      out(`mergesutra resume ${runId} --execute`, page('pr'));
+      out(`mergesutra status ${runId}`, formatStatus(afterPr, renderer));
+      out(`mergesutra resume ${runId} --execute`, page('final'));
+    }
   });
 });

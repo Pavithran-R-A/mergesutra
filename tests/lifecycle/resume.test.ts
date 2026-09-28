@@ -387,10 +387,7 @@ describe.skipIf(!AVAILABLE)('what a resume may act on', () => {
     const stage: StageSpy = {
       calls: [],
       executeStage: async () => {
-        const held = await readRunLock(
-          { runId: where.record.runId },
-          { runsRoot: where.runsRoot },
-        );
+        const held = await readRunLock({ runId: where.record.runId }, { runsRoot: where.runsRoot });
         inside.push(held.state);
         if (held.state === 'HELD') {
           inside.push(String(held.holding.owner?.pid), held.holding.owner?.operation ?? 'none');
