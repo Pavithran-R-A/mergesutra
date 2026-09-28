@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { AppError } from '../core/errors.js';
-import { readPackIdentity } from '../report/write.js';
+import { readPackFacts, type PackFacts } from '../report/write.js';
 import { describePatch, type PatchDescription } from '../verify/patch.js';
 import {
   createRunRecord,
@@ -124,12 +124,12 @@ export async function runPrStage(
   const source = parseRunRecord(await store.load(runId));
 
   const patch = await measurePatch(source, input.repo, cwd);
-  const packOnDisk = await readPackIdentity(runsRoot, runId);
+  const packOnDisk = await readPackFacts(runsRoot, runId);
 
   const assembled = assembleCandidate({
     source,
     patch,
-    packIdentity: packOnDisk,
+    packIdentity: packOnDisk?.identity ?? null,
     createdAt: now().toISOString(),
   });
   const priorIndex =
@@ -238,7 +238,7 @@ async function measurePatch(
 function factsOf(input: {
   source: RunRecord;
   patch: PatchDescription | null;
-  packOnDisk: string | null;
+  packOnDisk: PackFacts | null;
 }): Omit<ReadinessFacts, 'approval'> {
   const { source, patch, packOnDisk } = input;
   const patchIdentity = patch?.identity ?? null;
@@ -267,10 +267,12 @@ function factsOf(input: {
       packOnDisk === null
         ? null
         : {
-            identity: packOnDisk,
-            // The pack prints the patch Stage 7 planned against, so that is the field
-            // a reader can check the rendered page against.
-            patchIdentity: source.verificationPlan?.patchIdentity ?? null,
+            identity: packOnDisk.identity,
+            // Which patch the pack says it describes is a claim inside the pack, so it
+            // is read out of the pack's bytes. Asking the record instead would answer
+            // the question "what does this run's plan say?" and print it as though it
+            // had checked the evidence a reviewer can open.
+            patchIdentity: packOnDisk.patchClaim,
           },
   };
 }

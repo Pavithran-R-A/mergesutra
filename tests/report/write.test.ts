@@ -4,8 +4,9 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildEvidencePack } from '../../src/report/pack.js';
 import type { EvidencePack } from '../../src/report/pack.js';
-import { readPackIdentity, writeEvidencePack } from '../../src/report/write.js';
-import { PACK_RUN_ID, recordAt } from '../helpers/report.js';
+import { readPackFacts, readPackIdentity, writeEvidencePack } from '../../src/report/write.js';
+import { sha256Hex } from '../../src/security/digest.js';
+import { PACK_RUN_ID, recordAt, verifiedRecord } from '../helpers/report.js';
 
 /**
  * Where the pack goes, and what a wrong name must not be able to do to it.
@@ -140,5 +141,102 @@ describe('reading the identity of the pack that is on disk', () => {
     await writeEvidencePack(root, packFor('someone-else'));
 
     await expect(readPackIdentity(root, '..')).rejects.toThrow(/run id/i);
+  });
+});
+
+/**
+ * The other half of a pack reading: which patch its own bytes claim to describe.
+ *
+ * Stage 10 used to answer that question from the run record sitting beside the pack,
+ * which meant a directory holding the pack rendered for patch A could be reported as
+ * describing patch B — the record was asked, and the record answered. So the claim
+ * has to come out of `report.json`, and every way of not finding one there is a `null`
+ * that the caller refuses rather than a value invented to keep a page moving.
+ */
+describe('reading the patch claim a pack makes about itself', () => {
+  async function packOnDisk(pack: EvidencePack): Promise<string> {
+    const root = await runsRoot();
+    await writeEvidencePack(root, pack);
+    return root;
+  }
+
+  it('names the patch the rendered page prints, from the pack', async () => {
+    const record = await verifiedRecord(['npm', 'test']);
+    const root = await packOnDisk(buildEvidencePack(record));
+
+    const facts = await readPackFacts(root, PACK_RUN_ID);
+
+    expect(facts?.patchClaim).toBe(record.verificationPlan?.patchIdentity);
+    expect(facts?.identity).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('follows the bytes, not the run that happens to be filed beside them', async () => {
+    const root = await packOnDisk(buildEvidencePack(await verifiedRecord(['npm', 'test'])));
+    const target = path.join(root, PACK_RUN_ID, 'report.json');
+    const claimed = sha256Hex('a patch this pack was rendered for');
+
+    await writeFile(target, `${JSON.stringify({ patch: { plannedIdentity: claimed } })}\n`, 'utf8');
+
+    expect((await readPackFacts(root, PACK_RUN_ID))?.patchClaim).toBe(claimed);
+  });
+
+  it('reads no claim from a report.json that is not JSON', async () => {
+    const root = await packOnDisk(buildEvidencePack(await verifiedRecord(['npm', 'test'])));
+
+    await writeFile(path.join(root, PACK_RUN_ID, 'report.json'), '{"patch": {"plannedIdentity":');
+
+    const facts = await readPackFacts(root, PACK_RUN_ID);
+    expect(facts?.identity).toMatch(/^[0-9a-f]{64}$/);
+    expect(facts?.patchClaim).toBeNull();
+  });
+
+  it('reads no claim from a pack that says it describes no patch', async () => {
+    // A run that never planned a patch really does render `plannedIdentity: null`, so
+    // the null has to survive the read instead of being filled in from anywhere else.
+    const root = await packOnDisk(buildEvidencePack(recordAt()));
+
+    expect((await readPackFacts(root, PACK_RUN_ID))?.patchClaim).toBeNull();
+  });
+
+  it('refuses a claim that arrives through a prototype instead of the document', async () => {
+    const root = await packOnDisk(buildEvidencePack(await verifiedRecord(['npm', 'test'])));
+
+    // `patch` is not a key of this file; it hangs off `__proto__`, where a plain
+    // `parsed.patch` lookup would find it.
+    await writeFile(
+      path.join(root, PACK_RUN_ID, 'report.json'),
+      `{"__proto__": {"patch": {"plannedIdentity": ${JSON.stringify(sha256Hex('inherited'))}}}}`,
+      'utf8',
+    );
+
+    expect((await readPackFacts(root, PACK_RUN_ID))?.patchClaim).toBeNull();
+  });
+
+  it('reads no claim from a plannedIdentity that is not a digest', async () => {
+    const root = await packOnDisk(buildEvidencePack(await verifiedRecord(['npm', 'test'])));
+
+    await writeFile(
+      path.join(root, PACK_RUN_ID, 'report.json'),
+      JSON.stringify({ patch: { plannedIdentity: { toString: () => 'a'.repeat(64) } } }),
+      'utf8',
+    );
+
+    expect((await readPackFacts(root, PACK_RUN_ID))?.patchClaim).toBeNull();
+  });
+
+  it('reads no claim from a plannedIdentity that is not shaped like a patch identity', async () => {
+    // A readiness row prints the head of this value, so a string that is not a digest
+    // would reach the terminal as characters somebody else chose, escape sequences
+    // included. Only the shape the renderer itself writes counts as a claim.
+    const root = await packOnDisk(buildEvidencePack(await verifiedRecord(['npm', 'test'])));
+    const hostile = `${String.fromCharCode(27)}[31mcleared screen`;
+
+    await writeFile(
+      path.join(root, PACK_RUN_ID, 'report.json'),
+      JSON.stringify({ patch: { plannedIdentity: hostile } }),
+      'utf8',
+    );
+
+    expect((await readPackFacts(root, PACK_RUN_ID))?.patchClaim).toBeNull();
   });
 });

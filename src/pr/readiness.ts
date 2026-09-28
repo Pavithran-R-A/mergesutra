@@ -219,7 +219,15 @@ function packCheck(pack: ReadinessFacts['evidencePack'], current: string | null)
         'No evidence pack has been rendered, so a reviewer was shown claims with nothing behind them. Run `mergesutra report`.',
     });
   }
-  const same = pack.patchIdentity !== null && pack.patchIdentity === current;
+  if (pack.patchIdentity === null) {
+    return check('pack-current', false, {
+      passed: '',
+      failed:
+        'The evidence pack on disk names no patch, so nothing shows it describes the code this ' +
+        'page would merge. Re-render it with `mergesutra report`.',
+    });
+  }
+  const same = pack.patchIdentity === current;
   return check('pack-current', same, {
     passed: `The evidence pack (${short(pack.identity)}) describes the patch now.`,
     failed: same
