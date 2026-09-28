@@ -488,7 +488,13 @@ in this section is that a document cannot substitute for one.
   pretends otherwise — its last screen in the hero is `PUBLICATION_APPROVAL_REQUIRED` /
   `NOTHING WAS RUN.` at exit `4`. The residual budget from `lifecycle/budget.ts` closes the
   other classic recovery escalation: a re-entered loop is bounded by what the previous
-  entry spent, so resuming cannot buy a second allowance (§19).
+  entry spent, so resuming cannot buy a second allowance (§19). That carry is now measured
+  where a person stands rather than where the arithmetic lives —
+  `tests/lifecycle/budget-cli.test.ts` runs Stage 6 twice through `resumeAction`'s real
+  dispatcher on each counted axis and fails if any hop loses the number, down to counting the
+  model requests so a thirteenth turn cannot be asked for (§19's floor is the three axes a
+  loop both bounds and counts; the eight knobs it never counts a spend for are given the
+  shipped default again, and say so as `BUDGET-UNRECORDED`).
 - **Who holds the run is on the page, in five words and no more.** A person choosing
   between `status` and `resume` used to learn that a run was held only by colliding with it,
   because the screen had no lock row and an empty screen reads as "nobody is here" — the

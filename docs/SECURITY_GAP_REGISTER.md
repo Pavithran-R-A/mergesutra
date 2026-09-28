@@ -151,9 +151,88 @@ test stays green, because the only cap test bypasses the CLI.
 `maxSteps = 12`, 8 recorded consumed, then resume; assert the dispatched loop receives
 residual limits and refuses the step that would be 13. Same shape for `maxWrites` and
 `maxCommands`. If an axis cannot be continued from persisted facts, assert block rather
-than fresh authority (§13).
+than fresh authority (§13). _(Line numbers above are as found at `f0a8e2c`; the one that
+moved is `src/implement/implement.ts`, where the forwarded `limits` is now at `:124`.)_
 
 **Closure.** TEST (and CODE only if the drive reveals a dropped hop).
+
+**Closed — TEST.** The drive ran, and it found no dropped hop: all four carries hold today.
+What was missing was the proof, and the proof now fails on its own.
+
+*What was proved, and how.* Each drive runs Stage 6 **twice over one workspace** through
+`resumeAction(runId, { execute: true })` — the entry `mergesutra resume` uses — with the real
+`stageDispatcher`, the real `runImplementStage` and the real `runImplementationLoop`, a
+scripted model and no credential. The witnesses are things that *happened*, not objects a
+caller was handed: `client.calls` (one entry per model request actually made), the spend the
+second entry filed, and the bound it stopped on. A hop that drops `limits` changes all three.
+
+| axis | first entry spent | residual it was given | second entry ended on | model requests |
+| --- | --- | --- | --- | --- |
+| steps | 8 turns, 2 writes, 0 checks | 4 / 4 / 4 | `MAX_STEPS` after 4 turns | 8 + 4 = 12 |
+| writes | 5 writes in 9 turns | 3 / 1 / 4 | `MAX_WRITES` at 1 write | 9 + 2 = 11 |
+| commands | 3 checks in 7 turns | 5 / 5 / 1 | `MAX_COMMANDS` at 1 check | 7 + 2 = 9 |
+
+Each drive also asserts the bounds the second entry *filed* equal
+`loopBudgetOf(before).resumedLimits`, that `maxSteps` is below the shipped default, and that
+the two entries together never pass the bound the first entry was given. Two further cases
+hold §13: a third `--execute` after a bound-exhausting entry spends no request and moves no
+counter, and a spent record **restated** as `CANCELLED` / `DEADLINE` — a person, or a forged
+record, asserting "it was only interrupted" — is still refused, so an assertion about how a
+run ended buys no allowance.
+
+*The false RED, stated because it was reported wrongly at first.* The file's first run failed
+5 of 5 with exactly the §19 signature (`expected {maxSteps: 12, …} to equal {maxSteps: 4, …}`)
+and was called a dropped hop. It was not one — **nothing had been dispatched.** `resume`'s own
+status observation asks `git cat-file -e <base>^{commit}` before it will describe a workspace,
+and `answerWorkspaceGit` (`tests/helpers/implement.ts:324`) scripts only the commands Stages
+5–7 make a workspace with and fails anything else — deliberately, since
+`tests/lifecycle/interruption.test.ts:176-181` depends on that failure to prove a blocked run
+is offered nothing. The plan therefore came back `RECOVERY_BLOCKED`, and every assertion below
+it measured a run that never happened. Answering `cat-file -e` in the *shared* helper did make
+this file pass and did break `interruption.test.ts:181`; that change was reverted byte-for-byte
+(`cmp`, and `git diff` empty at commit time), and the answer now lives inside this file as
+`gitThatVouchesForTheBase`, whose comment says why this one drive needs a Git that vouches for
+the base and why the shared fixture must not.
+
+*Anti-vacuity mutations* (each applied alone, run focused, restored and verified byte-for-byte
+with `cmp`; none committed):
+
+| # | Mutation | Witness |
+| --- | --- | --- |
+| A | `src/cli/resume.ts:133` drops `...(limits ? { limits } : {})` | 5 failed, 0 passed — incl. `expected [ …15 items ] to have a length of 14`, a thirteenth turn asked for |
+| B | `src/implement/implement.ts:124` stops forwarding `limits: input.limits` | 5 failed, 0 passed, same signature |
+| C | `src/implement/loop.ts:189` becomes `resolveLimits({})` — the loop ignores what it was given | 5 failed, 0 passed, same signature |
+| D | `src/lifecycle/resume.ts:226` passes `null` where it computed the residual | 5 failed, 0 passed, same signature |
+| E | `src/implement/loop.ts:358` — the `MAX_WRITES` bound never fires | 1 failed, 4 passed: `expected 'MAX_STEPS' to be 'MAX_WRITES'`, after 3 writes against a bound of 1 |
+| F | `src/implement/loop.ts:364` — the `MAX_COMMANDS` bound never fires | 1 failed, 4 passed: `expected 'FINISH' to be 'MAX_COMMANDS'`, after 3 check runs against a bound of 1 |
+
+A–D are the four hops, and any one of them alone fails this file — which is precisely the
+property the register said was missing. E and F exist because A–D could be satisfied by the
+filed `limits` object alone: with a mutation that leaves the record's bounds honest and only
+the *behaviour* wrong, just the termination word and the request count notice.
+
+*What this does not claim.* Steps, writes and check runs are carried because a loop records
+both a bound and a count for each; `maxRepeatedFailures` is carried whole, with no count of
+how often it fired. The other eight knobs — refusals, schema repairs, the context and output
+ceilings, the command timeout and the wall clock — are given the shipped default again by a
+resumed entry, and that is filed on the run as `BUDGET-UNRECORDED` rather than closed here.
+Neither is this an observation test: the workspace is the scripted one, so what is under proof
+is the walk from `resume` to the loop, not Git's account of the directory (that stays with
+`observe.test.ts` and `interruption.test.ts`).
+
+*Sweep.* No `src/` file changed: at commit time `git diff --stat` lists one new test file and
+three documents, and `tests/helpers/implement.ts` is byte-identical to its committed form. On
+the final state, twice with the same counts — once before the last case rename and once after —
+**113 test files passed / 3 skipped (116)**, **1763 tests passed / 3 skipped (1766)**, exit `0`
+(333.32 s, then 311.24 s). Against S12-05's closing sweep (112 files / 1758 tests) the delta is
++1 file and +5 tests, which is exactly this entry's file. The neighbouring set
+(`tests/lifecycle`, `tests/implement`, `tests/cli`) was run separately on the reverted state:
+**38 passed / 1 skipped (39)**, **557 passed / 1 skipped (558)**, exit `0`. `format:check`,
+`lint`, `typecheck` and `build` each exit `0`. Both full runs were made with this session's own
+MCP node processes alive (§55: nothing was killed to make room), no test was retried, and the
+raw logs with their exit codes (`~/s12-04/full-sweep.log`, `full-sweep-final.log`) and per-
+mutation logs (`~/s12-04/mut/`) are the evidence.
+
 
 ---
 

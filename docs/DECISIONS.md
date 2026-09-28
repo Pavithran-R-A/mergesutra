@@ -1624,3 +1624,50 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   uses the same label `Run lock` for a different fact — what happened to a lock this command
   took. The register's sketched words (`NONE` / `ACTIVE` / `STALE_PROVABLE` / `UNCERTAIN`)
   shipped renamed, because `STALE_PROVABLE` reads as a licence to delete.
+
+## ADR-062 — A budget is proved where a person stands, not where the arithmetic lives
+
+- **Decision:** §19's carry-down is now measured at the command boundary.
+  `tests/lifecycle/budget-cli.test.ts` runs the real Stage 6 twice over one workspace
+  through `resumeAction(runId, { execute: true })` — past the real `stageDispatcher`
+  (`src/cli/resume.ts:130-136`), the real `runImplementStage`
+  (`src/implement/implement.ts:124`) and the real `runImplementationLoop`
+  (`src/implement/loop.ts:189`) — on all three counted axes, and asserts on requests the
+  scripted client actually received, the spend the second entry filed, and the bound it
+  stopped on. Two further cases hold §13 at that boundary: a third entry after a
+  bound-exhausting one spends nothing, and a spent record restated as `CANCELLED` /
+  `DEADLINE` is refused rather than believed. Production code is unchanged: the drive found
+  no dropped hop. The one question Stage 11's workspace observation asks and the Stage 5–7
+  fixture does not script (`git cat-file -e <base>^{commit}`) is answered *inside this file*
+  (`gitThatVouchesForTheBase`), not in `tests/helpers/implement.ts`.
+- **Reason:** the arithmetic has been proved twice over (`tests/lifecycle/budget.test.ts`,
+  `tests/lifecycle/resume.test.ts:277-282`) and neither proof could notice the walk losing
+  the number — the second one hands the residual to a spy, so it measures what the service
+  computes rather than what the loop is bounded by. Four hops each sit on a line a future
+  change can rewrite without touching a constant, and the default waiting on the far side of
+  a dropped hop is `DEFAULT_LIMITS`: a fresh twelve turns, six writes and four checks, which
+  is the doubling of autonomy §19 exists to make impossible, with every unit test in the
+  build still green. Witnesses were chosen so the same mutation cannot hide: a filed
+  `limits` object can look right while the loop ignores it, which is what the request count
+  and the termination word are for. The base-vouching answer stays local because the shared
+  helper's refusal is itself under test — `tests/lifecycle/interruption.test.ts:176-181`
+  asserts that a scripted Git which will not vouch for a base leaves the run blocked and
+  offered nothing, and widening the fixture to make one file pass would have moved the
+  claim out from under that test.
+- **Alternatives considered, and rejected:** asserting on the object passed to a spied
+  `executeStage` — already done, and blind to the three hops past it; driving
+  `runImplementStage` twice directly — skips the dispatcher, the hop most likely to be
+  rebuilt; putting `cat-file -e` in the shared `answerWorkspaceGit` — breaks the blocker
+  test above, and it was tried, witnessed failing, and reverted byte-for-byte; claiming the
+  wall clock, output ceilings and refusal/schema knobs are carried down — a loop records no
+  spend for them, so a resumed entry does get the shipped default again, and that stays
+  filed as `BUDGET-UNRECORDED` rather than being smoothed into the claim (§19, §47).
+- **Consequence:** six mutations were run against the walk and each one's witness recorded
+  in the register: dropping the budget at the CLI, at the stage, at the loop's
+  `resolveLimits`, and at the service (all four fail 5 of 5, including a thirteenth model
+  request being asked for), plus neutralising the write bound and the check bound
+  individually (each fails exactly its own drive, on the termination word). Any future hop
+  that loses `limits` fails this file. What it still does not cover: the eight unrecorded
+  knobs, review round trips and repair cycles (§19's other known gaps), and any resume whose
+  workspace is described by real Git rather than scripted — this file proves the walk, and
+  `observe.test.ts` / `interruption.test.ts` keep proving the observation.
