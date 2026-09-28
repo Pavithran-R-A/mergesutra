@@ -4,6 +4,7 @@ import { newestRunId, listRecordNames } from '../state/run-selection.js';
 import { defaultRunStoreRoot, createFileRunStore, type RunStore } from '../state/run-store.js';
 import { nextActionsFor } from './next-actions.js';
 import { observeRun } from './observe.js';
+import { readRunLock, type RunLockDeps } from './lock.js';
 import { buildStatusSnapshot, type StatusSnapshot } from './snapshot.js';
 
 /**
@@ -44,6 +45,14 @@ export interface StatusStageDeps {
   readonly runsRoot?: string;
   readonly run?: Runner;
   readonly now?: () => Date;
+  /**
+   * Who this machine is, for the lock reading: pid, host, and the liveness probe.
+   *
+   * Injected rather than defaulted because the answer a lock report gives is a claim
+   * about a *process*, and a test that cannot state which process is asking cannot
+   * prove the report is not a stub.
+   */
+  readonly lock?: RunLockDeps;
 }
 
 export interface StatusStageResult {
@@ -69,8 +78,13 @@ export async function runStatusStage(
     ...(input.repo ? { repo: input.repo } : {}),
   });
 
+  // Looked at once, for both builds, so the screen and the suggestions it feeds cannot
+  // be built from two different moments. `readRunLock` claims nothing: this is the
+  // caller the lock module was written for, and describing a lock here is not taking it.
+  const lock = await readRunLock({ runId }, { runsRoot, cwd, ...deps.lock });
+
   const observedAt = (deps.now ?? (() => new Date()))().toISOString();
-  const unsuggested = buildStatusSnapshot({ record, observation, observedAt });
+  const unsuggested = buildStatusSnapshot({ record, observation, observedAt, lock });
 
   return {
     runId,
@@ -78,6 +92,7 @@ export async function runStatusStage(
       record,
       observation,
       observedAt,
+      lock,
       nextActions: nextActionsFor(unsuggested),
     }),
   };

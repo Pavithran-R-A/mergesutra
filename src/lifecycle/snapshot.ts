@@ -5,6 +5,8 @@ import { RUN_OUTCOMES, RUN_STAGES, type RunRecord } from '../state/run-record.js
 import { GATE_RESULTS } from '../verify/receipt.js';
 import { stalenessOf } from '../verify/patch.js';
 import { loopBudgetOf } from './budget.js';
+import type { LockReading } from './lock.js';
+import { describeLock, lockReportSchema } from './lock-state.js';
 import { WORKSPACE_STATES, type LifecycleObservation } from './observe.js';
 import { LIFECYCLE_ARTIFACTS, type LifecycleState, type LifecycleVerdict } from './staleness.js';
 
@@ -339,6 +341,14 @@ export const statusSnapshotSchema = z
     recorded: recordedSectionSchema,
     workspace: workspaceSectionSchema,
     patch: patchSectionSchema,
+    /**
+     * Whether another process has claimed this run, as the read-only lock reader saw it.
+     *
+     * Required rather than optional, because the one thing a person needs from this row
+     * is a yes-or-no about whether to run `resume` — and an absent row would be read as
+     * "no lock" by exactly the reader who was going to act on it.
+     */
+    lock: lockReportSchema,
     contract: contractSectionSchema.nullable(),
     plan: planSectionSchema.nullable(),
     implementation: implementationSectionSchema.nullable(),
@@ -370,6 +380,16 @@ export interface StatusSnapshotInput {
   readonly observation: LifecycleObservation;
   readonly observedAt: string;
   /**
+   * The lock as this machine just saw it, from `readRunLock`.
+   *
+   * Supplied as the *reading* rather than as a description so that the mapping from
+   * `ALIVE`/`GONE`/`UNKNOWABLE` to the words a person reads lives in one place: a
+   * caller that could pass its own sentence about a lock could pass an optimistic one.
+   * This file still touches no filesystem — someone else looked, this file says what
+   * looking meant.
+   */
+  readonly lock: LockReading;
+  /**
    * Supplied rather than derived here.
    *
    * Choosing what to suggest next needs every precondition a stage checks before
@@ -397,6 +417,7 @@ export function buildStatusSnapshot(input: StatusSnapshotInput): StatusSnapshot 
     },
     workspace,
     patch: patchOf(workspace.recordedPatchIdentity, workspace.currentPatchIdentity),
+    lock: describeLock(input.lock),
     contract: record.acceptanceContract
       ? {
           version: record.acceptanceContract.version,

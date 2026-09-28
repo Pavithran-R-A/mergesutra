@@ -94,6 +94,11 @@ export function formatStatus(snapshot: StatusSnapshot, renderer: Renderer): stri
   lines.push('');
 
   lines.push(renderer.heading('What is here now, read without changing it'));
+  // First row of the section, because this screen is what a person reads before typing
+  // `resume`, and the question they are asking it is whether another process is already
+  // working on this run. It is read, never claimed: seeing a lock here takes nothing.
+  lines.push(row('Run lock', snapshot.lock.state, width));
+  lines.push(`  ${renderer.dim(snapshot.lock.detail)}`);
   lines.push(row('Workspace', snapshot.workspace.state, width));
   lines.push(`  ${renderer.dim(snapshot.workspace.detail)}`);
   lines.push(

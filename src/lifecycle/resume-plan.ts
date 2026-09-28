@@ -422,9 +422,17 @@ function noOfferReason(): string {
  * Everything else is hashed, including the suggestions: they are part of what the
  * preview was honest about, so a run that gained an offer between the preview and
  * the execution is a run this plan was not built for.
+ *
+ * The `lock` section is the second field left out, and it is left out for a reason that
+ * has nothing to do with convenience: `resume --execute` takes the lock *before* it
+ * re-reads the snapshot, so a snapshot containing the lock it just took can never match
+ * the digest of the preview taken before the lock existed. Hashing it would expire every
+ * execution with `STATE_CHANGED`, which is the failure this field is meant to describe
+ * but is not meant to cause. Two processes colliding over a run is refused by the lock
+ * itself, in `acquireRunLock`, at the moment of the act — not by a hash of a description.
  */
 function observedStateDigestOf(snapshot: StatusSnapshot): string {
-  const { observedAt: _whenItWasRead, ...state } = snapshot;
+  const { observedAt: _whenItWasRead, lock: _whoHoldsIt, ...state } = snapshot;
   return sha256Hex(`${OBSERVED_STATE_LABEL}\n${canonicalJson(state)}`);
 }
 
