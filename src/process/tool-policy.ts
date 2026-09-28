@@ -17,7 +17,9 @@ import { isArgvShaped, isBareProgram } from '../security/command-safety.js';
  * 1. Risk is *derived*, never accepted. A caller cannot declare its own action
  *    READ to get past a gate. For a command the class comes from the argv
  *    itself, so `git push --force` proposed as `execute` is still DESTRUCTIVE
- *    and `bash -c "…"` is still a shell.
+ *    and `bash -c "…"` is still a shell. The derived class is then *honoured*:
+ *    a command that reaches the network or a remote is not excused for running
+ *    inside the workspace, because confinement is not what those commands act on.
  * 2. Every command states where it runs. An unstated working directory is a
  *    command that could run anywhere on the machine, so it is refused.
  * 3. This is a judgement on strings, not an enforcement point. Confinement here
@@ -250,15 +252,134 @@ const INTERPRETERS = new Set([
   'sh',
   'zsh',
 ]);
+/**
+ * Compared lower-case, because the interpreters above are not.
+ *
+ * `cmd` accepts `/C` and `/c` alike and `powershell` accepts `-Command`,
+ * `-command` and `-COMMAND`; a rule that matched one spelling merely relocated
+ * the bypass on the machine where that case-insensitivity is normal.
+ */
 const INLINE_CODE_FLAGS = new Set([
   '-c',
   '-e',
   '--eval',
-  '-Command',
-  '-EncodedCommand',
+  '-command',
+  '-encodedcommand',
+  '-enc',
   '/c',
-  '/C',
+  '/k',
 ]);
+
+/**
+ * The GitHub CLI, refused as a *class* rather than parsed for intent.
+ *
+ * Stage 1 reads an issue through its own transport (`src/github/gh-client.ts`,
+ * which never asks this module) and Stage 10 publishes through a digest-bound
+ * capability that this build leaves disabled. Neither needs a run to name `gh`,
+ * so there is no read/write parser here to get wrong: any `gh` argv is a remote
+ * mutation as far as a run is concerned, and a `gh api` whose verb is hidden in a
+ * later token is exactly the command this rule exists to catch.
+ */
+const GITHUB_CLI = new Set(['gh']);
+
+/**
+ * Programs whose whole job is to move bytes off this machine.
+ *
+ * A coding model needs no exfiltration channel, and these are the reachable
+ * ones on the supported systems. This is not an enumeration of every network
+ * client on Earth — that is the residual limit, stated in SECURITY_MODEL.md.
+ */
+const NETWORK_CLIENTS = new Set([
+  'curl',
+  'wget',
+  'aria2c',
+  'ftp',
+  'tftp',
+  'nc',
+  'scp',
+  'sftp',
+  'rsync',
+]);
+
+/**
+ * Package managers, classified by subcommand instead of by program name.
+ *
+ * `npm test` is repository execution and Stage 7's consent governs it; making
+ * every `npm` invocation NETWORK would refuse the project's own gates. What the
+ * subcommand does is the question, so the unknown answer falls to NETWORK — the
+ * class a run may not start — rather than to the ordinary one.
+ */
+const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'yarnpkg']);
+/** Downloads or executes code that may not exist locally yet. */
+const BARE_RUNNERS = new Set(['npx', 'pnpx', 'bunx']);
+const PM_REMOTE = new Set([
+  'publish',
+  'unpublish',
+  'deprecate',
+  'dist-tag',
+  'access',
+  'token',
+  'owner',
+  'adduser',
+]);
+/**
+ * The subcommands that only touch files already here. Anything the package
+ * manager does that is not on this list is treated as network, including a verb
+ * invented after this file was written: `npm view` reads the registry, and
+ * `npm version` runs `git tag` behind MergeSutra's back, so neither is here.
+ */
+const PM_LOCAL = new Set(['test', 'run', 'run-script', 'ls', 'list', 'help', 'why', 'prefix']);
+const PM_INFO_FLAGS = new Set(['--version', '-v', '--help', '-h']);
+
+/**
+ * The first token that is not an option, which is where a package manager
+ * subcommand actually lives: `npm --silent run lint` runs `run`.
+ */
+function firstSubcommand(argv: readonly string[]): string | undefined {
+  for (const token of argv.slice(1)) {
+    const value = token.toLowerCase();
+    if (!value.startsWith('-')) return value;
+    // An option that takes a value would otherwise let its value pose as the verb.
+    if (!PM_INFO_FLAGS.has(value) && !value.includes('=')) return undefined;
+  }
+  return undefined;
+}
+
+function risksOfPackageManager(argv: readonly string[]): RiskClass {
+  const sub = firstSubcommand(argv);
+  if (sub === undefined) {
+    return argv.slice(1).every((token) => PM_INFO_FLAGS.has(token.toLowerCase()))
+      ? 'EXECUTE'
+      : 'NETWORK';
+  }
+  if (PM_REMOTE.has(sub)) return 'REMOTE_MUTATION';
+  if (PM_LOCAL.has(sub)) return 'EXECUTE';
+  return 'NETWORK';
+}
+
+/**
+ * Why a network-classed command is refused, in the command's own terms.
+ *
+ * One sentence would be legal and useless: a report reader needs to know whether
+ * the run tried to fetch a URL, download a package, or hand its own files to a
+ * server, because those are three different accidents.
+ */
+function networkReason(argv: readonly string[]): string {
+  const program = programName(argv[0] ?? '');
+  const shown = bound(argv.join(' '));
+  if (
+    BARE_RUNNERS.has(program) ||
+    firstSubcommand(argv) === 'exec' ||
+    firstSubcommand(argv) === 'dlx' ||
+    firstSubcommand(argv) === 'x'
+  ) {
+    return `Refusing ${shown}: it can fetch a package and execute code that is not here yet, which is a second supply chain behind the one this build already trusts.`;
+  }
+  if (PACKAGE_MANAGERS.has(program)) {
+    return `Refusing ${shown}: it would reach the registry and change this checkout's dependencies. MergeSutra never installs anything on a run's behalf; a human installs, or a CI system does.`;
+  }
+  return `Refusing ${shown}: a run does not open its own network channel. MergeSutra's own network use is its two transports — the issue reader and the model client — and neither goes through this decision.`;
+}
 
 /** Classify one request. Public so a report can state what it decided. */
 export function riskOf(request: ToolOp): RiskClass {
@@ -279,12 +400,19 @@ export function riskOf(request: ToolOp): RiskClass {
 function riskOfCommand(argv: readonly string[]): RiskClass {
   const program = programName(argv[0] ?? '');
   if (PRIVILEGE_PROGRAMS.has(program) || REMOVAL_PROGRAMS.has(program)) return 'DESTRUCTIVE';
-  if (INTERPRETERS.has(program) && argv.some((token) => INLINE_CODE_FLAGS.has(token))) {
+  if (
+    INTERPRETERS.has(program) &&
+    argv.some((token) => INLINE_CODE_FLAGS.has(token.toLowerCase()))
+  ) {
     return 'DESTRUCTIVE';
   }
+  if (GITHUB_CLI.has(program)) return 'REMOTE_MUTATION';
+  if (BARE_RUNNERS.has(program)) return 'NETWORK';
+  if (NETWORK_CLIENTS.has(program)) return 'NETWORK';
+  if (PACKAGE_MANAGERS.has(program)) return risksOfPackageManager(argv);
   if (program === 'git') return risksOfGitArgv(argv);
-  // `npm run check`, `prettier --write .`, `vitest run` — ordinary EXECUTE.
-  // Whether the *arguments* are the repository's own is Stage 7's gate.
+  // `prettier --write .`, `vitest run` — ordinary EXECUTE. Whether the
+  // *arguments* are the repository's own is Stage 7's gate.
   return 'EXECUTE';
 }
 
@@ -314,7 +442,19 @@ export function decideTool(request: ToolOp, context: ToolContext): ToolDecision 
     };
   }
   if (risk === 'REMOTE_MUTATION') return decideRemote(request, context);
-  if (request.op === 'execute') return decideExecute(request, context, risk);
+  if (request.op === 'execute') {
+    // A network client named by a run is not workspace execution that happens to
+    // be confined: the confinement is the part it does not care about.
+    if (risk === 'NETWORK') {
+      return {
+        risk,
+        allowed: false,
+        requiresApproval: false,
+        reason: networkReason(request.argv),
+      };
+    }
+    return decideExecute(request, context, risk);
+  }
   if (request.op === 'network') {
     return {
       risk,

