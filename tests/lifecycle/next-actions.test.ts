@@ -1,16 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
 import { defaultRunner, type Runner } from '../../src/core/runner.js';
+import { repairPlanDigest } from '../../src/repair/digest.js';
+import { parseRepairPlan } from '../../src/repair/plan.js';
 import { nextActionsFor } from '../../src/lifecycle/next-actions.js';
 import { runPrStage } from '../../src/pr/stage.js';
 import { buildEvidencePack } from '../../src/report/pack.js';
 import { writeEvidencePack } from '../../src/report/write.js';
+import { cycleFor } from '../helpers/repair.js';
 import { cleanUp, contractBackedRun, NOW } from '../helpers/plan.js';
 import { snapshotOf } from '../helpers/snapshot.js';
 import { recordWith } from '../helpers/review.js';
 import { reviewedRun } from '../helpers/repairRun.js';
 import { proposedRun } from '../helpers/publicationRun.js';
 import { hasGit } from '../helpers/git.js';
+import { describePatch } from '../../src/verify/patch.js';
 
 /**
  * What a run may be told to do next, derived from what is actually true.
@@ -21,9 +25,10 @@ import { hasGit } from '../helpers/git.js';
  * person time or trust: a `review` offered over receipts that describe gone bytes
  * (it would spend a model call to produce a stale document), a `pr` offered while a
  * HIGH finding waits for a repair, a `repair` offered against a plan frozen for a
- * patch that no longer exists, a suggestion worded as though somebody had already
- * said yes, or any command suggested at all when the workspace is missing and every
- * one of them would fail for the same reason.
+ * patch that no longer exists or for a cycle this run has already carried out, a
+ * suggestion worded as though somebody had already said yes, or any command
+ * suggested at all when the workspace is missing and every one of them would fail
+ * for the same reason.
  *
  * The other half of the contract is what is *never* offered: no cleanup, no reset,
  * no re-run of a loop whose budget belongs to `resume`, and nothing that reads as
@@ -107,6 +112,94 @@ describe.skipIf(!AVAILABLE)('what a run is offered', () => {
     const actions = await commandsFor(fixture.record, fixture.runsRoot);
 
     expect(commands(actions)).not.toContain('repair');
+  });
+
+  it('does not offer a repair whose approved cycle this run has already spent', async () => {
+    const fixture = await reviewedRun(tempDirs);
+    const patch = await describePatch({ workspace: fixture.workspace, baseSha: fixture.base });
+    const spent = cycleFor({
+      plan: fixture.plan,
+      patch,
+      implementation: fixture.record.implementation!,
+      createdAt: new Date(NOW.getTime() + 60_000).toISOString(),
+    });
+    // A person re-words the sentence the plan carries, in the record on disk. That
+    // sentence is inside the digest, so the approval the record names no longer
+    // matches the plan it is quoted against — and the screen reads that as a yes
+    // still owed. It is not: it is the same cycle that has already been carried out,
+    // wearing a new approval.
+    const reworded = parseRepairPlan({
+      ...fixture.plan,
+      findings: fixture.plan.findings.map((finding) => ({
+        ...finding,
+        intendedChange: 'Give the parser the branch the criterion asks for, later.',
+      })),
+    });
+    expect(repairPlanDigest(reworded)).not.toBe(repairPlanDigest(fixture.plan));
+
+    const snapshot = await snapshotOf(
+      recordWith(fixture.record, { repairPlan: reworded, repairExecutions: [spent] }),
+      fixture.runsRoot,
+    );
+
+    // The refusal has to be reachable for the offer to be the bug: an approval that
+    // does not match the plan on record is exactly what makes this screen speak.
+    expect(snapshot.lifecycle.states.repairApproval).toBe('STALE');
+    expect(nextActionsFor(snapshot).map((action) => action.command)).toEqual(['report']);
+  });
+
+  it('still offers a repair frozen for a cycle this run has not spent', async () => {
+    const fixture = await reviewedRun(tempDirs);
+    const patch = await describePatch({ workspace: fixture.workspace, baseSha: fixture.base });
+    const spent = cycleFor({
+      plan: fixture.plan,
+      patch,
+      implementation: fixture.record.implementation!,
+      createdAt: new Date(NOW.getTime() + 60_000).toISOString(),
+    });
+    // The same approval state as the refusal above — a plan whose digest no filed
+    // execution names — and the opposite verdict, because what separates them is the
+    // cycle pair. A later review can freeze a later cycle, and that cycle is still
+    // owed its decision.
+    const nextCycle = parseRepairPlan({
+      ...fixture.plan,
+      reviewCycle: 2,
+      repairCycle: 2,
+    });
+
+    const snapshot = await snapshotOf(
+      recordWith(fixture.record, { repairPlan: nextCycle, repairExecutions: [spent] }),
+      fixture.runsRoot,
+    );
+
+    expect(snapshot.lifecycle.states.repairApproval).toBe('STALE');
+    expect(snapshot.repair?.plan).toMatchObject({ reviewCycle: 2, repairCycle: 2 });
+    expect(nextActionsFor(snapshot).map((action) => action.command)).toContain('repair');
+  });
+
+  it('binds a spent cycle to the whole pair, not to its review half', async () => {
+    const fixture = await reviewedRun(tempDirs);
+    const patch = await describePatch({ workspace: fixture.workspace, baseSha: fixture.base });
+    const spent = cycleFor({
+      plan: fixture.plan,
+      patch,
+      implementation: fixture.record.implementation!,
+      createdAt: new Date(NOW.getTime() + 60_000).toISOString(),
+    });
+    // Stage 9's review freezes both halves of a cycle together, so a record whose
+    // repair half moved on alone can only have been rewritten by a hand. It is worth
+    // naming because it draws the guard's exact line: what is refused is a cycle this
+    // run has *filed*, and a person who writes a cycle the run has not filed is
+    // making a new decision that `mergesutra repair` will run under its own approval.
+    const otherRepair = parseRepairPlan({ ...fixture.plan, repairCycle: 2 });
+
+    const snapshot = await snapshotOf(
+      recordWith(fixture.record, { repairPlan: otherRepair, repairExecutions: [spent] }),
+      fixture.runsRoot,
+    );
+
+    expect(snapshot.repair?.plan).toMatchObject({ reviewCycle: 1, repairCycle: 2 });
+    expect(nextActionsFor(snapshot).map((action) => action.command)).toContain('repair');
   });
 
   it('offers the page only once the patch is what the receipts say it is', async () => {

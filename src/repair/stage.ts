@@ -131,6 +131,7 @@ export async function runRepairStage(
   const runId = input.runId ?? (await newestPlannedRunId(store));
   const source = parseRunRecord(await store.load(runId));
   const plan = requirePlan(source, runId);
+  refuseSpentCycle(source, plan);
   const contract = need(
     source.acceptanceContract,
     runId,
@@ -335,6 +336,37 @@ export async function runRepairStage(
     packDir,
     packError,
   };
+}
+
+/**
+ * One approved cycle, once — whatever the process count is.
+ *
+ * A cycle edits a repository, and the yes that authorises it names one digest.
+ * Every entry is handed a fresh loop budget by `resolveRepairLimits()`, so the only
+ * thing that bounds a run across restarts is how many cycles it has filed, and a
+ * count is a bound only if an entry reads it from the record rather than starting
+ * at zero again. The comparison is the cycle pair, not the plan digest: a digest
+ * covers a scope that a person can re-word in a persisted record, and a re-worded
+ * plan over a spent cycle is the same spent cycle wearing a new approval.
+ */
+function refuseSpentCycle(source: RunRecord, plan: RepairPlan): void {
+  const spent = source.repairExecutions.some(
+    (execution) =>
+      execution.reviewCycle === plan.reviewCycle && execution.repairCycle === plan.repairCycle,
+  );
+  if (!spent) return;
+  throw new AppError({
+    kind: 'validation',
+    message:
+      `Review cycle ${String(plan.reviewCycle)} / repair cycle ${String(plan.repairCycle)} of this run ` +
+      'has already been carried out and filed. Running this plan again would spend a cycle nobody ' +
+      'approved: the yes on record authorises the edit that document described, once.',
+    remediation:
+      'Read what the filed cycle did with `mergesutra status` and `mergesutra report`, then decide ' +
+      'the next step. A further cycle needs a fresh review of the current bytes and a plan frozen ' +
+      'from that reading, with its own approval.',
+    details: { runId: source.runId, reviewCycle: plan.reviewCycle, repairCycle: plan.repairCycle },
+  });
 }
 
 function requirePlan(source: RunRecord, runId: string): RepairPlan {

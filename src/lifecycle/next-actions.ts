@@ -16,7 +16,8 @@ import type { LifecycleArtifact } from './staleness.js';
  *    run's stage counter points at it.** Every one of the seven verbs below is
  *    gated on the graph's own row for the thing it produces: `review` is refused
  *    while the verification it would quote is stale, `repair` while the plan it
- *    would run is frozen against gone bytes, `pr` while a finding still waits for
+ *    would run is frozen against gone bytes or names a cycle this run has already
+ *    carried out, `pr` while a finding still waits for
  *    that repair. A stage that would refuse the command on its own preconditions is
  *    never suggested past them.
  * 2. **A cost is named, in capabilities.** `requires` says whether running this
@@ -138,7 +139,8 @@ function offersOf(snapshot: StatusSnapshot): Offer[] {
     holds('review') &&
     snapshot.repair?.plan &&
     holds('repairPlan') &&
-    !holds('repairApproval')
+    !holds('repairApproval') &&
+    !cycleAlreadySpent(snapshot)
   ) {
     offers.push({
       command: 'repair',
@@ -191,6 +193,26 @@ function offersOf(snapshot: StatusSnapshot): Offer[] {
   }
 
   return offers;
+}
+
+/**
+ * Whether the cycle the plan on record names has already been carried out.
+ *
+ * `mergesutra repair` refuses a plan whose cycle pair is filed, because the yes on
+ * record authorises the edit that document described once, and a second run of the
+ * same cycle would spend a cycle nobody approved. So the screen may not invite it —
+ * and the comparison has to be the pair, not the approval state. An approval row can
+ * be moved by re-wording a persisted plan, since the sentence a finding carries is
+ * inside its digest; a spent cycle cannot.
+ */
+function cycleAlreadySpent(snapshot: StatusSnapshot): boolean {
+  const plan = snapshot.repair?.plan;
+  const executions = snapshot.repair?.executions ?? [];
+  if (!plan) return false;
+  return executions.some(
+    (execution) =>
+      execution.reviewCycle === plan.reviewCycle && execution.repairCycle === plan.repairCycle,
+  );
 }
 
 /**
