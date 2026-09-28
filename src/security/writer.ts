@@ -36,7 +36,11 @@ import { sha256Hex } from './digest.js';
  *   digest of the bytes the caller was shown, or `expectedAbsent` for a file the
  *   caller believes is new. Immediately before the rename the writer reads the
  *   disk itself and proves the precondition still holds; if it does not, nothing
- *   is replaced and the failure is `STALE_FILE`.
+ *   is replaced and the failure is `STALE_FILE`;
+ * - and the same last moment re-proves the *way* — the ancestor resolution above
+ *   is run again before the rename, because the steps in between take time and a
+ *   directory that was real when the write was planned can be replaced by a link
+ *   while it proceeds.
  *
  * This is optimistic concurrency, not a filesystem transaction. The window
  * between that final check and the rename cannot be closed from user space, and
@@ -165,6 +169,15 @@ export async function openConfinedWriter(candidateRoot: string): Promise<Confine
         }
         // The proof happens here, after the bytes are safe on disk and before the
         // one operation that replaces anything. Everything above is reversible.
+        //
+        // The way is proved again, not just the bytes. The check at the top of this
+        // function judged a directory that may no longer exist: a temp file was
+        // written, synced and read back since, and an ancestor that was a plain
+        // directory then can be a link now. Proving it a second time here narrows
+        // the window to the microseconds before the rename; it does not close it,
+        // and docs/SECURITY_MODEL.md says so rather than this comment implying the
+        // check is a transaction.
+        await confine(relativePath);
         await verifyPrecondition(absolute, relativePath, precondition);
         await renameChecked(temp, absolute, relativePath);
       } catch (error) {
