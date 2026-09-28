@@ -43,19 +43,28 @@ GitHub Issue
   → Acceptance Contract evidence mapping
   → Human approval of one page, by digest
   → Pull-request draft (written and filed; not published)
+
+↺ at any point: `status` reads what is true now, and `resume` re-enters the chain at
+  the first stage whose facts expired — never by rolling the workspace back
 ```
 
 The hero command is `mergesutra issue <github-url>`. Phase commands
 (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `report`, `pr`,
 `status`, `resume`) exist for transparency, debugging and recovery — not to
 expand scope. What ships today is `inspect`, `contract`, `plan`, `implement`,
-`verify`, `review`, `report`, `repair`, `pr` and `status`, alongside `issue` and `doctor`.
+`verify`, `review`, `report`, `repair`, `pr`, `status` and `resume`, alongside
+`issue` and `doctor`.
 `pr` is Stage 10's, and it reaches as far as this build goes: it drafts the page,
 takes a human's digest-bound yes and files both — and no command here publishes
-anything. `status` is Stage 11's read-only half: it describes a run and the bytes
-beside it, changes nothing, and exits `0` for a blocked lifecycle because describing
-a blocked lifecycle is what it was asked to do (ADR-056). `run` and `resume` are
-designed and exit `2` until the rest of Stage 11 owns recovery.
+anything. `status` and `resume` are Stage 11's, and they are the two halves of
+recovery: `status` describes a run and the bytes beside it, changes nothing, and
+exits `0` for a blocked lifecycle because describing a blocked lifecycle is what it
+was asked to do (ADR-056); `resume` shows the one action the current facts justify,
+with its costs, and performs it only when a person types `--execute` — and it holds
+no execution consent, no repair approval, no publication approval, no remote
+permission and no credential of its own, so the honest end of a resumed chain is the
+same human boundary the direct commands stop at. `mergesutra run` is designed and
+still exits `2`, and `resume` is deliberately not a path to it.
 
 ## 4. Core promise
 
@@ -156,6 +165,15 @@ injection and cannot override MergeSutra's security policy.
   only implementation in this build refuses both calls, and which no production
   module imports at all, so no human's approval in this build can
   reach a repository that is not theirs.
+- Recovery is not a rollback, and a resumed action is not a second consent. A run
+  whose bytes disagree with its record is described that way and re-measured one
+  stage at a time; `reset`, `revert`, `clean`, `checkout -- .` and auto-stash appear
+  nowhere on a recovery path, and a source-shape test fails the build if one is
+  added — because the edit an interrupted cycle left behind is often the only
+  artifact it produced (ADR-057).
+- A lock is an exclusion, never a permission. One lifecycle mutation per run is
+  proved with `mkdir`, and holding one buys the right to be the only writer and
+  nothing else — not execution consent, not an approval, not a remote (ADR-058).
 - Commands run as argv arrays (no `shell: true`) with timeouts and bounded,
   redacted output.
 - Filesystem writes are proven to resolve inside the authorized workspace.
@@ -171,7 +189,7 @@ what was run, what passed, what failed or could not be checked — and decide
 whether to publish. Honest reporting of failures is a success condition, not a
 defect.
 
-## 10. Limitations (current, at Stage 10)
+## 10. Limitations (current, at Stage 11)
 
 - Implemented today: CLI skeleton, BharatCode adapter, config, redaction,
   structured errors, `doctor`, **intake** (`mergesutra issue <url>` — parses the
@@ -218,6 +236,20 @@ defect.
   path through the command ends by saying so. There is no exit `0` here either. §3's
   "decide whether to publish" has, at last, a command a person can answer with; the
   limit of what that answer buys is stated below.
+- Stage 11 shipped the **recovery pair** (`mergesutra status [run-id]` and
+  `mergesutra resume [run-id]`). The first is an observation with no write path at all:
+  a `StatusSnapshot` puts what the run recorded beside what the checkout shows now —
+  HEAD, the live patch identity, and each lifecycle document graded against the bytes
+  it was produced for — `CURRENT`, `STALE`, `UNMEASURABLE` when the current fact
+  cannot be measured at all, or `ABSENT` when none was ever filed — and it exits `0`
+  even
+  when what it found is a dead workspace, because the number is about the command and
+  the document is about the run. The second is a preview with one acting word: it names
+  the single stage the current facts justify, prints that stage's costs (a model
+  request, a credential, a workspace change, repository gates, an approval, a remote),
+  re-reads the state immediately before it acts, and stops at any boundary it cannot
+  cross on its own authority. Neither command holds, grants or implies a consent;
+  `resume` reaching `pr`'s boundary and refusing there is the design working, not a gap.
 - Stage 5 shipped the safety layer as **modules with no command**: the worktree
   manager (`src/git/workspace.ts`), the risk classifier
   (`src/process/tool-policy.ts`) and the confined writer
@@ -258,11 +290,12 @@ defect.
   full pass produces is `HUMAN_APPROVED_FOR_PR`, printed beside a literal
   `published: false` — `CONTRIBUTION_READY` remains unreachable in every screen and
   every record this build writes.
-- Recovery is split in two, and shipped in that order. Reading it (`status`) is
-  **[IMPLEMENTED]**: it describes a run beside the bytes that exist now, changes
-  nothing, and exits `0` for a blocked lifecycle. Acting on it (`resume`) is
-  **[DESIGNED]** / **[PLANNED]**, not
-  yet functional. Planned commands exit `2` rather than imitating success. The
+- Recovery was split in two and shipped in that order, and both halves are now
+  functional: reading it (`status`) and acting on it (`resume`) from Stage 11. What
+  the split still buys is the limitation that matters — a resumed action is one stage,
+  chosen by the facts, and no command here will keep going until a pull request
+  exists. `mergesutra run` remains the only planned stub and exits `2` rather than
+  imitating success. The
   pack `report` writes is three files rendered from one run record; the
   one-file-per-document bundle sketched in
   [ARCHITECTURE.md](ARCHITECTURE.md) §8 stays a sketch, because splitting the same
@@ -306,6 +339,18 @@ defect.
   samples both go through the real adapter against a local stub, with
   `BHARATCODE_API_BASE` overridden for the run. `tests/implement/live.test.ts`
   is the opt-in real-endpoint check, and it skips here rather than pretending.
+- Stage 11 earns recovery, not durability. It makes a stopped run legible and
+  continuable; it does not make one impossible to interrupt, and no sentence in this
+  product claims crash-proofing, perfect recovery, or that work is never lost — the
+  scenario its own hero walks through *is* a lost write, and the tool's contribution is
+  to describe and continue it, not to undo it. Four structural gaps follow from that
+  and are listed rather than smoothed: the lock is per-machine and per-run, and
+  `status` does not report lock state, so a second service finds out by colliding; the
+  observed-state digest is compared by the service but cannot be supplied from the
+  command line, so cross-process agreement is for programmatic callers; a record shows
+  one loop entry's spend, so a resumed stage's budget is measured against the entry
+  before it rather than a lifetime total; and `resume` still cannot get a run past a
+  boundary that needs a human, which is the point.
 - A plan is validated for **shape and coverage**, not merit. Nothing in Stage 4
   decides whether the proposed files are the right ones or the proposed commands
   will pass; that is what the next stages exist for.

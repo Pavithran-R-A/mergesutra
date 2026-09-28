@@ -411,6 +411,59 @@ counter-claim, it is met with a shape that has no field for it:
   would mean committing an operator's tree on their behalf, which no approval in this
   build claims to cover.
 
+### 2.6 The resumed stage (Stage 11)
+
+A recovery command is an injection target of a different shape, because it assembles no
+prompt. Nothing on the `status` or `resume` path asks a model anything — §18 holds by
+construction here, since no client type appears in `src/lifecycle/` at all — so the
+attack surface is not "text that steers a generator" but **text that claims a fact the
+decision is about to rely on**. The answers all come from measurements, and every claim
+in this section is that a document cannot substitute for one.
+
+- **Currency is computed from identities, never from prose.** `lifecycle/staleness.ts`
+  grades each artifact by comparing the patch identity it was produced for against the
+  identity of the bytes present now. A record, review, plan or pack that *says* it is
+  current, approved or finished is read as a document about some bytes: if the bytes
+  moved, the row says `STALE` and no wording anywhere in the record changes that. This is
+  the same rule §1 authority hierarchy states, applied to a run's own history.
+- **The lock's owner file is untrusted input, handled as one.** It is read from a
+  filesystem an operator may have edited, so it is shape-checked before it is believed,
+  its pid is bounded (`MAX_PID`) rather than passed anywhere, and it is never used to
+  construct a command. An owner record that cannot be parsed, names a different run, or is
+  in an unexpected shape produces a *block that quotes the path*, not a takeover — and the
+  reading it returns carries a `why` string, never the file's raw contents, so text planted
+  in that file has no route to a screen or an argv array. `HELD_BY_LIVE_PROCESS`,
+  `HELD_ON_ANOTHER_HOST`, `TAKEOVER_IN_PROGRESS`, `OWNER_UNREADABLE` and `PATH_OCCUPIED`
+  are the only answers a contended lock can give, and all five are refusals.
+- **Ownership is not authority, and the ordering proves it.** The capability checks
+  (`capabilityRefusal`, a spent-out loop, a blocker on the run) all happen *before* the
+  lock is claimed, and the release happens in a `finally` before any outcome word is
+  printed. So there is no code path where "I hold the lock" is the reason a stage ran, an
+  approval was skipped, or a boundary was crossed. A takeover carries the dead holder's
+  identity forward as `brokenFrom` — as evidence, with no permission attached to it.
+- **A preview's honesty is structural, and its costs are printed even when they are
+  none.** §16's default is that nothing runs; the executed path then re-reads the whole
+  state and compares `observedStateDigest` immediately before it acts, so the window
+  between "shown" and "done" is closed by measurement rather than by a flag a person could
+  get wrong (§34, ADR-057). Every cost row prints whether or not it is the interesting
+  one, because a screen that reads as safe because it was short is the failure mode this
+  command exists to avoid.
+- **The resumed stage inherits its boundaries, and gains none.** `verify` under `resume`
+  still needs `--allow VG-00n` bound to that plan digest and that patch; a repair plan
+  still needs its own digest at `mergesutra repair`; the publication page still needs a
+  human's yes typed at `mergesutra pr`, and `resume` refuses to be the thing that
+  pretends otherwise — its last screen in the hero is `PUBLICATION_APPROVAL_REQUIRED` /
+  `NOTHING WAS RUN.` at exit `4`. The residual budget from `lifecycle/budget.ts` closes the
+  other classic recovery escalation: a re-entered loop is bounded by what the previous
+  entry spent, so resuming cannot buy a second allowance (§19).
+- **Known gap, stated rather than smoothed over:** `status` does not report lock state,
+  so a second service learns a run is held by colliding with it rather than by reading it —
+  a disclosure gap, not a race, since the collision is the exclusion working. The
+  observed-state comparison is not settable from the command line, so the cross-process
+  form of it is available only to programmatic callers. And as in §2.5, the ban on reaching
+  `gh`, `npm` or `curl` from anywhere on this path rests on the argv enumeration and the
+  source-shape guard, not on the risk classifier, which still has no name for them.
+
 ## 3. Tool risk classes and policy
 
 | Class           | Examples                                  | Policy                                            |
@@ -717,3 +770,21 @@ any remote change.
   refused outright. *(Kept as written: the command now exists, and it kept the
   promise — §2.5 and the bullet above describe a Stage 10 whose remote is a
   refusal, and whose approval buys a filing rather than a push.)*
+- Stage 11 is where this section's "never hard-reset the user's checkout" and "never
+  `git clean`" stop being instructions to a well-behaved stage and become a checked
+  property of the recovery path. A run cut off between a landed edit and its lost record
+  is the exact situation in which `reset --hard`, `checkout -- .`, `clean` and `stash`
+  look like helpful fixes and would each destroy the only artifact the interrupted cycle
+  produced — so none of them exists on any path a `status` or `resume` command can reach,
+  and `tests/lifecycle/source-shape.test.ts` enumerates every command site that path can
+  reach, classifies each with the production risk oracle, and fails the build if a write
+  appears (§35, §56, ADR-057). `tests/lifecycle/interruption.test.ts` and
+  `tests/lifecycle/hero.test.ts` carry the other half of the claim: they read the
+  workspace back after a recovery — the repaired file contents, `HEAD`, and a still-dirty
+  `git status --porcelain` — so the absence of a rollback is measured in bytes rather than
+  argued from a code review. Observing a workspace costs read commands only —
+  `rev-parse`, `cat-file -e`, and the `diff`/`ls-files` measurements
+  `verify/patch.ts` makes — and the run lock's owner file is never interpolated into a
+  command at all. What this does **not** buy is durability: a run can still be
+  interrupted in a way that loses a write, and recovery's promise is that the result is
+  legible and continuable, not that it never happens.

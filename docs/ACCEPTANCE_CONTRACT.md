@@ -281,6 +281,92 @@ Three rules that live in the shapes rather than in prose:
   with the same statuses — `pr` is a consumer of this contract, and has no field
   on it to rewrite.
 
+### The recovery pair (Stage 11)
+
+`src/lifecycle/staleness.ts`, `observe.ts`, `snapshot.ts`, `next-actions.ts`,
+`resume-plan.ts`, `budget.ts`, `lock.ts` and `resume.ts`. Stage 11 files no new
+promise about the *work* — it files documents about the **state of** the work, and
+each of them is `.strict()`. The run record stays at schema version 9: nothing here
+adds a field a person could mistake for an outcome.
+
+```ts
+LifecycleArtifact (9)   // verification, evidence, review, repairPlan,
+                        // executionConsent, pack, candidate,
+                        // publicationApproval, repairApproval
+LifecycleState (4)      // CURRENT | STALE | UNMEASURABLE | ABSENT
+
+lifecycleStaleness(facts) → { states, rows }
+  // facts: one { recorded, current } pair per artifact, brought by the caller.
+  // recorded === null            → ABSENT
+  // recorded set, current null   → UNMEASURABLE
+  // the two digests differ       → STALE, else CURRENT
+  // then every row widens to the worst state on anything it is built from
+  //   evidence ← verification, review ← evidence, repairPlan ← review,
+  //   candidate ← pack + review, publicationApproval ← candidate
+  // and ABSENT — the one state that means "never filed", not "expired" — is the
+  // only state that does not travel along an arrow.
+
+StatusSnapshot { schemaVersion 1, runId, observedAt,               // .strict()
+  recorded:   { stage, outcome, nextStage, createdAt, mergeSutraVersion }
+  workspace:  { state, path, recordedBaseSha, observedHead,
+                currentPatchIdentity, recordedPatchIdentity, detail }
+  patch:      { recorded, current, status }        // the pair, with the graph's row
+  contract | plan | implementation | verification | evidence | review
+       | repair | publication                       // each null until that stage files it
+  report:     { packOnDisk, state, regenerable: literal true }
+  lifecycle:  { states keyed by the 9 artifacts, rows }
+  blockers, warnings, safeNextActions
+}
+  // The record's words and this machine's bytes sit in separate fields and are
+  // never fused. `PASS` beside `STALE` in one row is the honest shape of a run
+  // whose files moved after its gates ran.
+
+SafeNextAction { command, reason,
+  requires: MODEL | REPOSITORY_COMMAND | HUMAN_APPROVAL | EXECUTION_CONSENT | LOCAL_ONLY }
+
+ResumePlan { schemaVersion 1, runId,
+  observedStateDigest,   // sha256 over the snapshot minus the moment it was read
+  currentPatchIdentity,  // 64-hex, or null when nothing measurable is here
+  action, reason,
+  stage, command, requiresModel, requiresCredential, requiresExecutionConsent,
+  requiresRepairApproval, requiresPublicationApproval, mutatesWorkspace }
+  // `action` is one of thirteen names, from DERIVE_ACCEPTANCE_CONTRACT to
+  // NOTHING_TO_RESUME; none of them means published, pushed, created or merged.
+
+RunLock  <runsRoot>/<runId>.lock/owner.json     // operation: resume, and only resume
+  // block reasons: HELD_BY_LIVE_PROCESS | HELD_BY_THIS_PROCESS |
+  // HELD_ON_ANOTHER_HOST | TAKEOVER_IN_PROGRESS | OWNER_UNREADABLE | PATH_OCCUPIED
+
+ResumeResult → PREVIEW | RAN | REFUSED (CAPABILITY_REQUIRED | AWAIT_HUMAN |
+                                      NOTHING_TO_RESUME)
+             | BLOCKED (WORKSPACE_BLOCKED | LOCK_HELD | STATE_CHANGED | NO_EXECUTOR)
+```
+
+Five rules that live in the shapes rather than in prose:
+
+- **No row is set by asking.** Nothing in Stage 11 writes a run record, a receipt or
+  an approval. A snapshot is derived from documents other stages filed, `observe.ts`
+  runs read commands only, and `status --json` prints that derived document without
+  storing it — so there is no path by which looking at a run changes what a later
+  stage can claim about it.
+- **`UNMEASURABLE` is the refusal to guess.** When the current fact cannot be
+  measured (the workspace is gone, HEAD has moved, the patch cannot be described),
+  the row says it cannot be measured instead of calling the document stale or
+  current. `ABSENT` and `UNMEASURABLE` are different sentences, and only one of them
+  is a complaint about the run.
+- **Currency is computed, never narrated.** Every `state` field in the snapshot is
+  copied out of the one graph, so a status screen and a resume plan cannot disagree
+  about what expired, and neither can be talked into a friendlier answer.
+- **An action is bound to the facts that justified it.** `observedStateDigest` is a
+  hash over the snapshot the plan was read from, `--execute` re-reads the state and
+  compares before dispatch, and a mismatch is `BLOCKED: STATE_CHANGED`. The digest is
+  not a token to be replayed: it is the run's way of admitting the ground moved.
+- **A lock is data, not authority.** `owner.json` is parsed as untrusted input, a
+  lock that names another host blocks rather than being deleted, age is never
+  evidence of death, and a proven-dead lock is *claimed* by writing again — never
+  removed. Holding one grants no consent, no approval, no credential and no remote
+  permission; `resume` refuses on the plan's own cost flags *before* it claims.
+
 ## Hard rules
 
 1. **Truthful states.** `PASS` only when the referenced evidence actually shows

@@ -1359,3 +1359,99 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   its own outcome. Nothing about this makes `status` a success signal for the run; the
   snapshot's `recorded.outcome`, `lifecycle.states` and `blockers` are the verdict, and the
   screen prints them under words that say which of the two is being claimed.
+
+## ADR-057 — Recovery reads the current facts and never repairs history, and there is no flag to confirm them
+
+- **Decision:** a resumed stage is gated on a *re-reading* of the present, never on a
+  rewriting of the past. `runResumeStage` observes the workspace, measures the patch
+  identity that exists now, and rebuilds the plan from a fresh `StatusSnapshot`
+  immediately before it dispatches anything; the two digests are compared, and a
+  difference is a block. Nothing anywhere in the recovery path edits a record to match the
+  workspace, marks an expired artifact current without re-measuring it, or alters the
+  checkout to match the record: `src/lifecycle/` contains no reset, no revert, no clean, no
+  checkout-of-paths and no stash, and `tests/lifecycle/source-shape.test.ts` fails the
+  build if one is added. The user's own words are preserved there — §22's "Never auto-revert.
+  Never reset. Never clean."
+- The second half of the decision is a refusal. §34 asks for "a simpler
+  compare-immediately-before-action mechanism" over invented confirmation UX, so
+  `mergesutra resume` has exactly one acting word, `--execute`, and **no `--confirm
+  <digest>` flag**. The observed-state digest is printed on the preview for a person to
+  read and for a programmatic caller to pass back through `expectedObservedStateDigest`;
+  no command-line option sets that field, because the comparison that protects a human
+  happens whether or not they transcribe anything.
+- **Reason:** the tempting shortcut in every recovery tool is the one that makes the story
+  end. A stale run is a set of documents that disagree about bytes, and the cheapest way to
+  make them agree is to throw away the bytes — `git checkout -- .` clears a dirty workspace
+  and every `STALE` row with it, at the cost of the one artifact the interrupted cycle
+  produced. §22's dangerous case is exactly that artifact: a repair that landed and lost its
+  record. Recovery that destroys it is worse than no recovery, so the design makes the
+  workspace authoritative and the documents the things that must earn their currency again,
+  one measured stage at a time.
+- A `--confirm <digest>` flag would look like the safety feature and be its opposite. Re-typing
+  a hex string proves the caller can copy, not that the state held; it makes a person's
+  transcription the check, and transcription is where stale digests pasted from a scrollback
+  and digests typed for the wrong run come from. Worse, it makes the *absence* of a flag the
+  unsafe path, so the plain `--execute` a tired operator types would be the weaker one. The
+  property wanted is "the stage that ran was the stage I was shown", and the re-read delivers
+  it directly — including for the caller who never saw the preview, who gets the fresh digest
+  printed and a refusal if the two do not match.
+- **Alternatives:** auto-revert or auto-stash a dirty workspace before resuming (destroys
+  the artifact; §22 forbids it outright); `resume --hard` / `--force` to skip re-measurement
+  (a flag whose only effect is to disable the stage's own evidence); a `--confirm <digest>`
+  handshake (rejected above); trusting the record's stage list instead of the workspace
+  (that is what produced the stale state, and it would let a run that never re-ran its gates
+  reach a page); "resume the whole pipeline until PR" (§14 defines `resume` against exactly
+  this reading — a loop that decides for itself when to keep going is what produced the run
+  that now needs recovering).
+- **Consequence:** a stale run stays stale until a stage actually re-measures it, and the
+  screen says `STALE` in as many places as that takes. `tests/lifecycle/interruption.test.ts`
+  walks eleven different places a run can be cut off and reads the truth back from disk at
+  each one; `tests/lifecycle/hero.test.ts` finishes by reading the repaired file contents,
+  `git rev-parse HEAD` and `git status --porcelain` off the real checkout, so the claim is
+  measured at the end rather than promised at the start. And the source-shape guard means the
+  next person cannot add the convenient rollback without a test failing first.
+
+## ADR-058 — Run locks serialize lifecycle mutation but grant no capability
+
+- **Decision:** `src/lifecycle/lock.ts` provides one exclusive claim per run, proved on the
+  filesystem: `<runsRoot>/<runId>.lock/` holding `owner.json` with the run, the operation,
+  the pid, the host, the time and a random token. Acquisition is a single `mkdir` — atomic,
+  exclusive and crash-safe on both POSIX and Windows, with no dependency — and it is
+  single-shot, so a contended run is reported immediately and no caller waits on a timer.
+  `resume` claims the lock after it has refused everything it can refuse for free, and
+  releases it in a `finally`. The lock authorises nothing beyond that exclusion: it is not
+  execution consent, not repair consent, not publication approval, not a credential, and not
+  a remote permission, and the module writes no run record.
+- **Reason:** `resume` writes. It can run a repository's gates and file receipts against one
+  workspace and one record, so two processes resuming one run is not two attempts that
+  overlap harmlessly — the second one's idea of "what is true now" is partly the first one's
+  work. An in-process mutex cannot help because they do not share a process, so the claim has
+  to live somewhere both must pass through.
+- The rules about *death* are the load-bearing part. Age is never evidence of death — a long
+  build is a legitimate holder — so a lock is only taken over when this machine can prove the
+  recorded pid is not a process any more, on the same host, from a record it can fully parse.
+  Pid reuse can make a dead holder look alive, which blocks; nothing here can make a live
+  holder look dead. Even a proven-dead lock is not deleted: a second atomic `mkdir` names
+  exactly one winner, the dead holder's identity is copied into the new owner record as
+  `brokenFrom`, and the claim directory is removed behind it. A lock on another host, an
+  unreadable owner record, a record naming a different run, and a path held by a non-directory
+  are all *blocked on*, never interpreted, and the message carries the path.
+- **Alternatives:** rely on the observed-state digest alone (two resumers can both pass their
+  own comparison and interleave writes in one workspace — the digest protects against a state
+  that moved, not against a state somebody is moving); a process-wide or file lock via a
+  native dependency (a lock that cannot survive a crash is not a recovery primitive, and no
+  package is needed for `mkdir`); delete a lock after N minutes (a slow-but-live stage gets
+  stomped, which is the failure this module exists to prevent); auto-remove a lock this
+  process did not create (turns every confusing collision into silent data loss, so the
+  refusal says plainly that it "will not remove a lock it did not create"); a single global
+  lock (one run at a time across all state, which punishes unrelated work for no safety).
+- **Consequence:** `tests/lifecycle/lock.test.ts` (eighteen cases) covers who may be believed
+  dead and what may not be deleted; `tests/lifecycle/lock-hero.test.ts` is the question a
+  person notices — service A holds the run, service B is refused, and B's refusal is proved to
+  have refused something (no pack written, no record saved, no model asked, A's token still
+  holding), then B goes through unchanged after A releases. Holding a lock still buys no
+  authority: acquisition happens *after* the capability refusals and the release happens
+  before the outcome word is printed, so no path exists where "I own the lock" is the reason
+  something ran. The known gap is disclosure, not mechanism: `status` does not report lock
+  state, so a second service learns about a held lock by colliding with it — recorded in the
+  README limitations and left for a later stage rather than papered over here.

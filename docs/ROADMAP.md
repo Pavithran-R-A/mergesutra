@@ -798,11 +798,139 @@ it.
       them rests on the argv enumeration and the import boundary rather than on the
       classifier. `mergesutra run`, `status` and `resume` still exit `2` —
       [Stage 11](#stage-11--resumerecovery--failure-ux) owns recovery and failure UX.
+      *(Kept as written: Stage 11 implemented `status` and `resume` and left `run` a
+      stub. `resume` cannot close that gap either — the whole reason it exists is that a
+      pipeline which decides for itself when to keep going is what produced the run it
+      would have to recover.)*
 
-## Stage 11 — Resume/recovery + failure UX
+## Stage 11 — Resume/recovery + failure UX — **[DONE]**
 
-- [ ] `status` / `resume`; refuse unsafe resume (changed base SHA / corrupted state)
-- [ ] What-failed/why/what-is-untouched/next UX
+This stage had one job: make a run that stopped somewhere along the road describable and
+continuable without anybody re-earning a fact they never earned or destroying the one
+artifact an interrupted cycle left behind. The design answer was that recovery is not a
+new capability but a *reading* — so the stage is mostly modules that observe, one command
+that only reads, one command that acts under exactly one word, and a lock whose entire
+purpose is to be refused.
+
+- [x] Currency is computed, never remembered (`src/lifecycle/staleness.ts`). Every
+      lifecycle artifact — `verification`, `evidence`, `review`, `repairPlan`,
+      `executionConsent`, `pack`, `candidate`, `publicationApproval`,
+      `repairApproval` — is graded `CURRENT`, `STALE`, `ABSENT` or `UNMEASURABLE`
+      against the identity it was produced for, and the expiry *travels*:
+      a verification measured against patch A makes every document downstream of it
+      stale on patch B, because none of them can describe bytes they were never shown.
+      `STALE` here has nothing to do with a clock; it means the named bytes are not the
+      bytes here. A repair that did its job is not an expiry the page inherits
+      (c434621, found while building this stage). 27 tests.
+- [x] Observation changes nothing (`src/lifecycle/observe.ts`). A workspace is read
+      through Git commands that only read, and the module's contract is that an
+      unobservable workspace is reported as a *block with a reason* rather than as an
+      empty state — the difference between "there is nothing here" and "I could not
+      look". 19 tests, each asserting the checkout afterwards is what it was before.
+- [x] One document holds both accounts (`src/lifecycle/snapshot.ts`): the
+      `StatusSnapshot` puts what the run *recorded* beside what the machine *shows* —
+      recorded outcome, stage and patch identities versus the current workspace state,
+      HEAD, the live patch identity, every lifecycle row's currency, the blockers, the
+      report's pack-on-disk status and the count of candidates and approvals. It is a
+      domain object, not a serializer: nothing in it is derived at print time, so
+      `--json` and the screen cannot disagree. 18 tests.
+- [x] Next actions are arithmetic (`src/lifecycle/next-actions.ts`). Safe offers are
+      computed from the snapshot — `verify` before `report` when the evidence expired,
+      `pr` when a current pack exists — and a blocked run yields no offer at all rather
+      than the optimistic one. A command that would need somebody's approval is named
+      with where that approval lives, not presented as a next step. 11 tests.
+- [x] `mergesutra status [run-id]` is wired, read-only, and exits on its own account
+      (`src/cli/status.ts`, `src/lifecycle/status.ts`): `0` whenever a snapshot was
+      produced — including one of a dead workspace, an expired lifecycle or a failed
+      verification — and `1` only when there was nothing to describe, which is exactly
+      two paths: no record where it was told to look, and an unparseable one.
+      `exitForOutcome()` is deliberately not called, so the number is never confused
+      with the run's verdict; ADR-056. `--json` carries the same snapshot. 13 tests.
+- [x] One lifecycle mutation per run, proved on the filesystem (`src/lifecycle/lock.ts`):
+      a lock directory made by a single atomic `mkdir`, holding an owner record written
+      temp-then-rename. Acquisition is single-shot, so no test and no runtime waits on a
+      sleep. Age is never evidence of death — a takeover happens only when this machine
+      can prove the recorded pid is gone, on the same host, from a record it can fully
+      parse — and even then the dead lock is *claimed*, with the previous owner carried
+      forward as `brokenFrom`, never deleted. An unreadable owner, another host, a
+      foreign run id or a path held by a non-directory are blocked on with the path in
+      the message. Holding it authorises nothing: not execution consent, not repair
+      consent, not publication approval, not a remote. ADR-058. 18 tests.
+- [x] `ResumePlan` (`src/lifecycle/resume-plan.ts`) is thirteen action names, each
+      carrying its own costs — `DERIVE_ACCEPTANCE_CONTRACT`, `CREATE_PLAN`,
+      `RUN_IMPLEMENTATION_LOOP`, `CONTINUE_IMPLEMENTATION`, `VERIFY_CURRENT_PATCH`,
+      `REVIEW_CURRENT_PATCH`, `REPAIR_PLAN_APPROVAL_REQUIRED`,
+      `REGENERATE_EVIDENCE_PACK`, `BUILD_PUBLICATION_CANDIDATE`,
+      `PUBLICATION_APPROVAL_REQUIRED`, `AWAIT_HUMAN`, `RECOVERY_BLOCKED`,
+      `NOTHING_TO_RESUME` — and no member of that list means "approved", "published" or
+      "done": the four `*_REQUIRED`/`AWAIT_HUMAN` names are boundaries a run is *at*, not
+      steps it may take, and `REGENERATE_EVIDENCE_PACK` deliberately carries `stage:
+      null` because a pack is a rendering and files no record of its own. The plan also
+      carries `observedStateDigest`, a hash over the snapshot it was read from minus the
+      moment it was read, so an action can be bound to the facts that justified it. 17
+      tests.
+- [x] A resumed loop gets what is left, not a fresh allowance (`src/lifecycle/budget.ts`).
+      The residual limits come from the entry that last ran, so if 8 of 12 steps were
+      spent the resumed entry is bounded at 4 — the failure mode where a recovery tool
+      buys itself twice the autonomy is closed by construction rather than by
+      documentation. An interrupted loop's attempt count persists (the record, not the
+      memory, is the ledger). 20 tests.
+- [x] The service is a sequence of gates in front of one call (`src/lifecycle/resume.ts`):
+      read the plan, refuse on the plan's own words *before* claiming the run, claim the
+      lock, re-read the state and compare its digest immediately before acting, hand the
+      stage its residual limits, and release in a `finally`. It writes no run record and
+      dispatches no stage itself — `src/lifecycle` has no view of the command layer, so
+      the executor arrives injected and a refusal is provable as never having reached it.
+      18 tests, including "leaves no lock behind when the stage it was told to run fails".
+- [x] `mergesutra resume [run-id]` previews by default and acts on one word
+      (`src/cli/resume.ts`). `--execute` is the only acting flag; there is no `--yes`, no
+      `--force`, no `--all` and — per §34, deliberately — no `--confirm <digest>`, because
+      re-typing a hex string proves a person can copy, while the re-read proves the state
+      held. Six cost rows (model request, credential, workspace, repository gates,
+      approval, remote) print on every preview, whether or not they are the interesting
+      one, so no screen can read as safe because it was short. `--allow VG-00n` passes
+      through to Stage 7's consent, which stays bound to that plan digest and that patch.
+      Exit codes follow §37: a preview is judged by what the run is, an executed stage
+      returns its own outcome, and a refusal is `4` — except `AWAIT_HUMAN`, which is `3`
+      because nothing is wrong with the run, only with what it may do next. 17 tests.
+- [x] The recovery path is guarded as data, not as intent (`tests/lifecycle/source-shape.test.ts`).
+      §35 and §56 forbid `git reset --hard`, `clean`, `checkout -- .` and auto-stash, and
+      a rollback never announces itself in a diff, so the guard walks every module a
+      resumed stage can reach, enumerates each command site, classifies it with the
+      product's own risk oracle, and fails on a new one. 15 tests.
+- [x] `tests/lifecycle/interruption.test.ts` stops the run at every boundary it can be
+      stopped at — eleven of them — and reads the truth back from disk at each, with the
+      workspace's bytes and `git status` checked rather than the tool's own account.
+- [x] The heroes are the whole point. `tests/lifecycle/hero.test.ts` takes a run cut off
+      between a landed edit and its lost record and brings it forward through the shipped
+      CLI entry point: a preview that spends no request and starts no process, an executed
+      `verify` that runs the repository's own gates against the bytes present now, a review
+      that costs the recovery's single model call, a regenerated pack, a regenerated
+      candidate that binds that pack — then a refusal at the publication boundary, because
+      `resume` holds no approval of its own, with no gate started and no record written.
+      It ends by reading the repair's file contents, `HEAD` and a still-dirty porcelain
+      status off the real checkout, so §22 is measured rather than promised.
+      `tests/lifecycle/lock-hero.test.ts` is the two-services case in the brief's own
+      order: A acquires, B is refused and proved to have done nothing, A releases, B walks
+      through the identical command unchanged. `MERGESUTRA_HERO_CAPTURE=1` over both prints
+      the screens the README quotes, so the captures are real stage output.
+- [x] 206 tests across fourteen files new to this stage (staleness 27, observe 19,
+      snapshot 18, next-actions 11, status 13, lock 18, resume-plan 17, budget 20, resume
+      service 18, resume command 17, source-shape 15, interruption 11, and one hero each in
+      `lifecycle/hero.test.ts` and `lifecycle/lock-hero.test.ts`), plus updates to
+      `tests/cli/program.test.ts` now that both commands exist. None needs a credential, a
+      network or a remote; the only model involved is a scripted client that throws if a
+      path asks it something.
+- [x] **Not done, and stated as a gap:** this is recovery, not durability. MergeSutra can
+      still lose work — the §22 case this stage builds its hero around *is* a lost write,
+      and nothing here prevents one — and no words like crash-proof, never-loses-work or
+      perfect recovery appear in this build's documentation because none is earned. The
+      lock is per-machine and per-run, and `status` does not report lock state, so a second
+      service learns about a held lock by colliding with it. The observed-state digest is
+      compared by the service but is not settable from the command line, so the
+      cross-process guarantee is available to programmatic callers only. A record shows one
+      loop entry's spend, not a lifetime total, so cumulative budget is read from the entry
+      before the current one. `mergesutra run` is still a planned stub exiting `2`.
 
 ## Stage 12 — Security hardening
 

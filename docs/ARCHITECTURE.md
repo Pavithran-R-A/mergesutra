@@ -106,6 +106,7 @@ to silently edit code.
 | GitHub        | Any remote mutation                         | `tool-policy` approval gate: a remote action needs a human yes for that exact summary, and a destructive one has no yes that enables it. Stage 6 does not offer one: asking to push is a refusal, not a prompt. *(Kept as written: Stage 10 added the second half — the publication remote that ships is `pr/publisher.ts`'s `unavailableRemote()`, which throws on both of its two methods.)* |
 | A publication proposal | A page assembled from a run, the text of an issue, and a yes that has to be about it | `pr/candidate.ts`: the thing approved is one strict document with no `approved`, `shouldPublish` or score field, so a candidate carrying a verdict does not parse; `pr/digest.ts`: fifteen labelled lines, validated before hashed, `createdAt` excluded so re-recording cannot expire a yes and the body folded in as `prBodySha256` so a rewrite cannot hide under one; `pr/approval.ts`: an `action` enum with one member and three states reached by equality, and `approvePublication()` computes the digest instead of accepting it; `pr/readiness.ts`: eight facts each printed with a reason, and the only two words it knows are `HUMAN_APPROVED_FOR_PR` and `NOT_READY_FOR_PUBLICATION`; `pr/stage.ts`: imports no client, transport, writer or runner, and re-measures the patch before it believes any staleness answer; `pr/publisher.ts`: two methods, both requests re-validated at that boundary, the only transport it defines a refusal that throws, and no production importer at all |
 | BharatCode    | Endpoint/credentials                        | Env-only config; central redaction; the key is required before a workspace is created |
+| A resumed stage | A workspace that moved while nobody was looking, a second service on the same run, and a record that describes bytes no longer here | `lifecycle/observe.ts`: reads a checkout through Git read commands and nothing else, so an observation cannot be the thing that changes it; `lifecycle/staleness.ts`: currency is computed from identities, never restored from the record's own memory of running; `lifecycle/resume.ts`: refuses on the plan's words *before* it claims the run, re-reads the state and compares `observedStateDigest` immediately before it acts, and hands the stage only the budget the last entry left (§19); `lifecycle/lock.ts`: one lifecycle mutation per run, and holding it authorises nothing — it never removes a lock it did not create and never treats age as evidence of death; `tests/lifecycle/source-shape.test.ts`: enumerates every command the recovery path can reach, classifies it, and fails the build on a write |
 
 ## 5. Workflow state machine
 
@@ -141,13 +142,25 @@ workspace byte-identical. `REPAIR` is now built too, and it is the one state in 
 machine that edits: `mergesutra repair` runs an approved plan through
 `IMPLEMENT`'s own loop, then goes back through `VERIFY` on the bytes that exist now,
 so `REPAIR → IMPLEMENT → VERIFY` is a real path with a real command at its start
-rather than a **[DESIGNED]** arrow. What is still **[DESIGNED]** is `HUMAN_APPROVAL`
-onward — which is why `mergesutra run` and
-`resume` still exit `2` as planned, while `status` is the read-only half of recovery
-that Stage 11 shipped. *(Kept as written: the last
-paragraph of this section describes what Stage 10 built instead — the `pr` command,
-which exits `3` or `4` and never `0`. The arrow out of `PR_DRAFT` is still unbuilt,
-still by design, and `run` and `resume` are still stubs.)*
+rather than a **[DESIGNED]** arrow. What is still **[DESIGNED]** is everything past
+the publication boundary — a commit, a push, a pull request that exists — which is
+why `mergesutra run` still exits `2` as a planned stub while Stage 11's `status` and
+`resume` do not: `status` reads this machine and changes nothing in it, and `resume`
+re-enters it at whichever state its own observation says has gone out of date. *(Kept
+as written: the `HUMAN_APPROVAL` paragraph below describes what Stage 10 built — the
+`pr` command, which exits `3` or `4` and never `0`. The arrow out of `PR_DRAFT` is
+still unbuilt, still by design, and `run` is still a stub.)*
+
+Stage 11 added no box to that diagram, and that is the design. Recovery in this
+product is not a new state a run enters but a reading of the states it already
+passed through: `lifecycle/staleness.ts` computes, from the patch identities each
+artifact was produced for, which of them still describe the bytes on disk; `resume`
+then offers the one command that would re-earn the earliest expired one, and runs the
+same stage a person would have typed. So the arrows out of `VERIFY`, `REVIEW`,
+`EVIDENCE` and `PR_DRAFT` are entered again from a fresh observation rather than from
+the record's memory of having been there — which is the difference between a recovery
+tool and a replay. A run whose workspace moved under it is not `STALE` because a timer
+ran out; it is stale because a document names bytes that are no longer the ones here.
 
 What Stage 7 added to this machine is a boundary rather than a box: `VERIFY` is
 the only state that can move a criterion off `PENDING`, and it can do it only from
@@ -196,8 +209,27 @@ the pack identity from disk, assembles the candidate and prints the page; a yes 
 person approved a proposal — the state machine has no arrow out of `PR_DRAFT`,
 because the edge that used to leave it belongs to a transport this build does not
 have. What that leaves **[DESIGNED]** is everything past the boundary: commits, a
-push, and a pull request that exists. `mergesutra run`, `status` and `resume` are
-still stubs and still exit `2`.
+push, and a pull request that exists. `mergesutra run` is still a planned stub and
+still exits `2`; `status` and `resume` are not, and `resume` deliberately cannot
+become the thing that closes that gap — a pipeline that decides for itself when to
+keep going is what produced the run a recovery command exists for.
+
+Stage 11 is the layer that reads, and it sits under the commands rather than beside
+them. `lifecycle/observe.ts` asks a checkout what it looks like through Git read
+commands only; `lifecycle/snapshot.ts` puts that answer next to what the record
+claims and produces the `StatusSnapshot` both `status` and `resume` consume;
+`lifecycle/staleness.ts` is the only place an artifact's currency is decided, from
+identities rather than from the fact that a stage once ran; `lifecycle/next-actions.ts`
+turns the snapshot into the commands that are safe to offer; `lifecycle/lock.ts` and
+`lifecycle/budget.ts` hold the two facts a resumed stage must not be allowed to invent
+— that it is the only writer, and that it has not already spent its autonomy. Then
+`lifecycle/resume.ts` composes those into one decision, and `lifecycle/status.ts` into
+one description. What is not in that list matters as much: no module under
+`lifecycle/` writes a run record, holds a `BharatCodeClient`, or dispatches a stage.
+The service decides whether an injected executor may run, with what residual limits,
+under whose lock, and against which re-read state — and `src/cli/resume.ts` is where
+the real stages get wired in. That is why a refusal is testable as a refusal: the
+executor is never reached, so nothing had to be unwound.
 
 Explicit bounded limits: agent steps, tool calls, repair attempts, repeated
 identical failures, request/token budget, per-command runtime, and output size.
@@ -219,7 +251,7 @@ src/
   cli/         command surface, rendering, doctor,        [IMPLEMENTED]
                issue (intake only), inspect, contract,
                plan, implement, verify, review, report,
-               repair, pr, exit codes
+               repair, pr, status, resume, exit codes
   intake/      issue URL parsing, local-repo reading,     [IMPLEMENTED]
                intake orchestrator
   github/      gh-CLI source + Zod-validated payloads     [IMPLEMENTED]
@@ -267,6 +299,19 @@ src/
                owes. The orchestrator calls Stage 6's loop,
                Stage 7's round and Stage 8's pack writer
                rather than holding an editor of its own
+  lifecycle/   the recovery layer, and the only module     [IMPLEMENTED]
+               set here that reads a workspace without
+               being told to change it: the staleness graph
+               computed from patch identities, a read-only
+               observation of what is on disk now, a
+               StatusSnapshot that puts the record and the
+               machine side by side, deterministic safe next
+               actions, a per-run filesystem lock that grants
+               nothing, a ResumePlan bound to the digest of
+               the state it was read from, the residual loop
+               budget of the entry before it, and the service
+               that refuses before it claims and re-reads
+               before it acts
   report/      the evidence pack: record in, the three    [IMPLEMENTED]
                reviewer files out, copied status for
                status, receipts re-emitted verbatim,

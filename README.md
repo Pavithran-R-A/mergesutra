@@ -14,16 +14,20 @@ becomes a PR."*
 
 ---
 
-> **Honest status: Stage 10 — a run can be verified, written down, read a second
+> **Honest status: Stage 11 — a run can be verified, written down, read a second
 > time by a model that changes nothing, repaired under a yes bound to one plan's
-> digest, and assembled into the page a person approves as a pull request.**
+> digest, assembled into the page a person approves as a pull request, and — when
+> it stops anywhere along that road — observed for what is true now and continued
+> one honest step at a time.**
 > What you can run today is `mergesutra doctor`, `mergesutra issue <url>`,
 > `mergesutra inspect <dir>`, `mergesutra contract [run-id]`,
 > `mergesutra plan [run-id]`, `mergesutra implement [run-id]`,
 > `mergesutra verify [run-id]`, `mergesutra report [run-id]`,
 > `mergesutra review [run-id]`,
-> `mergesutra repair [run-id]` and
-> `mergesutra pr [run-id]`: intake
+> `mergesutra repair [run-id]`,
+> `mergesutra pr [run-id]`,
+> `mergesutra status [run-id]` and
+> `mergesutra resume [run-id]`: intake
 > reads a GitHub issue and pins the exact repository and base commit into a
 > versioned run record, `inspect` compiles what a repository itself requires
 > into a provenanced contract, `contract` turns those facts into the criteria a
@@ -55,8 +59,10 @@ becomes a PR."*
 > and filing it is the end of what this build can do with it.
 >
 > **Shipped end to end:** intake, policy, contract, plan, implement, verify,
-> evidence pack, independent review, digest-approved repair, pack rebuild, and
-> **the PR candidate with a local human approval**.
+> evidence pack, independent review, digest-approved repair, pack rebuild,
+> **the PR candidate with a local human approval**, and — for a run that stops
+> partway — **`status`, which reads what is true, and `resume`, which continues it
+> one stage at a time without holding any approval of its own.**
 >
 > **Not yet live-published:** a real `git push` and a real GitHub pull request.
 > No command of MergeSutra's commits, pushes, comments or opens a PR; the only
@@ -70,9 +76,10 @@ becomes a PR."*
 > **Nothing is published.** The BharatCode adapter,
 > configuration, central secret
 > redaction, structured errors, tests and CI are **implemented and green**. The
-> full `issue → PR` workflow is **under construction**: `mergesutra run` and
-> `resume` are still planned stubs that exit `2`, `status` is wired and reads
-> without changing anything, a publication
+> full `issue → PR` workflow is **under construction**: `mergesutra run` is still
+> a planned stub that exits `2`, `status` reads a run and changes nothing, and
+> `resume` continues one only when a person types `--execute` — it holds no
+> consent, no approval and no remote permission of its own. A publication
 > transport and security
 > hardening are the next
 > stages; see
@@ -196,6 +203,11 @@ node dist/index.js repair            # shows the newest run's frozen plan; needs
 node dist/index.js repair <run-id> --approve-plan <64-hex>   # the only command that edits, and only on that word
 node dist/index.js pr <run-id>                      # prints the page and the digest that approves it; needs no key
 node dist/index.js pr <run-id> --approve <64-hex>   # records that yes locally; opens nothing
+node dist/index.js status            # what is true about the newest run, read without changing it
+node dist/index.js status <run-id> --json
+node dist/index.js resume            # the plan for the newest run and everything it costs; runs nothing
+node dist/index.js resume <run-id> --execute                        # the only word that acts
+node dist/index.js resume <run-id> --execute --allow VG-001 --allow VG-002
 ```
 
 `pr` closes the chain, and unlike the commands before it it asks a person rather
@@ -231,6 +243,27 @@ that have already moved exits `4`.
 puts `report.md`, `report.json` and `commands.jsonl` beside it. It runs no gate and
 decides nothing, and its exit code is the outcome recorded in the run — so
 reporting a blocked run exits `4`, not `0`.
+
+`status` is the first command whose subject is the run rather than a stage of it. It
+reads the record, asks Git what the workspace looks like, and prints whether each
+document on record still describes the bytes that are here now — and it does that
+for a run whose workspace is gone as cheerfully as for one that is intact, because
+its exit code describes the observation, not the run: `0` for any snapshot it
+produced, `1` only when there was nothing to describe. It calls no model, starts no
+gate, writes no file, and takes no lock.
+
+`resume` is what a person types after reading it. Without `--execute` it prints a
+plan — the one action this run is genuinely owed, the stage and command behind it,
+six cost rows, and the digest of the state it was read from — and nothing else; a
+preview that spent a model request would not be a preview. With `--execute` it
+re-reads that state, refuses if it moved, takes the run's lock, and hands the stage
+its own entry point: the same Stage 7 a `mergesutra verify` would run, the same
+bounded loop with the same budget already spent. It holds no execution consent, no
+repair approval and no publication approval, so a plan that reaches one of those
+boundaries stops there and prints whose decision is outstanding — exit `4`, or `3`
+where the run is simply waiting for a person. There is no `--yes`, and there is no
+`git reset`, `clean`, `checkout -- .` or `stash` anywhere on this path: recovery
+means finding out what is true and continuing, never putting the workspace back.
 
 `verify` is the first command that runs a repository's own checks, so it is the
 first that asks. Without `--allow` it writes a plan, refuses every repository
@@ -1135,6 +1168,215 @@ What those screens are and are not:
   the page's identity and expires an approval exactly as editing the patch does.
   See [docs/DECISIONS.md](docs/DECISIONS.md).
 
+### Stage 11: what is true now, and the one word that acts on it
+
+Stage 10 ends with a page and a yes. Stage 11 is for the run that never got that far —
+the machine slept, the terminal closed, the process was killed between an edit and the
+record of it. It ships two commands, and the distance between them is the point of the
+stage:
+
+- **`mergesutra status <run-id>` is a read-only observation.** It reads the run record,
+  asks Git what the workspace looks like, and prints whether each recorded thing still
+  describes the bytes that are here now. It calls no model, runs no gate command, writes
+  no file, and exits `0` even when what it found is a dead run — because the number says
+  whether the observation happened, and the document says what was observed.
+- **`mergesutra resume <run-id>` is an explicit lifecycle continuation.** With no flag it
+  prints a *plan* and nothing else. `--execute` is the only word that makes it act, and
+  even then it acts by running a stage that already exists — `verify`, `review`, `report`,
+  `pr`, `plan`, `implement`, `contract` — through the same entry points their own commands
+  use. It owns no loop, no writer and no runner of its own.
+- **Approvals and consents are separate capabilities, and `resume` holds none of them.**
+  Stage 7's gate consent, Stage 9R's repair-plan approval and Stage 10's publication
+  approval are each bound to a digest and granted by a person typing a specific thing to a
+  specific command. `resume` stops *at* those boundaries and says whose decision is
+  outstanding. It has no `--yes`, no `--force`, no `--all`, and no flag that skips reading.
+
+The capture below is one real run of `tests/lifecycle/hero.test.ts`: Stage 9R's own fixture
+repository, taken through a repair that lands its edit and then loses the write of its
+record, and brought forward by five `resume` calls. The Git is real, the gate processes are
+real, and only the model turns are scripted — no credential belongs in a test run. Digests
+and paths are shortened for this page; the screens print them in full.
+
+```bash
+MERGESUTRA_HERO_CAPTURE=1 npx vitest run tests/lifecycle/hero.test.ts
+```
+
+**The workspace after the crash, as `status` describes it.** Nothing here was re-derived
+for the screen; each `STALE` row is one recorded document measured against the patch that
+exists now.
+
+```text
+What is here now, read without changing it
+  Workspace             PRESENT_PATCH_CHANGED
+  The bytes here measure 1ca4ada661e1, but this run last described c0eeef694c8f. The files changed after that document was recorded.
+  Base                  933075913bec recorded / 933075913bec at HEAD
+  Patch                 c0eeef694c8f recorded / 1ca4ada661e1 here now
+  Patch status          STALE
+  Evidence pack         not on disk
+
+Whether each recorded thing still describes these bytes
+  verification         STALE               The verification was recorded against c0eeef694c8f and the patch in the workspace now measures 1ca4ada661e1. It is kept for the record and does not count towards the result.
+  evidence             STALE               …
+  review               STALE               …
+  repairPlan           STALE               …
+  executionConsent     CURRENT             The execution consent names 9515b296df1a, which is what the verification plan scope measures.
+  repairApproval       NOT RECORDED        No repair approval has been recorded for this run.
+
+Repair
+  Plan                  cycle 1 over 1 findings, 1 files, 5 checks — STALE
+  Approval              NOT RECORDED
+  Executions            none
+
+Safe next actions
+  mergesutra verify run-20260925T090000Z-999999
+  …each one it is asked to start needs consent for this scope first.
+  costs: EXECUTION_CONSENT, REPOSITORY_COMMAND
+  mergesutra report run-20260925T090000Z-999999
+  …no model call, no repository command, and nothing written outside the run’s own directory.
+  costs: LOCAL_ONLY
+
+No files were changed.
+```
+
+The repair's edit is in the workspace (`1ca4ada661e1`) and its record is not — that gap is
+the whole recovery problem, and the screen names it without filling it in.
+
+**`mergesutra resume <run-id>` — a preview, and a bill.**
+
+```text
+MergeSutra — what a resume would do
+
+  Run                   run-20260925T090000Z-999999
+  Would run             VERIFY_CURRENT_PATCH
+  Stage                 verify
+  Command               mergesutra verify run-20260925T090000Z-999999
+
+Why this is the next thing
+  The bytes in this workspace are not the ones the receipts on record describe, so what is owed is a fresh Stage 7 run over the patch that is here now. It spends no model request. The gates are this repository’s own commands, and each one a run asks to start needs consent for this scope first.
+
+What it costs
+  Model request         none — this is arithmetic and Git
+  Credential            none needed
+  Workspace             changes files in the checkout this run owns
+  Repository gates      the gate ids you name with --allow, and only those
+  Approval              none — nothing here is a decision that belongs to a person
+  Remote                none — this build has no remote action in any command
+
+Reading the state this plan was built from
+  State digest          7d651f11b455552a…
+  Patch here            1ca4ada661e12a6e…
+
+  to act on the plan above: mergesutra resume run-20260925T090000Z-999999 --execute
+
+NOTHING HAS BEEN RUN.
+```
+
+Six cost rows print every time, including the ones that say "none", so a short screen is
+never a screen that read as safe. The state digest is the preview made durable: it hashes
+every fact the plan was read from except the moment they were read, and `--execute`
+re-reads them and stops if they have moved. That is why there is no `--confirm <digest>`
+flag to carry a preview forward — compare immediately before acting, and a plan that
+changed underneath is a different plan.
+
+**`mergesutra resume <run-id> --execute --allow <the five gate ids>` — Stage 7, the real
+one, over the bytes that are here.**
+
+```text
+What happened
+  Outcome               VERIFICATION_PASS
+  Stage recorded        verify
+  Run record            run-20260925T090000Z-999999
+  Run lock              given back — another process may act on this run
+
+THE STAGE NAMED ABOVE RAN, AND FILED WHAT IT FOUND.
+```
+
+Six gate processes started — the repository's own commands, the same ones `mergesutra
+verify` runs — and the receipts now name `1ca4ada661e1`. The review of the old patch stays
+`STALE` beside them, which is the second half of the same honesty: re-measuring a patch is
+not re-reviewing it. In the full capture the next four resumes route `review` (one model
+request, the only one the whole recovery spends), then `report`, then `pr`, and the fifth
+meets this:
+
+```text
+  Would run             PUBLICATION_APPROVAL_REQUIRED
+  …
+  Approval              a page approval this command cannot hold — it is `mergesutra pr`'s to be given
+  Remote                none — this build has no remote action in any command
+
+Stopped.
+  The next step belongs to a person, not to this command: the plan reaches a boundary that needs a decision it does not hold. `resume` cannot make that decision on the way past it, so it stops here and leaves the run exactly as the status screen describes it.
+
+NOTHING WAS RUN.
+```
+
+Exit `4`. No gate started, no record written, no state moved — the test reads all three
+back after the refusal. A resume that could sign a page could publish one, and this build
+has no hands for either.
+
+**Two services, one run.** `tests/lifecycle/lock-hero.test.ts` is the same shape against a
+lock: process 4141 holds the run, process 4242 asks to resume it, and is refused — then the
+identical command from the identical service goes through after the release.
+
+```bash
+MERGESUTRA_HERO_CAPTURE=1 npx vitest run tests/lifecycle/lock-hero.test.ts
+```
+
+```text
+Blocked. Nothing was run.
+  Run 'run-20260925T090000Z-999999' is already active: process 4141 on host lock-hero-host holds its lock at …/.mergesutra/runs/run-20260925T090000Z-999999.lock. This build will not remove a lock it did not create. Nothing was claimed, changed or removed about it.
+
+NOTHING WAS RUN.
+```
+
+A lock is an exclusion, not a credential. It tells the second process who holds the run and
+nothing more; it does not carry consent, and B could still *preview* the whole time A held
+it, because observation is not what two resumers collide over.
+
+What those screens are and are not:
+
+- **`status` reports; it does not rescue.** Recovery here means "find out what is true and
+  take the next true step", never "make the workspace look like the record". There is no
+  `git reset --hard`, no `git checkout -- .`, no `git clean`, no `git stash` and no
+  delete-and-rebuild anywhere in this stage's source — `tests/lifecycle/source-shape.test.ts`
+  reads the whole reachable import graph of the resume path and enumerates every Git call
+  site in it, and the hero test reads the checkout back at the end: the repair's bytes are
+  still there, HEAD is still the commit the run started from, and the workspace is still
+  dirty with the edit that was nearly lost. This is not a claim that MergeSutra cannot
+  lose work; it is a claim that no code path in Stage 11 destroys work on purpose.
+- **A resume is one of the stage's own commands, not an imitation of it.** `resume
+  --execute` reaches `runVerifyStage`, `runReviewStage`, `runReportStage`, `runPrStage` and
+  the rest through the dispatcher in `src/cli/resume.ts`, and the source-shape test walks
+  that dispatcher to prove it files no record of its own and cannot name an approval type.
+  What a resumed `verify` measured is therefore what `mergesutra verify` would have
+  measured, and nothing on the resume screen converts it into a verdict.
+- **A resumed loop does not get a fresh budget.** Stage 6's bounds are cumulative: a run
+  that spent 8 of 12 steps resumes into the same 12 with 4 left, not a new 12. Where the
+  bound is what stopped the work, `resume` plans nothing and routes to a human rather than
+  quietly doubling the autonomy it was given.
+- **An interrupted stage is not a completed one.** A loop that ended on `CANCELLED`, a
+  `DEADLINE` or a crash is routed back into the loop instead of forward to verifying the
+  half-finished patch it left. An interrupted review keeps its attempt count.
+  `tests/lifecycle/interruption.test.ts` walks every stage boundary this build can be cut
+  at and reads the record and the workspace back on both sides.
+- **Nothing reaches a remote, and nothing is approved on the way there.** The full capture
+  starts no push, fetch, `gh`, publish or deploy process — read from the fixture's own gate
+  log — and the checkout has no remote configured to reach. `publication.remote` stays
+  `NOT_ATTEMPTED_BY_THIS_BUILD` and `MERGESUTRA_ALLOW_REMOTE_PUBLICATION` is still unset.
+- **Exit codes.** A preview exits `0` for having described a plan, and that `0` is about
+  the command, not the run. An executed resume returns the outcome the stage filed — `0`
+  only for `VERIFICATION_PASS`, `3` for a review, pack or candidate that was recorded, `4`
+  for a gate that blocked it. Stopping at a capability boundary exits `4`; stopping where a
+  person's decision is outstanding exits `3`; a missing credential exits `78`. No path
+  exits `0` because something was attempted.
+- **Known gaps:** the lock is per-run and per-machine — it says nothing about a second
+  checkout of the same repository elsewhere, and a takeover of a lock whose owner is gone
+  is deliberately left to a human (`TAKEOVER_IN_PROGRESS`). `status` does not print locks,
+  so an operator asking "who is on this run?" is answered by `resume`, not by the status
+  screen. The state digest is not a flag, so a preview and an execution are two observations
+  rather than one signed artefact. See [docs/DECISIONS.md](docs/DECISIONS.md) ADR-056
+  through ADR-058.
+
 ## Installation *(planned)*
 
 Today MergeSutra is run from a checkout. A published npm package comes at
@@ -1174,16 +1416,20 @@ thing that flag's absence is for. Stage 15 owns this list.)*
 | `review` | A second reader for the exact patch a run left: a model files findings, MergeSutra dispositions them, and the workspace comes back byte-identical | Ready |
 | `repair` | Carry out a frozen plan, and only under `--approve-plan <digest>`: one bounded cycle through `implement`'s own loop, then the gates run again over the bytes that exist now | Ready |
 | `pr` | Assemble the pull request a run's evidence supports, print the page in full, and accept one yes bound to its digest — opening nothing, pushing nothing, deciding nothing about whether the code is good | Ready |
+| `status` | Read a run and its workspace without changing either: what is here now, whether each recorded document still describes those bytes, and which commands would be true to run next | Ready |
+| `resume` | Continue a stopped run — a plan and its costs first, and the stage it names only when `--execute` is typed. Holds no consent, no approval, no remote permission; no reset, no clean, no stash | Ready |
 | `issue`     | Intake: read an issue, pin the repository + base commit into a run record | **Partial — intake only** |
 | `issue` *(full workflow)* | Hero workflow: issue → evidence-backed PR draft | Planned  |
-| `run` `status` `resume` | Phase / recovery commands | Planned |
+| `run` | Unattended pipeline from issue to PR | Planned |
 
 A planned command reports honestly and exits non-zero — it never fakes success.
 `mergesutra run` — the unattended pipeline from issue to PR — is still planned,
 and stays planned: `pr` records a human's approval and has no publication
-transport to act on it, and `repair` runs only when a human
-has typed a yes for one plan's digest, so a command that promised the whole
-product unattended would be a lie with a nice name.
+transport to act on it, `repair` runs only when a human
+has typed a yes for one plan's digest, and `resume` deliberately cannot be the
+thing that closes that gap, because the whole reason it exists is that a
+pipeline which decides for itself when to keep going is what produced the run it
+would have to recover.
 
 `inspect` and `contract` are read-only: they never execute a command from the
 repository they read, never call a model, and write only their own run record
@@ -1205,11 +1451,11 @@ A script or editor can tell these apart without parsing prose:
 
 | Code | Meaning                                                                     |
 | ---- | --------------------------------------------------------------------------- |
-| `0`  | Did what it claimed (`doctor` ready; `inspect` reached `INSPECT_COMPLETE`; `contract` reached `CONTRACT_DERIVED`; `plan` reached `PLAN_COMPLETE`) |
+| `0`  | Did what it claimed (`doctor` ready; `inspect` reached `INSPECT_COMPLETE`; `contract` reached `CONTRACT_DERIVED`; `plan` reached `PLAN_COMPLETE`; `status` produced a snapshot — including of a run that is blocked, stale or failed, because the number says the observation happened and the document says what was observed; `resume` printed a plan without running it; `verify` reached `VERIFICATION_PASS`) |
 | `1`  | Failed for a stated reason (bad input, unusable configuration, nothing to plan or implement against) |
 | `2`  | Command is planned, not implemented — nothing was done                        |
-| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`, `contract`, `plan`), an implementation run that changed files without proving anything (`IMPLEMENTED_BY_MODEL`, `IMPLEMENTATION_INCONCLUSIVE`, `IMPLEMENTATION_NEEDS_REVIEW`), a review that was filed but settled nothing (`REVIEW_RECORDED`, `REVIEW_NEEDS_HUMAN`, `REVIEW_INCONCLUSIVE`), a repair cycle that ran and re-verified without earning a word like "good" (`REPAIR_APPLIED`, `REPAIR_NEEDS_HUMAN`), or a publication page that was proposed — or approved — without anything being sent (`PR_CANDIDATE_RECORDED`, `PR_APPROVED_LOCAL`) |
-| `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue), a loop that stopped on a bound or on cancellation, a review of bytes that have already moved (`REVIEW_STALE`), a repair that could not be run as approved (`REPAIR_BLOCKED`), or a page this run cannot honestly propose (`PR_PUBLICATION_BLOCKED` — a stale gate, an approval for a different page) |
+| `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`, `contract`, `plan`), an implementation run that changed files without proving anything (`IMPLEMENTED_BY_MODEL`, `IMPLEMENTATION_INCONCLUSIVE`, `IMPLEMENTATION_NEEDS_REVIEW`), a review that was filed but settled nothing (`REVIEW_RECORDED`, `REVIEW_NEEDS_HUMAN`, `REVIEW_INCONCLUSIVE`), a repair cycle that ran and re-verified without earning a word like "good" (`REPAIR_APPLIED`, `REPAIR_NEEDS_HUMAN`), a publication page that was proposed — or approved — without anything being sent (`PR_CANDIDATE_RECORDED`, `PR_APPROVED_LOCAL`), or a `resume` that stopped where a person's decision is outstanding (`AWAIT_HUMAN`) |
+| `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue), a loop that stopped on a bound or on cancellation, a review of bytes that have already moved (`REVIEW_STALE`), a repair that could not be run as approved (`REPAIR_BLOCKED`), a page this run cannot honestly propose (`PR_PUBLICATION_BLOCKED` — a stale gate, an approval for a different page), or a `resume` refused by a capability it cannot hold: an approval a person has not given, a lock another live process holds, or a plan that no longer matches the state it was read from |
 | `78` | Configuration error (cf. `EX_CONFIG`) — e.g. `plan`, `implement`, `review` or `repair` with no `BHARATCODE_API_KEY` |
 
 `implement` has **no exit `0`**. A loop that ended because the model said
@@ -1230,6 +1476,18 @@ the page and said yes to exactly it — and it exits `3`, so no script can print
 pull request into existence by checking a return code. It is also the only command
 of this product that never calls a model: showing a page and recording a yes ask
 nothing of BharatCode, so `pr` works with no `BHARATCODE_API_KEY` set.
+
+`status` and `resume` part company on what a number means. `status` is the one
+command whose exit code is about *the command* rather than the run: it exits `0`
+for a blocked, stale or failed lifecycle it described well, and `1` only when
+there was nothing to describe — no record, or a record that would not parse
+(ADR-056). `resume` borrows nothing from that. A preview exits `0` for having
+produced a plan, which is not a claim that anything was attempted; an executed
+resume exits with the outcome the stage it ran filed, `0` included and `0` only
+for a real `VERIFICATION_PASS`; and every path where nothing ran exits `3`, `4`
+or `78`, never `0`. A script therefore cannot read "the recovery did something"
+off a return code — it has to read the screen or the JSON, which is the only
+place the distinction is recorded.
 
 ## Safety model
 
@@ -1443,6 +1701,29 @@ verification, review or pack has drifted from the patch on disk, and it says whi
 earlier stage owes the update: it is a consumer of those records, and re-running a
 gate to make its own screen greener is exactly what it will not do.
 
+Stage 11 adds no promise about lost work, and says so on purpose. `status` and
+`resume` are built so that nothing in them *causes* a loss: there is no reset,
+clean, checkout, stash or delete-and-rebuild anywhere on the recovery path, which
+`tests/lifecycle/source-shape.test.ts` proves by reading the source, and
+`tests/lifecycle/hero.test.ts` proves by reading the workspace back after a full
+recovery. Neither is a claim that MergeSutra cannot lose anything — a crash before
+a write can still cost a stage's record, and the hero begins from exactly that
+loss. What Stage 11 recovers is the *run*, not the moment: a lost document is
+re-earned by re-running the stage that owns it, and where that needs a person's
+decision the tool stops and names whose it is. The limits left in it are
+structural and are listed here rather than hidden: the run lock is per-run and
+per-machine, so a second checkout of the same repository on another host is
+outside what it can exclude, and a lock whose owner process is gone is reported
+rather than taken over automatically; `status` does not print lock state, so "who
+is on this run?" is answered by attempting a resume, not by the status screen; the
+observed-state digest is an internal revalidation and not a flag a person can
+pass, so a preview and the execution that follows it are two observations of the
+same facts rather than one signed artefact; a resumed loop inherits its remaining
+budget from the record, which means a record that lost an entry's spend loses it
+from the total too; and `mergesutra run` remains planned, because `resume` is the
+answer to a stopped run and not a way to make the unattended pipeline the roadmap
+promises.
+
 ## Benchmark
 
 A ~10-task, honest evaluation harness ships at [Stage 14](docs/ROADMAP.md). It
@@ -1477,10 +1758,17 @@ what ran rather than what it thinks it fixed. [Stage
 is done to its boundary: `mergesutra pr` assembles the pull request body out of the
 run's own records, prints the page with the digest that approves it, and files a
 person's yes as a local fact — with no publication transport behind it, deliberately,
-so nothing it approves can turn into an action by accident. The commands that still
-report
-themselves as planned are
-next.
+so nothing it approves can turn into an action by accident. [Stage
+11](docs/ROADMAP.md#stage-11--resumerecovery--failure-ux--done)
+is done to its boundary too: `mergesutra status` reads a run and its workspace
+without touching either and says which recorded documents still describe the bytes
+on disk, and `mergesutra resume` plans the next true step, prints what it costs, and
+runs only the stage a person names with `--execute` — through that stage's own entry
+point, under the budget the run has already spent, and never past a consent or an
+approval it does not hold. Recovery here means observing current facts and
+continuing, never putting the workspace back: no reset, clean, checkout or stash is
+within reach of either command. The one command that still reports
+itself as planned is `mergesutra run`.
 
 ## Contributing
 

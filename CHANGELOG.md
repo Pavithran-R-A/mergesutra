@@ -6,6 +6,110 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Stage 11: the screen that says what is true now, and the word that continues it
+
+Every stage before this one assumed a run was being watched while it happened. This is
+the stage for the other case — the terminal closed, the machine rebooted, the approval
+never typed — and its design question is which of the two facts a person is owed: what
+the run recorded, or what the checkout shows now. The answer is both, side by side, in
+one document nothing in the product is allowed to smooth over. `mergesutra status` can
+read that document and changes nothing; `mergesutra resume` can act on it, once, under
+one word, after re-reading the state it is about to change. Neither one rolls anything
+back, because the recovery this build can offer is legibility, not undo.
+
+- The graph (`src/lifecycle/staleness.ts`) grades nine artifacts — `verification`,
+  `evidence`, `review`, `repairPlan`, `executionConsent`, `pack`, `candidate`,
+  `publicationApproval`, `repairApproval` — into four states, `CURRENT`, `STALE`,
+  `UNMEASURABLE` and `ABSENT`, from a `{ recorded, current }` digest pair per artifact.
+  It is pure arithmetic: no record read, no file opened, no Git command run, so the
+  same call answers for a status screen and for a resume plan and they cannot disagree.
+  A row widens to the worst state on anything it is built from, recursively — an
+  approval sees a patch that moved four arrows above it — except `ABSENT`, which means
+  "never filed" rather than "expired" and is the one state that does not travel. A run
+  that skipped repair still has a page and still has an approval.
+- The observation (`src/lifecycle/observe.ts`) is the only new reader of a workspace,
+  and it reads with `rev-parse`, `cat-file -e` and the same `diff` / `ls-files`
+  measurements `verify/patch.ts` already made. It writes nothing, and it never asks Git
+  for a verdict: an unborn HEAD, a moved HEAD, a deleted directory and a workspace that
+  is not this run's each get their own state and their own sentence.
+- `StatusSnapshot` (`src/lifecycle/snapshot.ts`) is the one document both commands are
+  built from, and its whole design is about *not* fusing its inputs. `recorded` is the
+  stage vocabulary as filed; `workspace` is what Git just said; `patch` is the pair with
+  a graph row beside it; every later section is `null` until the stage that owns it
+  files something, so no gap is filled with an empty-but-passing shape. A row may read
+  `PASS` and `STALE` in the same breath — which is the only honest description of a run
+  whose bytes moved after its gates ran. There is no health number, no `ready`, no
+  verdict field, and `publication.remote` is the literal
+  `NOT_ATTEMPTED_BY_THIS_BUILD`. `mergesutra status [run-id]` prints it (or `--json`
+  emits it, derived and never stored) and exits `0` even when everything it found is
+  bad, because the number describes the command. `next-actions.ts` offers only commands
+  this build has, in lifecycle order, each with the capabilities it costs from
+  `MODEL | REPOSITORY_COMMAND | HUMAN_APPROVAL | EXECUTION_CONSENT | LOCAL_ONLY`.
+- `mergesutra resume [run-id]` is a preview unless it is told `--execute`, and the
+  preview is the plan itself: one of thirteen action names, the reason, the stage and
+  command it maps to, and its costs (`requiresModel`, `requiresCredential`,
+  `mutatesWorkspace`, `requiresExecutionConsent`, `requiresRepairApproval`,
+  `requiresPublicationApproval`) printed beside it. No member of that list means
+  published, pushed, created or merged, and none of them means approved — a plan that
+  reaches `PUBLICATION_APPROVAL_REQUIRED` or `AWAIT_HUMAN` is stopped _at_ a boundary
+  and carries no capability past it. There is no `--yes`, `--confirm`, `--force`,
+  `--all` or `--approvals-already-granted`; the parser refuses them as unknown options.
+- Execution revalidates rather than trusting its own preview (`src/lifecycle/resume.ts`):
+  the service refuses on the plan's cost flags *before* it claims anything, takes the
+  run lock, then re-reads the whole state and compares `observedStateDigest` — sha256
+  over the snapshot it planned from, minus the moment it was read. A moved workspace
+  between preview and execute comes back `BLOCKED: STATE_CHANGED`, not as a retry. It
+  dispatches the one stage the plan names, holds no capability of its own, and never
+  writes a record itself.
+- A resumed loop gets what is left, not a fresh allowance (`src/lifecycle/budget.ts`).
+  Residual limits come from the entry that last ran, so 8 steps spent of 12 bounds the
+  resumed entry at 4 — the failure mode where a recovery tool buys itself twice the
+  autonomy is closed by construction. What the record cannot prove is printed rather
+  than assumed away: `BUDGET-LINEAGE` says a continued loop's bound replaces the one in
+  its record, and `BUDGET-UNRECORDED` names the axes that were never bounded.
+- One run, one mutator (`src/lifecycle/lock.ts`): `<runsRoot>/<runId>.lock/` created by
+  atomic `mkdir`, holding an `owner.json` that is parsed as untrusted input. A live
+  process on another host blocks rather than being deleted, age is never evidence of
+  death, a proven-dead lock is *claimed* by writing again and recorded with
+  `brokenFrom`, and no operation but `resume` takes one. The lock grants nothing — no
+  consent, no approval, no credential, no remote — and is released in a `finally`.
+- Recovery is forbidden from being a rollback, and the ban is compiled rather than
+  documented: `tests/lifecycle/source-shape.test.ts` (15 tests) fails the build if
+  `reset`, `restore`, `checkout <path>`, `clean` or `stash` appears in `src/lifecycle/`,
+  alongside the boundary guard that `src/lifecycle/` imports no client, no transport and
+  no HTTP. `tests/lifecycle/interruption.test.ts` walks 11 ways a run can be stopped
+  mid-stage and asserts the record keeps the attempt count it earned — the record, not
+  the memory, is the ledger.
+- Two heroes carry §52 and §53. `tests/lifecycle/hero.test.ts` takes a run stopped in
+  the middle of a repair, shows the screen that makes recovery visually obvious, and
+  brings it forward to a pull-request page by re-earning every fact on the way — while
+  naming the one write that was lost as a loss this tool does not undo.
+  `tests/lifecycle/lock-hero.test.ts` runs two services against one run and proves the
+  refusal is a refusal that really happened: the second is turned away while the first
+  holds, is allowed after it releases, and leaves the stored record byte-identical to
+  what it was before it was told no.
+- **Tests:** 206 for this stage across fourteen files — staleness 27, observe 19, budget
+  20, lock 18, snapshot 18, resume 18, resume-plan 17, source-shape 15, status 13,
+  cli/resume 17, next-actions 11, interruption 11, and the two heroes at 1 each. The run
+  record stays at schema version `9`: Stage 11 added no field to it, because a recovery
+  layer that could write down what a run *is* would be a second authority. The complete
+  chain was run at this entry's close: `npm run check` exits `0` —
+  `prettier --check .`, `eslint .`, `tsc -p tsconfig.json --noEmit`, `vitest run` at
+  **1686 passed, 3 skipped (1689 total) across 109 files** (106 files passing, the three
+  opt-in live-endpoint checks skipped), and the build project.
+- **Not done, and stated as a gap:** Stage 11 earns recovery, not durability. A process
+  killed between a writer's open and its close still loses that write, and nothing here
+  brings it back — the tool can see the gap and say so, which is not the same as closing
+  it. Concretely: `status` reports no lock state, so a run held by another process looks
+  identical to one that is merely idle; `expectedObservedStateDigest` is accepted by the
+  service for programmatic callers and has no CLI flag, so a person cannot pin a preview
+  by hand; `mergesutra resume` inherits the planner's behaviour of filing a plan as a
+  **new** run id, so resuming a `contract` action moves the run rather than advancing it;
+  and the residual budget is per-entry, which `BUDGET-LINEAGE` states instead of
+  hiding. `mergesutra run` is still the one planned stub in the build, still exit `2`,
+  and no later stage in this roadmap claims it: a pipeline that decides for itself when
+  to keep going is what produced the runs Stage 11 exists to recover.
+
 ### Added — Stage 10: a page a human says yes to, and a remote that is not there
 
 Every earlier stage ends in a document about the patch. This is the stage where the
@@ -852,7 +956,9 @@ This stage reads and records; it does not patch, verify, review or open anything
 
 As shipped at Stage 1 — the sections above supersede this list. `verify` and
 `report` have since been implemented; `run`, `review`, `pr`, `status` and
-`resume` are the commands that still print "planned" and exit `2`.
+`resume` were the commands that still printed "planned" and exited `2` then. Of
+those four, Stages 9, 10 and 11 implemented `review`, `pr`, `status` and `resume`, and
+`mergesutra run` remains the only planned stub in the build.
 
 `run`, `verify`, `review`, `report`, `pr`, `status`,
 `resume`. `issue` performs intake only: it produces no plan, patch,
