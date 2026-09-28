@@ -278,6 +278,21 @@ repair is authorised by the text that describes it:
   `--force`, no `--approve-all` and no environment variable that stands in for the
   digest, because a repair approvable in advance is a repair approved without being
   read. A yes spent on cycle 1 does not authorise cycle 2.
+- **A cycle is spent once, and the count lives in the record, not the process.** Every
+  entry is handed a fresh loop budget (`resolveRepairLimits()`), so what bounds a run
+  across restarts is how many cycles it has *filed*. `runRepairStage` now reads
+  `record.repairExecutions` before anything is asked of a model and refuses a plan whose
+  `reviewCycle / repairCycle` pair is already on record — the pair, not the digest, because
+  a digest covers a scope a person can re-word in a persisted file and a re-worded plan over
+  a spent cycle is that same spent cycle wearing a new approval. `status` and `resume` withhold
+  the `repair` offer over that pair, so no screen invites the command that refuses it. What
+  this does *not* claim: a hand-written record naming a cycle pair the run has not filed is a
+  new decision, and `mergesutra repair` will run it under a digest typed for exactly that
+  plan — the cycle ceilings (≤ 3 review, ≤ 3 repair, enforced where a plan is frozen) and the
+  human's own yes are the bounds there, not this guard. Proved by
+  `tests/repair/cycle-ceiling.test.ts` (the command driven twice over one run through a real
+  file-backed store) and `tests/review/cycle-restart.test.ts` (the review count carried
+  across four restarts against a ceiling a caller cannot raise).
 - **The capability cannot be worked around by constructing its output.**
   `buildRepairExecution` recomputes the plan's digest instead of accepting one and
   returns nothing unless the approval matches, so the document that says "a cycle

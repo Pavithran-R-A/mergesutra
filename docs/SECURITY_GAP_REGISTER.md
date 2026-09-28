@@ -843,6 +843,92 @@ by the cycle ceilings and by `record.implementation` being overwritten per entry
 (cross-process fixture proving repair + review cycle counts cannot exceed the ceiling across
 restart), CODE only if it can.
 
+**Closed — CODE + TEST.** The drive found a hole, so this item is not test-only: an approved
+repair cycle could be spent more than once, by the same person, in a second process, with no
+rule anywhere saying otherwise.
+
+*The hole.* `decideRepairApproval` (`src/repair/consent.ts:93-139`) matches the digest a
+person typed against the plan on record and consumes nothing, and `runRepairStage` never
+compared a plan against the cycles the run had already filed. A cycle that writes nothing —
+the ordinary outcome of a model that reads the brief and decides not to edit — leaves
+`patchBeforeIdentity === patchAfterIdentity`, so the patch still equals the
+`reviewedPatchIdentity` the plan was frozen against and every staleness row in the lifecycle
+graph calls that plan current. Second entry, same typed yes, another 6 steps / 3 writes / 2
+commands (`REPAIR_DEFAULT_LIMITS`) and another repository edit, with only a counter in a
+record nobody reads at that point.
+
+*The code.* `refuseSpentCycle(source, plan)` at `src/repair/stage.ts:134`, before the
+credential is resolved and before any request: it compares the plan's `reviewCycle /
+repairCycle` pair against `record.repairExecutions` and throws a `validation` AppError whose
+remediation points at `status` and `report` rather than at another `repair`. The pair, not the
+digest — a digest covers a scope, and a scope can be re-worded in a persisted record
+(`intendedChange` is inside the digest, `createdAt` deliberately is not, `digest.ts:14-20`),
+so a re-worded plan over a spent cycle is that same spent cycle wearing a fresh approval.
+`src/lifecycle/next-actions.ts` withholds the `repair` offer over the same pair: an approval
+row reading `STALE` is exactly what makes that screen speak, and §51 does not allow a status
+page to invite a command the tool has learned to refuse. `buildResumePlan` consumes
+`snapshot.safeNextActions[0]`, so `resume`'s plan is corrected by the same change rather than
+by a second rule.
+
+*The tests.* `tests/repair/cycle-ceiling.test.ts` drives `mergesutra repair` through the real
+`run()` over a **`createFileRunStore`** — serialise on save, re-parse on load — because the
+memory store's `load` returns the object it was handed and could not evidence "a restart
+re-reads what was filed". Three cases: the same digest typed twice (second entry refused, no
+second model request, record byte-equal after `JSON.stringify`, no `--approve-plan` on the
+refusal screen); a plan re-worded over a spent cycle under a fresh digest (refused); and the
+boundary, where a plan rewritten to `repairCycle: 2` beside a filed `(1, 1)` **runs** — two
+requests, `[1,1]` and `[1,2]` filed, `EXIT.INCONCLUSIVE` where a refusal exits `1`. The third
+case is what keeps the guard from quietly becoming "one repair per run", which would end the
+product's point. `tests/review/cycle-restart.test.ts` drives the review four times over one
+run on disk while asking `maxReviewCycles: 500` at every entry, and the count that survives
+each restart is the one the record filed: plans at cycles 1, 2 and 3, then nothing frozen,
+`REVIEW-PLAN-REFUSED`, and the refusal naming `this build's limits of 3 and` — the ceiling a
+caller cannot raise. `tests/lifecycle/next-actions.test.ts` adds the screen half, three cases
+(spent pair withheld, unspent pair still offered, and the pair bound whole rather than by its
+review half).
+
+*Red before green.* Both `cycle-ceiling` refusal cases failed first for the right reason: the
+second cycle really ran (`REPAIR_BLOCKED`, `ended model_unavailable` from the exhausted
+scripted queue) and the record gained a second execution. The screen case failed as
+`expected [ 'repair', 'report' ] to deeply equal [ 'report' ]`. Four anti-vacuity mutations,
+each restored and re-greened — three on the refusal, one on the screen:
+
+| mutation | what went red |
+| --- | --- |
+| stage guard compares the **plan digest** instead of the pair | the re-worded-plan case |
+| stage guard compares **`reviewCycle` only** | the boundary case, refused for a cycle that had not been filed |
+| screen guard withholds on `executions.length > 0` | the not-yet-spent offer case (`expected [ 'report' ] to include 'repair'`) |
+| screen guard compares **`reviewCycle` only** | the pair case, same words |
+
+*Neighbour sweep.* With the guard in place: `tests/repair` + `tests/review` — 21 files,
+320 tests, 1 skipped, exit `0`; `tests/lifecycle` + `tests/cli` — 30 files, 369 tests,
+exit `0`; the three touched files re-run after the final edit — 18 tests, exit `0`.
+`build`, `typecheck`, `lint` and `format:check` clean. No existing repair, review or CLI case
+files more than one executed entry against one plan, and `tests/lifecycle/hero.test.ts`'s
+crash entry uses a store that cannot save, so nothing is filed there and the guard does not
+fire — which is the point: the refusal is reached only by a cycle that really was recorded.
+
+*One screen at a time, deliberately.* The guard sits before `approvalFor()`
+(`src/repair/stage.ts:134`, ahead of `:161`), so a read-only `mergesutra repair` over a spent
+cycle also refuses instead of printing the plan beside `--approve-plan <digest>`. That is the
+same §51 rule as the `status` change, applied to the command's own preview: a screen must not
+hand a reader the exact flag the tool has just learned to refuse. No test in `tests/cli` or
+`tests/lifecycle` previews a run that has already filed a cycle at that pair, so nothing that
+existed before changed shape.
+
+*What is now proved, and what is not.* Review and repair cycle counts cannot be grown by
+restarting a process, and an approved cycle cannot be re-spent by re-typing its yes. Still
+open, and stated: the eight `BUDGET-UNRECORDED` knobs ADR-062 names (a resumed repair loop
+does get shipped defaults for wall clock, output ceilings, refusal and schema knobs);
+`lifecycleBudgetOf` still has no production caller, so nothing reports a run's cumulative
+cycle spend as a budget — the bound is the pair check plus the ceiling where a plan is frozen;
+and a record hand-written with an invented pair **above** the ceiling would still run, because
+`runRepairStage` does not re-check `plan.reviewCycle` against `bounds.ts` — there the only
+bound is the digest a person typed. `mergesutra repair` prints that digest and edits nothing
+without it, and §14's "no live credential" rule is untouched by any of this.
+
+`tests/repair` + `tests/review` after the change: 21 files, 320 tests, 1 skipped, exit `0`.
+
 ### S12-20 — `BharatCode.txt` asserts a submission status the build does not have
 
 Root `BharatCode.txt` (335 bytes, quoted in full in the §42 audit) says

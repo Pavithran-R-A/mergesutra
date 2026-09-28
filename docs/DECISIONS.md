@@ -1671,3 +1671,51 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   knobs, review round trips and repair cycles (§19's other known gaps), and any resume whose
   workspace is described by real Git rather than scripted — this file proves the walk, and
   `observe.test.ts` / `interruption.test.ts` keep proving the observation.
+
+## ADR-063 — A repair cycle is bound to the record, not to the run that counted it
+
+- **Decision:** an approved repair cycle is spent once, measured against what the run has
+  filed. `runRepairStage` calls `refuseSpentCycle(source, plan)`
+  (`src/repair/stage.ts:134`) before a credential is resolved, a pack is built or a request
+  is sent, and compares the plan's `reviewCycle / repairCycle` pair against
+  `record.repairExecutions`. `next-actions.ts` withholds the `repair` offer over the same
+  pair, so `status` and `resume` cannot invite a command the tool has just learned to refuse.
+  `tests/repair/cycle-ceiling.test.ts` drives `mergesutra repair` twice over one run through
+  `createFileRunStore` — serialise on save, re-parse on load, which is what a restarted
+  process does — and `tests/review/cycle-restart.test.ts` drives the review four times over
+  one run on disk while asking for `maxReviewCycles: 500` at every entry.
+- **Reason:** §14 asks for a cross-process bound, and ADR-062 left repair cycles open. Every
+  entry gets a fresh loop budget from `resolveRepairLimits()`; within one call the stage
+  never loops, and the review side refuses to freeze a plan past the ceiling — neither says
+  anything about the second time a person types the same digest. The replay hole was real,
+  not theoretical: a cycle that writes nothing leaves `before.identity` equal to the
+  `reviewedPatchIdentity` the plan was frozen against, so every staleness guard still calls
+  that plan current and the same yes buys another cycle with another 6 steps, 3 writes and
+  2 commands. A file store is what makes the proof mean it: the shared memory store's `load`
+  returns the object it was given, so an entry could "see" the previous entry's work without
+  anything having been filed.
+- **Alternatives considered, and rejected:** binding the refusal to the plan **digest**, which
+  is what `decideRepairApproval` already matches — a digest covers a scope, and a scope can be
+  re-worded in a persisted record, so a re-worded plan over a spent cycle is the same spent
+  cycle wearing a fresh approval; witnessed red→green by the second case in
+  `cycle-ceiling.test.ts`. Binding it to the *count* of executions, which a rewritten record
+  could renumber. Wiring `lifecycleBudgetOf` (`src/lifecycle/budget.ts:142-175`, still
+  uncalled in production) into the repair entry — that module counts against ceilings for
+  `resume`'s preview, and a preview is not where an edit is authorised; the pair check needs
+  one line and no new plumbing. Making `resume` dispatch repair instead — §14 forbids growing
+  the surface, and `src/cli/resume.ts` still refuses it.
+- **Consequence:** the guard's exact boundary is now pinned in both directions, because a
+  refusal that widened to "any repair exists" would end the product's ability to repair a run
+  twice. Third case in `cycle-ceiling.test.ts`: a plan rewritten to `repairCycle: 2` beside a
+  filed `(1, 1)` runs — it spends its second model request, files `[1,1]` and `[1,2]`, and ends
+  on `EXIT.INCONCLUSIVE` where the refusal would have exited `1` — Stage 9's review freezes
+  both halves together, so that pair can only have come from a hand, and a person writing a
+  cycle the run has not filed is making a decision this build does not second-guess.
+  Four mutations, each restored and re-greened, after the RED run with no guard at all (both
+  refusal cases failed — a second cycle really ran): the stage guard bound to the digest
+  instead of the pair (the re-worded case red), the stage guard comparing `reviewCycle` only
+  (the boundary case red, refused for a cycle it had not filed), and on the screen half an
+  `executions.length > 0` test and a `reviewCycle`-only test, each killing its own offer case.
+  What it does not cover: the eight `BUDGET-UNRECORDED` knobs ADR-062 names, and
+  the cycle ceilings themselves, which remain enforced where a plan is frozen — a record with
+  an invented pair above the ceiling would still run, bounded only by the human's typed digest.
