@@ -1078,6 +1078,35 @@ program (`:292`) but not the flags. Exploit:
 case-insensitive, so this spelling is the normal one.) Acceptance test: the §8 matrix with
 each interpreter's actual accepted spellings, upper and lower. Closure: CODE.
 
+**Closed — TEST, by the code S12-03 shipped.** This entry describes `src/process/tool-policy.ts`
+as it stood when the register was written; `b23a48b` (S12-03's classifier) is what closed it, and
+this pass re-measured the property instead of assuming it. `INLINE_CODE_FLAGS` is now `:302-311`
+and holds only lower-case spellings; the membership test folds each token first
+(`:445`, `INLINE_CODE_FLAGS.has(token.toLowerCase())`), and `programName` (`:459`) folds the
+program and strips a `.exe`/`.cmd`/`.bat`/`.com` suffix (`:471`) and any directory. So
+`['powershell','-command','Remove-Item x']` — the exploit this entry named, which the register's
+own reading predicted would read EXECUTE — measures DESTRUCTIVE today, as do
+`['pwsh','-Command',…]`, `['cmd.exe','/C','del x']`, `['node','-e',…]`, `['node','--eval',…]` and
+`['.\\node_modules\\.bin\\Powershell.EXE','-COMMAND',…]`.
+
+The §8 matrix this entry asked for is in S12-03's file: `tests/process/tool-policy-argv.test.ts`,
+`an interpreter flag is not case-sensitive, because the OS is not` (14 spellings across `sh`,
+`bash`, `zsh`, `cmd`, `cmd.exe`, `powershell`, `powershell.exe`, `pwsh`, `PYTHON`, `python3`,
+`node`, `perl`, `ruby`) and `a Windows suffix or a case change cannot dissolve a rule` (15 argv
+rows). Baseline for that file with `tests/process/tool-policy.test.ts`: 52 tests, exit `0`.
+
+Red, with the reason: the fold is load-bearing, not decorative. Reintroducing the exact defect
+this entry describes — `INLINE_CODE_FLAGS.has(token)`, without the `toLowerCase()` — turned 2 of
+those 52 red, one per describe above, and left 50 green; `src/process/tool-policy.ts` was then
+restored byte-for-byte (`sha256` prefix `9f40e910`, matching `HEAD`) and the argv file re-run
+alone: 21/21 green.
+
+**Disclosed limit.** `String.prototype.toLowerCase` is not locale-sensitive in JavaScript (that
+is `toLocaleLowerCase`), so the fold does the same thing in every locale, and it is a list of
+spellings rather than a parser: an interpreter flag this build has never seen still classifies as
+ordinary `EXECUTE`. That residual belongs to S12-03, whose disclosed limit — an unknown program
+stays ordinary — is the one that governs it; nothing here claims a general shell parser.
+
 ### S12-14 — `op: 'network'` is auto-allowed with no approval and no boundary
 
 `src/process/tool-policy.ts:318-325` returns `allowed: true` for any network request, with
