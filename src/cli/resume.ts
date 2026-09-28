@@ -289,7 +289,17 @@ export function formatResume(
   if (result.kind === 'RAN') {
     lines.push(renderer.heading('What happened'));
     lines.push(row('Outcome', result.record.outcome, width));
-    lines.push(row('Stage recorded', result.record.stage, width));
+    // One action a plan can name files nothing: the pack is a rendering of the record,
+    // so the record still reads as whatever stage last advanced it. Printing that stage
+    // here would claim this command ran it, which is the difference between a screen a
+    // person can act on and one that merely looks like it.
+    lines.push(
+      row(
+        'Stage recorded',
+        plan.stage ?? `none — ${plan.command ?? 'this action'} files no record of its own`,
+        width,
+      ),
+    );
     // Some stages advance the run they were given and one of them — the planner — files
     // its answer as a new run instead. The screen names the record that now holds the
     // result either way, because a person who resumes `run-1` and is told "plan

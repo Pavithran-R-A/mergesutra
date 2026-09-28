@@ -326,6 +326,39 @@ describe.skipIf(!AVAILABLE)('the resume command', () => {
     expect(await exists(runLockDirectory(where.runsRoot, where.record.runId))).toBe(false);
   });
 
+  it('says when the action it ran files no record, instead of printing the old one as new', async () => {
+    // `findings: false` so this run is offered `report` and not a repair whose plan
+    // nobody has approved: the action under test is the one that files nothing.
+    const fixture = await reviewedRun(tempDirs, { findings: false });
+    const where: Where = {
+      store: fixture.store,
+      runsRoot: fixture.runsRoot,
+      record: fixture.record,
+    };
+    const screen = capture();
+    const stage = spy(fixture.record);
+
+    const code = await run(['node', 'mergesutra', 'resume', where.record.runId, '--execute'], {
+      ...depsFor(where, { resume: stage }),
+      write: screen.write,
+      writeErr: screen.writeErr,
+    });
+
+    expect(code).toBe(EXIT.INCONCLUSIVE);
+    expect(stage.calls).toHaveLength(1);
+    expect(stage.calls[0]?.plan.action).toBe('REGENERATE_EVIDENCE_PACK');
+    // A pack is rendered from the record, so this action left the record exactly where
+    // Stage 9 had it. The record's outcome is the authoritative one and still prints
+    // (§37's "resulting lifecycle outcome" is about the run, not about a receipt for
+    // this command) — but the stage row may not name a stage this action did not run,
+    // because "Stage recorded review" after `resume --execute` reads as this command's
+    // own filing, and no document behind it says that.
+    expect(screen.text()).toContain('REGENERATE_EVIDENCE_PACK');
+    expect(screen.text()).toContain('REVIEW_RECORDED');
+    expect(screen.text()).toMatch(/Stage recorded\s+none/u);
+    expect(screen.text()).toContain('files no record of its own');
+  });
+
   it('spends a model request only when it was told to, and only through the stage', async () => {
     const where = await contractRun();
     const screen = capture();
