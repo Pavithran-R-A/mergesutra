@@ -86,8 +86,13 @@ export function createFileRunStore(root: string = defaultRunStoreRoot()): RunSto
       for (const name of names.sort()) {
         if (!name.endsWith('.json')) continue;
         const file = path.join(root, name);
-        const runId = assertSafePathSegment(name.slice(0, -'.json'.length), 'run file name');
         try {
+          // The name is as untrusted as the bytes: it arrives from a directory a
+          // person, a restore, or another tool may have put anything into. A stem
+          // that cannot be a run id is reported through the same channel as a file
+          // that cannot be parsed, so one stray name leaves the readable runs listed
+          // instead of taking down every screen that asks which runs exist.
+          const runId = assertSafePathSegment(name.slice(0, -'.json'.length), 'run file name');
           const record = parseRunRecord(json(await readFile(file, 'utf8'), file));
           runs.push({
             runId,
