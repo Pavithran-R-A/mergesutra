@@ -1432,8 +1432,12 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   recorded pid is not a process any more, on the same host, from a record it can fully parse.
   Pid reuse can make a dead holder look alive, which blocks; nothing here can make a live
   holder look dead. Even a proven-dead lock is not deleted: a second atomic `mkdir` names
-  exactly one winner, the dead holder's identity is copied into the new owner record as
-  `brokenFrom`, and the claim directory is removed behind it. A lock on another host, an
+  exactly one winner, the owner record is read again while that claim is held — because a
+  contender can prove a holder gone and only then find that somebody else finished the
+  takeover and put its claim down, which makes this contender late rather than next — the
+  dead holder's identity is copied into the new owner record as
+  `brokenFrom`, and the claim directory is removed behind whatever the winner decides, so a
+  refusal cannot leave a claim that locks the run out. A lock on another host, an
   unreadable owner record, a record naming a different run, and a path held by a non-directory
   are all *blocked on*, never interpreted, and the message carries the path.
 - **Alternatives:** rely on the observed-state digest alone (two resumers can both pass their
@@ -1446,7 +1450,10 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   refusal says plainly that it "will not remove a lock it did not create"); a single global
   lock (one run at a time across all state, which punishes unrelated work for no safety).
 - **Consequence:** `tests/lifecycle/lock.test.ts` (eighteen cases) covers who may be believed
-  dead and what may not be deleted; `tests/lifecycle/lock-hero.test.ts` is the question a
+  dead and what may not be deleted, and `tests/lifecycle/lock-takeover-race.test.ts` (five
+  more) stands a second contender in the window between proving a holder gone and claiming
+  the takeover — arranged through an injected await, not slept on — so "exactly one owner"
+  is proved against the interleaving that used to lose it. `tests/lifecycle/lock-hero.test.ts` is the question a
   person notices — service A holds the run, service B is refused, and B's refusal is proved to
   have refused something (no pack written, no record saved, no model asked, A's token still
   holding), then B goes through unchanged after A releases. Holding a lock still buys no

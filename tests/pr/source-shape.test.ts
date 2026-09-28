@@ -21,12 +21,13 @@ import { constructions, reachFrom, relative, show, SRC } from '../helpers/source
  * unrepresentable.
  *
  * Nothing here is executed. The claims are made of source text and of the product's
- * own classifier: the first two blocks show what that classifier catches (every git
- * verb a publication would reach for) and, more usefully, what it does not (a program
- * it has no name for — `gh`, `npm`, `curl` — reads as ordinary EXECUTE). So the bans
- * on those rest on the enumeration, not on the gate, and the third block is the
- * evidence: every command this stage's reach builds is a git read. Without the first
- * two, the third would be a scan that found nothing and called it clean.
+ * own classifier: the first two blocks show what that classifier catches — every git
+ * verb a publication would reach for, and the programs that are not git at all, since
+ * Stage 12 closed the day `gh`, `npm` and `curl` read as ordinary EXECUTE — so a stage
+ * that did build one of those argv arrays would be refused twice over. The third block
+ * is the evidence that it does not have to: every command this stage's reach builds is a
+ * git read. Without the first two, the third would be a scan that found nothing and
+ * called it clean.
  */
 
 /** The command a person types, and the stage it calls: the whole production path. */

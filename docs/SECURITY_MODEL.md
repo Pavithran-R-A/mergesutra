@@ -403,10 +403,17 @@ counter-claim, it is met with a shape that has no field for it:
   refusal, `unavailableRemote()`, which throws on both of its two methods; and the fake
   transport in `tests/pr/publisher.test.ts` proves the seam is real in the other
   direction too, so "disabled" is not indistinguishable from "never wired".
-- **Known gap, stated rather than smoothed over:** the risk oracle in §3 has no name for
-  `gh`, `npm` or `curl` — an unfamiliar program classifies as ordinary `EXECUTE` — so the
-  ban on reaching them rests on the argv enumeration and the import boundary above, not
-  on the classifier. And the reason nothing publishes is bigger than a missing transport:
+- **What the oracle names, and what it cannot:** `src/process/tool-policy.ts` classifies
+  by what a command does, so `gh …` is `REMOTE_MUTATION`, `curl`, `wget`, `nc` and the
+  bare package runners are `NETWORK`, `npm publish` (and its pnpm/yarn spellings) is
+  `REMOTE_MUTATION`, `npm install`/`ci`/`add` is `NETWORK`, an unrecognised verb of a
+  package manager falls closed toward the registry, and an unrecognised `git` subcommand is
+  read as a local write rather than as a read.
+  A stage that built one of those argv arrays would be refused by the oracle, not only by
+  the enumeration above. What no oracle can name is a *bespoke* program that reaches the
+  network under an ordinary-looking command (`node scripts/deploy.js`), so the argv
+  enumeration and the import boundary stay the primary defence, and the reason nothing
+  publishes is bigger than either:
   MergeSutra has never made a commit, so there is nothing to push; a real pull request
   would mean committing an operator's tree on their behalf, which no approval in this
   build claims to cover.
@@ -441,6 +448,15 @@ in this section is that a document cannot substitute for one.
   printed. So there is no code path where "I hold the lock" is the reason a stage ran, an
   approval was skipped, or a boundary was crossed. A takeover carries the dead holder's
   identity forward as `brokenFrom` — as evidence, with no permission attached to it.
+- **A takeover is claimed, then looked at again.** Proving a holder gone and winning the
+  takeover claim are two filesystem operations, and a process can pause between them: the
+  lock it proved dead may already have been broken by a live process that finished and put
+  its claim down. So the owner record is re-read *while this process holds the claim*, and
+  a live holder found there is a refusal (`HELD_BY_LIVE_PROCESS`) rather than a second
+  owner — with the claim directory removed behind the refusal, because a leftover claim
+  would lock the run out for a person to clear. `tests/lifecycle/lock-takeover-race.test.ts`
+  stands a contender in exactly that window and asserts the one-owner answer, including for
+  a chain of late arrivals and for a claim a crashed takeover left behind.
 - **A preview's honesty is structural, and its costs are printed even when they are
   none.** §16's default is that nothing runs; the executed path then re-reads the whole
   state and compares `observedStateDigest` immediately before it acts, so the window
@@ -458,11 +474,14 @@ in this section is that a document cannot substitute for one.
   entry spent, so resuming cannot buy a second allowance (§19).
 - **Known gap, stated rather than smoothed over:** `status` does not report lock state,
   so a second service learns a run is held by colliding with it rather than by reading it —
-  a disclosure gap, not a race, since the collision is the exclusion working. The
+  a disclosure gap, and now a proved one, since the collision is the exclusion working and
+  the window where the exclusion could have been lost (a contender that proved a holder gone
+  and arrived late to find the takeover finished) is closed and tested in §2.5. The
   observed-state comparison is not settable from the command line, so the cross-process
-  form of it is available only to programmatic callers. And as in §2.5, the ban on reaching
-  `gh`, `npm` or `curl` from anywhere on this path rests on the argv enumeration and the
-  source-shape guard, not on the risk classifier, which still has no name for them.
+  form of it is available only to programmatic callers. The ban on reaching `gh`, `npm` or
+  `curl` from anywhere on this path now has two layers: the argv enumeration and source-shape
+  guard that stop a stage from building such a command, and the risk oracle in §3, which names
+  each of those three and refuses what it names.
 
 ## 3. Tool risk classes and policy
 

@@ -305,15 +305,38 @@ inspect completes before A's `writeOwner` and B's claim mkdir happens after A's 
 Assert the invariant "at most one Acquisition reports ACQUIRED for a run" is violated today.
 
 **Acceptance test.** `tests/lifecycle/lock-takeover-race.test.ts` plus the §18 matrix
-(simultaneous mkdir, holder exit, PID alive/absent/reused, other host, malformed/missing
-owner.json, wrong runId, lock path is a file, permission failure, wrong-token /
-non-owner / double release, two contenders). Fix by re-validating the owner immediately
-before renaming over it *and* keeping the claim until the new owner is durable (or an
-equivalent single-winner construction) — then the same race fixture must show exactly one
-winner. If no portable single-winner construction exists for one branch, weaken the code
-comment and the ADR to the property actually proved (§19: no pretty ADR over source truth).
+(simultaneous mkdir, late arrival, a chain of late arrivals, a claim left by a crash, a claim
+sitting behind a live holder). Fix by revalidating the owner immediately before renaming over
+it *and* keeping the claim until the new owner is durable — then the same race fixture must
+show exactly one winner. If no portable single-winner construction exists for one branch,
+weaken the code comment and the ADR to the property actually proved (§19: no pretty ADR over
+source truth).
 
-**Closure.** CODE + DOCUMENT.
+**Closed — CODE + TEST.** The claim is now *held*, not merely won: after `mkdir(claim)`
+succeeds the owner record is read again and put through the same five gates, so a contender
+that arrives to find the takeover already finished is refused (`HELD_BY_LIVE_PROCESS`) rather
+than made a second owner, and the claim directory is put back on every path that leaves after
+it was won, so a refusal cannot lock the run out (`src/lifecycle/lock.ts:224-281`). Why the
+relook is enough: a rival can write only while it holds the claim, so a contender that holds
+the claim and still finds the record it proved dead *is* the only writer; a contender that
+finds something else arrived after a finished takeover, and the record found then decides —
+including which holder `brokenFrom` carries.
+
+Red before green, with the reason: two cases failed as
+`expected to be blocked, got ACQUIRED — a second process believes it owns this run (token …)`,
+and the third because `brokenFrom` named the record seen before anybody else died (`1234`)
+instead of the one actually broken into (`5555`). Two anti-vacuity mutations, each restored
+byte-for-byte (`cmp` against the pre-mutation copy): removing the post-claim relook turned the
+three race cases red (`exit=1`), and removing the claim cleanup from the blocked path left
+`['owner.json', 'takeover']` where `['owner.json']` was asserted — the permanent-deadlock half
+of the same protocol. `tests/lifecycle` after restore: 13 files, 181 tests, exit `0`.
+
+**Disclosed limit.** The interleaving is *arranged*, not timed. A contender is stood in the
+window by `beforeTakeoverClaim`, an injected await that decides nothing and that no production
+caller passes. No test here runs two operating-system processes against one lock, so what is
+proved is the protocol's ordering rather than the scheduler's; the crash half is pinned on real
+state — a claim a dead process left behind blocks, and nothing but a person clears it, which is
+the fail-safe direction the module already promised.
 
 ---
 

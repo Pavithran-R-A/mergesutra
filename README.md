@@ -1693,10 +1693,12 @@ person's decision and not about GitHub, and the patch it names is uncommitted, b
 no stage of this product has ever run `git commit`. Two further limits are structural
 rather than unfinished: re-rendering the evidence pack expires an approval exactly as
 editing a byte does, with no re-approve shortcut, and the bans on `gh pr create` and
-`npm publish` cannot rest on the risk classifier — which has no name for those
-binaries and reads them as ordinary `EXECUTE` — so they rest on the argv enumeration
-and the import boundary that `tests/pr/source-shape.test.ts` scans, which is a weaker
-guarantee than a refusal and is recorded as one. `pr` will also refuse a run whose
+`npm publish` rest on two layers now: the risk classifier names those binaries
+(`gh …` as `REMOTE_MUTATION`, `curl` as `NETWORK`) and refuses what it names, and the argv
+enumeration plus the import boundary that `tests/pr/source-shape.test.ts` scans keep the
+stage from building such a command in the first place. A command that reaches the network
+under an ordinary-looking name — `node scripts/deploy.js` — is still only `EXECUTE`, so the
+second layer stays the one that matters and is recorded as such. `pr` will also refuse a run whose
 verification, review or pack has drifted from the patch on disk, and it says which
 earlier stage owes the update: it is a consumer of those records, and re-running a
 gate to make its own screen greener is exactly what it will not do.
