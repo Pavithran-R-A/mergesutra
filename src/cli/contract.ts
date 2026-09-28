@@ -9,6 +9,7 @@ import {
 import type { AcceptanceContract } from '../contract/schema.js';
 import { createRunRecord, newRunId, type RunCheck, type RunRecord } from '../state/run-record.js';
 import { createFileRunStore, defaultRunStoreRoot, type RunStore } from '../state/run-store.js';
+import { newestRunId } from '../state/run-selection.js';
 import { defaultRedactor } from '../security/redaction.js';
 import { exitForOutcome } from './exit-codes.js';
 import { createRenderer, resolveColor, type Renderer } from './render.js';
@@ -51,7 +52,7 @@ export async function runContractStage(
   const now = deps.now ?? (() => new Date());
   const random = deps.random ?? Math.random;
 
-  const sourceRunId = input.runId ?? (await newestRunId(store));
+  const sourceRunId = input.runId ?? (await contractSourceRunId(store));
   const source = await store.load(sourceRunId);
 
   const checks: RunCheck[] = [
@@ -155,9 +156,10 @@ export async function runContractStage(
   return persist(record, acceptanceContract, sourceRunId, checks, store);
 }
 
-async function newestRunId(store: RunStore): Promise<string> {
-  const { runs, unreadable } = await store.list();
-  if (runs.length === 0) {
+async function contractSourceRunId(store: RunStore): Promise<string> {
+  const chosen = await newestRunId(store);
+  if (!chosen) {
+    const { unreadable } = await store.list();
     throw new AppError({
       kind: 'validation',
       message:
@@ -165,7 +167,7 @@ async function newestRunId(store: RunStore): Promise<string> {
       remediation: 'Run `mergesutra issue <url>` or `mergesutra inspect <repo>` first.',
     });
   }
-  return runs[0]!.runId;
+  return chosen;
 }
 
 function saveRecord(input: {

@@ -3,6 +3,7 @@ import { AppError } from '../core/errors.js';
 import type { RunRecord } from '../state/run-record.js';
 import { createRunRecord, parseRunRecord } from '../state/run-record.js';
 import { createFileRunStore, defaultRunStoreRoot, type RunStore } from '../state/run-store.js';
+import { newestRunId } from '../state/run-selection.js';
 import type { ExecutionConsent } from './consent.js';
 import type { GateExecutionSpec, VerificationRun } from './engine.js';
 import type { Runner } from '../core/runner.js';
@@ -174,11 +175,8 @@ function outcomeFor(result: VerificationRun['result']): RunRecord['outcome'] {
 }
 
 async function newestImplementedRunId(store: RunStore): Promise<string> {
-  const { runs } = await store.list();
-  for (const summary of runs) {
-    const record = await store.load(summary.runId);
-    if (record.implementation) return summary.runId;
-  }
+  const chosen = await newestRunId(store, (record) => Boolean(record.implementation));
+  if (chosen) return chosen;
   throw new AppError({
     kind: 'validation',
     message: 'No run in this directory has implemented anything yet.',

@@ -12,6 +12,7 @@ import {
   type RunRecord,
 } from '../state/run-record.js';
 import { createFileRunStore, defaultRunStoreRoot, type RunStore } from '../state/run-store.js';
+import { newestRunId } from '../state/run-selection.js';
 import { verdictIsPassed, type GateExecutionSpec } from '../verify/engine.js';
 import { describePatch } from '../verify/patch.js';
 import { loopClaim, verifyWorkspace, type WorkspaceVerification } from '../verify/workspace.js';
@@ -580,11 +581,8 @@ function disclose(input: {
 
 /** The newest run that has a frozen work order — the only kind a repair can execute. */
 async function newestPlannedRunId(store: RunStore): Promise<string> {
-  const { runs } = await store.list();
-  for (const summary of runs) {
-    const record = parseRunRecord(await store.load(summary.runId));
-    if (record.repairPlan) return summary.runId;
-  }
+  const chosen = await newestRunId(store, (record) => Boolean(record.repairPlan));
+  if (chosen) return chosen;
   throw new AppError({
     kind: 'validation',
     message: 'No run in this directory has a frozen repair plan, so there is nothing to repair.',

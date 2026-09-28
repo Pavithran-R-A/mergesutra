@@ -1,6 +1,6 @@
-import path from 'node:path';
 import { AppError } from '../core/errors.js';
 import { defaultRunner, type Runner } from '../core/runner.js';
+import { newestRunId, listRecordNames } from '../state/run-selection.js';
 import { defaultRunStoreRoot, createFileRunStore, type RunStore } from '../state/run-store.js';
 import { nextActionsFor } from './next-actions.js';
 import { observeRun } from './observe.js';
@@ -29,7 +29,10 @@ import { buildStatusSnapshot, type StatusSnapshot } from './snapshot.js';
  */
 
 export interface StatusStageInput {
-  /** Omitted means "the newest run this store has", by the store's own ordering. */
+  /**
+   * Omitted means "the newest run this store has", by the shared selection — and
+   * when a newer record cannot be read, omitted means a refusal, not the older run.
+   */
   readonly runId?: string;
   /** A checkout a person pointed at instead of the one the record names. */
   readonly repo?: string;
@@ -55,7 +58,7 @@ export async function runStatusStage(
   const cwd = deps.cwd ?? process.cwd();
   const store = deps.store ?? createFileRunStore(defaultRunStoreRoot(cwd));
   const runsRoot = deps.runsRoot ?? defaultRunStoreRoot(cwd);
-  const runId = input.runId ?? (await newestRunId(store));
+  const runId = input.runId ?? (await currentRunId(store));
   const record = await store.load(runId);
 
   const observation = await observeRun({
@@ -81,19 +84,22 @@ export async function runStatusStage(
 }
 
 /**
- * The store's own newest-first ordering, reused rather than re-invented.
+ * One rule, shared: which run an omitted id means.
  *
  * §2 asks that an omitted run id resolve "the newest relevant" run by existing
- * rules, and the existing rule is `list()`, which already sorts by recorded
- * creation time and already reports what it could not read. What is *not* done
- * here is any cross-repository guessing: this store is the one for the working
- * directory the command was run from, and a run belonging to another repository
- * is not made relevant by being recent.
+ * rules, and the existing rule is the shared selection in `state/run-selection`,
+ * which reads the store's readable list *and* its unreadable list as one
+ * question: a directory holding a newer record this build cannot parse is a
+ * directory that does not know which run is current, and this says so instead of
+ * showing the older screen. What is *not* done here is any cross-repository
+ * guessing: this store is the one for the working directory the command was run
+ * from, and a run belonging to another repository is not made relevant by being
+ * recent.
  */
-async function newestRunId(store: RunStore): Promise<string> {
-  const { runs, unreadable } = await store.list();
-  const newest = runs[0];
-  if (newest) return newest.runId;
+async function currentRunId(store: RunStore): Promise<string> {
+  const chosen = await newestRunId(store);
+  if (chosen) return chosen;
+  const { unreadable } = await store.list();
   if (unreadable.length > 0) {
     // The directory is not empty and saying it were would send a person to look for
     // a run that is sitting right there. What is reported is the names, because the
@@ -102,13 +108,11 @@ async function newestRunId(store: RunStore): Promise<string> {
     // quoting it back and quietly repairing it so the command can proceed. A long
     // history of them is listed up to a point and then counted, because one error
     // line should not become a wall.
-    const named = unreadable.slice(0, 5).map((entry) => path.basename(entry.file));
-    const rest = unreadable.length - named.length;
     throw new AppError({
       kind: 'validation',
       message:
         `None of the ${String(unreadable.length)} run record(s) here can be read by this build: ` +
-        `${named.join(', ')}${rest > 0 ? `, and ${String(rest)} more` : ''}.`,
+        `${listRecordNames(unreadable.map((entry) => entry.file))}.`,
       remediation:
         'Name a run with `mergesutra status <run-id>`. This command will not rewrite or repair an unreadable record in order to read it.',
     });

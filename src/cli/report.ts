@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { AppError } from '../core/errors.js';
 import { createFileRunStore, defaultRunStoreRoot, type RunStore } from '../state/run-store.js';
+import { newestRunId } from '../state/run-selection.js';
 import type { RunRecord } from '../state/run-record.js';
 import { PRODUCT_NAME } from '../version.js';
 import { exitForOutcome } from './exit-codes.js';
@@ -44,7 +45,7 @@ export async function runReportStage(
 ): Promise<ReportResult> {
   const cwd = deps.cwd ?? process.cwd();
   const store = deps.store ?? defaultStoreFor(cwd);
-  const runId = input.runId ?? (await newestRunId(store));
+  const runId = input.runId ?? (await reportTargetRunId(store));
   const record = await store.load(runId);
   const pack = buildEvidencePack(record);
   const { dir } = await writeEvidencePack(defaultRunStoreRoot(cwd), pack);
@@ -89,9 +90,8 @@ function defaultStoreFor(cwd: string): RunStore {
   return createFileRunStore(defaultRunStoreRoot(cwd));
 }
 
-async function newestRunId(store: RunStore): Promise<string> {
-  const { runs } = await store.list();
-  const newest = runs[0];
+async function reportTargetRunId(store: RunStore): Promise<string> {
+  const newest = await newestRunId(store);
   if (!newest) {
     throw new AppError({
       kind: 'validation',
@@ -99,5 +99,5 @@ async function newestRunId(store: RunStore): Promise<string> {
       remediation: 'Start one with `mergesutra issue <url>`, then ask for its report.',
     });
   }
-  return newest.runId;
+  return newest;
 }

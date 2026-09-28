@@ -13,6 +13,8 @@ import { recordWith } from '../helpers/review.js';
 import { reviewedRun } from '../helpers/repairRun.js';
 import { proposedRun } from '../helpers/publicationRun.js';
 import { memoryRunStore } from '../helpers/github.js';
+import { recordAt } from '../helpers/report.js';
+import { createFileRunStore } from '../../src/state/run-store.js';
 import { hasGit } from '../helpers/git.js';
 import type { ProgramDeps } from '../../src/cli/program.js';
 import type { RepairFixture } from '../helpers/repairRun.js';
@@ -442,5 +444,41 @@ describe.skipIf(!AVAILABLE)('mergesutra status', () => {
     expect(c.errorText()).toMatch(/not valid JSON|cannot be read/i);
     expect(c.errorText()).not.toContain(secret);
     expect(c.text()).toBe('');
+  });
+  it('refuses to call an older run the current one when a newer record cannot be read', async () => {
+    const cwd = await scratch('mergesutra-status-stepover-');
+    const root = path.join(cwd, '.mergesutra', 'runs');
+    const store = createFileRunStore(root);
+    await store.save(
+      recordAt({ runId: 'run-20260924T000000Z-aaaaaa', createdAt: '2026-09-24T00:00:00.000Z' }),
+    );
+    // The record made after it, with its tail cut off: readable by nobody, newer by
+    // its own name, and the reason "the newest run" is not a question this directory
+    // can answer.
+    await writeFile(
+      path.join(root, 'run-20261001T000000Z-zzzzzz.json'),
+      '{"runId":"run-20261001T000000Z-zzzzzz","outcome":',
+      'utf8',
+    );
+    const c = capture();
+
+    const code = await run(['node', 'mergesutra', 'status'], {
+      status: { cwd },
+      write: c.write,
+      writeErr: c.writeErr,
+      env: { NO_COLOR: '1' },
+    });
+
+    expect(code).toBe(EXIT.ERROR);
+    expect(c.text()).toBe('');
+    expect(c.errorText()).toMatch(/cannot be read/i);
+    expect(c.errorText()).toContain('run-20261001T000000Z-zzzzzz.json');
+    // It says which id a person may pass to get the older screen deliberately.
+    expect(c.errorText()).toContain('run-20260924T000000Z-aaaaaa');
+    // An observation command that refuses writes nothing it was not asked to write.
+    expect((await readdir(root)).sort()).toEqual([
+      'run-20260924T000000Z-aaaaaa.json',
+      'run-20261001T000000Z-zzzzzz.json',
+    ]);
   });
 });

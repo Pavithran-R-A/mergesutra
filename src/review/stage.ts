@@ -15,6 +15,7 @@ import {
   type RunRecord,
 } from '../state/run-record.js';
 import { createFileRunStore, defaultRunStoreRoot, type RunStore } from '../state/run-store.js';
+import { newestRunId } from '../state/run-selection.js';
 import { describePatch } from '../verify/patch.js';
 import { assembleReviewContext, type ReviewContext } from './context.js';
 import { weighFindings } from './disposition.js';
@@ -388,11 +389,10 @@ function describeReview(
 
 /** The newest run whose gates actually measured something — a review needs receipts. */
 async function newestVerifiedRunId(store: RunStore): Promise<string> {
-  const { runs } = await store.list();
-  for (const summary of runs) {
-    const record = parseRunRecord(await store.load(summary.runId));
-    if (record.verification && record.verificationPlan) return summary.runId;
-  }
+  const chosen = await newestRunId(store, (record) =>
+    Boolean(record.verification && record.verificationPlan),
+  );
+  if (chosen) return chosen;
   throw new AppError({
     kind: 'validation',
     message: 'No run in this directory has been verified yet, so there is nothing to review.',

@@ -6,6 +6,7 @@ import { loadBharatCodeConfig } from '../config/load-config.js';
 import { defaultRedactor } from '../security/redaction.js';
 import { createRunRecord, newRunId, type RunCheck, type RunRecord } from '../state/run-record.js';
 import { createFileRunStore, defaultRunStoreRoot, type RunStore } from '../state/run-store.js';
+import { newestRunId } from '../state/run-selection.js';
 import { buildPlanMessages, withRepairFeedback } from './prompt.js';
 import {
   assertPlanCoverage,
@@ -291,11 +292,9 @@ function reasonOf(error: unknown): string {
 }
 
 async function newestContractRunId(store: RunStore): Promise<string> {
-  const { runs, unreadable } = await store.list();
-  for (const summary of runs) {
-    const record = await store.load(summary.runId);
-    if (record.acceptanceContract) return summary.runId;
-  }
+  const chosen = await newestRunId(store, (record) => Boolean(record.acceptanceContract));
+  if (chosen) return chosen;
+  const { unreadable } = await store.list();
   throw new AppError({
     kind: 'validation',
     message:

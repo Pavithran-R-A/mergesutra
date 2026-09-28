@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { stat } from 'node:fs/promises';
+import { mkdtemp, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { AppError } from '../../src/core/errors.js';
 import { acquireRunLock, runLockDirectory } from '../../src/lifecycle/lock.js';
 import { run } from '../../src/cli/program.js';
 import { EXIT } from '../../src/cli/exit-codes.js';
 import { recordWith } from '../helpers/review.js';
+import { recordAt } from '../helpers/report.js';
+import { createFileRunStore } from '../../src/state/run-store.js';
 import { plannedRun, planTouching } from '../helpers/implement.js';
 import { reviewedRun } from '../helpers/repairRun.js';
 import { implementedRun, scriptedGates } from '../helpers/verifyRun.js';
@@ -153,6 +156,13 @@ function spy(record: RunRecord, onCall?: (plan: ResumePlan) => Promise<void>): S
   };
 }
 
+/** A throwaway working directory, so a command can be run against a real run store. */
+async function scratch(prefix: string): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
 async function stored(where: Where): Promise<string> {
   return JSON.stringify(await where.store.load(where.record.runId));
 }
@@ -219,6 +229,50 @@ describe.skipIf(!AVAILABLE)('the resume command', () => {
     expect(screen.text()).toContain('NOTHING HAS BEEN RUN');
     expect(await stored(where)).toBe(before);
     expect(await exists(runLockDirectory(where.runsRoot, where.record.runId))).toBe(false);
+  });
+
+  it('refuses to plan on top of an older run when a newer record cannot be read', async () => {
+    // `resume` reads the run through the same selection `status` uses, so the ambiguity
+    // that stops that screen stops the plan too — which matters more here, because a
+    // plan built from the wrong run is a plan a person then approves with `--execute`.
+    // The refusal is proved by what does not happen as much as by the words: no stage is
+    // dispatched, and no plan reaches the screen.
+    const cwd = await scratch('mergesutra-resume-stepover-');
+    const runsRoot = path.join(cwd, '.mergesutra', 'runs');
+    const store = createFileRunStore(runsRoot);
+    const older = recordAt({
+      runId: 'run-20260924T000000Z-aaaaaa',
+      createdAt: '2026-09-24T00:00:00.000Z',
+    });
+    await store.save(older);
+    await writeFile(
+      path.join(runsRoot, 'run-20261001T000000Z-zzzzzz.json'),
+      '{"runId":"run-20261001T000000Z-zzzzzz","outcome":',
+      'utf8',
+    );
+    const screen = capture();
+    const stage = spy(older);
+
+    const code = await run(['node', 'mergesutra', 'resume'], {
+      resume: {
+        store,
+        runsRoot,
+        cwd,
+        now: () => NOW,
+        pid: PID,
+        host: HOST,
+        executeStage: stage.executeStage,
+      },
+      write: screen.write,
+      writeErr: screen.writeErr,
+      env: { NO_COLOR: '1' },
+    });
+
+    expect(code).toBe(EXIT.ERROR);
+    expect(screen.text()).toBe('');
+    expect(screen.errorText()).toMatch(/cannot be read/i);
+    expect(screen.errorText()).toContain('run-20261001T000000Z-zzzzzz.json');
+    expect(stage.calls).toHaveLength(0);
   });
 
   it('names the cost of each kind of action before a person is asked to execute', async () => {
