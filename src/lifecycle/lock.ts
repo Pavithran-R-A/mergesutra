@@ -41,7 +41,10 @@ import { defaultRunStoreRoot } from '../state/run-store.js';
  * 3. **Even a proven-dead lock is not deleted.** It is claimed with a second atomic
  *    `mkdir` so exactly one racer can take it, the dead holder's identity is copied
  *    into the new owner record as `brokenFrom`, and the claim is removed behind the
- *    winner. Evidence is carried forward, not thrown away.
+ *    winner. The owner record is read again *while that claim is held*, because a
+ *    contender can prove a holder gone, pause, and find the lock taken over by a live
+ *    process before it claims — which is a refusal, not a second owner. Evidence is
+ *    carried forward, not thrown away.
  * 4. **Holding the lock authorises nothing else.** It is not execution consent, not
  *    repair consent, not publication approval, and not a remote capability; it does
  *    not write the run record, and `release` is a removal of this module's own
@@ -147,6 +150,14 @@ export interface RunLockDeps {
   readonly now?: () => Date;
   /** Process liveness, injected so a test can prove this is not a stub that says "alive". */
   readonly isProcessAlive?: (pid: number) => boolean;
+  /**
+   * Awaited after this process has proved a holder gone and before it claims the
+   * takeover. Nothing in this build passes it. It exists so a test can stand a
+   * second contender in that exact window and watch what happens, instead of
+   * hoping two `mkdir` calls happen to interleave the wrong way on a busy machine:
+   * the one race this module could lose is otherwise only reachable by timing.
+   */
+  readonly beforeTakeoverClaim?: (holding: LockHolding) => Promise<void> | void;
 }
 
 const ownerRecordSchema = z
@@ -210,40 +221,64 @@ export async function acquireRunLock(
     };
   }
 
-  const looked = await inspect(here, deps);
-  const holding = looked.holding;
-  if (holding.occupied) return block('PATH_OCCUPIED', holding);
-  if (!holding.owner) return block('OWNER_UNREADABLE', holding);
-  if (holding.liveness === 'UNKNOWABLE') return block('HELD_ON_ANOTHER_HOST', holding);
-  if (holding.owner.pid === here.pid) return block('HELD_BY_THIS_PROCESS', holding);
-  if (holding.liveness === 'ALIVE') return block('HELD_BY_LIVE_PROCESS', holding);
-
-  // Proven gone on this host. The claim directory is what makes two processes that
-  // both proved it at the same moment resolve into exactly one new holder.
+  // Proven gone on this host, as far as this one look reaches. The claim directory is
+  // what makes two processes that both proved it resolve into one new holder — but a
+  // claim only works if it is *held* across the look that follows it. Winning a `mkdir`
+  // the rival removed behind itself is not losing a race; it is arriving after the race,
+  // to a run somebody live is using. So the record is read again with the claim in hand,
+  // and only what is found then is the lock this process breaks.
   const claim = path.join(here.directory, TAKEOVER_NAME);
-  try {
-    await mkdir(claim);
-  } catch (error) {
-    if (codeOf(error) !== 'EEXIST') throw error;
-    return block('TAKEOVER_IN_PROGRESS', holding);
-  }
-  const owner = newOwner(here, {
-    pid: holding.owner.pid,
-    host: holding.owner.host,
-    createdAt: holding.owner.createdAt,
-    token: holding.owner.token,
-  });
-  try {
-    await writeOwner(here.directory, owner);
-  } finally {
+  let claimed = false;
+  const giveClaimBack = async (): Promise<void> => {
+    if (!claimed) return;
+    claimed = false;
     await rmdir(claim).catch(() => undefined);
-  }
-  return {
-    state: 'ACQUIRED',
-    directory: here.directory,
-    tookOverGoneLock: true,
-    handle: handleOf(here.directory, owner),
   };
+
+  for (;;) {
+    const looked = await inspect(here, deps);
+    const holding = looked.holding;
+    const stop = async (reason: LockBlockReason): Promise<Acquisition> => {
+      await giveClaimBack();
+      return block(reason, holding);
+    };
+
+    if (holding.occupied) return stop('PATH_OCCUPIED');
+    if (!holding.owner) return stop('OWNER_UNREADABLE');
+    if (holding.liveness === 'UNKNOWABLE') return stop('HELD_ON_ANOTHER_HOST');
+    if (holding.owner.pid === here.pid) return stop('HELD_BY_THIS_PROCESS');
+    if (holding.liveness === 'ALIVE') return stop('HELD_BY_LIVE_PROCESS');
+
+    if (!claimed) {
+      await deps.beforeTakeoverClaim?.(holding);
+      try {
+        await mkdir(claim);
+      } catch (error) {
+        if (codeOf(error) !== 'EEXIST') throw error;
+        return block('TAKEOVER_IN_PROGRESS', holding);
+      }
+      claimed = true;
+      continue;
+    }
+
+    const owner = newOwner(here, {
+      pid: holding.owner.pid,
+      host: holding.owner.host,
+      createdAt: holding.owner.createdAt,
+      token: holding.owner.token,
+    });
+    try {
+      await writeOwner(here.directory, owner);
+    } finally {
+      await giveClaimBack();
+    }
+    return {
+      state: 'ACQUIRED',
+      directory: here.directory,
+      tookOverGoneLock: true,
+      handle: handleOf(here.directory, owner),
+    };
+  }
 }
 
 /**
