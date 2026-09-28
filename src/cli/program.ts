@@ -11,6 +11,8 @@ import { repairAction, type RepairCommandOptions } from './repair.js';
 import { prAction, type PrCommandOptions } from './pr.js';
 import { reportAction, type ReportCommandOptions, type ReportDeps } from './report.js';
 import { statusAction, type StatusCommandOptions } from './status.js';
+import { resumeAction, type ResumeCommandOptions } from './resume.js';
+import type { ResumeStageDeps } from '../lifecycle/resume.js';
 import type { StatusStageDeps } from '../lifecycle/status.js';
 import type { IntakeDeps } from '../intake/intake.js';
 import type { InspectDeps } from '../discovery/inspect.js';
@@ -33,19 +35,23 @@ import { defaultRedactor } from '../security/redaction.js';
  * MergeSutra command surface.
  *
  * The one-command hero workflow is `mergesutra issue <url>`. The phase commands
- * (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `repair`, `report`, `pr`)
- * exist for transparency, debugging and recovery. Through Stage 11, `doctor`,
- * the intake half of `issue`, `inspect`, `contract`, `plan`, `implement`,
- * `verify`, `review`, `repair`, `report`, `status` and `pr` are wired up; every unfinished
- * command says
- * so truthfully rather than pretending to work. `run` — the unattended
+ * (`inspect`, `contract`, `plan`, `run`, `verify`, `review`, `repair`, `report`,
+ * `status`, `resume`, `pr`) exist for transparency, debugging and recovery. Through
+ * Stage 11, `doctor`, the intake half of `issue`, `inspect`, `contract`, `plan`,
+ * `implement`, `verify`, `review`, `repair`, `report`, `status`, `resume` and `pr`
+ * are wired up; every unfinished command says so truthfully rather than pretending
+ * to work. `run` — the unattended
  * end-to-end pipeline — is deliberately still planned: a pipeline that skipped
  * the human consent that `verify` requires would be unsafe, not convenient, so
  * the stages after it must land before an unattended mode can honestly exist.
  * `status` is the read-only half of recovery: it describes a run and its workspace
  * and has no act in it, which is why it exits 0 for a blocked run and 1 only when
- * there was nothing to describe. `pr` is wired but does not publish: it prepares and
- * approves a page locally, and this build has no remote to open one against.
+ * there was nothing to describe. `resume` is the acting half, and it acts on one
+ * stage at a time: it prints what it would do and what that costs, and only
+ * `--execute` runs it — under the same gates the direct command has, so it brings no
+ * consent, approval, credential or remote of its own. `pr` is wired but does not
+ * publish: it prepares and approves a page locally, and this build has no remote to
+ * open one against.
  */
 
 export interface ProgramDeps {
@@ -61,16 +67,14 @@ export interface ProgramDeps {
   pr?: Partial<PrStageDeps>;
   report?: Partial<ReportDeps>;
   status?: Partial<StatusStageDeps>;
+  resume?: Partial<ResumeStageDeps>;
   write?: (line: string) => void;
   writeErr?: (line: string) => void;
   env?: NodeJS.ProcessEnv;
   setExitCode?: (code: number) => void;
 }
 
-const PLANNED = [
-  { name: 'run', summary: 'Unattended end-to-end pipeline across all stages.' },
-  { name: 'resume', summary: 'Resume an interrupted run.' },
-];
+const PLANNED = [{ name: 'run', summary: 'Unattended end-to-end pipeline across all stages.' }];
 
 export function buildProgram(deps: ProgramDeps = {}): Command {
   const env = deps.env ?? process.env;
@@ -398,6 +402,50 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       setExitCode(await statusAction(runId, options, deps.status, write));
     });
 
+  program
+    .command('resume [run-id]')
+    .description(
+      'Continue a run from its last recoverable boundary; it shows the plan and changes nothing until --execute',
+    )
+    .option('--execute', 'run the one stage the printed plan names (nothing runs without it)')
+    .option(
+      '--repo <path>',
+      'primary checkout whose workspace this run owns (default: its recorded one)',
+    )
+    .option(
+      '--allow <gate-id>',
+      "consent to running this gate's repository command (repeat per gate; no wildcard exists)",
+      collect,
+      [] as string[],
+    )
+    .action(
+      async (
+        runId: string | undefined,
+        opts: { execute?: boolean; repo?: string; allow?: string[] },
+      ) => {
+        const globals = program.opts();
+        // A resumed loop or gate round is as interruptible as the command it stands in
+        // for, and for the same reason: a stop in the middle is a fact worth recording.
+        const controller = new AbortController();
+        const onInterrupt = (): void => controller.abort();
+        process.on('SIGINT', onInterrupt);
+        try {
+          const options: ResumeCommandOptions = {
+            json: globals.json === true,
+            noColor: globals.color === false,
+            env,
+            repo: opts.repo,
+            execute: opts.execute === true,
+            allow: opts.allow ?? [],
+            signal: controller.signal,
+          };
+          setExitCode(await resumeAction(runId, options, deps, write));
+        } finally {
+          process.removeListener('SIGINT', onInterrupt);
+        }
+      },
+    );
+
   for (const planned of PLANNED) {
     const [name] = planned.name.split(' ');
     program
@@ -413,10 +461,10 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
             renderer.row('INFO', planned.summary),
             '',
             renderer.dim(
-              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, verify, review, repair, report, status, pr, --help, --version.',
+              'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, verify, review, repair, report, status, resume, pr, --help, --version.',
             ),
             renderer.dim(
-              'Of those, `pr` prepares and approves a page; no command in this build opens one.',
+              'Of those, `pr` prepares and approves a page; no command in this build opens one. `resume` acts on one stage at a time, and only when told to.',
             ),
             renderer.dim('Progress: see docs/ROADMAP.md'),
           ].join('\n'),

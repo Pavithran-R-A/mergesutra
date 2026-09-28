@@ -67,7 +67,7 @@ describe('mergesutra CLI', () => {
   });
 
   it('does not pretend a later stage ran: no planned command exits 0', async () => {
-    for (const name of ['run', 'resume']) {
+    for (const name of ['run']) {
       const c = capture();
       const code = await run(['node', 'mergesutra', name], {
         write: c.write,
@@ -75,6 +75,27 @@ describe('mergesutra CLI', () => {
       });
       expect(code, name).toBe(2);
     }
+  });
+
+  it('has stopped treating `resume` as planned, without letting it plan from nothing', async () => {
+    const c = capture();
+    const err = capture();
+    const cwd = await mkdtemp(path.join(tmpdir(), 'mergesutra-resume-planned-'));
+    tempDirs.push(cwd);
+
+    const code = await run(['node', 'mergesutra', 'resume'], {
+      write: c.write,
+      writeErr: err.write,
+      env: { NO_COLOR: '1' },
+      resume: { store: memoryRunStore(), cwd, runsRoot: cwd },
+    });
+
+    expect(code).not.toBe(2);
+    expect(c.out()).not.toContain('is planned, not yet implemented');
+    // There is no run to read a plan from, so the honest answer is a failure to
+    // describe, not a preview of a next step invented out of an empty directory.
+    expect(code).toBe(1);
+    expect(err.out()).toMatch(/no run/i);
   });
 
   it('has stopped treating `status` as planned, without letting it invent a run', async () => {

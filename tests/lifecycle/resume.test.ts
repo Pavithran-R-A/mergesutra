@@ -445,7 +445,7 @@ describe.skipIf(!AVAILABLE)('what a resume may act on', () => {
     let reads = 0;
     const store: RunStore = {
       save: (record) => where.store.save(record),
-      load: async (runId) => {
+      load: async (_runId) => {
         reads += 1;
         return reads === 1 ? first : moved;
       },
