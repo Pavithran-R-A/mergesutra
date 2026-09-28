@@ -33,8 +33,8 @@ import { CAN_SYMLINK, makeLink, snapshotTree } from '../helpers/fixture.js';
  * 5. `lstat` on the target — an existing symlink or directory is refused;
  * 6. the precondition — `STALE_FILE` before the only replacing operation.
  *
- * What this file deliberately does not claim is that the property is
- * "symlink-proof" in a wide sense. Several rows below end in a write rather than
+ * What this file deliberately does not claim is that the writer is proof against
+ * symlinks in a wide sense. Several rows below end in a write rather than
  * a refusal (`...`, `.. `, a trailing dot, an 8.3 short name, a hard link): each
  * is confined, none is refused, and the assertions say exactly that. The window
  * between layer 3 and the rename has its own file — `toctou-window.test.ts` —

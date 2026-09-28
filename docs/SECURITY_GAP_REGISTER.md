@@ -778,6 +778,69 @@ residual window verbatim.
 **Closure.** TEST + DOCUMENT. Expected outcome: no production change, and the words
 "symlink-proof" must not appear anywhere in `src/` or `docs/` (§51).
 
+**Closed — CODE + TEST + DOCUMENT.** The plan here was tests and wording. Driving the gap
+found a hole in the middle of the write path, so this item is not the closure it forecast.
+
+*The matrix.* `tests/security/path-confinement-matrix.test.ts` attempts forty-seven spellings
+of a path (fifty-five cases with the whole-tree invariants) and asserts, for each refusal,
+*which* check answered it — the lexical layer, `.git`, the ancestor resolution, the leaf
+`lstat`, the content, the precondition — rather than only that an `AppError` arrived. That
+matters because half of the "not handled" list in this entry's own **Source.** block is not a
+hole: `...`, `.. ` (dot-dot plus a trailing space), `x.`, `%2e%2e/`, `..%2f`, `..git`, `.git `
+and an 8.3 short name are ordinary literal names to `path.resolve` and to Windows, and every
+one of them wrote **inside** the workspace, including `src/.. /x.ts`, which created a
+directory called `.. ` rather than reaching the parent. Case-collision (`EXISTING.TS` over
+`existing.ts`) and an empty segment (`src//x.ts`, which is `src/x.ts`) cannot clobber unseen
+bytes either, because the precondition resolves the same way the filesystem does and answers
+`STALE_FILE`. A link or junction anywhere on the way is refused after resolution, including a
+link to a directory that hides a second link out; a leaf that is already a symlink is refused
+even when it points inside, and a dangling one too. A hard link is the one case no check can
+see — it is a regular file with two names — and it stays confined because the writer renames
+over a *name* instead of writing into an inode, which the file proves by keeping the other
+name's bytes. Rows that need a symlink, a junction or a case-insensitive filesystem name
+themselves as skipped when the platform will not cooperate, and the 8.3 block says it is
+Windows-only; the older silent `if (!linked) return;` idiom is not used here.
+
+*The hole.* `tests/security/toctou-window.test.ts` swaps an ancestor directory for a junction
+to an outside directory the instant the link layer's own `realpath` returns — same thread,
+same call, armed as a callback, so it is deterministic rather than timed. Against the writer
+as this stage inherited it, that was not a detection: the payload was created outside the
+workspace and the call reported success. Everything between the check and the rename
+(`mkdir`, the temp `open`, the write, the `sync`, the precondition's `lstat`) re-reads a tree
+the check had already judged. The fix is the smallest one available in the module that owns
+the boundary: `confine(relativePath)` runs again at `src/security/writer.ts:180`, after the
+bytes are durable and before the one operation that replaces anything.
+
+*What that does not claim.* The scratch file is staged *before* the second proof, so through a
+swapped ancestor it really is written outside and then removed by the same cleanup that removes
+any failed temp. The test does not infer that: it records the path every `open` is handed and
+asserts the refused write's one scratch file resolved to the outside directory and was gone when
+the call returned. So the property is "no write *ends* outside the root", not "no byte was ever
+written outside it", and the interval between the second proof and the `rename` syscall is open
+— Node gives user space no `openat`/`O_NOFOLLOW` directory handle to rename through, and reaching
+that interval needs a process that can already create links inside this run's workspace, which is
+the same filesystem authority as writing the escaped file directly. SECURITY_MODEL §4.3 says all
+of this, and the test pins the count of link-layer queries per write at exactly two so a future
+third proof cannot leave the paragraph stale without failing something.
+
+*The wording.* The banned stronger adjective appears nowhere in `src/`, `tests/` or
+`README.md`. In `docs/` it survives
+only where this register quotes the ban (its own **Claim.**/**Closure.** lines above and the
+S12-25 count table); §4.3 defines the narrower property without using it, and ADR-065 records
+why the narrower wording is the one that is true.
+
+*The mutations.* Four, each restored byte-for-byte (sha256 `9384c9a5…` for `path-safety.ts`,
+`fc6effa9…` for `writer.ts`) and the suite re-greened after each: the lexical `..` refusal
+disabled — 7 red (five rows, one `path-safety` case, one writer case), and every row that still
+refused said `resolves outside the authorized root`, so the post-resolve backstop is real and the
+rows are pinning a layer rather than a tautology; the ancestor `isInsideRoot` disabled — 18 red,
+with `outside/x.ts` and `outside/deep/x.ts` actually created, i.e. the guard is load-bearing;
+`hasGitSegment` disabled — 7 red across `.git`, `.GIT`, `.Git`, a backslash spelling, a deeper
+path and the bare name, while the row that hides a traversal behind a git name stayed green
+because the lexical layer answers first; and the second `confine` removed — the two ancestor-swap
+cases red, which is this fix's own exploit test rather than an added mutation. `tests/security`
+after all restores: 8 files, 127 tests, exit `0`.
+
 ---
 
 ## S12-11 — untrusted text reaches a terminal that is the output device

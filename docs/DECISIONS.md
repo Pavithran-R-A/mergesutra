@@ -1776,3 +1776,71 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   store does not arbitrate; and the fact that a leftover temp is invisible to `list()` rather
   than reported, so an operator who wants the artefacts gone has to look at the directory.
 
+## ADR-065 — The way a write travels is proved twice, because the way is what a link changes
+
+- **Decision:** `confine(relativePath)` is called at the top of `writeText` and again immediately
+  before `renameChecked` (`src/security/writer.ts:180`), and the confinement claim in
+  SECURITY_MODEL §4.3 is now written against *two moments* — when the write is planned, and when
+  the bytes are about to replace anything. Two files carry the proof.
+  `tests/security/path-confinement-matrix.test.ts` attempts forty-seven spellings across six
+  layers and asserts, for the refused ones, *which* message answered (`contains a parent traversal
+  segment`, `the path crosses .git`, `a link or directory on the way resolves outside the
+  workspace`, `the target is a symlink`, `STALE_FILE`, …) rather than only that something threw;
+  for the ones that are not attacks it asserts the bytes landed inside. Rows needing a symlink, a
+  junction or a case-insensitive filesystem are reported as skipped by name, and the 8.3 block
+  describes itself as Windows-only. `tests/security/toctou-window.test.ts` arms the swap as a
+  callback that fires the instant the link layer's own `realpath` returns — same thread, same
+  call, no race — and asserts the per-write count of link-layer queries is exactly two.
+- **Reason:** the register expected this gap to close with tests and wording only. The simulation
+  said otherwise: with the ancestor `midwrite/` replaced by a junction to an outside directory in
+  the gap after the first proof, the payload was created outside the workspace and the call
+  **reported success** (`expected null to be an instance of AppError`, witnessed RED). Everything
+  between the check and the rename — `mkdir`, temp `open`, write, `sync`, read-back, the
+  precondition's `lstat` — re-reads a tree that the check had already judged, so the check judged
+  a fact that had become false. A second proof at the last moment is the smallest change that
+  makes that simulation a refusal, and it is in the one module that owns the boundary. The matrix
+  exists because three tests were standing in for the whole property, and the adjective this
+  stage bans was never what the code did; §20's rule is that a claim gets narrowed to its proof
+  rather than the proof inflated to the claim. Recording *which* check answers matters for the
+  same reason: half the
+  spellings the register listed as unhandled (`.. `, `...`, `x.`, `%2e%2e`, `..git`, an 8.3 alias,
+  a case-colliding name) are ordinary literal names to `path.resolve` and to Windows, and each
+  wrote inside the workspace. Writing "all refused" about those would have hidden the real answer,
+  which is that they were never escapes — and a table that says which layer spoke is also the table
+  that catches a future reorder of the layers.
+- **Alternatives considered, and rejected:** staging the temp in the run directory instead of
+  beside the target, so no scratch byte could ever follow a bad link — rejected because the rename
+  would then cross filesystems, which is a copy rather than a replace, and the atomicity §4.2
+  leans on is a same-directory rename. Checking `realpath` once and holding a directory handle
+  (`openat`/`O_NOFOLLOW`) — Node has no handle form that would let a `rename` be aimed through a
+  verified directory, so the interval cannot be closed from user space; the honest move was to
+  state it. Making the caller pass an absolute, already-resolved path — that only moves the window
+  into the caller and leaves the writer's own `mkdir`/temp steps unjudged. Asserting "some
+  `AppError`" in every matrix row, which passes against a build that refuses for the wrong reason
+  and so tests nothing about the layering. And leaving the ancestor-swap case as documentation of
+  a known window rather than fixing it: a gap that puts bytes outside a workspace a person approved
+  is not a wording problem.
+- **Consequence:** §4.3 states the property as two moments and says what the gap between them
+  still allows — the microseconds before the `rename` syscall, and the fact that a refused write
+  really does stage its scratch file through the swapped link before it notices, which the test now
+  evidences by recording the path every `open` is handed and asserting that it resolved outside and
+  was gone when the call returned. Reaching that interval needs a process that can already create
+  links inside this run's workspace, which is the same filesystem authority as writing the escaped
+  file directly, so it is not a crossing of a boundary this tool guards; §4's rule that a Git
+  worktree is not an OS sandbox is unchanged and repeated. Four mutations, each restored
+  byte-for-byte by sha256 and re-greened: the lexical `..` refusal disabled (7 red — five rows, one
+  `path-safety` case, one writer case — and every row that still refused did so with
+  `resolves outside the authorized root`, so the backstop is real and the layers are not redundant
+  theatre), the ancestor `isInsideRoot` disabled (18 red, including the whole-matrix invariant, with
+  `outside/x.ts` and `outside/deep/x.ts` actually created — the guard is load-bearing, not
+  decorative), `hasGitSegment` disabled (7 red — six rows for `.git`, `.GIT`, `.Git`, a backslash
+  spelling, a deeper path and the bare name, plus the writer's own `.git` case, while the row that
+  hides a traversal behind the git name stayed green because layer 1 answers first), and the second
+  `confine` removed (the two toctou cases red,
+  which is the exploit test's own RED). What it does not cover: a hard link, which no check can see
+  and which stays confined only because the writer renames over a *name* instead of writing into an
+  inode; the two skipped-platform row families on a machine that will not make links; a hostile
+  process racing the real filesystem rather than being simulated at a chosen instruction; and every
+  writer other than this one — `state/run-store.ts` and the evidence pack have their own windows,
+  which §4.2 and S12-08 describe and this ADR does not extend.
+

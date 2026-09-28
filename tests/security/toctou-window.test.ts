@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
 import type * as fsPromises from 'node:fs/promises';
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppError } from '../../src/core/errors.js';
 import { CAN_SYMLINK, makeFixtureTree, makeLink, snapshotTree } from '../helpers/fixture.js';
+import { isInsideRoot } from '../../src/security/path-safety.js';
 import { openConfinedWriter, type ConfinedWriter } from '../../src/security/writer.js';
 
 /**
@@ -32,6 +34,7 @@ import { openConfinedWriter, type ConfinedWriter } from '../../src/security/writ
 
 const hook = vi.hoisted(() => ({ swap: null as null | (() => Promise<void>) }));
 const linkCheckSaw = vi.hoisted(() => [] as string[]);
+const stagedPaths = vi.hoisted(() => [] as string[]);
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const real = await importOriginal<typeof fsPromises>();
@@ -47,6 +50,13 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         await swap();
       }
       return value;
+    },
+    async open(...args: Parameters<typeof real.open>) {
+      // Recorded, not intercepted: the second proof refuses a write whose scratch
+      // file has already been put where the swapped ancestor points. Saying that
+      // in a document needs the path, not an inference about ordering.
+      stagedPaths.push(String(args[0]));
+      return real.open(...args);
     },
   };
 });
@@ -141,6 +151,7 @@ describe('what the last moment re-checks, and what it cannot', () => {
       const dir = path.join(WORKSPACE, 'midwrite');
       await mkdir(dir, { recursive: true });
       const outsideBefore = await outsideTree();
+      stagedPaths.length = 0;
 
       hook.swap = async () => {
         // `midwrite` has just been proved to be a real directory inside the root.
@@ -169,6 +180,25 @@ describe('what the last moment re-checks, and what it cannot', () => {
       // Nothing was left outside — not the payload, and not the scratch file the
       // write staged before it noticed.
       expect(await outsideTree()).toEqual(outsideBefore);
+
+      // And the narrower truth about the gap that *was* closed: the scratch file is
+      // staged before the second proof runs, so it really did go wherever the
+      // swapped ancestor pointed. The refusal is what stopped it becoming a result;
+      // the cleanup that removes a failed temp is what stopped it staying there.
+      // Recorded here because SECURITY_MODEL §4.3 says this, and a document should
+      // not be the only place a claim like that lives.
+      const staged = stagedPaths.filter((p) => path.basename(p).startsWith('.mergesutra-tmp-'));
+      expect(staged.length, 'the write staged a scratch file before it was refused').toBe(1);
+      const scratch = staged[0] as string;
+      // The *spelling* of the scratch path is inside the workspace; it is the
+      // resolved directory that is not. Saying which one escaped is the point.
+      const stagedDir = realpathSync(path.dirname(scratch));
+      expect(
+        isInsideRoot(writer.root, stagedDir),
+        'the scratch file was staged inside the workspace',
+      ).toBe(false);
+      expect(stagedDir).toBe(realpathSync(OUTSIDE));
+      expect(existsSync(scratch), 'the refused write left its scratch file behind').toBe(false);
     },
   );
 

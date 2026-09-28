@@ -653,7 +653,9 @@ lets the repository choose the real destination; content is byte-capped at one
 MiB per write; and the write is atomic — a temp file in the same directory,
 `fsync`, then a rename — so a failure leaves the old file or the new one, never
 half of either, and a refused oversized write to an existing path is proven by
-test to leave the original bytes in place.
+test to leave the original bytes in place. That resolution of the way is done
+twice, once when the write is planned and once immediately before the rename, and
+§4.3 states what the gap between the two still allows.
 
 The API has no delete, no rename and no chmod, and a test asserts that the only
 methods on the object are `writeText` and `exists`. A writer that cannot delete
@@ -794,6 +796,84 @@ no workspace, one JSON file per run — and its guarantees are stated at that si
   across processes they differ by pid — a store that survives a *failed* write is not
   the same thing as a store that arbitrates two *concurrent* ones, which is the run
   lock's job (§2.6) and is not a durability mechanism.
+
+### 4.3 How wide the confinement claim is (Stage 12)
+
+The bullets in §4 say the writer confines its writes. For most of Stage 12 that
+sentence was backed by one traversal test, one symlink test and one `.git` test.
+`tests/security/path-confinement-matrix.test.ts` now attempts forty-seven spellings
+of a path and records, for each, **which check answered it** — or that it was never
+an escape and the bytes stayed inside anyway. That distinction is the point: a table
+of "everything threw" would prove less than this one.
+
+The claim, stated at the width the tests actually give it:
+
+> No path MergeSutra writes ends outside the link-resolved root of this run's
+> workspace, judged against the tree **as it is at two moments** — when the write
+> is planned, and immediately before the operation that replaces anything.
+
+That claim is narrower than "proof against symlinks", and the difference is
+measured, not argued. The stronger wording is banned from this repository's source
+and documents (Stage 12 rule 51); this section is where the weaker one is defined.
+
+- **What each layer stops.** `../` in every separator spelling, POSIX and
+  drive-letter absolutes, a UNC share (`\\server\share`), the extended-length
+  prefix (`\\?\C:\`), the device namespace (`\\.\pipe\`), NUL bytes and an empty
+  name are refused lexically. `.git` is refused in `.GIT`, `.Git` and backslash
+  spellings. A link or junction anywhere on the way — including a link to a
+  directory that itself contains a second link out — is refused after resolution.
+  A leaf that is already a symlink is refused even when it points inside, and a
+  dangling one is refused too, because its target does not exist yet.
+- **What is confined but not refused, and is therefore not an escape.** `...`,
+  `.. ` (dot-dot with a trailing space), `x.`, `%2e%2e/`, `..%2f`, `..git`,
+  `.git ` and an 8.3 short name are *ordinary names* to `path.resolve` and to
+  Windows: each created a literal file or directory **inside** the workspace, and
+  a name that only resembles `.git` is a different directory, not `.git`. The
+  folklore that these defeat a containment check was measured here and did not
+  hold on this platform — the rows say so rather than the prose. Case-collision
+  (`EXISTING.TS` over `existing.ts`) and an empty segment (`src//x.ts`, which is
+  `src/x.ts`) cannot clobber unseen bytes either: the precondition notices, because
+  it resolves the same way the filesystem does. A hard link is the one case no
+  check can see — it is a regular file with two names — and it is still confined,
+  because the writer renames a new file over the *name* rather than writing into
+  an inode, so the other name keeps its bytes.
+- **What the last moment does catch.** A file swapped out from under the caller
+  between the plan and the rename is refused with `STALE_FILE`, and whatever
+  landed in between is left standing — refusing is not repairing. A leaf replaced
+  by a link in the same gap is refused rather than followed.
+- **The window, said plainly.** Before Stage 12, a simulated swap of an *ancestor
+  directory* — performed the instant the link check returned its answer, on the
+  same thread, with no race involved — put the payload outside the workspace and
+  the call reported success. Nothing re-checked the way after the temp file, the
+  sync and the byte read. The ancestor resolution now runs again immediately
+  before the rename, and that simulation is a refusal. What remains is the
+  interval between that second proof and the `rename` syscall itself: it cannot be
+  closed from user space, because Node exposes no `openat`/`O_NOFOLLOW` directory
+  handle to rename into. And the refusal is not as clean as it sounds — the temp
+  file is staged *before* the second proof runs, so through a swapped ancestor the
+  scratch bytes are briefly written outside the workspace and then removed by the
+  same cleanup that removes any failed temp. That is not an inference from ordering:
+  the test records the path every `open` is handed and asserts that the one scratch
+  file the refused write staged resolves to the outside directory and is gone again
+  when the call returns. The payload never stays out, the call never reports
+  success, and the test asserts both; what it does not assert is that no byte was
+  ever written outside, because that is not what happens. Reaching the
+  remaining interval needs a process that can already create links inside this
+  run's workspace — which is the same filesystem authority as writing the escaped
+  file directly, so it is not a crossing of a boundary MergeSutra guards. It is
+  still a limit of a check built from strings and `realpath`, and
+  `tests/security/toctou-window.test.ts` names it in both directions: the count of
+  link-layer queries per write is asserted to be exactly two, so a future build
+  that adds a third cannot leave this paragraph stale.
+- **Skips are named.** Rows that need a symlink, a junction or a
+  case-insensitive filesystem report themselves as skipped when the platform
+  will not cooperate; the 8.3 row describes itself as Windows-only. Silence in
+  the output is not evidence of protection.
+
+None of this changes §4's opening rule that a Git worktree is an isolation
+convenience and not a security sandbox. Git worktree isolation is not an OS
+sandbox, and the confinement above is a property of one module's code path, not
+of the directory the run happens to sit in.
 
 ## 5. Command execution safety
 
