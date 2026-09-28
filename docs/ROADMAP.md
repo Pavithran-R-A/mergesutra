@@ -35,8 +35,10 @@ partially in place; `[ ]` = not started. Do not read an unchecked box as done.
       detached HEAD, linked worktree and bare-repository detection
 - [x] Cross-check that `--repo` is the issue's repository; refuse to base work
       on a mismatched clone
-- [x] Versioned run record (`.mergesutra/runs/<id>.json`) written atomically,
-      schema-validated on load, corrupt files reported not hidden
+- [x] Versioned run record (`.mergesutra/runs/<id>.json`) written to a temp file and
+      renamed into place — no `fsync`, so no power-loss claim (SECURITY_MODEL §4.2) —
+      schema-validated on load, corrupt files and names that cannot be run ids
+      reported not hidden
 - [x] Injection *signalling* on imported issue text (labels as data, never
       blocks); no model call and no patch is produced by this stage
 

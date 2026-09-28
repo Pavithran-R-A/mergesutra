@@ -255,7 +255,7 @@ src/
   intake/      issue URL parsing, local-repo reading,     [IMPLEMENTED]
                intake orchestrator
   github/      gh-CLI source + Zod-validated payloads     [IMPLEMENTED]
-  state/       versioned run record + atomic file store   [IMPLEMENTED]
+  state/       versioned run record + rename-based store  [IMPLEMENTED]
   discovery/   confined repo reader, manifest/CI          [IMPLEMENTED]
                discovery, repository contract
   contract/    Acceptance Contract schema + criteria      [IMPLEMENTED]

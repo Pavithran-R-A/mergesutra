@@ -1719,3 +1719,60 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   What it does not cover: the eight `BUDGET-UNRECORDED` knobs ADR-062 names, and
   the cycle ceilings themselves, which remain enforced where a plan is frozen — a record with
   an invented pair above the ceiling would still run, bounded only by the human's typed digest.
+
+## ADR-064 — The run store proves its failure windows one by one, and the claim stops at the rename
+
+- **Decision:** `createFileRunStore`'s durability is now a per-window fact rather than a
+  summary adjective, and one of its read paths changed to match. `save()` is unchanged:
+  `<target>.<pid>.tmp` then `rename`, and `tests/state/run-store-faults.test.ts` puts a
+  failure into each step of it — the run directory uncreatable, the temp write refused,
+  the disk filling a third of the way through the temp, the process interrupted after the
+  temp landed, the rename refused, the write denied on permission — asserting at every one
+  that the previous record survives byte-for-byte, that the failure reaches the caller with
+  the filesystem's own code, and that `list()` names none of the leftovers as a run. The
+  change is in `list()`: the run-id shape check moved *inside* the per-file guard, so a file
+  whose name cannot be a run id is reported through the existing `unreadable` channel
+  instead of throwing while the listing is being built. The word "atomic" no longer appears
+  against this module anywhere in the docs without its bound attached: there is no `fsync`,
+  so a successful save has proved the bytes reached the operating system and nothing more
+  (SECURITY_MODEL §4.2).
+- **Reason:** the shape check sat one line outside the `try` that catches everything else in
+  the loop, which made a filename the only untrusted input in the run directory that could
+  outrank the records beside it. A directory a person, a restore or another tool had put
+  `.json` or `_draft.json` into answered every command that asks which run is current —
+  `status`, `resume`, `report`, `verify`, `review`, `repair`, `pr`, `contract`, `plan`,
+  `implement`, since all of them route through `state/run-selection.ts` or a `list()` of
+  their own — with `Refusing to use run file name as a file name: ""`, a message about the
+  tool's own naming and a remediation about supplying a name, while the runs that were
+  perfectly readable went unmentioned. That is the §0 rule about a filename being hostile
+  input, demonstrated rather than assumed, and the failure was the specific one this
+  document keeps returning to: a screen that says nothing about the thing the person came
+  to look at. The durability half is the register's own instruction (S12-08): the claim was
+  "atomic-ish", and a claim about a window needs a fault in each window.
+- **Alternatives considered, and rejected:** skipping a name that fails the shape check,
+  which is the quietly-hidden file §29 forbids — the stray is exactly what an operator needs
+  to see to explain why the screens started refusing. Catching the throw in the CLI instead
+  of fixing `list()`, which would spread one rule across the five call sites that list runs
+  and leave the sixth route (any future one) with the crash. Renaming or deleting the
+  offending file so the screens come up, refused by the same no-cleanup rule §2.4 states for
+  a repair cycle and §4.2 for this store's scratch space. And adding `fsync` plus a
+  `FileHandle` to `save()` so the older, grander word could stand: no gap in this register is
+  about surviving power loss, the confined writer's sync exists because a workspace write can
+  destroy human work that cannot be re-derived, and §19's rule for a claim wider than its
+  proof is to shrink the claim, not to grow the machinery to fit the prose.
+- **Consequence:** a stray file now degrades the run-selection rule into the refusal it was
+  designed to make — `Cannot tell which run is current`, naming up to five files and
+  offering the newest readable id — which `tests/state/run-selection-shape.test.ts` already
+  holds as a line, and the second new case proves the case reaches that refusal rather than
+  stopping in the store. Three mutations, each restored and re-greened: the shape check back
+  outside the guard (exactly the two listing cases red, every durability case still green —
+  so the file is not carrying its weight on the strength of the mock), `save()` writing the
+  target directly with no rename (four window cases red: the truncated bytes land on the
+  record, an unfiled record starts listing, and a scratch path occupied by a directory stops
+  being a refusal), and the `.json` suffix filter replaced by a no-op (four red, including a
+  temp holding a complete record being listed as a run of its own). What it does not cover:
+  a rename interrupted by a real crash rather than an injected fault, which no in-process
+  test can reach; two processes saving one run id at once, which the run lock is for and this
+  store does not arbitrate; and the fact that a leftover temp is invisible to `list()` rather
+  than reported, so an operator who wants the artefacts gone has to look at the directory.
+

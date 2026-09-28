@@ -601,6 +601,85 @@ old record unchanged and `list()` never names a temp file a run.
 **Closure.** TEST, plus DOCUMENT of precisely what is *not* guaranteed (no power-loss
 claim).
 
+**Closed — TEST + CODE + DOCUMENT.** The save windows held, and are now proved one by one.
+The listing did not: driving this gap found a defect on the read path, so the item is not
+the test-and-word closure planned here.
+
+*The windows.* `save()` is unchanged. `tests/state/run-store-faults.test.ts` faults
+`node:fs/promises` around calls — delegating to the real module for everything it is not
+faulting, so the bytes are real — at six steps: the run directory uncreatable (`EPERM`),
+the temp write refused (`ENOSPC`), the temp write denied (`EACCES`), the disk filling a
+third of the way through the temp, the process interrupted after the temp lands and before
+the `rename`, and the `rename` itself refused. At each one: the target compared
+byte-for-byte against the buffer read before the call, the rejection carrying the
+filesystem's own code and reaching the caller rather than being swallowed, `load()` still
+returning the old record, and `list()` naming none of the leftovers. A call log records
+which steps the save attempted, so "the refusal is not retried into the target" and "no
+`rename` was ever tried" are assertions, not narration. One window is reproduced with no
+mock at all: a directory sitting where `<target>.<pid>.tmp` belongs, which the filesystem
+refuses on its own and which leaves the same untouched record.
+
+*The defect.* `list()` validated each file's stem with `assertSafePathSegment` one line
+*outside* the `try` guarding the rest of the loop body. A single stray name in
+`.mergesutra/runs` — `.json`, `_draft.json`, anything whose stem cannot be a run id, all
+three creatable on Windows and POSIX — threw while the listing was being built, so every
+command that asks which run is current (`status`, `resume`, `report`, `verify`, `review`,
+`repair`, `pr`, `contract`, `plan`, `implement`: all of them route through
+`state/run-selection.ts` or a `list()` of their own) exited `1` with
+`Refusing to use run file name as a file name: ""` and a remediation about *supplying* a
+name — naming none of the runs that were perfectly readable. §0 lists filenames as hostile
+input; this was one, and it was the tool's own read path that broke on it.
+
+*The code.* The check moved inside the guard (`src/state/run-store.ts:95`), so a file that
+cannot be a run is reported in `unreadable` — the channel that already exists for it — and
+the readable runs stay listed. No new field, no new error, nothing renamed, moved or
+deleted, and no containment weakened: an unsafe stem still never becomes a `runId` in a
+summary. A stray file therefore degrades into S12-06's designed answer rather than a
+crash: `Cannot tell which run is current`, naming the file and offering the newest
+readable id.
+
+*Red before green.* The two listing cases failed first for the right reason —
+`AppError: Refusing to use run file name as a file name: "".` raised out of `list()` at
+`run-store.ts:89`, and `expected 'Refusing to use run file name…' to contain 'Cannot tell
+which run is current'`. The eight durability cases were green on their first run, which is
+what the register's own framing predicted: the suspicion was that the behaviour was
+untested, not that it was wrong. Three mutations, each restored and re-greened:
+
+| mutation | what went red |
+| --- | --- |
+| shape check back **outside** the per-file `try` | exactly the two listing cases; all eight durability cases stayed green |
+| `save()` writing the **target directly**, no temp and no rename | four: the truncated bytes land on the record, an unfiled record starts listing, a refused rename stops being a refusal, and the occupied-temp case stops failing |
+| `.json` suffix filter replaced by a no-op | four, including a leftover temp holding a complete record listed as a run of its own |
+
+*Documented, not smoothed.* New SECURITY_MODEL §4.2 states the bound in the store's own
+words: the temp-plus-rename means a failed save leaves the old record or the new one and
+never a mixture; **nothing in the run store calls `fsync`** (verified against source —
+`src/security/writer.ts:162` syncs a handle, `run-store.ts` has no handle to sync), so a
+save that returns has proved the bytes reached the operating system and nothing more, and
+no power-loss, device-reset or write-reorder claim is made. The `atomic file store` label
+on `state/` in ARCHITECTURE and the `written atomically` line in ROADMAP Stage 1 were
+rewritten to name the mechanism and its bound rather than the adjective. ADR-064 records
+why the claim was shrunk instead of the machinery grown.
+
+*Neighbour sweep.* Focused: `tests/state` + `tests/lifecycle` + `tests/cli/status.test.ts`
+— 22 files, 321 tests, exit `0`. Authoritative whole-suite run on the final tree, raw log:
+**116 test files passed, 3 skipped (119 files); 1780 tests passed, 3 skipped (1783);
+386.49s; `npm test` exit `0`** — the three skips being the standing `*/live.test.ts` files
+that wait for a real credential (§54). No timeout was raised and no worker cap was passed
+for this run; a foreign `vite --port 3000` dev server was observed on the box and left
+alone.
+
+*What is now proved, and what is not.* Proved: every window in `save()` that this process
+can reach, that an artefact of a failed save names no run, and that a name the directory
+holds is judged as data. Not proved, and not claimed: a `rename` torn by a real crash
+rather than an injected fault (unreachable in-process, and the OS's atomicity of rename is
+the assumption the whole design rests on); durability across power loss, for which there is
+no `fsync`; and two processes saving one run id concurrently — the temp name carries only a
+pid, so the store survives a *failed* write without serialising *competing* ones, which is
+the run lock's job (§S12-09) and not a durability mechanism. A leftover temp stays invisible
+to `list()` rather than reported, so clearing artefacts remains a human looking at the
+directory.
+
 ---
 
 ## S12-09 — the proven-dead takeover has a read-then-write window (§19 asked exactly this)

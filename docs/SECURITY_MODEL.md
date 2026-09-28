@@ -747,6 +747,54 @@ NETWORK surface (§3) and no secret-protection surface (§6). Its exit code is t
 recorded outcome's (ADR-045), which means it cannot be used to turn a blocked run
 into a pipeline success.
 
+### 4.2 The run store's own writes (Stage 12)
+
+Every stage files its belief by way of `src/state/run-store.ts`, so this is the one
+file whose failure could make every other claim in this document about a finished
+stage untrue. It is a smaller mechanism than the confined writer of §4 — no worktree,
+no workspace, one JSON file per run — and its guarantees are stated at that size.
+
+- **A record is replaced by rename, so the target is never a mixture.** `save` writes
+  `<target>.<pid>.tmp` and renames it over `<run-id>.json`. `tests/state/run-store-faults.test.ts`
+  puts a failure into each step of that and reads the disk back through a route the
+  fault never touched: with the directory uncreatable, with the temp write refused,
+  with the disk filling a third of the way through the temp, with the process
+  interrupted after the temp landed, and with the rename refused, the record that was
+  there before is byte-for-byte the record there after, and the failure reaches the
+  caller with the filesystem's own code on it. One of those five is reproduced without
+  any mock at all, by putting a directory where the temp file belongs: the same
+  refusal, the same untouched record. A stage that cannot file says so as
+  `saveError` on its own screen rather than printing a path it did not write.
+- **An artefact of a failed save is not a run, and is not hidden either.** `list()`
+  names only `<segment>.json` files whose segment is a safe run id, so the temp a
+  crashed save leaves behind — even one holding a complete, parseable record of a run
+  that was never filed — describes no run. Nothing reverts or deletes it: the same
+  no-cleanup rule §2.4 states for a repair cycle, applied to the store's own scratch
+  space. It is invisible to `list()` rather than reported as unreadable, and a later
+  save of that run overwrites and renames the same name, so the artefact cannot
+  outlive the next filing of the run it belongs to.
+- **A name the directory holds is as untrusted as the bytes under it.** `list()` used
+  to validate a file name *outside* its per-file guard, so one stray file — `.json`,
+  `_draft.json`, anything whose stem cannot be a run id — threw while the listing was
+  being built, and every command that asks "which run is current" died with a message
+  about file naming instead of listing the runs that were perfectly readable. The
+  check now sits inside the guard, so the file is reported unreadable through the
+  channel that already exists for it, the readable runs stay listed, and
+  `state/run-selection.ts` answers the way S12-06 decided it must: a record it cannot
+  date is a refusal that names the file and offers an id to pass (§2.6). Proved in
+  both directions, because the mutation that puts the check back where it was goes red
+  on exactly those two cases.
+- **What is *not* guaranteed, stated plainly.** Nothing in the run store calls
+  `fsync`. The confined writer of §4 does sync a handle before it renames; the run
+  store writes, renames and returns, so a `save` that succeeds has proved the bytes
+  reached the operating system and nothing more. A power loss, a device reset or a
+  filesystem that reorders writes across a crash is outside what this build claims,
+  and no test here pretends to cover it. The same is true of the temp name's lack of
+  a random suffix: two saves of the same run id from one process are sequential, and
+  across processes they differ by pid — a store that survives a *failed* write is not
+  the same thing as a store that arbitrates two *concurrent* ones, which is the run
+  lock's job (§2.6) and is not a durability mechanism.
+
 ## 5. Command execution safety
 
 - Never `shell: true` unless an extremely strong, fully-controlled,
