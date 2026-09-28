@@ -83,26 +83,26 @@ describe('what a publication stage could ever put in front of a process', () => 
     }
   });
 
-  it('names the commands the classifier cannot see, so this stage carries those bans alone', async () => {
-    // The other half of the positive control, and the uncomfortable one. The
-    // classifier's remote knowledge is git-specific: a program it does not know
-    // falls through to ordinary EXECUTE, however loudly it publishes. `gh pr create`
-    // opens a pull request and `npm publish` releases a package, and neither is
-    // flagged here, so nothing in this stage's safety may be credited to the risk
-    // gate. What stops them is that no module in the reach constructs them at all —
-    // the enumeration below and the import ban in `boundaries.test.ts` are the whole
-    // defence, which is why both are asserted in this file rather than assumed.
-    // Recorded as a limitation of the shared classifier, not repaired from Stage 10.
-    const unflagged: readonly string[][] = [
-      ['gh', 'pr', 'create'],
-      ['gh', 'api', '/repos/x/y/pulls', '--method', 'POST'],
-      ['npm', 'publish'],
-      ['pnpm', 'publish'],
-      ['curl', '-X', 'POST', 'https://api.github.com/repos/x/y/pulls'],
+  it('sees the publishing commands now, and still builds none of them', async () => {
+    // The other half of the positive control, rewritten by Stage 12. It used to read
+    // "the classifier's remote knowledge is git-specific, so `gh pr create` and
+    // `npm publish` fall through to ordinary EXECUTE and nothing in this stage may be
+    // credited to the risk gate" — a limitation recorded rather than repaired from
+    // Stage 10. The gate now classifies a program by what its argv reaches, so those
+    // commands arrive as a remote mutation or a network channel and are refused before
+    // any consent is read. That is a real gain and this stage does not lean on it: what
+    // still stops a publication is that no module in the reach constructs these argvs at
+    // all, which is the enumeration below and the import ban in `boundaries.test.ts`.
+    const nowFlagged: readonly (readonly [string[], RiskClass])[] = [
+      [['gh', 'pr', 'create'], 'REMOTE_MUTATION'],
+      [['gh', 'api', '/repos/x/y/pulls', '--method', 'POST'], 'REMOTE_MUTATION'],
+      [['npm', 'publish'], 'REMOTE_MUTATION'],
+      [['pnpm', 'publish'], 'REMOTE_MUTATION'],
+      [['curl', '-X', 'POST', 'https://api.github.com/repos/x/y/pulls'], 'NETWORK'],
     ];
 
-    for (const argv of unflagged) {
-      expect(risksOf(argv), argv.join(' ')).toBe('EXECUTE');
+    for (const [argv, expected] of nowFlagged) {
+      expect(risksOf(argv), argv.join(' ')).toBe(expected);
     }
 
     // The verbs that write the local repository and are honestly not remote acts:

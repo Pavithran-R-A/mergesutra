@@ -121,6 +121,17 @@ export function risksOfGitArgv(argv: readonly string[]): RiskClass {
   if (sub === 'remote') {
     return REMOTE_READ_VERBS.has(rest[0] ?? '') ? 'READ' : 'WRITE';
   }
+  if (sub === 'branch') {
+    // Creating a branch is a local write; deleting one discards a ref a human may
+    // not have pushed anywhere, which is the same class as throwing away commits.
+    return rest.some((arg) => BRANCH_DELETE_FLAGS.has(arg)) ? 'DESTRUCTIVE' : 'WRITE';
+  }
+  if (sub === 'stash') {
+    // The stash is a queue: reading it changes nothing, every other verb moves or
+    // drops somebody's uncommitted work.
+    if (STASH_READ_VERBS.has(rest[0] ?? '')) return 'READ';
+    return 'DESTRUCTIVE';
+  }
   if (sub === 'reset' && !rest.some((arg) => NON_DESTRUCTIVE_RESET.has(arg))) return 'DESTRUCTIVE';
   if (DESTRUCTIVE_GIT.has(sub)) return 'DESTRUCTIVE';
   if (REMOTE_READ_GIT.has(sub)) return 'NETWORK';
@@ -184,8 +195,37 @@ const FORCEFUL_FLAGS = new Set(['--force', '--force-with-lease', '-f', '--no-ver
  * `gc` and `prune` discard work that is not in a commit; `filter-branch`
  * rewrites history. MergeSutra has no need for any of them, and a stage that
  * thinks it does has a design problem worth surfacing.
+ *
+ * `checkout`, `restore` and `switch` join them on the strength of one artifact:
+ * ADR-057 makes a dirty workspace the authoritative product of an interrupted
+ * cycle and forbids recovery from discarding it, and `git checkout -- .` is the
+ * single command that would end that story neatly and destroy the patch. This
+ * build never spawns any of the three — every internal git call is observation
+ * or `worktree add`, which creates its own branch — so the conservative reading
+ * of the verb costs the pipeline nothing.
  */
-const DESTRUCTIVE_GIT = new Set(['am', 'apply', 'clean', 'filter-branch', 'gc', 'prune', 'rebase']);
+const DESTRUCTIVE_GIT = new Set([
+  'am',
+  'apply',
+  'checkout',
+  'clean',
+  'filter-branch',
+  'gc',
+  'prune',
+  'rebase',
+  'restore',
+  'switch',
+]);
+const BRANCH_DELETE_FLAGS = new Set([
+  '-d',
+  '-D',
+  '--delete',
+  '-m',
+  '-M',
+  '--move',
+  '--unset-upstream',
+]);
+const STASH_READ_VERBS = new Set(['list', 'show']);
 const REMOTE_READ_GIT = new Set(['clone', 'fetch', 'pull']);
 const REMOTE_READ_VERBS = new Set(['-v', '--verbose', 'get-url', 'show']);
 const READ_ONLY_GIT = new Set([

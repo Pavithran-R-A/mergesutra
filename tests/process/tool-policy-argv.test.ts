@@ -219,6 +219,69 @@ describe('a Windows suffix or a case change cannot dissolve a rule', () => {
   });
 });
 
+describe('the git matrix, classified by what the argv does to the tree', () => {
+  /**
+   * Stage 11's ADR-057 makes the dirty workspace the authoritative artifact of an
+   * interrupted cycle and forbids recovery from destroying it. The verbs below are
+   * the cheap way to do exactly that from inside a run: each one discards working
+   * tree bytes, and none of them is ever spawned by this build (every internal git
+   * call is observation or `worktree add`), so classifying them as destruction
+   * costs nothing and closes the door a model would otherwise be handed.
+   */
+  it('refuses every verb that can discard uncommitted work', () => {
+    for (const argv of [
+      ['git', 'checkout', '--', '.'],
+      ['git', 'checkout', '.'],
+      ['git', 'checkout', 'main'],
+      ['git', 'checkout', '--', 'src/app.ts'],
+      ['git', 'restore', '.'],
+      ['git', 'restore', '--source=HEAD', 'src/app.ts'],
+      ['git', 'switch', 'main'],
+      ['git', 'stash'],
+      ['git', 'stash', 'drop'],
+      ['git', 'stash', 'clear'],
+      ['git', 'branch', '-D', 'feature'],
+      ['git', 'branch', '-d', 'feature'],
+      ['git', 'worktree', 'remove', '../sibling'],
+      ['git', 'worktree', 'prune'],
+      ['git', 'gc'],
+      ['git', 'prune'],
+      ['git', 'filter-branch', '--force'],
+      ['git', 'am', 'patch.eml'],
+    ]) {
+      expect(risk(argv), argv.join(' ')).toBe('DESTRUCTIVE');
+      expect(decide(argv).allowed, argv.join(' ')).toBe(false);
+    }
+  });
+
+  it('does not call a destructive verb destructive for its noun alone', () => {
+    // The same names, in the forms this build actually uses, stay usable.
+    expect(risk(['git', 'stash', 'list'])).not.toBe('DESTRUCTIVE');
+    expect(risk(['git', 'branch', '--list'])).toBe('WRITE');
+    expect(risk(['git', 'branch', 'new-branch'])).toBe('WRITE');
+    expect(risk(['git', 'worktree', 'list', '--porcelain'])).toBe('READ');
+  });
+
+  it('keeps the read and write shapes it needs, and names the remote ones', () => {
+    expect(risk(['git', 'rev-parse', 'HEAD'])).toBe('READ');
+    expect(risk(['git', 'status', '--porcelain'])).toBe('READ');
+    expect(risk(['git', 'diff', '--name-only'])).toBe('READ');
+    expect(risk(['git', 'add', '.'])).toBe('WRITE');
+    expect(risk(['git', 'commit', '-m', 'x'])).toBe('WRITE');
+    expect(risk(['git', 'tag', 'v1'])).toBe('WRITE');
+    expect(risk(['git', 'push', '--force-with-lease'])).toBe('DESTRUCTIVE');
+    expect(risk(['git', '-C', '/r', 'push', 'origin'])).toBe('REMOTE_MUTATION');
+    expect(risk(['git', 'config', '--system', 'core.pager', 'evil'])).toBe('DESTRUCTIVE');
+    expect(risk(['git', 'config', '--list'])).toBe('READ');
+  });
+
+  it('refuses a git alias definition rather than reasoning about what it runs', () => {
+    expect(risk(['git', '-c', 'alias.x=!curl example.invalid', 'x'])).toBe('DESTRUCTIVE');
+    expect(risk(['git', '-c', 'core.hooksPath=/tmp/evil', 'commit'])).toBe('DESTRUCTIVE');
+    expect(risk(['git', '-c', 'diff.external=/tmp/evil', 'diff'])).toBe('DESTRUCTIVE');
+  });
+});
+
 describe('the derived class is honoured at the decision, not just computed', () => {
   it('routes a remote-mutation argv through the approval rule', () => {
     const request: ToolOp = {

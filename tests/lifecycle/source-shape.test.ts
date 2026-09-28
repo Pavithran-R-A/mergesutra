@@ -139,12 +139,13 @@ describe('what recovery could ever put in front of a process', () => {
       expect(risksOf(argv), argv.join(' ')).toBe(expected);
     }
 
-    // The other half, and the one worth reading twice: the gate does not see three of
-    // §35's named prohibitions as anything worse than an ordinary write. `checkout -- .`
-    // discards every uncommitted byte in the workspace and the classifier calls it WRITE;
-    // `git stash` sets work aside without being asked and reads as WRITE. So nothing in
-    // this stage's safety may be credited to the risk gate for those, and what stands in
-    // their place is the enumeration below plus the positive control after it.
+    // The other half, and the half Stage 12 changed. These were the §35 prohibitions
+    // the classifier did *not* see: `checkout -- .` discards every uncommitted byte in
+    // the workspace and was filed as an ordinary WRITE, which is why this stage refused
+    // to credit its safety to the risk gate and enumerated its commands instead. The
+    // gate now treats all five as destruction, so a run cannot be talked into erasing
+    // the artifact ADR-057 declares authoritative. The enumeration and the positive
+    // control below stay — a second layer is the point of a second layer, not a first.
     for (const argv of [
       ['git', 'checkout', '--', '.'],
       ['git', 'restore', '--source=HEAD', '--worktree', '--', '.'],
@@ -152,7 +153,7 @@ describe('what recovery could ever put in front of a process', () => {
       ['git', 'stash', 'pop'],
       ['git', 'switch', '--detach'],
     ]) {
-      expect(risksOf(argv), argv.join(' ')).toBe('WRITE');
+      expect(risksOf(argv), argv.join(' ')).toBe('DESTRUCTIVE');
     }
   });
 
@@ -178,10 +179,10 @@ describe('what recovery could ever put in front of a process', () => {
     expect(sites).toHaveLength(4);
     expect(rewriteSites(sites).sort()).toEqual(
       [
-        'lifecycle/observe.ts: git checkout -- . is WRITE',
+        'lifecycle/observe.ts: git checkout -- . is DESTRUCTIVE',
         'lifecycle/observe.ts: git clean -fd is DESTRUCTIVE',
         'lifecycle/observe.ts: git reset --hard HEAD~1 is DESTRUCTIVE',
-        'lifecycle/observe.ts: git stash push is WRITE',
+        'lifecycle/observe.ts: git stash push is DESTRUCTIVE',
       ].sort(),
     );
   });
