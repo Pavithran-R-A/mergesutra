@@ -1213,6 +1213,73 @@ config/env (`src/config/load-config.ts:74`), never hard-coded, and `GET /models`
 (`client.ts:241-246`) is used only by health check. Closure: CODE (byte cap), TEST against a
 scripted oversized/HTML/invalid-JSON body, all offline.
 
+**Closed — CODE (the bound) + TEST (measured in bytes taken).** The entry's `:170` is the line as
+it was written: `const bodyText = await response.text().catch(() => '')`. Two halves, both real.
+`text()` asks the endpoint for everything it has, and the `catch` turned any failure of that ask
+into a body that arrived empty. The first half is S12-15; the second had to be settled in the same
+statement, because bounding a read that is then mis-described when it *fails* moves the gap
+instead of closing it.
+
+- **The bound.** `MAX_RESPONSE_BYTES` is 4 MiB (`src/bharatcode/types.ts:19`) and `readBody`
+  (`client.ts:176-202`) enforces it: chunks are taken until the total crosses the bound, then the
+  reader is cancelled (`:197`) and the caller is told `over`. The call site is `:242`; the refusal
+  is `:262-273` — `invalid-response`, non-retryable, its message naming the number.
+- **The three outcomes stay three.** `readBody` returns `{ text, over, failed }` (`:73-79`) and the
+  caller branches on each. A failed read on a 200 goes through `toAppError` (`:261`), so a body
+  that stops arriving when the request's own timeout fires is reported as a `timeout` and stays
+  retryable. A non-ok response is still its status first (`:243-258`), so hitting the bound on an
+  error page costs the excerpt's length, not the `5xx` class or the retry it earns, and
+  `details.bodyOverLimit` records that the ceiling is why the excerpt is short.
+- **The scope of the fix.** This is the whole inbound surface: no module outside `client.ts` reads
+  an HTTP body — `gh` runs as a subprocess through the bounded runner — and the only `text()`
+  left inside it is the no-stream fallback named above.
+
+Red before green, with the reason: `tests/bharatcode/response-size.test.ts` was written first — 8
+cases against the pre-change source, 4 failing. Each scripted endpoint counts the bytes it hands
+over through *either* API (`text()` drains the same stream `body` exposes, as a real `Response`
+does), so the counter measures the adapter's appetite rather than which property it happened to
+reach for. What the four reds measured, in numbers: a body that never stopped delivered
+**33,554,432 bytes** and the adapter took all of them before refusing; a well-formed completion
+one byte past the bound **succeeded**; a 500 behind a 32 MiB error page delivered
+**33,554,432 bytes** to be quoted at 500 of them; and a stalled body arrived as
+`invalid-response, retryable: false` — "the model answered badly" for what was the transport
+giving out.
+
+The ninth case is disclosed as a late addition: *refuses one past the bound on the path that has no
+stream to stop* was written during the mutation pass to cover `readText` (`:204-214`), the branch
+for a `fetch` that exposes no `body`. It had no pre-implementation red to witness; its bite is
+mutation 4 below.
+
+Anti-vacuity, each restored byte-for-byte and re-run green:
+
+| Mutation | Red |
+| --- | --- |
+| `client.ts:196`: `taken > MAX_RESPONSE_BYTES` → `taken > Number.MAX_SAFE_INTEGER` | 3 of 9 — the endless 200, the one-byte boundary, the 5xx page |
+| `client.ts:197`: the over branch stops cancelling the reader | 1 of 9 — *refuses it and stops asking for more* |
+| `client.ts:189`: swallow the failed read (`failed: error` → `failed: undefined`) | 1 of 9 — *reports the interruption, not an empty response* |
+| `client.ts:207`: the same neuter on the no-stream path | 1 of 9 — the ninth case, and nothing else |
+
+`src/bharatcode/client.ts` was restored to `61e36496…` after each mutation and
+`src/bharatcode/types.ts` was never touched (`c98031ee…`). One wording change went in *after* the
+last restore: the over-limit message had read "refused unread", which is untrue on the stream path,
+since up to the bound is read before the stop. It now says the read was stopped and the body
+refused. The file committed here is `7fff32be…`, with 31/31 in `tests/bharatcode` after it.
+
+Documentation: `docs/SECURITY_MODEL.md` §7 told the availability story entirely in status codes and
+timeouts. Two bullets now carry the inbound limits — the bound, with its weaker no-stream variant
+named as the weaker variant, and the interrupted read's correct class.
+
+**Disclosed limit.** Four things. A `fetch` with no stream is bounded *after* materialising, so that
+path guards what is parsed and stored, not what is allocated; the real transport goes through
+`realFetch` (`client.ts:57`), whose `Response` does expose `body`. The bound is a constant, not a
+knob — no run can raise it, and 4 MiB sits far above a completion this service can produce under
+its own `max_tokens`, so it is meant to be invisible in normal use. The ceiling is 4 MiB, not zero:
+an endpoint can still make this process hold that much, which is bounded and disclosed, and is a
+different number from what reaches a screen (`bounded()` still clips the excerpt at 500/200/300
+chars). And every measurement here is against a scripted `ReadableStream` — §54 keeps Stage 12 off
+the live service, so the first moment this runs against a real `Response` object is the live
+qualification, not this stage.
+
 ### S12-16 — no prototype-key defence, and the one `.passthrough()` in the build
 
 `JSON.parse` sites (`client.ts:189,373,379,387`, `src/state/run-store.ts:121`,

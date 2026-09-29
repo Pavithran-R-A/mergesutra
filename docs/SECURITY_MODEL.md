@@ -1018,6 +1018,24 @@ bounded exponential backoff + jitter honouring `Retry-After`: `401/403` (no
 retry), `408/429/5xx` (bounded retry), timeouts, connection/DNS errors, and
 cancellation. A provider failure yields a useful status, never corrupted work.
 
+Two limits on the way back in are measured by
+`tests/bharatcode/response-size.test.ts`:
+
+- **A response body is capped at `MAX_RESPONSE_BYTES` (4 MiB).** The adapter reads the
+  response stream and stops asking past the cap, cancelling the read, so the endpoint
+  cannot decide how many bytes this process holds. A body that arrives over the cap on a
+  success is refused as `invalid-response`, non-retryable; a 5xx whose error page is over
+  the cap is *still* the 5xx error, still retryable, with a short excerpt — the ceiling
+  costs the bytes, never the status. A `fetch` implementation that exposes no stream is
+  read with `text()`, which has already materialised the body: on that path the cap bounds
+  what is parsed and kept, not what is allocated, and that is the weaker guarantee the test
+  names rather than rounds up.
+- **An interrupted read is reported as the interruption.** A body that stops arriving when
+  the request's own timeout fires is a transport failure and stays retryable. It used to be
+  caught and turned into an empty body, which the adapter then described as "a non-JSON
+  response body" — the model's fault, non-retryable — so a provider that stalled mid-body
+  ended the run with the wrong diagnosis and no retry.
+
 ## 8. Privacy
 
 - Initial public scope favours **public** repositories.

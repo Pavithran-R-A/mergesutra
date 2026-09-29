@@ -10,6 +10,14 @@ export const DEFAULT_BASE_URL = 'https://bharatcode.ai/api/model/v1';
 export const DEFAULT_TIMEOUT_MS = 60_000;
 export const DEFAULT_MAX_RETRIES = 3;
 
+/**
+ * The largest response body the adapter will take, in bytes.
+ *
+ * Far above a completion this service can produce under its own `max_tokens`, and small
+ * enough that an endpoint cannot decide how many bytes this process holds in memory.
+ */
+export const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+
 export interface RetryConfig {
   /** Maximum number of *additional* attempts after the first (0 = no retry). */
   maxRetries: number;

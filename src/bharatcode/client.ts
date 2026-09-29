@@ -6,6 +6,7 @@ import {
   DEFAULT_BASE_URL,
   DEFAULT_MAX_RETRIES,
   DEFAULT_TIMEOUT_MS,
+  MAX_RESPONSE_BYTES,
   type BharatCodeClientConfig,
   type CompletionRequest,
   type CompletionResult,
@@ -45,6 +46,12 @@ export type FetchLike = (
   status: number;
   headers: { get(name: string): string | null };
   text(): Promise<string>;
+  /**
+   * The body as a stream, when the implementation exposes one. Reading it is what makes
+   * `MAX_RESPONSE_BYTES` a limit on memory rather than a limit on what gets parsed: an
+   * implementation without one still works, and gives up the earlier guarantee.
+   */
+  body?: ReadableStream<Uint8Array> | null;
 }>;
 
 const realFetch: FetchLike = (input, init) =>
@@ -57,6 +64,18 @@ export interface ClientDeps {
   random?: () => number;
   redactor?: Redactor;
   onRetry?: (info: { attempt: number; kind: string; delayMs: number }) => void;
+}
+
+/**
+ * The three things one body read can end as, kept apart because the caller has to report
+ * them differently. See `HttpBharatCodeClient.readBody`.
+ */
+interface BodyRead {
+  readonly text: string;
+  /** The endpoint offered past `MAX_RESPONSE_BYTES`, and this side stopped taking. */
+  readonly over: boolean;
+  /** The read itself failed — an interruption, not a body that arrived empty. */
+  readonly failed: unknown;
 }
 
 const defaultSleeper: Sleeper = (ms, signal) =>
@@ -141,6 +160,59 @@ export class HttpBharatCodeClient implements BharatCodeClient {
     };
   }
 
+  /**
+   * Take the response body, up to `MAX_RESPONSE_BYTES`, and report what happened.
+   *
+   * Three outcomes are kept apart because the caller has to treat them differently: a body
+   * that arrived within the bound, a body that went past it (so the read was stopped and the
+   * connection cancelled), and a read that failed part-way (so nothing arrived to judge).
+   * Reading the stream rather than calling `text()` is what bounds the *bytes held*: past
+   * the limit this function stops asking, so an endpoint that keeps sending cannot decide how
+   * much memory this process spends.
+   *
+   * A fetch implementation with no stream is read with `text()`, which materialises the body
+   * first; the bound then applies to what is parsed and stored, not to what is allocated.
+   */
+  private async readBody(response: Awaited<ReturnType<FetchLike>>): Promise<BodyRead> {
+    const stream = response.body;
+    if (!stream) return this.readText(response);
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    const parts: string[] = [];
+    let taken = 0;
+    for (;;) {
+      let next: Awaited<ReturnType<typeof reader.read>>;
+      try {
+        next = await reader.read();
+      } catch (error) {
+        await reader.cancel().catch(() => undefined);
+        return { text: '', over: false, failed: error };
+      }
+      if (next.done) {
+        parts.push(decoder.decode());
+        return { text: parts.join(''), over: false, failed: undefined };
+      }
+      taken += next.value.byteLength;
+      if (taken > MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return { text: parts.join(''), over: true, failed: undefined };
+      }
+      parts.push(decoder.decode(next.value, { stream: true }));
+    }
+  }
+
+  private async readText(response: Awaited<ReturnType<FetchLike>>): Promise<BodyRead> {
+    try {
+      const text = await response.text();
+      if (Buffer.byteLength(text, 'utf8') > MAX_RESPONSE_BYTES) {
+        return { text: '', over: true, failed: undefined };
+      }
+      return { text, over: false, failed: undefined };
+    } catch (error) {
+      return { text: '', over: false, failed: error };
+    }
+  }
+
   private async rawRequest(
     path: string,
     init: {
@@ -167,7 +239,7 @@ export class HttpBharatCodeClient implements BharatCodeClient {
       throw this.toAppError(error, init.signal, init.callerSignal);
     }
 
-    const bodyText = await response.text().catch(() => '');
+    const body = await this.readBody(response);
     if (!response.ok) {
       const { kind, retryable } = kindForStatus(response.status);
       const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'));
@@ -178,15 +250,30 @@ export class HttpBharatCodeClient implements BharatCodeClient {
         retryable,
         retryAfterMs,
         details: {
-          body: this.redactor.text(bounded(bodyText, 500)),
+          body: this.redactor.text(bounded(body.text, 500)),
+          ...(body.over ? { bodyOverLimit: MAX_RESPONSE_BYTES } : {}),
         },
         remediation: remediationFor(kind),
+      });
+    }
+    // A body that stopped arriving is not a body that arrived empty: the first is the
+    // transport failing, and the retry policy has to be told which one it is looking at.
+    if (body.failed) throw this.toAppError(body.failed, init.signal, init.callerSignal);
+    if (body.over) {
+      throw new AppError({
+        kind: 'invalid-response',
+        message: `BharatCode sent a response body larger than the ${MAX_RESPONSE_BYTES} byte limit, so the read was stopped and the body refused.`,
+        retryable: false,
+        status: response.status,
+        details: { limitBytes: MAX_RESPONSE_BYTES },
+        remediation:
+          'The service answered, but not with a completion this client will hold. Retry this run once; if it repeats, check the model and endpoint configured.',
       });
     }
 
     let json: unknown;
     try {
-      json = JSON.parse(bodyText);
+      json = JSON.parse(body.text);
     } catch (cause) {
       throw new AppError({
         kind: 'invalid-response',
@@ -194,7 +281,7 @@ export class HttpBharatCodeClient implements BharatCodeClient {
         retryable: false,
         status: response.status,
         cause,
-        details: { body: this.redactor.text(bounded(bodyText, 200)) },
+        details: { body: this.redactor.text(bounded(body.text, 200)) },
       });
     }
     return { status: response.status, json, retryAfter: response.headers.get('retry-after') };
