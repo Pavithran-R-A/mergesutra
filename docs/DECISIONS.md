@@ -1,7 +1,8 @@
 # Architecture Decision Records
 
 Each record: **decision → reason → alternatives → consequence**. These are
-actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
+actual decisions taken while building Stages 0-9, 9R, 10, 11 and the Stage 12
+security pass, not aspirations.
 
 ## ADR-001 — MergeSutra sits above the model/runtime layer
 
@@ -1889,3 +1890,57 @@ actual decisions taken while building Stages 0-9, 9R and 10, not aspirations.
   dashes or with a space before the closing `===` stays prose; and a page that has not been
   audited for *what it asks* is out of scope here — quoting says who wrote a line, not whether the
   question being put is a safe one.
+
+## ADR-067 — A secret file is decided by named path components, plus one question asked of bytes
+
+- **Decision:** the policy that says which repository files may reach a model is a set of
+  *component* matches over the canonical repository-relative path, each returning the name of a
+  class, plus exactly one content-shaped rule. `secretReason()` (`src/security/reader.ts:178`)
+  keeps its `string | null` contract and its existing wrapper sentence — `credentials are not
+  repository context because <class>` — and now answers nine classes: DOTENV (`.env`, the
+  `.env.*` family templates included, any `*.env`, `.envrc`), NPM_AUTH, NETRC (both spellings),
+  GIT_CREDENTIALS, PYPI_AUTH, SSH_PRIVATE_KEY (eight exact identity names), KEY_STORE (`.p12`,
+  `.pfx`, `.kdbx`), AWS_CREDENTIALS (the `.aws` segment *and* a `credentials|config` child), and
+  CREDENTIAL_DIRECTORY (an exact `.ssh`/`.gnupg`/`.azure` segment anywhere in the path, or the
+  `.config`+`gcloud` pair). `secretContentReason()` (`src/security/reader.ts:107`) asks one
+  question of bytes already in
+  hand: do they carry a `-----BEGIN … PRIVATE KEY -----` header. It is called where bytes become
+  model context, which is two places, not one: `readText`, and the review route's `git diff` leg —
+  every other door is downstream of those two. Case folding and `\`-normalising
+  happen only inside the comparison; the path handed to the filesystem is the caller's own.
+- **Reason:** the previous policy proved that a denylist can be wrong in both directions inside one
+  ten-line function: `startsWith('.env')` refused a font config, the `.pem`/`.key`/`.ttf` suffix
+  list refused every public TLS certificate, and the directory rule matched a *prefix of the joined
+  path*, so `.awsm/` was blocked while `vendor/.aws/credentials` — a real credential one directory
+  deep — was readable. Substring matching on words like `key`, `token` or `secret` was rejected on
+  the drive: it would refuse `src/authentication.ts` and `docs/api-key-rotation.md`, and a policy
+  that costs a project its own source is a policy people route around. Naming a class in the
+  reason, rather than the path or the bytes, is what makes a refusal reviewable: it appears in run
+  records and in the model's own context, where a path echo or a value would be a second leak.
+  Putting the content rule on the `git diff` leg was an owner decision, not an inference — that leg
+  has no reader in it, so a key pasted into a tracked file reached a reviewer as a hunk while the
+  identical bytes in an untracked file were refused one line earlier.
+- **Alternatives:** a bigger denylist (rejected — breadth without a rule, and the register's own
+  `.ttf` row shows what it does); secret *scanning* of every readable file (rejected for this
+  slice: it needs unbounded reads, entropy heuristics and a false-positive budget this item has no
+  evidence for, and §17 forbids the traversal it would imply); a structured refusal result with a
+  class enum (rejected after writing the tests — every caller needs one sentence, and two of them
+  already store it in a text field, so an enum would have bought a serializer); keeping `.pem` and
+  `.key` in the name rules alongside the content rule (rejected by the owner: extension filtering
+  that is *also* a guess about bytes is the least explainable policy available, and it was refusing
+  public certificates).
+- **Consequence:** both directions are now measurable instead of asserted — 41 must-withhold paths
+  paired with the class each reason names, and 29 names that must stay readable, in
+  `tests/security/secret-file-policy.test.ts`, with `tests/security/secret-file-routes.test.ts`
+  driving the same policy through initial context, `READ_FILE`, `SEARCH`, the review patch route and
+  the plan-scope route, including a search for a planted `BHARATCODE_API_KEY` value that returns
+  nothing. Eight anti-vacuity mutations turned 7, 4, 5, 6, 1, 1, 1 and 2 cases red, each restored
+  byte-for-byte and hash-checked. What this does not claim, on the record: it is a path-and-format
+  policy, **not** secret detection — `secret.json`, `token.txt` and `api_key.py` stay readable
+  because nothing about their name or their PEM header says otherwise, and a key below a read's byte
+  cap in a larger file is not classified. Two refusals are deliberately over-broad: anything under
+  `.ssh/`, public `.pub` keys included, and `.aws/config`, which may hold nothing but a region.
+  The three containers the drive asked to investigate are documented residuals rather than rules —
+  `.docker/config.json`, `application_default_credentials.json` and `.config/gh/hosts.yml`, the last
+  one an acknowledged asymmetry against the `.config`+`gcloud` pair this policy does match, because
+  nothing in this repository evidenced a project committing it.

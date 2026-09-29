@@ -1505,6 +1505,129 @@ directions. Closure: CODE (principled reason, content-shaped detection where che
 matrix; note `.ttf` in a *secret* suffix list looks like a mistake worth confirming with the
 owner before changing behaviour.
 
+**Closed — CODE + TEST.** §1 first, from source rather than from this page: the
+predicate was six rules over one lower-cased path string, and reading them side by
+side shows it leaked credentials *and* refused fonts, in the same function.
+
+| rule as it stood | what it caught | what it caught by mistake | what it missed |
+| --- | --- | --- | --- |
+| `base.startsWith('.env')` | `.env`, `.env.production` | `.envrc`, any basename merely *beginning* `.env` | a `*.env` suffix name: `config/app.env` |
+| exact `SECRET_BASENAMES` set | `.npmrc`, `.netrc`, `.git-credentials`, `.pypirc`, `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519` | — (exact, so clean) | `_netrc` (the Windows spelling), `id_ecdsa_sk`, `id_ed25519_sk`, `id_mldsa44_ed25519` |
+| `SECRET_SUFFIXES` `endsWith` `.key .p12 .pem .pfx .ttf .kdbx` | `gateway.pem`, `monkey.key` | `assets/keyboard.ttf` (a font) and **every public certificate** — `certs/certificate.pem` is public material by definition | nothing by extension, but the extension never told the truth about the bytes |
+| `SECRET_DIRECTORY_SEGMENTS` matched as `joined.startsWith(dir)` | `.ssh/…`, `.aws/…`, `.gnupg/…` **at the repository root only** | `.awsm/README.md`, `.ssh-keys/notes.md` — prefix matching, so a longer name that merely starts with the secret one | `vendor/.aws/credentials`, `deploy/.gnupg/keyring`, `secrets/.ssh/id_ed25519` — a credential one directory deep was readable |
+| `hasGitSegment` (separate rule) | anything with a `.git` component | — | nothing; this is confinement, not naming |
+| `readText` binary/budget checks | binaries, over-cap reads | — | a private key pasted under an ordinary name: `notes/deploy-help.txt` was served whole |
+
+The last row is the one the name rules cannot reach, and it is why the drive asked
+for content-shaped detection where cheap (§8, §22).
+
+*The policy now.* Component matches, one class named per refusal, and the
+comparison folds case and accepts `\` while the bytes handed to the filesystem stay
+the caller's own path (§24's distinction, said in `reader.ts:40-51` rather than
+implied). Nine name classes: **DOTENV** (`.env`, the `.env.*` family including
+`.env.example`/`.sample`/`.template`, any `*.env`, `.envrc`), **NPM_AUTH** (`.npmrc`
+at any depth), **NETRC** (`.netrc`, `_netrc`), **GIT_CREDENTIALS**
+(`.git-credentials`), **PYPI_AUTH** (`.pypirc`), **SSH_PRIVATE_KEY** (eight exact
+identity names, so `id_rsa.pub` cannot match), **KEY_STORE** (`.p12`, `.pfx`,
+`.kdbx`), **AWS_CREDENTIALS** (the `.aws` segment *and* a `credentials|config`
+child — path-qualified, so a bare `credentials` or `config` stays readable), and
+**CREDENTIAL_DIRECTORY** (an exact `.ssh`, `.gnupg`, `.azure` segment anywhere in
+the path, or the `.config`+`gcloud` pair). Then **PRIVATE_KEY_CONTENT**: a bounded
+look at the bytes already read refuses anything carrying a
+`-----BEGIN … PRIVATE KEY -----` header, while `BEGIN CERTIFICATE` and
+`BEGIN PUBLIC KEY` pass.
+
+Two owner decisions, because both were behaviour changes to accepted stages and
+neither was mine to take silently. **One:** the content rule goes on *all six*
+model-visible routes, which meant putting it on the review patch route's `git diff`
+leg too — that leg never passes through the reader, so a key pasted into a tracked
+file used to reach the reviewer as a hunk. **Two:** `.pem`, `.key` and `.ttf` come
+out of the *name* rules entirely, so the format decides instead of the extension;
+that is what makes `certs/certificate.pem` and `assets/keyboard.ttf` readable and
+`notes/private-deployment-key.txt` refused, and it is the register's own `.ttf`
+suspicion settled on the record.
+
+*Where it is proved.* `tests/security/secret-file-policy.test.ts` (13 cases) drives
+41 must-withhold paths paired with the class each reason has to name, 29
+must-remain-readable names, the substring-sounding set (`src/npmrc-reader.ts`,
+`pypirc-docs.md`, `.aws-tooling/credentials.json`,
+`id_rsa_kept_as_a_test_fixture.pub`), case folding over the whole table, backslash
+paths, and a real workspace through a real `ConfinedReader` — including §23's
+mandatory public-key twin and §22's three fixtures (certificate readable, private
+refused, private under an ordinary name refused). `tests/security/secret-file-routes.test.ts`
+(7 cases) proves the same policy through the doors a model can actually be handed
+bytes through: initial context, `READ_FILE`, `SEARCH` (§16 at its own shape: a
+`BHARATCODE_API_KEY` pair with a fake value is planted in `.env`, the search is
+driven by a fragment of that value and comes back with no hit and no copy of it,
+while a search for a marker that lives only in source files returns both source
+files), the review patch route, and the plan-scope route, plus a structural case
+that `src/repair` owns no reader of its own — the repair cycle has one policy because
+there is only one. Both files went RED first (18 failed, 2 passed — the two that
+already held were the traversal-before-classification ordering and the repair
+structure), then 20/20 GREEN, then `tests/security tests/implement tests/review
+tests/repair` at 725 passed / 2 skipped, 45 files, raw exit `0`. The wrapper sentence
+`credentials are not repository context because …` is unchanged, so Stage 6's and 9's
+accepted assertions about a withheld `.env` still assert what they asserted.
+S12-17's central `Redactor` sits downstream of every one of these refusals and is
+treated as a second layer, never as permission: the leakage cases assert that a
+refusal message carries no value, no credential and no absolute root *before* any
+mask could remove one, because a reason that leaked would be written into a run
+record and read back by whatever screen renders it.
+
+*Eight anti-vacuity mutations, each restored byte-for-byte and hash-checked*
+(`SETUP/RUN/RESTORE PROBLEMS: 0`, re-run against the tree this commit holds:
+`src/security/reader.ts` back to `91b443f9…`, `src/review/context.ts` to `12dff65b…`):
+dropping the `.npmrc` rule (7 cases red — the six name cases plus the §16 search
+driven by the planted value, because an unread rule is an unsearchable file),
+narrowing dotenv to the bare `.env` name (4), matching SSH identities by `id_` prefix
+(5 — and these are the false-positive direction: `keys/id_rsa.pub` and
+`assets/keyboard.ttf` refuse), bypassing the content rule in `readText` (6, across
+all four reader routes), bypassing it on the review diff leg (1, exactly that case),
+matching credential directories by prefix again (1), letting `walk` list secret
+paths (1), and putting a path inside a reason (2 — the leakage guard bites).
+
+**Residual, stated as a limit and not a claim:** this is *not* secret detection. A
+token in `secret.json`, `secrets.yaml`, `token.txt` or `api_key.py` is still readable
+context, because catching those by name means substring matching — which §2 rejects
+and which would cost this product `src/authentication.ts` and `docs/api-key-rotation.md`
+for real work. The content rule catches one format, PEM private keys, and only within
+the bytes a read actually took: a key below the per-read byte cap of a larger file is
+not classified. `list` still shows a credential's *name* (visibility is not access, and
+the plan-scope and context routes report a withheld path *as* withheld, with the class
+in its reason — `credentials are not repository context because it is a dotenv file, …`
+beside the relative path, which is what §15 asked for as "`.env` / WITHHELD — dotenv
+file" — not a silent gap), while `walk` omits name-matched paths from tree
+samples, which is Stage 6's pre-existing behaviour, kept. Two false
+positives are accepted on purpose: anything under `.ssh/` is refused including a
+committed `id_ed25519.pub`, because the directory is treated as credential material as
+a whole, and `.aws/config` is refused although it may hold only a region, because the
+same directory routinely holds the access key beside it.
+
+*The three candidates §11 named, each investigated and each left a residual.*
+`.docker/config.json` does carry `auths` entries, but they are only written when no
+`credsStore` helper is configured, and a `.docker/` directory committed to a repository
+is usually build context a reviewer legitimately needs — so the pair would refuse source
+to catch a credential that is usually elsewhere. `.config/gh/hosts.yml` holds a real
+`oauth_token` and is the exact sibling of the `.config`+`gcloud` pair this policy already
+matches; not adding it leaves an asymmetry, and the asymmetry is stated here rather than
+smoothed over — the honest reason is that no fixture, no run and no issue in this
+repository shows a repository committing one, and Stage 12's boundary forbids buying a
+rule with no evidence behind it. `application_default_credentials.json` is
+unambiguously a credential by name, but Google writes it under `~/.config/gcloud` or
+`%APPDATA%`, and both are outside any workspace this reader can be pointed at, so a path
+that fails confinement already refuses it before a name is consulted. A future item that
+finds a repository shipping one of these should add the pair and a matrix row for it, not
+a heuristic.
+
+*Gates, measured on the committed state.* prettier, eslint and `tsc --noEmit` each exit
+`0`. The two S12-18 files: 20 passed / 20. `tests/security tests/implement tests/review
+tests/repair tests/pr tests/cli` (49 files' worth of the affected surface): 1128 passed |
+2 skipped, 73 files, raw exit `0`. Full sweep: 1937 passed | 3 skipped (1940 tests), 125
+passed | 3 skipped files, raw exit `0`, no `FAIL` line and no unhandled error — that run
+was one `export {};` and one added §16 assertion pair away from the tree committed here,
+both inside `tests/security/secret-file-routes.test.ts`, after which the focused suites
+and `tsc` were re-run to `0`.
+
 ### S12-19 — Stage 9R repair limits are re-issued fresh on every entry
 
 `src/repair/stage.ts:212` `limits: resolveRepairLimits()` with

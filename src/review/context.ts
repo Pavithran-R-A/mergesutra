@@ -1,6 +1,11 @@
 import { AppError } from '../core/errors.js';
 import { defaultRunner, type Runner } from '../core/runner.js';
-import { openConfinedReader, secretReason, type ConfinedReader } from '../security/reader.js';
+import {
+  openConfinedReader,
+  secretContentReason,
+  secretReason,
+  type ConfinedReader,
+} from '../security/reader.js';
 import { isRepositoryRelativePath } from '../security/path-safety.js';
 import type { AcceptanceCriterion } from '../contract/schema.js';
 import type { RunRecord } from '../state/run-record.js';
@@ -453,6 +458,10 @@ async function trackedContent(
           reason: 'Git reported no textual difference for this file, so it is shown whole.',
         };
   }
+  // This leg never passes through the reader: Git handed over the bytes, and a
+  // key pasted into a tracked file arrives here instead of there.
+  const carried = secretContentReason(diff);
+  if (carried) return { refusal: carried };
   return fit(diff, cap, 'DIFF', 'The unified diff of this file against the run’s base commit.');
 }
 

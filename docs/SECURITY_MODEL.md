@@ -143,9 +143,39 @@ happen; it can only choose from eight operations MergeSutra already implements.
   legitimately reads, then scripts the model asking for exactly those two things:
   both come back `REFUSED`, the deletion never reaches a process, the credential
   file never reaches the transcript, and the refusal rows stay in the record.
-- **A credential cannot be walked out.** The reader refuses secret-shaped paths
-  (`.env*`, key material, credential stores), refuses binaries, truncates by
-  budget, and returns a one-line receipt for a refusal instead of bytes.
+- **A credential cannot be walked out, by name or by content.** The reader's
+  policy is a set of *component* matches on the repository-relative path, never a
+  substring search: an exact basename that is a well-known credential container
+  (`.env` and the whole `.env.*` family including `.env.example`, plus `*.env`
+  like `config/app.env`, `.envrc`, `.npmrc`, `.netrc`/`_netrc`,
+  `.git-credentials`, `.pypirc`, and the private SSH identity names), a key-store
+  suffix (`.p12`, `.pfx`, `.kdbx`), an exact credential directory segment (`.ssh`,
+  `.gnupg`, `.azure`, `.config/gcloud`), or the `.aws` + `credentials|config`
+  pair. Because matching is by component, `src/tokenizer.ts`, `id_ed25519.pub`,
+  `docs/credentials.md`, `.awsm/` and `keyboard.ttf` are ordinary files. Every
+  refusal says which class it belongs to and nothing more — no absolute path, no
+  file content, no credential value — and it is recorded as a withheld row rather
+  than dropped, on every route that can hand bytes to a model: `READ_FILE`, the
+  initial context, `SEARCH`, the review patch route, and the review diff route
+  that comes from Git instead of the reader. A second, content-shaped rule asks
+  the same question of bytes whose name tells nothing: a PEM `-----BEGIN … PRIVATE
+  KEY …-----` header is classified locally and never placed in model context,
+  while a certificate or a public key in the same format passes through.
+  **This is a bounded path policy, not secret detection.** A file called
+  `values.yaml` that holds an unknown token is still readable — catching that
+  would mean substring matching, which is what costs this product real source —
+  and the residual is stated here instead of being claimed away. Three further
+  containers are named residuals rather than rules: `.docker/config.json`,
+  `.config/gh/hosts.yml` and `application_default_credentials.json`, each
+  investigated and each left readable because its credential normally lives
+  outside any workspace this reader can be pointed at, or because the file a
+  repository does commit is the build configuration a reviewer needs. The
+  register's S12-18 entry carries that reasoning case by case, and an asymmetry
+  with it: `.config/gcloud` is a rule while the sibling `.config/gh` is not,
+  because one was evidenced here and the other was not.
+  The opposite error is stated just as plainly: a public key committed *inside*
+  `.ssh/` is withheld, because that directory is treated as credential material
+  as a whole.
   Independently, everything entering the transcript and the record passes the
   central `Redactor`, so a model that repeats a key back into a `reason` field
   has the value masked in the log, the record and the terminal.
@@ -1077,8 +1107,16 @@ Two limits on the way back in are measured by
 ## 8. Privacy
 
 - Initial public scope favours **public** repositories.
-- Never send to BharatCode: unrelated files, `.git` credentials, `.env` by
-  default, private keys, credential stores, or SSH data.
+- Never send to BharatCode: unrelated files, anything under `.git`, a path whose
+  name is a known credential container (the `.env` family, `.npmrc`,
+  `.netrc`/`_netrc`, `.git-credentials`, `.pypirc`, private SSH identities, key
+  stores, the credential directories), bytes that carry a PEM private-key header,
+  or binary bytes. That is the whole of the claim, and it is a **path-and-format
+  policy, not secret detection**: a token the repository keeps in a file called
+  `values.yaml` is ordinary context to MergeSutra, and shipping it is what a
+  developer who put it there would have to answer for. `tests/security/
+  secret-file-policy.test.ts` holds both directions of that line — what must be
+  refused and what must stay readable — and §2.1 states the trade-off.
 - Context selection (issue, contract, policies, relevant excerpts, diff) is
   used instead of dumping whole repositories — improving latency, reliability
   and privacy.

@@ -40,22 +40,78 @@ const SKIPPED_DIRECTORIES = new Set([
 /**
  * Names that are never repository context, whatever the run believes it needs.
  *
- * These are matched on the whole path, not the leaf, because a repository is
- * allowed to contain a file called `config.ts` and a credential store is not.
+ * Every rule below matches a whole path *component* — an exact basename, an
+ * exact directory segment, or a directory-and-file pair — because a repository
+ * is allowed to contain `src/tokenizer.ts`, `id_ed25519.pub` and
+ * `docs/git-credentials-how-it-works.md`, and a policy that matched those by
+ * substring would cost this product work it could not point a reviewer at.
+ * Comparison folds case and accepts `\` separators, so a Windows spelling of a
+ * blocked name is still blocked; the bytes that reach the filesystem are
+ * always the caller's own path, unchanged.
  */
-const SECRET_BASENAMES = new Set([
-  '.env',
-  '.git-credentials',
-  '.netrc',
-  '.npmrc',
-  '.pypirc',
+/** Private SSH identities, by exact name — so `id_rsa.pub` is never one of these. */
+const SSH_PRIVATE_IDENTITIES = new Set([
   'id_dsa',
   'id_ecdsa',
+  'id_ecdsa_sk',
   'id_ed25519',
+  'id_ed25519_sk',
   'id_rsa',
+  'id_xmss',
+  'id_mldsa44_ed25519',
 ]);
-const SECRET_DIRECTORY_SEGMENTS = ['.ssh', '.aws', '.gnupg', '.azure', '.config/gcloud'];
-const SECRET_SUFFIXES = ['.key', '.p12', '.pem', '.pfx', '.ttf', '.kdbx'];
+
+/** Formats whose entire purpose is holding protected material. */
+const KEY_STORE_SUFFIXES = ['.p12', '.pfx', '.kdbx'];
+
+/**
+ * Directories that exist to hold credentials, matched as one exact segment
+ * anywhere in the path. `.awsm/` and `.ssh-keys/` are not these.
+ */
+const CREDENTIAL_DIRECTORIES = new Set(['.ssh', '.gnupg', '.azure']);
+const AWS_DIRECTORY = '.aws';
+const AWS_DIRECTORY_FILES = new Set(['credentials', 'config']);
+const CLOUD_SDK_PARENT = '.config';
+const CLOUD_SDK_DIRECTORY = 'gcloud';
+
+/**
+ * The class a refused path belongs to, said the same way on every route.
+ *
+ * A reason names its class and nothing else: no path, no value, no location on
+ * the operator's disk. It is written into run records and shown to models.
+ */
+const CREDENTIAL_REFUSAL_PHRASE = 'credentials are not repository context';
+
+const SECRET_REASONS = {
+  dotenv: 'it is a dotenv file, where a live credential is commonly kept',
+  npmAuth: 'it is an npm authentication file, which holds registry tokens',
+  netrc: 'it is a netrc file, which stores a login and a password per machine',
+  aws: 'it is an AWS credentials or profile file',
+  sshIdentity: 'it is an SSH private identity file',
+  gitCredential: 'it is a Git credential store, one credential per line',
+  pypi: 'it is a PyPI publishing credential file',
+  credentialDirectory: 'it lives inside a credential directory',
+  keyStore: 'it is a key store file, a container for protected key material',
+} as const;
+
+/** PEM bodies that are a private key. A certificate or a public key is not. */
+const PRIVATE_KEY_HEADER = /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/;
+
+/**
+ * Whether these bytes carry a private key, whatever the file is called.
+ *
+ * The name rules decide on a path; this decides on content, and both are called
+ * before bytes go near a model. The caller reads the file locally to ask the
+ * question — the answer only ever costs it the read.
+ */
+export function secretContentReason(text: string): string | null {
+  return PRIVATE_KEY_HEADER.test(text) ? 'its bytes carry a private key' : null;
+}
+
+/** `.env`, `.env.production`, `.envrc`, `config/app.env` — and not `envelope.ts`. */
+function isDotenvName(base: string): boolean {
+  return base === '.envrc' || base.startsWith('.env.') || base.endsWith('.env');
+}
 
 export interface ReadReceipt {
   readonly relativePath: string;
@@ -113,19 +169,37 @@ function refusal(relativePath: string, why: string, remediation?: string): AppEr
 /**
  * Why this path is a credential rather than source, or `null` if it is not.
  *
- * `.env.local` and `.env.production` are the same secret with a suffix, and so
- * is `keys/deploy.pem`; matching a basename alone would let both through.
+ * `.env.local` is the same secret as `.env`, and `vendor/.aws/credentials` is
+ * the same secret as `.aws/credentials`, so both the leaf and the components
+ * above it decide. Nothing here looks at the file: an arbitrarily named file
+ * holding an unknown secret is a documented residual of this policy, not a case
+ * it claims to catch.
  */
 export function secretReason(relativePath: string): string | null {
-  const normalized = relativePath.replaceAll('\\', '/').toLowerCase();
-  const segments = normalized.split('/').filter((segment) => segment !== '');
+  const segments = relativePath
+    .replaceAll('\\', '/')
+    .toLowerCase()
+    .split('/')
+    .filter((segment) => segment !== '');
   const base = segments[segments.length - 1] ?? '';
-  if (base.startsWith('.env')) return 'it is an environment file';
-  if (SECRET_BASENAMES.has(base)) return 'it is a credential store or private key';
-  if (SECRET_SUFFIXES.some((suffix) => base.endsWith(suffix))) return 'it is a key material file';
-  const joined = segments.join('/');
-  if (SECRET_DIRECTORY_SEGMENTS.some((directory) => joined.startsWith(directory))) {
-    return 'it lives inside a credential directory';
+  if (isDotenvName(base)) return SECRET_REASONS.dotenv;
+  if (SSH_PRIVATE_IDENTITIES.has(base)) return SECRET_REASONS.sshIdentity;
+  // Each of these formats documents a credential in clear text: npm's `_authToken`,
+  // netrc's login and password, the Git helper's one-per-line store, PyPI's upload token.
+  if (base === '.npmrc') return SECRET_REASONS.npmAuth;
+  if (base === '.netrc' || base === '_netrc') return SECRET_REASONS.netrc;
+  if (base === '.git-credentials') return SECRET_REASONS.gitCredential;
+  if (base === '.pypirc') return SECRET_REASONS.pypi;
+  if (KEY_STORE_SUFFIXES.some((suffix) => base.endsWith(suffix))) return SECRET_REASONS.keyStore;
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const segment = segments[index] ?? '';
+    if (CREDENTIAL_DIRECTORIES.has(segment)) return SECRET_REASONS.credentialDirectory;
+    if (segment === AWS_DIRECTORY && AWS_DIRECTORY_FILES.has(segments[index + 1] ?? '')) {
+      return SECRET_REASONS.aws;
+    }
+    if (segment === CLOUD_SDK_PARENT && segments[index + 1] === CLOUD_SDK_DIRECTORY) {
+      return SECRET_REASONS.credentialDirectory;
+    }
   }
   return null;
 }
@@ -166,7 +240,7 @@ export async function openConfinedReader(candidateRoot: string): Promise<Confine
     if (secret) {
       throw refusal(
         relativePath,
-        `credentials are not repository context because ${secret}`,
+        `${CREDENTIAL_REFUSAL_PHRASE} because ${secret}`,
         'Ask the human for the value out of band; MergeSutra never reads a secret into a prompt.',
       );
     }
@@ -202,6 +276,17 @@ export async function openConfinedReader(candidateRoot: string): Promise<Confine
         relativePath,
         'the content is binary, not source text',
         'Name a text file; binary content is never sent to the model.',
+      );
+    }
+    // A name says nothing about a key somebody pasted under an ordinary name, so
+    // the bytes are asked too. Classifying them costs this read; it does not put
+    // them anywhere a model will see them.
+    const carried = secretContentReason(text);
+    if (carried) {
+      throw refusal(
+        relativePath,
+        `${CREDENTIAL_REFUSAL_PHRASE} because ${carried}`,
+        'Ask the human to remove the key from the file; MergeSutra never sends key bytes to a model.',
       );
     }
     return {
