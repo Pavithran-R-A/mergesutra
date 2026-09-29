@@ -257,10 +257,19 @@ describe('decideTool: the approval gate', () => {
   });
 });
 
-describe('decideTool: disclosure', () => {
-  it('allows network use but says so', () => {
+describe('decideTool: what a granted network op says about itself', () => {
+  /**
+   * S12-14. This case used to assert `/disclosed/`, because the reason promised
+   * that network use was "always disclosed" and that "no credential crosses it".
+   * Neither is a fact this function establishes: it returns a permission, and the
+   * disclosure and the credential both belong to whoever sends the request. A test
+   * that checked for those words was checking the sentence, not the property — so
+   * it now checks the sentence says no more than the grant.
+   */
+  it('grants the op and claims nothing past the grant', () => {
     const decision = decide({ op: 'network', target: 'registry.npmjs.org' });
     expect(decision.allowed).toBe(true);
-    expect(decision.reason).toMatch(/disclosed/);
+    expect(decision.reason).toMatch(/without approval/i);
+    expect(decision.reason.toLowerCase()).not.toMatch(/credential|disclosed|secret/);
   });
 });

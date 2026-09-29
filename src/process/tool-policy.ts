@@ -496,11 +496,18 @@ export function decideTool(request: ToolOp, context: ToolContext): ToolDecision 
     return decideExecute(request, context, risk);
   }
   if (request.op === 'network') {
+    // A deliberate grant, not a check: a request names a target rather than a
+    // command, so there is nothing here to classify, and the only thing this branch
+    // can honestly report is that it allowed the op. Nothing in `src/` writes this
+    // request — see `tests/security/network-op-boundary.test.ts` — so if a stage
+    // ever mints one, the boundary it needs has to be written where the bytes go.
     return {
       risk,
       allowed: true,
       requiresApproval: false,
-      reason: 'Network use is allowed and always disclosed; no credential crosses it.',
+      reason:
+        'This policy has no boundary for a network request: the op is allowed here without ' +
+        'approval, and what a caller then sends is not something this function can see.',
     };
   }
   return decideFile(request, context, risk);

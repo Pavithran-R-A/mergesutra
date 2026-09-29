@@ -300,7 +300,7 @@ describe('the derived class is honoured at the decision, not just computed', () 
     expect(decide(['prettier', '--check', '.']).allowed).toBe(true);
   });
 
-  it('leaves the explicit network op honest about what it is, without a credential', () => {
+  it('leaves the explicit network op to admit that it checks nothing', () => {
     const decision = decideTool(
       { op: 'network', target: 'registry.npmjs.org' },
       {
@@ -309,6 +309,9 @@ describe('the derived class is honoured at the decision, not just computed', () 
     );
     expect(decision.risk).toBe('NETWORK');
     expect(decision.allowed).toBe(true);
-    expect(decision.reason.toLowerCase()).toContain('disclosed');
+    // The argv route above refuses a network command by name; this route has no
+    // command to read, so its reason owns that instead of claiming a disclosure it
+    // does not perform (S12-14).
+    expect(decision.reason).toMatch(/no boundary|cannot see/i);
   });
 });

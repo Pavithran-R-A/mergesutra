@@ -1116,6 +1116,92 @@ model action can produce a `network` op (`RUN_CHECK` is the only argv route,
 and the adapter. Closure: TEST (prove no untrusted path can mint a `network` op) + DOCUMENT
 the boundary; the reason string must describe what is enforced, not what is hoped.
 
+**Closed — CODE (one string) + TEST (the reachability) + DOCUMENT.** The entry's line numbers
+are the pre-`b23a48b` ones again, as in S12-13: the branch is now `src/process/tool-policy.ts`
+`:498-512`, and it still answers a network request with `allowed: true`, no approval and no
+boundary. That part was left alone deliberately — a network request names a target, not a
+command, so there is nothing in the request to classify, and MergeSutra's real network use goes
+through its two transports, which never ask this function anything. What changed is the sentence
+that had been standing in for a check. It read *"Network use is allowed and always disclosed; no
+credential crosses it."* Both halves are facts about whoever sends the request; this function
+returns a permission and sees nothing else, so it now reads *"This policy has no boundary for a
+network request: the op is allowed here without approval, and what a caller then sends is not
+something this function can see."* — the grant named, and its own limit named.
+
+Red before green, with the reason: `tests/security/network-op-boundary.test.ts` was written
+first, and 3 of its 14 cases failed against the old string — *names the grant it is making*
+(no "without approval" in it), *owns the limit instead of hoping past it*, and *makes no claim
+about another module* (it said "credential" and "disclosed"). Rewriting `src/` turned all 14
+green.
+
+**Disclosed: two existing cases asserted the defect, and were changed rather than added to.**
+`tests/process/tool-policy.test.ts` had `describe('decideTool: disclosure') / it('allows network
+use but says so')` ending in `expect(decision.reason).toMatch(/disclosed/)`, and
+`tests/process/tool-policy-argv.test.ts` had `… honest about what it is, without a credential`
+ending in `expect(decision.reason.toLowerCase()).toContain('disclosed')`. Those are the only
+assertions in the build that pinned the string, and they pinned it to the two words the entry
+calls dishonest: a test that a promise is present cannot catch a promise being false, which is
+why this file was green while the reason claimed a disclosure no code performs. Both now check
+the replacement property (the grant is stated; the over-claim is absent; the limit is admitted),
+and neither lost its `allowed`/`risk` assertions. Nothing was deleted to make a case pass, and
+the 5-red mutation below is what shows the new assertions bite harder than the old ones did.
+
+The reachability half — 11 cases that passed the first time they were written, because the
+property held and the gap register is what asked for it to be *measured* instead of assumed:
+
+- **What the source writes.** `tests/security/network-op-boundary.test.ts` walks the import
+  closure of every file in `src/cli/` (`tests/helpers/sourceShape.ts`, the same reader Stages
+  10 and 11 use; nothing is executed) and reports every `op:` literal in it. Outside
+  `tool-policy.ts`'s own declaration of the union, the set is exactly `{execute, write}`, and no
+  line anywhere in the reach spells `network`. The file also asserts its own scan is not blind:
+  it reports the op literal in a synthetic module and counts a commented-out one as nothing, and
+  it names the six modules a vanished closure would have to have lost.
+- **What the model can ask for.** The eight action kinds are listed from `ACTION_KINDS`, each
+  with a payload proved live by parsing it before the same payload plus a forged
+  `{ op: 'network', target }` is asserted to throw — so the case cannot pass by every row being
+  malformed for an unrelated reason. None of the eight names a network capability.
+- **What the one route that does exist reaches.** `RUN_CHECK` carries an argv, and an argv can
+  name `curl`. Measured through the real decision, not a list: `curl https://example.com`,
+  `npm install left-pad` and `npx some-tool` each classify NETWORK from the command and come
+  back `allowed: false` with `requiresApproval: false` — refused, not waiting.
+- **What a hand-edited run file buys.** A `PlannedGate` carries `risk` through
+  `verificationPlanSchema`, so the case writes the lie and checks who believes it: a `curl` gate
+  re-parsed with `risk: "READ"` still refuses, because `decideExecution` re-derives the decision
+  from `gate.argv` (`src/verify/consent.ts:138-141`) and the stored class is a report.
+
+Anti-vacuity, each restored byte-for-byte and re-run green:
+
+| Mutation                                                       | Red                                              |
+| -------------------------------------------------------------- | ------------------------------------------------ |
+| A reachable module mints `{ op: 'network' }` (`verify/gates.ts`) | 2 of 14 — *writes only the two ops*, *never spells the one op* |
+| `check` in `implement/protocol.ts:133-140`: `.strict()` → `.passthrough()` | 1 of 14 — *refuses a payload that carries one anyway* |
+| `tool-policy.ts:508-510`: the old reason string back            | 5 of 66 across the policy, argv and security files |
+| `consent.ts:139`: decide from `['git','status']`, not the gate's argv | 1 of 14 — *accepts a plan whose stored risk lies* |
+
+Restored hashes: `src/verify/gates.ts` `f52dbed3…`, `src/implement/protocol.ts` `08758c3b…`,
+`src/verify/consent.ts` `f3352b52…`, and `src/process/tool-policy.ts` to the file being
+committed here (`bebddbdf…`) after the third mutation; `git status` shows no source file
+modified beyond that one string.
+
+Documentation, and the same sweep caught a second stale claim: `docs/SECURITY_MODEL.md` §3's
+NETWORK row read "Dependency install, GitHub reads — Disclosed; no secrets sent", which named
+the class's *examples* as if they were permitted and the reason string's hope as the policy. It
+now separates the two branches, and a fourth bullet in §3 carries the boundary in the words above
+plus the proof site. The §3 Stage 10 paragraph said `gh pr create`, `npm publish` and
+`curl -X POST` "read as ordinary EXECUTE" — true when Stage 10 closed, false since `b23a48b`;
+measured against the built policy they are REMOTE_MUTATION, REMOTE_MUTATION and NETWORK, all
+refused, so the paragraph says that and keeps the enumeration's real residual in view:
+`pip install left-pad` still measures ordinary EXECUTE.
+
+**Disclosed limit.** Three things this does not do. It does not *enforce* a network boundary
+anywhere: the branch grants, and if a future stage mints the request this test names the file
+and line and the stage has to write its own check where the bytes go — which is what the reason
+string now says out loud. It scans literals in the import closure of `src/cli/`, so a module
+reachable from no command is not read, and an op assembled from a computed key or a parsed value
+is not a literal (what covers those is the `.strict()` union and the re-derivation at
+`consent.ts:138`, each proven above). And `riskOf`'s program knowledge stays a list, so the
+class an unrecognised network client carries is still EXECUTE — S12-03's limit, unchanged here.
+
 ### S12-15 — adapter reads the whole response body without a size bound
 
 `src/bharatcode/client.ts:170` `await response.text()` — unbounded; only error strings are

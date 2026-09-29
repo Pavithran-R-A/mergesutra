@@ -601,14 +601,14 @@ the answer to that trick, and since Stage 12 four pages share it where two did.
 
 ## 3. Tool risk classes and policy
 
-| Class           | Examples                                  | Policy                                            |
-| --------------- | ----------------------------------------- | ------------------------------------------------- |
-| READ            | `git status`, `git diff`, file/dir reads  | Allowed within workspace                          |
-| WRITE           | Authorized repo file edits                | Confined to authorized workspace only             |
-| EXECUTE         | Tests, linters, builders, package scripts | argv arrays, classified, timeout, bounded output  |
-| NETWORK         | Dependency install, GitHub reads          | Disclosed; no secrets sent                        |
-| REMOTE MUTATION | push, PR creation, GitHub comments        | **Requires explicit human approval**              |
-| DESTRUCTIVE     | force push, clean, reset, mass delete     | **Forbidden by default**                          |
+| Class           | Examples                                  | Policy                                                                        |
+| --------------- | ----------------------------------------- | ----------------------------------------------------------------------------- |
+| READ            | `git status`, `git diff`, file/dir reads  | Allowed within workspace                                                      |
+| WRITE           | Authorized repo file edits                | Confined to authorized workspace only                                         |
+| EXECUTE         | Tests, linters, builders, package scripts | argv arrays, classified, timeout, bounded output                              |
+| NETWORK         | `curl`, `npx`, a registry read            | A **command** in the class is refused; the request that names a target is granted, and nothing in `src/` makes one — the fourth bullet below carries both halves |
+| REMOTE MUTATION | push, PR creation, GitHub comments        | **Requires explicit human approval**, which no run stage seeks (§2.1)         |
+| DESTRUCTIVE     | force push, clean, reset, mass delete     | **Forbidden by default**                                                      |
 
 No `sudo`. No global Git config changes. No touching unrelated directories.
 
@@ -616,8 +616,7 @@ Implemented today (Stage 5): this table is `src/process/tool-policy.ts`, one
 pure function from a request to a decision. Stage 6 is what made it
 load-bearing: every command a model proposes in `mergesutra implement` is judged
 by this function before a process starts, and a `REMOTE MUTATION` decision there
-is refused outright rather than escalated (§2.1). Three things about it are
-worth naming, because each is a place a weaker design would fail:
+is refused outright rather than escalated (§2.1). Four things about it are worth naming, because each is a place a weaker design would fail:
 
 - **The class is derived, not declared.** A caller cannot mark its own action
   READ. For a command the class comes from the argv, so
@@ -641,6 +640,24 @@ worth naming, because each is a place a weaker design would fail:
   interpreter re-opens exactly the shell path the argv rule just closed.
   Running `node scripts/check.mjs` is ordinary EXECUTE; repository tooling is
   what a verification stage exists to run.
+- **A network *command* is refused; a network *request* is granted, and nothing
+  makes one.** Two branches of one function, and reading the table as one promise
+  is how they get conflated. `curl https://example.com` and `npx some-tool`
+  classify NETWORK from their argv and come back `allowed: false` with a reason
+  naming the command — a run does not open its own channel, and MergeSutra's real
+  network use is its two transports (the issue reader, the model client), neither
+  of which asks this function anything. The `{ op: 'network' }` request carries a
+  target rather than a command, so there is nothing here to classify: the branch
+  grants it with no approval, and its reason states that limit instead of claiming
+  a disclosure and a credential it cannot see (S12-14). What keeps the grant
+  harmless is that no module writes that request — every `op:` literal in the
+  source a CLI command can reach is `execute` or `write`, which
+  `tests/security/network-op-boundary.test.ts` reads off the import closure rather
+  than from a list kept by anyone. The same file proves the model cannot mint one
+  (the protocol's variants are `.strict()`, so a forged `op` field is a refusal) and
+  that a `risk` value read back from a run file is a report, not an input:
+  `decideExecution` re-derives from the gate's own argv, so a hand-edited
+  `risk: "READ"` on a `curl` gate buys exactly nothing.
 
 A command must also say where it runs: a request with no working directory, or
 one outside the workspace, is refused. Note what this module is *not*: it is a
@@ -656,12 +673,17 @@ is proved from source text rather than by running anything
 (§2.5), because the interesting experiment — asking the stage to push and watching
 it refuse — would have to reach the boundary to be observed. Where the stage could
 be weakened is the classifier itself, and the limitation is named rather than
-skated over: `riskOf` knows `git` verbs, so `gh pr create`, `npm publish` or
-`curl -X POST` read as ordinary EXECUTE. The ban on those three therefore rests on
-the enumeration and the import boundary, not on a policy function saying no — which
-is also why `pr/publisher.ts` sits *beside* this table: it is a two-method
-interface whose only production value throws, and no `tool-policy` decision is ever
-consulted on the way to a refusal that is structural.
+skated over. When Stage 10 closed, `riskOf` knew `git` verbs and nothing else, so
+`gh pr create`, `npm publish` and `curl -X POST` read as ordinary EXECUTE and the
+ban on those three rested on the enumeration and the import boundary alone.
+*(Kept as written: that was the truth then, and Stage 12's classifier is what
+changed it.)* Those three now measure REMOTE_MUTATION, REMOTE_MUTATION and
+NETWORK, and each comes back refused — a push, a publish and a POST each want
+something Stage 10 never asks for. What still rests on the enumeration alone is a
+program the classifier has never met: `pip install left-pad` measures ordinary
+EXECUTE. That is also why `pr/publisher.ts` sits *beside* this table: it is a
+two-method interface whose only production value throws, and no `tool-policy`
+decision is ever consulted on the way to a refusal that is structural.
 
 ## 4. Workspace isolation & file safety
 
