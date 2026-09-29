@@ -1,5 +1,6 @@
 import { deriveAcceptanceCriteria } from '../../src/contract/derive.js';
 import type { VerificationRun } from '../../src/verify/engine.js';
+import type { RunResult } from '../../src/core/runner.js';
 import { mapAcceptanceEvidence } from '../../src/verify/evidence.js';
 import {
   createRunRecord,
@@ -74,6 +75,14 @@ export interface VerifiedOptions {
   readonly claims?: readonly { source: string; text: string }[];
   /** Caveats the earlier stages of this run left on the record. */
   readonly recordLimitations?: readonly string[];
+  /**
+   * What the gate's process wrote, in place of the shared `SUCCEEDED`.
+   *
+   * A sink test needs the bytes a command printed — a credential a tool leaked into
+   * its own stack trace — to reach the receipt the way the engine hands them over,
+   * rather than having the fixture type them into the record.
+   */
+  readonly output?: RunResult;
 }
 
 /** The record outcome `verify` writes for each engine verdict — copied, not judged. */
@@ -116,10 +125,13 @@ export async function verifiedRecord(
   const plan = planOf([plannedGate({ id: 'VG-001', argv, relevantCriteria: ['AC-1'] })]);
   const consent = consentFor(plan, ['VG-001']);
   const observed = options.observedPatchIdentity ?? plan.patchIdentity;
-  const run = await verifyScripted(plan, [], { [argv.join(' ')]: SUCCEEDED }, consent, [
-    observed,
-    observed,
-  ]);
+  const run = await verifyScripted(
+    plan,
+    [],
+    { [argv.join(' ')]: options.output ?? SUCCEEDED },
+    consent,
+    [observed, observed],
+  );
   const evidence = mapAcceptanceEvidence({
     criteria: contract.criteria.map((c) => ({
       id: c.id,

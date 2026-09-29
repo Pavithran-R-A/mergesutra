@@ -1,10 +1,20 @@
+import { redactDocument } from '../security/redaction.js';
+
 /**
  * Structured application errors.
  *
  * Every failure MergeSutra surfaces is an `AppError` with an explicit, machine
  * readable `kind`, a truthful `retryable` flag and optional safe `details`.
- * Secrets must never appear in `message` or `details` — callers pass already
- * redacted values, and `AppError` redacts `details` defensively on construction.
+ *
+ * Secrets must never appear in `message` or `details`, and the two halves are
+ * guarded at different places. `details` is masked here, on construction, because
+ * it is where a caller puts the bytes it did not write — a child process's stderr,
+ * a parse failure over a file a human edited, a value read off disk — and a caller
+ * that had already cleaned them would not need this line. Masked deeply and
+ * structurally, so a count stays a count and a refusal stays an object rather than
+ * a string dump. `message` is the build's own prose and is masked where it is
+ * printed (`cli/program.ts`), which keeps the two paths from disagreeing about one
+ * error's text.
  */
 
 export type AppErrorKind =
@@ -47,7 +57,7 @@ export class AppError extends Error {
     this.retryable = options.retryable ?? false;
     this.retryAfterMs = options.retryAfterMs;
     this.remediation = options.remediation;
-    this.details = options.details;
+    this.details = redactDocument(options.details);
     Error.captureStackTrace?.(this, AppError);
   }
 

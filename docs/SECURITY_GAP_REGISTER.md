@@ -1393,6 +1393,107 @@ headers `:13`) but has **no URL-query-token pattern** (`?token=…` is not match
 `name:=value` form). Closure: TEST for each sink + CODE where a leak is demonstrated;
 fixture keys only, never a real one (§38).
 
+**Closed — CODE (one boundary, five sinks) + TEST (15 + 1 cases).** The entry was right about
+every site it named, and the fix is in one place rather than at each of them.
+
+- **The inventory, as the drive asked for it.** For each sink: *source → transform → redaction
+  point → sanitisation → sink*. The persisted sources are the run record
+  (`state/run-store.ts`, a file a human can open), the lock owner record (`lifecycle/lock.ts`,
+  a file any process here could write), and a pack's own bytes on disk
+  (`report/write.ts`). The transforms are `report/pack.ts` (three files), `lifecycle/status.ts`
+  (the `StatusSnapshot`, including `describeLock`'s owner host), `lifecycle/resume.ts` +
+  `resume-plan.ts` (a plan whose `reason` is build-authored except `RECOVERY_BLOCKED`, which
+  embeds blockers), `core/errors.ts` (`details`, where `git/workspace.ts`, `verify/patch.ts`,
+  `state/run-record.ts` and `cli/review.ts` put foreign bytes), and `pr/draft.ts` (the public
+  page). Before this change the redaction point was **absent** for all five: each stage masked
+  what it *produced*, and nothing masked what a reader *read back*.
+- **What the drive demonstrated rather than assumed.** `buildReceipt` (`verify/receipt.ts:170-173`)
+  masks `stdoutSummary`/`stderrSummary` with the central redactor *before* persistence while
+  `outputSha256` (`:194`) digests the unredacted bytes — so re-emitting a receipt verbatim is
+  both faithful and safe, and ADR-043 is not paraphrased by anything here. The one persisted
+  field that arrives unmasked is `argv` (`:178`, printed raw at `pack.ts:90`), which is the
+  realistic leak: `mergesutra verify` on a gate line of `node --test
+  --reporter-token=ghp_…`. That single field is why the pack needed the sink-side mask, and it
+  is option (B) at the renderer — the redacted copy feeds all three files, and no digest is
+  recomputed.
+- **The fix.** `redactDocument()` (`security/redaction.ts`) is one named call on
+  `defaultRedactor.deep()`, used at: `buildEvidencePack` (renders `report.md`, `report.json` and
+  `commands.jsonl` from one masked *copy* of the record), `statusAction` and `resumeAction` (one
+  masked copy feeding both the human page and `--json`, so the two cannot become two accounts of
+  one run; the exit code is still read from the original, because a mask is a decision about
+  display), the `AppError` constructor (`details` only — the header has claimed this since Stage
+  0 and the constructor never did it, which is §19's case: made true in code, structured, not
+  flattened into a string), and `pr/draft.ts`, where `file.path`, `gate.argv` and
+  `review.modelId` now go through the **existing** `quote()`. No second PR redactor, no second
+  pattern set, no `.replace(secret, '[REDACTED]')` scattered at the sites.
+
+Red before green, with the reason. `tests/security/output-redaction.test.ts` was written first,
+against unchanged source: **12 failing / 3 passing**, and `tests/pr/draft.test.ts` **1 failing /
+31 passing**. Each fixture is planted through a real producer — Stage 7's engine over a scripted
+process, `buildReviewDocument`, `parseRepairPlan` — so nothing here is a hand-built document a run
+could not have filed, and three shapes are used because grepping one API-key pattern is the
+weakest possible test of a redactor: an `sk-` key, a `ghp_` token, and `DEPLOY_TOKEN=<value>`
+whose value matches no pattern at all and is masked only because its name says what it is. The
+three that passed before the fix were guards, not leaks, and they are the reason the fix is
+shaped the way it is: ADR-020's structure survived a whole-document walk (nested receipt
+numerics, booleans, `null`s, `VG-001`/`AC-1`, 64-hex digests, enum state words), a clean receipt
+was already re-emitted byte for byte, and `status` already left the record on disk untouched.
+The printed REDs were genuine leaks, quotable: the resume screen rendered
+`… locked by process 5678 on host elsewhere-sk-S1217fixture…`, and an `AppError` serialised
+`{"reason":"the credential sk-… is on line 4","pair":"DEPLOY_TOKEN=s1217knownvalue",…}`.
+
+| Mutation | Red |
+| --- | --- |
+| `pack.ts`: `markdown(safe, rows)` → `markdown(record, rows)` | 4 — `report.md`, the on-disk identity, the issue surface, "renders without rewriting" |
+| `pack.ts`: `document(safe, rows)` → `document(record, rows)` | 3 — `report.json`, the on-disk identity, the issue surface |
+| `pack.ts`: `commandsLog(safe)` → `commandsLog(record)` | 2 — `commands.jsonl` (the `argv` leak) and the on-disk identity |
+| `status.ts`: `redactDocument(result.snapshot)` → `result.snapshot` | 2 — the human page and `status --json`; the non-mutation case stayed green, as it should |
+| `redaction.ts`: `redactDocument` returns `value` | 12 of 47 across both files — every pack, status, resume and error case at once |
+| `errors.ts`: `redactDocument(options.details)` → `options.details` | exactly the 3 error-surface cases, and nothing else |
+| `draft.ts`: drop `quote()` on `file.path` and `gate.argv` | exactly the 1 new PR-draft case |
+
+Each mutation was restored and re-hashed; the six production files are back at the bytes the
+final sweep ran against (`redaction.ts e551fde2…`, `pack.ts 5ef539cd…`, `status.ts 98a05d89…`,
+`resume.ts 0dbc960f…`, `errors.ts 87b2ce97…`, `draft.ts f3116aa4…`).
+
+Two invariants the entry did not ask for but the drive needed: the pack's `identity` is computed
+*after* rendering, so it now names the redacted bytes a reviewer is handed, and
+`packIdentityOf(onDisk)` plus `readPackIdentity` were measured against files actually written to
+disk — an approval that bound to a pre-redaction digest is the Stage 10 defect in a new costume.
+And no sink edits its source: the pack case compares `JSON.stringify(record)` before and after,
+and the two status cases compare the record's bytes on disk and assert the literal is still among
+them. A screen that looked clean because it had quietly repaired the evidence would be the worse
+kind of tidy.
+
+**Disclosed limits.** Six, and the first two matter more than the fix. **One:** the
+`?token=…` form named in this entry is **not** closed here. It is a gap in the central *pattern
+set*, not in a sink; §11 forbids a second implementation and adding a pattern to
+`security/redaction.ts` is a decision about what counts as secret, not about where to apply it.
+Every sink in this file inherits that limit until someone makes that decision. **Two:** a sink can
+only mask what the redactor recognises. `defaultRedactor` holds no runtime values, so a bare hex
+key in a sentence, with no shape and no secret-named key beside it, still reaches every one of
+these pages — this is a defence against *untrusted text*, not a secret scanner. **Three:** the run
+record keeps its literals, deliberately (§9 forbids a renderer editing evidence). Redacting a
+display is not redacting a store: `cat .mergesutra/runs/<id>.json` shows what a stage filed.
+**Four:** packs written before this change keep their old bytes and their old identity, and the
+`pack` lifecycle row will call them stale until `mergesutra report` re-renders them. History is
+not rewritten, and no run record was touched to make a test pass. **Five:** the status screen
+still prints the absolute path of the lock directory, because that row's whole job is to tell a
+person where to look. Path rendering on a terminal is S12-11's, which this item does not close;
+the pull request body's path scrub (Stage 10's, not widened here) is what keeps that shape out of
+the one document that leaves the machine. **Six:** this item closed the five sinks its drive named
+(§2–§7: the durable pack, the status screen in both shapes, the resume preview, the error
+surfaces, the public page) and **not every screen in `src/cli`.** Nine stage commands still print
+persisted or derived prose straight out: `contract.ts:331`, `plan.ts:73`, `implement.ts:184`,
+`verify.ts:120`, `review.ts:165`, `repair.ts:200`, `pr.ts:138`, `issue.ts:89` and `inspect.ts:121`
+each write a `record.limitations` / gap / criterion-limitation line with no mask on the way out,
+and that prose is built partly from issue text, model responses and repository paths — the inputs
+§0 calls hostile. "S12-17" therefore means *the sinks this item was given*, not *all sinks*, and
+the sentence is written here so a later reader does not treat the inventory as complete. Fixing
+them is a one-line call to `redactDocument` per screen, which is exactly why it should be done by
+the item that can also test each screen's expected layout; doing it here would have widened a
+closed drive into a sweep of nine unfixed screens.
+
 ### S12-18 — secret-file policy is a name denylist with real false negatives
 
 `src/security/reader.ts:46-58` — basenames `.env,.git-credentials,.netrc,.npmrc,.pypirc,

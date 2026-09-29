@@ -994,8 +994,35 @@ be given exact runtime secret values for literal masking.
 
 - Full process environments are never logged.
 - Subprocesses get controlled environments.
-- Redaction applies to error `details` (a real leak in response bodies was
-  caught by test and fixed).
+- Redaction applies to error `details`, on construction: `new AppError({ details })` stores a
+  deeply masked copy, because `details` is where a caller puts the bytes it did not write — a
+  child process's stderr, a parse failure over a file a human edited, a flag value read off disk.
+  It stays an object: a count remains a count and a refusal remains structured, so the mask is
+  not a string conversion. `message` is this build's own prose and is masked where it is printed
+  (`cli/program.ts`), which keeps the two paths from disagreeing about one error's text.
+  (A real leak in response bodies was caught by test and fixed.)
+- **A sink redacts, not only a source.** Every mask described above happens when a stage
+  *produces* a document. The paths that only ever *read* one — the evidence pack, the status
+  screen, the resume preview, an error's details — cannot inherit that guarantee, because a run
+  record is a file a human can open in an editor and a lock owner record is a file any process
+  on the machine could have written. So each of them renders from `redactDocument(...)`, one
+  call at the boundary: the pack masks a copy of the record before any of its three files is
+  composed (which is also what makes the pack's identity describe the bytes a reviewer is
+  handed), `status` and `resume` mask one copy that feeds both their human and `--json` shapes,
+  and `AppError` masks `details` as above. It is always a copy — a display decision may not edit
+  the evidence — and it is always the same redactor, never a second pattern set. What survives
+  is the structure ADR-020 protects: numbers, booleans, nulls, criterion and gate ids, state
+  words and digests. `tests/security/output-redaction.test.ts` drives three credential shapes
+  (an `sk-` key, a `ghp_` token, and a `DEPLOY_TOKEN=<value>` pair whose value matches no
+  pattern and is masked only because its name says what it is) through a real Stage 7 engine, a
+  real review document and a real repair plan, then looks for those literals in every sink.
+- One consequence worth naming, because it is the opposite of what a redactor usually buys: a
+  gate's `argv` is persisted unmasked, so a token typed into a command line reaches
+  `commands.jsonl` and the pull request body unless a sink masks it. The receipt builder does
+  not touch it, and it must not — `outputSha256` digests the unredacted bytes precisely so an
+  old receipt can still be checked against real output, and re-hashing a paraphrase would
+  certify a run nobody made. So the pack's redacted copy is what hides it, and the digests are
+  left alone.
 - The Stage 2 repository contract is redacted before it is persisted. A
   credential planted in a manifest script or a CI line is repository content
   MergeSutra must record faithfully in shape but never in substance, so the

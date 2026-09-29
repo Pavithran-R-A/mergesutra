@@ -13,7 +13,10 @@ import { redactText } from '../security/redaction.js';
  * - **It is public.** An issue title is text a stranger wrote, and a limitation is
  *   a sentence about a machine that is somebody's laptop. Both go through central
  *   redaction, an absolute-path scrub, and a line fold that turns quoted markdown
- *   back into quoted text before they reach the page.
+ *   back into quoted text before they reach the page. The same holds for the two rows
+ *   that look like data rather than prose — a file name and a gate's command line —
+ *   because a name comes out of a working tree this build did not author, and a
+ *   command line is the one place in a run record where a person types a token.
  *
  * No model is asked for anything: a draft a human approves has to be reproducible
  * from the record alone, or the digest under it approves bytes nobody can regenerate.
@@ -282,7 +285,7 @@ function implementationSection(input: DraftInput): string[] {
   );
   lines.push('');
   for (const file of listed(input.files)) {
-    lines.push(`- \`${file.path}\` — ${file.change.toLowerCase()}`);
+    lines.push(`- \`${quote(file.path)}\` — ${file.change.toLowerCase()}`);
   }
   const omitted = input.files.length - MAX_LISTED_ROWS;
   if (omitted > 0) {
@@ -314,7 +317,7 @@ function verificationSection(input: DraftInput): string[] {
   lines.push('');
   for (const gate of listed(input.gates)) {
     lines.push(
-      `- \`${gate.id}\` — ${gate.result} — \`${gate.argv.join(' ')}\` — ${
+      `- \`${gate.id}\` — ${gate.result} — \`${quote(gate.argv.join(' '))}\` — ${
         gate.exitCode === null ? 'did not run' : `exit ${gate.exitCode}`
       }`,
     );
@@ -347,13 +350,13 @@ function reviewSection(input: DraftInput): string[] {
   }
   if (review.findings.length === 0) {
     lines.push(
-      `Independent BharatCode review completed; no additional findings were recorded. Review cycle ${review.cycle}, by \`${review.modelId}\`.`,
+      `Independent BharatCode review completed; no additional findings were recorded. Review cycle ${review.cycle}, by \`${quote(review.modelId)}\`.`,
     );
     lines.push('');
     return lines;
   }
   lines.push(
-    `Review cycle ${review.cycle}, by \`${review.modelId}\`. ${count(review.findings.length, 'finding')} filed, each with the disposition MergeSutra gave it:`,
+    `Review cycle ${review.cycle}, by \`${quote(review.modelId)}\`. ${count(review.findings.length, 'finding')} filed, each with the disposition MergeSutra gave it:`,
   );
   lines.push('');
   for (const finding of listed(review.findings)) {

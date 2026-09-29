@@ -369,6 +369,49 @@ describe('what the body must never carry', () => {
     expect(body).toContain('[REDACTED]');
   });
 
+  it('redacts a credential that arrived in a file name or a gate command, the same way', () => {
+    // S12-17 §7: the page's protection is one transform, applied on every route text
+    // takes onto it. The caveat above is covered; the two rows below are the routes
+    // that were rendered from the field rather than quoted from prose — a path is a
+    // path, and an argv is a list of strings, so neither looked like text needing the
+    // treatment. A credential in a filename is still a credential, and a gate that
+    // was run with `--reporter-token=…` printed it into the process list.
+    const body = draftOf(
+      draftInput({
+        files: [
+          { path: 'src/parse-ghp_S1217draftABCDEFGHIJKLMNOPq.ts', change: 'ADDED' },
+          { path: 'src/parse.ts', change: 'MODIFIED' },
+        ],
+        gates: [
+          {
+            id: 'VG-001',
+            argv: ['node', '--test', '--reporter-token=s1217draftvalue'],
+            result: 'PASS',
+            exitCode: 0,
+          },
+        ],
+        criteria: [
+          {
+            id: 'AC-1',
+            statement: 'Reject the empty input, unlike sk-S1217draft0123456789ab.',
+            status: 'PASS',
+          },
+        ],
+        review: { cycle: 1, modelId: 'reviewer-ghp_S1217draftABCDEFGHIJKLMNOPq', findings: [] },
+      }),
+    ).body;
+
+    expect(body).not.toContain('ghp_S1217draftABCDEFGHIJKLMNOPq');
+    expect(body).not.toContain('s1217draftvalue');
+    expect(body).not.toContain('sk-S1217draft0123456789ab');
+    expect(body).toContain('[REDACTED]');
+    // And the page is still a page: the file a reviewer has to open, and the gate id
+    // the evidence pack names, are both still there.
+    expect(body).toContain('src/parse.ts');
+    expect(body).toContain('VG-001');
+    expect(body).toContain('AC-1');
+  });
+
   it('turns quoted external markdown into text, so nobody can add a section to this page', () => {
     const body = draftOf(
       draftInput({

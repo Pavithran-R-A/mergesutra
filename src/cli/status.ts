@@ -1,4 +1,5 @@
 import { PRODUCT_NAME } from '../version.js';
+import { redactDocument } from '../security/redaction.js';
 import { runStatusStage, type StatusStageDeps } from '../lifecycle/status.js';
 import type { StatusSnapshot } from '../lifecycle/snapshot.js';
 import { EXIT } from './exit-codes.js';
@@ -58,15 +59,23 @@ export async function statusAction(
     },
     deps,
   );
+  // One redacted copy feeds both output shapes, so the human page and `--json` can
+  // never be two different accounts of the same run — which is the promise this
+  // screen's layout is built on. It is a copy: the record on disk is the evidence, and
+  // a display decision may not edit it. The snapshot carries text this command did not
+  // write, from files any process on this machine could have created — a caveat a
+  // stage recorded, and the identity a lock owner gave itself — and a page that prints
+  // those verbatim is a page that trusts a file it only read.
+  const snapshot = redactDocument(result.snapshot);
 
   if (options.json) {
-    write(JSON.stringify(result.snapshot, null, 2));
+    write(JSON.stringify(snapshot, null, 2));
     return EXIT.OK;
   }
 
   write(renderer.heading(`${PRODUCT_NAME} — where this run stands`));
   write('');
-  write(formatStatus(result.snapshot, renderer));
+  write(formatStatus(snapshot, renderer));
   return EXIT.OK;
 }
 

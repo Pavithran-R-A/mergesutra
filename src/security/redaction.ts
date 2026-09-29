@@ -4,7 +4,10 @@
  * MergeSutra must never leak credentials into logs, reports, error text, model
  * requests, or terminal output. This module is the single place that knows how
  * to recognise and mask secrets. Everything that writes potentially
- * user-visible or persisted text routes through here.
+ * user-visible or persisted text routes through here: a stage masks what it
+ * produces, and a sink that only ever reads what a stage produced routes through
+ * `redactDocument` at the end of the line, because the first mask describes the
+ * bytes as they were written and not the file as it is now.
  */
 
 const MASK = '[REDACTED]';
@@ -181,6 +184,27 @@ export function redactHeader(name: string, value: string): string {
 /** Convenience: redact text against a one-off list of known secrets. */
 export function redactText(text: string, secretValues: Iterable<string> = []): string {
   return new Redactor(secretValues).text(text);
+}
+
+/**
+ * A copy of a whole document, with every string leaf masked.
+ *
+ * This is the boundary a *sink* calls — the evidence pack, the status screen, the
+ * resume preview, an error's details — and it exists because those paths never parse
+ * their input. They hand on a document an earlier stage wrote, and the promise a
+ * stage made when it filed that document says nothing about what a human has done to
+ * the file since, or about a stage that was once looser than this one. A sink that
+ * renders a stored string has no more right to trust it than a parser has, so the
+ * trust check happens here, at the last place that still controls the bytes.
+ *
+ * It is a copy, never an edit: the record on disk is the evidence, and a display
+ * decision that rewrote it would quietly void a reviewer's receipts. Numbers,
+ * booleans, nulls, ids, state words and digests pass through untouched — only text
+ * is redactable, and masking a counter is how a redactor turns a valid report into
+ * an unusable one.
+ */
+export function redactDocument<T>(value: T): T {
+  return defaultRedactor.deep(value);
 }
 
 export const REDACTED_MASK = MASK;

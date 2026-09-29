@@ -1,4 +1,5 @@
 import { AppError } from '../core/errors.js';
+import { redactDocument } from '../security/redaction.js';
 import { runImplementStage, type ImplementStageDeps } from '../implement/implement.js';
 import type { LoopLimits } from '../implement/limits.js';
 import { runResumeStage, type ResumeStageDeps } from '../lifecycle/resume.js';
@@ -95,14 +96,22 @@ export async function resumeAction(
     { ...(deps.resume ?? {}), executeStage },
   );
 
+  // What this screen prints is partly somebody else's text: a refusal names the host a
+  // lock owner called itself, and that file is one any process here could have written.
+  // So both shapes are rendered from one redacted copy, which also keeps the page and
+  // `--json` from becoming two accounts of the same stop. The exit code is still read
+  // from the original — a mask is a decision about display, and must not quietly become
+  // a decision about what happened.
+  const shown = redactDocument(result);
+
   if (options.json) {
-    write(JSON.stringify(jsonDocument(result), null, 2));
+    write(JSON.stringify(jsonDocument(shown), null, 2));
     return exitFor(result);
   }
 
   write(renderer.heading(`${PRODUCT_NAME} — what a resume would do`));
   write('');
-  write(formatResume(result, renderer));
+  write(formatResume(shown, renderer));
   return exitFor(result);
 }
 

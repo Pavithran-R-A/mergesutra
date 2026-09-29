@@ -1,5 +1,6 @@
 import type { RunRecord } from '../state/run-record.js';
 import { sha256Hex } from '../security/digest.js';
+import { redactDocument } from '../security/redaction.js';
 
 /**
  * The evidence pack: what a reviewer reads without running anything.
@@ -49,11 +50,18 @@ interface CriterionRow {
 }
 
 export function buildEvidencePack(record: RunRecord): EvidencePack {
-  const rows = rowsOf(record);
+  // The record is read, never trusted. Every stage that filed a document in it routed
+  // through the central redactor on the way in, but a run record is a file a human can
+  // open in an editor, and this pack is the artifact that leaves the machine and lands
+  // in front of a reviewer — so the mask belongs here as well, and on a *copy*: the
+  // record on disk stays the evidence, byte for byte, literal and all. Rendering from
+  // the copy is also what makes `identity` below true, since it hashes these files.
+  const safe = redactDocument(record);
+  const rows = rowsOf(safe);
   const files: Record<PackFileName, string> = {
-    'report.md': markdown(record, rows),
-    'report.json': `${JSON.stringify(document(record, rows), null, 2)}\n`,
-    'commands.jsonl': commandsLog(record),
+    'report.md': markdown(safe, rows),
+    'report.json': `${JSON.stringify(document(safe, rows), null, 2)}\n`,
+    'commands.jsonl': commandsLog(safe),
   };
   return { runId: record.runId, identity: packIdentityOf(files), files };
 }
@@ -84,6 +92,14 @@ export function packIdentityOf(files: Readonly<Record<PackFileName, string>>): s
  * bounded, centrally redacted account of the process, with a digest over the
  * unredacted bytes. Re-encoding it here would put a second version of the same
  * fact on disk and invite the two to disagree.
+ *
+ * Which is where S12-17's receipt rule actually sits. `buildReceipt` masks stdout and
+ * stderr before filing them, so the summaries on this line are safe to re-emit as
+ * persisted, and `outputSha256` still digests the bytes behind them — a reader who
+ * holds the real output can check the number. The one field that arrives unmasked is
+ * `argv`, because a command line is a place people put tokens; the redacted copy above
+ * is what masks it here. What no part of this touches is the digest itself: a hex
+ * string is not prose, and re-hashing a paraphrase would certify a run nobody made.
  */
 function commandsLog(record: RunRecord): string {
   return (record.verification?.gates ?? [])
