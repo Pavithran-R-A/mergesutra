@@ -1292,6 +1292,95 @@ if it can. Audit note for §32: the `{ ...runRecordFieldsV6 }` spreads at
 `src/state/run-record.ts:369,445` build schemas from local constants, not payloads — that is
 the safe direction, and the test must say so.
 
+**Closed — CODE (one copier) + TEST (24 cases, every edge driven from real bytes).** Both halves
+of the entry's either-or came back true, and they live in different places: Zod's strip does mean
+a parsed `__proto__` cannot pollute — at every site the entry names, and at the ones it did not —
+and there is exactly one place in the build where it *can*, one hop **after** the parse, in a
+copier that ran on the result.
+
+- **Where it holds.** `JSON.parse` creates `__proto__` as an own **data** property, so the
+  `Object.prototype` setter is never invoked: the object arrives with its prototype intact and the
+  hostile key sitting in `Object.keys()`, where `.strip()` drops it, `.passthrough()` drops it too
+  and `.strict()` refuses the document for it (`unrecognized_keys: ['__proto__']`, measured). The
+  ten byte-to-object edges — `parseCompletion`, the adapter's body read (`client.ts:276`),
+  `completeStructured`'s three accepted shapes, the model list, `createFileRunStore().load()` and
+  `.list()`, `readRunLock`'s `owner.json`, `GhCliGitHubSource.issue()` and `.repository()`,
+  `detectManifests`, `readPackFacts` — were each driven from real bytes at that edge, not from a
+  hand-built object, and none re-targeted a prototype or read a hidden field. `repair/limits.ts`,
+  the one consumer that takes an already-parsed document, keeps its defaults against a hidden
+  `maxSteps: 999`.
+- **The entry's "the one `.passthrough()` in the build" is false, and §19 says correct it.** There
+  are eight `.passthrough()` calls across three files — `bharatcode/schemas.ts` (1),
+  `github/schemas.ts` (5), `report/write.ts` (2) — pinned by a case that counts them in the import
+  closure so a ninth cannot arrive unmeasured. None is a hole for this purpose: `.passthrough()`
+  also drops `__proto__`. What it does keep is `constructor` as an own data key, which
+  `JSON.stringify` re-emits — inert, because a JSON document's `constructor` key is a property, not
+  a path, and reading it back yields the same data property.
+- **The gadget.** `Redactor.deep()` (`redaction.ts:110` before this change) copied with
+  `out[k] = v`; `everyString()` (`:126`) and `headers()` (`:86`) did the same. For a document whose
+  only key is `__proto__`, that assignment *is* the setter: the copy's prototype became the
+  payload's hidden object, `Object.keys(copy)` became `[]`, and every field hidden under it became
+  an inherited read.
+- **Why the `.strict()` guard fell, read from the dependency rather than guessed.** Zod 3.23.8's
+  `ZodObject._parse` collects unrecognised keys with `for (const key in ctx.data)` and reads each
+  shape field with `ctx.data[key]` (`node_modules/zod/v3/types.js:1949-1966`) — both walk the
+  prototype chain. After the copy there were no extra keys to report, because the hostile key had
+  stopped being a key, and the hidden fields were still readable. Measured against the product
+  schema before the fix: `implementationRecordSchema.safeParse(defaultRedactor.deep(parsed))`
+  returned **success**, with 18 own keys promoted out of a prototype the document chose, while the
+  same bytes one call earlier — straight into `safeParse`, no redactor — were refused. That is the
+  composition `implement/loop.ts:820` performs.
+- **The fix.** All three sites copy through one private `copy()` (`redaction.ts:139-149`) built on
+  `Object.fromEntries`, which *defines* properties (CreateDataProperty) instead of assigning
+  through a setter. `__proto__` stays a key, the prototype stays `Object.prototype`, the leaves
+  stay masked, and the strict schema again sees a field it was not given.
+
+Red before green, with the reason: `tests/security/prototype-keys.test.ts` was written first —
+against the unchanged source, **6 failing / 18 passing**. Five of the six were the redactor's own
+behaviour: the copy's prototype, the strict schema's acceptance of the hidden document, the
+`__proto__` header, the `__proto__` key under a sensitive name, and a secret carried under a
+prototype key; the sixth was the computed-write inventory reporting `security/redaction.ts` with
+three `out[…] =` sites. After the change the file is 24/24, and the suites that already exercised
+the redactor stayed green — `tests/security/redaction.test.ts` and the seven others that consume
+it, 166 tests between them.
+
+The premise cases have teeth, because two of them build the gadgets on purpose: a recursive merge
+that walks through an inherited key and *does* pollute `Object.prototype` for the whole process
+(undone in the same case's `finally`), and a computed assignment that re-targets one accumulator.
+Without them, "nothing was polluted" would read identically in a build that had a leak nobody could
+detect. The source-shape cases guard the next stage's edits: the `.passthrough()` and computed-write
+inventories above, `Object.assign` at exactly one site with keys the source closes
+(`cli/implement.ts`), and the §32 audit note — every `…runRecordFieldsV*` spread sits inside either
+a `z.object({` argument or another field constant, each constant is module-level, and none is built
+with a computed key or a spread that is not itself a field constant. That is the safe direction,
+said in the form the entry asked for.
+
+| Mutation | Red |
+| --- | --- |
+| `redaction.ts:143`: the copy back to `out[key] = mask(key, entry)` | 5 of 24 — four accumulator cases *and* the computed-write inventory |
+| `redaction.ts:86`: `headers()` back to the assignment loop | 2 of 24 — the header case and the inventory, and nothing else |
+| `redaction.ts:146`: `mask(key, entry)` → `entry` (copy without masking) | 4 of 35 — two here, two in `redaction.test.ts`, so the copy is still proved to mask |
+| `redaction.ts:144`: filter `__proto__` out of the copy | 2 of 35 — the two cases that require the key to survive *as a key* |
+
+`src/security/redaction.ts` was restored to `1c88c78a…` after each mutation, byte for byte.
+
+Documentation: `docs/SECURITY_MODEL.md` §6 now carries the property — the redactor's copies keep a
+document's keys as keys — with the explicit statement that no name filter is involved and none is
+claimed.
+
+**Disclosed limit.** Five things. **One:** this closes a demonstrated gadget, not a live exploit.
+`raw` at `implement/loop.ts:782-818` is a product-built object literal, so no attacker-chosen key
+reaches `deep()` in this build today; what was reachable was the composition, not a caller.
+**Two:** `headers()` has no caller in `src/` at all — only tests — so its guard is pinned for the
+next caller, not for one that exists. **Three:** nothing was filtered. A `__proto__` key still
+travels through the redactor and can still be persisted by a `.passthrough()` schema; what changed
+is that it stays a property. **Four:** `headers()` keeps its pre-existing behaviour of throwing on
+a non-string value (`this.text` on an object), because that is its declared input type and widening
+it is a product decision this item does not make. **Five:** a variant that also treats `__proto__`
+as a *sensitive* name — masking its whole subtree — passes all 35 cases. The suite pins prototype
+integrity and leaf masking, not which names count as sensitive, and that variant masks more, not
+less; it is recorded as a surviving mutation rather than dressed up as a caught one.
+
 ### S12-17 — evidence pack and status screens print without the Redactor
 
 `src/report/pack.ts` embeds raw record text at `:90` (whole receipt object), `:184` (claim

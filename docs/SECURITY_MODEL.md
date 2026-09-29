@@ -1001,6 +1001,17 @@ be given exact runtime secret values for literal masking.
   MergeSutra must record faithfully in shape but never in substance, so the
   value becomes `[REDACTED]` in the run record and in the rendered table; the
   file and line that produced it stay intact.
+- The redactor's own copies keep a document's keys as *keys*. `Redactor.deep()` walks a parsed
+  object and rebuilds it, and rebuilding with `out[key] = value` would, for the one key named
+  `__proto__`, run `Object.prototype`'s setter instead of writing anything: the copy's prototype
+  would become whatever the document supplied, that key would vanish from the result, and every
+  field hidden under it would read back as though it had been declared. `Object.fromEntries`
+  defines properties instead, so the key stays data and the schema that validates next still sees
+  a field nobody declared. No name filter is involved and none is claimed — `__proto__`,
+  `constructor` and `prototype` stay in the copy exactly as they arrived, and the property is
+  that they stay *properties* rather than becoming a prototype.
+  `tests/security/prototype-keys.test.ts` measures that at each edge where bytes become an
+  object: the wire, `gh`'s stdout, a run file, a lock record, a manifest, a pack.
 - Stage 10 redacts the one document this product writes for readers who are not
   the operator. A pull request body outlives the run, so a credential or a
   username that reached it could not be recalled: the title, every body section

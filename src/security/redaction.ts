@@ -79,13 +79,16 @@ export class Redactor {
 
   /** Redact a headers record, returning a new safe record. */
   headers(init: Record<string, string> | [string, string][] | undefined): Record<string, string> {
-    const out: Record<string, string> = {};
-    if (!init) return out;
+    if (!init) return {};
     const entries: Iterable<[string, string]> = Array.isArray(init) ? init : Object.entries(init);
-    for (const [name, value] of entries) {
-      out[name] = SENSITIVE_HEADERS.has(name.toLowerCase()) ? MASK : this.text(value);
-    }
-    return out;
+    // `Object.fromEntries`, not `out[name] = value`: a header name is somebody else's
+    // string, and assigning to a key named `__proto__` is the setter, not a write.
+    return Object.fromEntries(
+      Array.from(entries, ([name, value]) => [
+        name,
+        SENSITIVE_HEADERS.has(name.toLowerCase()) ? MASK : this.text(value),
+      ]),
+    );
   }
 
   /** Redact arbitrary text. */
@@ -105,11 +108,10 @@ export class Redactor {
     if (typeof value === 'string') return this.text(value) as unknown as T;
     if (Array.isArray(value)) return value.map((v) => this.deep(v)) as unknown as T;
     if (value && typeof value === 'object') {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-        out[k] = isSensitiveKey(k) ? this.everyString(v) : this.deep(v);
-      }
-      return out as unknown as T;
+      const copy = this.copy(value, (k, v) =>
+        isSensitiveKey(k) ? this.everyString(v) : this.deep(v),
+      );
+      return copy as unknown as T;
     }
     // A number, a boolean and null carry no secret and must survive intact:
     // masking a counter is how a redactor turns a valid record into an invalid one.
@@ -120,14 +122,30 @@ export class Redactor {
   private everyString(value: unknown): unknown {
     if (typeof value === 'string') return MASK;
     if (Array.isArray(value)) return value.map((v) => this.everyString(v));
-    if (value && typeof value === 'object') {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-        out[k] = this.everyString(v);
-      }
-      return out;
-    }
+    if (value && typeof value === 'object') return this.copy(value, (_k, v) => this.everyString(v));
     return value;
+  }
+
+  /**
+   * A copy that keeps every key of `value` as an *own* property of the result.
+   *
+   * `Object.fromEntries` defines properties (CreateDataProperty), so a key named
+   * `__proto__` stays a key. Assigning `out[k] = v` instead would run `Object.prototype`'s
+   * setter for that one name: the key would disappear from the copy and its value would
+   * become the copy's prototype — handing a document the choice of what every later
+   * property lookup reads, and taking that key out of any schema's list of what it did not
+   * recognise.
+   */
+  private copy(
+    value: object,
+    mask: (key: string, entry: unknown) => unknown,
+  ): Record<string, unknown> {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        key,
+        mask(key, entry),
+      ]),
+    );
   }
 }
 
