@@ -1,5 +1,6 @@
 import { PRODUCT_NAME } from '../version.js';
 import { exitForOutcome } from './exit-codes.js';
+import { terminalSafeDocument, terminalSafeJson } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor, type Renderer, type Status } from './render.js';
 import { runVerifyStage, type VerifyStageDeps, type VerifyStageResult } from '../verify/stage.js';
 import type { GateOutcome } from '../verify/engine.js';
@@ -47,7 +48,7 @@ export async function verifyAction(
   );
 
   if (options.json) {
-    write(JSON.stringify({ recordFile: result.recordFile, record: result.record }, null, 2));
+    write(terminalSafeJson({ recordFile: result.recordFile, record: result.record }));
     return exitForOutcome(result.record.outcome);
   }
 
@@ -57,7 +58,10 @@ export async function verifyAction(
   return exitForOutcome(result.record.outcome);
 }
 
-export function formatVerification(result: VerifyStageResult, renderer: Renderer): string {
+export function formatVerification(input: VerifyStageResult, renderer: Renderer): string {
+  // Display copy: a value this command only read may not carry a byte that steers
+  // the terminal it is printed on. See src/security/terminal-safety.ts.
+  const result = terminalSafeDocument(input);
   const { record, plan, run, evidence, consent, workspace, recordFile, saveError } = result;
   const lines: string[] = [];
 

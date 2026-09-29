@@ -1038,6 +1038,79 @@ parses.
 **Closure.** CODE (centralised), then route the print sites. §25's log-forgery screens are
 proved in the same file.
 
+**Closed — CODE (one primitive, thirteen screens, eleven JSON sinks) and TEST (two files).**
+`src/security/terminal-safety.ts` holds the control set (`:51-59`) and two modes: single-line
+(`:87`, escapes LF/CR/TAB too) for a value inside a row, and text (`:95`, keeps them as
+structure) for a block the screen breaks up. `terminalSafeDocument()` (`:126`) copies a whole
+document in single-line mode and thirteen command screens render from the copy rather than the
+original (`status.ts:95`, `resume.ts:283`, `review.ts:93`, `verify.ts:64`, `pr.ts:99`,
+`doctor.ts:139`, `issue.ts:51`, `inspect.ts:48`, `plan.ts:52`, `contract.ts:280`,
+`implement.ts:104`, `repair.ts:123`, `report.ts:67`), which is what makes §10's single-line/multi-line
+distinction hold without a new renderer. `createRenderer` escapes the value before it adds colour
+(`render.ts:53`); the error path runs redaction then terminal safety (`program.ts:513`); eleven
+`--json` sinks call `terminalSafeJson()` and `report --json` runs `terminalSafeJsonText()` over
+bytes that were already serialized. Order is the §22 one: value → redaction → terminal safety →
+styling → terminal, and no secret pattern was copied into the terminal sanitizer.
+
+*The one real defect this drive found is the report page, and the hero caught it before any fix.*
+Two hostile runs — same payload at every door, one benign — printed the same left-margin rows
+everywhere except `report`, where the recorded limitation
+`src/date\nVERIFICATION PASS.ts` broke into its own row. Quoted from the failing log:
+`report gained left-margin rows the payload wrote: ["VERIFICATION PASS.ts"]`. The pack's markdown
+had no folding step, so the payload's LF was the screen's row boundary and the fake verdict sat at
+column 0. Fixed in `src/cli/report.ts:59-67` by rendering twice: the pack written to disk and
+digested is the record's own bytes, and the page is a second pack built from
+`terminalSafeDocument(record)`, so every stored break shows up inside its row as
+`\u000a` and each line still opens with a marker the pack wrote. §23 forbade the other fix — the
+pack files keep their bytes, and rewriting them would have moved `packIdentity` and therefore
+`publicationDigest`, which §17 says must not happen for a display decision.
+
+| Mutation (§27 A–G) | Red |
+| --- | --- |
+| A `status.ts`: `terminalSafeDocument(input)` → `input` | 4 — the status page's cursor, left-margin and colour cases, and the hero's no-payload-byte case |
+| B `program.ts`: error path drops `terminalSafeText` | 2 — exactly the two `the error path` cases |
+| C primitive: let U+001B through | 17 of 47 across both security files |
+| D primitive: let U+000D through | 9 of 47 |
+| E primitive: let U+202E through | 12 of 47 |
+| F `render.ts`: sanitize the finished styled string instead of the value | 5 — every §19/§20 colour case, i.e. the "solve it by stripping all ESC" route is caught |
+| G `terminalSafeJson`: return `JSON.stringify` alone | 3 — the `--json` round-trip, the status JSON case, the hero's candidate-JSON case |
+
+Each mutant was applied with an exact single-occurrence replacement and restored from a byte
+copy; `cmp` reports all four touched files identical to their pre-mutation bytes
+(`status.ts 249fd0bc…`, `program.ts d6100b19…`, `render.ts 1d96191d…`,
+`terminal-safety.ts 5d37f496…`), and the focused set re-ran green afterwards (47 passed, raw
+exit `0`). No mutant is in the committed tree.
+
+**Disclosed limits.** Five, and the first is the one a reader should weigh. **One:** this is a
+*display* boundary. Per §23 the run record and the pack files keep the controls the stages filed,
+so a person who reads `.mergesutra/runs/<id>/commands.jsonl` with `cat` or an editor is outside
+MergeSutra's rendering path — and the measured shape of that is asymmetric: JSON writes a C0
+control as `\u001b`, which cannot act, but writes C1 and the bidi controls as the raw character,
+which can. Making the durable pack itself terminal-hardened is a different item (it would move
+the pack identity); it is named here rather than assumed away. **Two:** the material handed to a
+model is not a terminal sink. `src/repair/context.ts` and `src/review/prompt.ts` quote foreign
+text for BharatCode through §2.7's guard, and this item changed nothing there. **Three:** a value
+can still be *misleading* while being inert — a limitation that says `CONTRIBUTION_READY` is
+printed as that word inside its row, because hiding the claim would prevent a reader from
+rejecting it. The boundary is about columns and cursor movement, not about vocabulary. **Four:**
+two upstream refusals do a different job and are counted as themselves, not as this defence: a
+path with a control in its name is refused at admission (`src/security/path-safety.ts:111`), and
+a lock host outside printable ASCII is printed as `a name this build will not print`
+(`src/lifecycle/lock-state.ts:105`), so the status screen never renders that payload at all —
+while `lock.ts:468` `blockMessage` does interpolate the raw host into a message, which is why the
+resume screen's escape is load-bearing and is tested. **Five:** `mergesutra report` now renders
+the pack twice, so a very large record pays a second render; measured on this repository's
+fixtures the page is identical for any record with no control characters, and the cost was
+accepted rather than traded for a screen that can be forged.
+
+*Gates, measured on the committed state.* `prettier --check .`, `eslint .` and
+`tsc -p tsconfig.json --noEmit` each exit `0`. The two S12-11 files: 28 passed (the control
+matrix, including the §21 bound case added as a regression guard rather than a finding) and 15
+passed (the hostile-run hero). The affected surface as a group — `tests/security tests/report
+tests/cli/report.test.ts tests/cli/status.test.ts tests/lifecycle tests/pr` — 757 passed across
+50 files, raw exit `0`. Per this stage's §29 the ~1,940-test suite was not re-run for a single
+item; the authoritative full sweep is the Stage 12 close gate.
+
 ---
 
 ## S12-12 — published contents and install behaviour are unqualified
@@ -1753,7 +1826,7 @@ safe-contents test, §42/§59).
 | 26 | S12-03 (policy-before-consent order is already correct at `consent.ts:137-144`; the gap is the classifier) |
 | 27, 28, 29, 30, 31 | Not yet register-ready — gate discovery (`src/verify/gates.ts:208,282`) is the CI/package-manifest entry point; hooks are environment facts (`core.hooksPath` is external on this machine, §29 must state the measured fact) |
 | 32, 33, 34 | S12-16; S12-16 plus record-parse path; §34 already fails closed — `src/state/run-record.ts:676-682` refuses an unknown future `schemaVersion`, migrations `:585,604,621` only add honest absence, and `run-store.ts:60-75` never rewrites on read → **TEST-only** |
-| 35 | PR draft sanitization — `src/pr/draft.ts:129` uses `redactText`; no control-char path → S12-11/S12-17 |
+| 35 | PR draft sanitization — `src/pr/draft.ts:129` uses `redactText`; the control-character route is closed by S12-11 (the page is escaped at display, and `draftOf`'s `quote()` folds a foreign line break before it can start a section), while the markdown-*structure* route on the same page is S12-21 and stays open |
 | 36, 37, 38 | S12-15; catalog TOCTOU at `client.ts:241-246` + config `:74`; key is header-only `client.ts:161` with `Redactor([apiKey])` `:106` → **TEST-only** unless a sink leaks |
 | 39, 40, 41 | S12-12 |
 | 42, 43, 44, 45 | S12-20; credential scan of tracked files *and* reachable history; `commander`/`zod` runtime-only (ADR-009 re-check); LICENSE/metadata coherence |
@@ -1890,6 +1963,35 @@ attack is by what the gap makes possible in this build's own execution path:
 5. S12-11, S12-17, S12-18, S12-21, S12-26, S12-16 — rendering, leakage, and parsing surfaces.
 6. S12-08, S12-10, S12-23, S12-24, S12-25, S12-12, S12-14, S12-15, S12-20 — proof-and-wording
    closures: tests and truthful documentation, not new machinery.
+
+### Re-ranked after S12-11 (2026-09-29)
+
+The order above is the order the register was written in, and it is now stale in two ways.
+**Closed in this stage, each with its own entry and its own measured drive:** S12-01, S12-02,
+S12-03, S12-04, S12-05, S12-06, S12-07, S12-08, S12-10, S12-11, S12-13, S12-14, S12-15,
+S12-16, S12-17, S12-18, S12-19. **Still open:** S12-09, S12-12, S12-20, S12-21, S12-22,
+S12-23, S12-24, S12-25.
+
+Ranked by what each remaining gap makes possible in this build's own execution path:
+
+1. **S12-22** — a consented `npm run` body is interpreted by npm, so every argv rule in the
+   classifier is downstream of a string the classifier never sees. This is the only open entry
+   on the mutation path, and the one place a model's text can still reach a command.
+2. **S12-09** — the proven-dead takeover's read-then-write window. Corrupts a workspace and
+   therefore the evidence, and it is the entry the register already flagged as needing a real
+   mechanism rather than a wording fix.
+3. **S12-21** — the PR draft prints untrusted fields as markdown *structure*. S12-11 made the
+   terminal unable to obey those bytes; this is the same shape one layer up, on the page that
+   leaves the machine, where the reader is GitHub rather than a terminal.
+4. **S12-12** — published contents and install behaviour are unread, which is a claim about the
+   artifact rather than about a run. Procedure, not code.
+5. **S12-23, S12-24, S12-25, S12-20** — proof-and-wording closures: hooks, the credential-scan
+   result, documentation stronger than the source, and `BharatCode.txt`'s submission status.
+
+*One correction while re-ranking:* item 5 of the original order names **S12-26**, and this
+register has no such entry — it appears nowhere but that line. It is not a gap that was found
+and left unwritten; the ranking named an item that does not exist, and no work can be scheduled
+against it. If a real gap is behind that number, it has to be written up from source first.
 
 ### Still to read before an entry can be called closed
 

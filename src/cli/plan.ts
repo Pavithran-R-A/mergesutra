@@ -1,6 +1,7 @@
 import { PRODUCT_NAME } from '../version.js';
 import type { ImplementationPlan } from '../plan/schema.js';
 import { exitForOutcome } from './exit-codes.js';
+import { terminalSafeDocument, terminalSafeJson } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor, type Renderer } from './render.js';
 import { runPlanStage, type PlanDeps, type PlanResult } from '../plan/plan.js';
 
@@ -35,7 +36,7 @@ export async function planAction(
   const result = await runPlanStage({ runId }, deps);
 
   if (options.json) {
-    write(JSON.stringify({ recordFile: result.recordFile, record: result.record }, null, 2));
+    write(terminalSafeJson({ recordFile: result.recordFile, record: result.record }));
     return exitForOutcome(result.record.outcome);
   }
 
@@ -45,7 +46,10 @@ export async function planAction(
   return exitForOutcome(result.record.outcome);
 }
 
-export function formatPlan(result: PlanResult, renderer: Renderer): string {
+export function formatPlan(input: PlanResult, renderer: Renderer): string {
+  // Display copy: a value this command only read may not carry a byte that steers
+  // the terminal it is printed on. See src/security/terminal-safety.ts.
+  const result = terminalSafeDocument(input);
   const { record, plan, checks, sourceRunId, recordFile, saveError } = result;
   const lines: string[] = [];
 

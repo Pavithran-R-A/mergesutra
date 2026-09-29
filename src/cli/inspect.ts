@@ -1,3 +1,4 @@
+import { terminalSafeDocument, terminalSafeJson } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor, type Renderer } from './render.js';
 import { exitForOutcome } from './exit-codes.js';
 import { runInspect, type InspectDeps, type InspectResult } from '../discovery/inspect.js';
@@ -31,7 +32,7 @@ export async function inspectAction(
   const result = await runInspect({ repoPath: repoPath ?? '.' }, deps);
 
   if (options.json) {
-    write(JSON.stringify({ recordFile: result.recordFile, record: result.record }, null, 2));
+    write(terminalSafeJson({ recordFile: result.recordFile, record: result.record }));
     return exitForOutcome(result.record.outcome);
   }
 
@@ -41,7 +42,10 @@ export async function inspectAction(
   return exitForOutcome(result.record.outcome);
 }
 
-export function formatInspect(result: InspectResult, renderer: Renderer): string {
+export function formatInspect(input: InspectResult, renderer: Renderer): string {
+  // Display copy: a value this command only read may not carry a byte that steers
+  // the terminal it is printed on. See src/security/terminal-safety.ts.
+  const result = terminalSafeDocument(input);
   const { record, contract, recordFile, saveError, checks, root } = result;
   const lines: string[] = [];
 

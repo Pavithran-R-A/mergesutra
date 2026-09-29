@@ -2,6 +2,11 @@ import { PRODUCT_NAME } from '../version.js';
 import type { PublicationCandidate } from '../pr/candidate.js';
 import { runPrStage, type PrStageDeps, type PrStageResult } from '../pr/stage.js';
 import { exitForOutcome } from './exit-codes.js';
+import {
+  terminalSafeDocument,
+  terminalSafeJson,
+  terminalSafeText,
+} from '../security/terminal-safety.js';
 import { createRenderer, resolveColor, type Renderer } from './render.js';
 
 /**
@@ -60,26 +65,22 @@ export async function prAction(
 
   if (options.json) {
     write(
-      JSON.stringify(
-        {
-          runId: result.runId,
-          outcome: result.outcome,
-          readiness: result.readiness.readiness,
-          digest: result.digest,
-          // Two different questions, answered separately: did a human agree, and did
-          // anything happen. In this build the second is always false, and a consumer
-          // that reads only the first would be reading half the news.
-          approved: result.decision?.allowed === true,
-          published: result.published,
-          candidate: result.candidate,
-          decision: result.decision,
-          recordFile: result.recordFile,
-          checks: result.checks,
-          record: result.record,
-        },
-        null,
-        2,
-      ),
+      terminalSafeJson({
+        runId: result.runId,
+        outcome: result.outcome,
+        readiness: result.readiness.readiness,
+        digest: result.digest,
+        // Two different questions, answered separately: did a human agree, and did
+        // anything happen. In this build the second is always false, and a consumer
+        // that reads only the first would be reading half the news.
+        approved: result.decision?.allowed === true,
+        published: result.published,
+        candidate: result.candidate,
+        decision: result.decision,
+        recordFile: result.recordFile,
+        checks: result.checks,
+        record: result.record,
+      }),
     );
     return exitForOutcome(result.outcome);
   }
@@ -90,7 +91,12 @@ export async function prAction(
   return exitForOutcome(result.outcome);
 }
 
-export function formatPr(result: PrStageResult, renderer: Renderer): string {
+export function formatPr(input: PrStageResult, renderer: Renderer): string {
+  // Every row on this page is a single-line slot, so the document view escapes the line
+  // break a value may carry. The page preview below is the deliberate exception: it is
+  // the one block whose breaks are this screen's own structure, and it is escaped line by
+  // line from the candidate itself, which is never modified.
+  const result = terminalSafeDocument(input);
   const lines: string[] = [];
 
   // The readiness rows carry labels longer than any other screen's — `Readiness ·
@@ -110,9 +116,9 @@ export function formatPr(result: PrStageResult, renderer: Renderer): string {
   lines.push(label('Page', pageText(result.candidate)));
   lines.push('');
 
-  if (result.candidate) {
+  if (input.candidate) {
     lines.push(renderer.heading('The page a reviewer would read'));
-    lines.push(...bodyLines(result.candidate));
+    lines.push(...bodyLines(input.candidate));
     lines.push('');
   } else {
     lines.push(renderer.heading('There is no page to read yet'));
@@ -177,9 +183,17 @@ function pageText(candidate: PublicationCandidate | null): string {
  * The body as it would be sent, indented rather than re-summarised. A screen that
  * paraphrased the page it was asking to be approved would be approving its own
  * wording instead of the record's.
+ *
+ * Encoded line by line, in text mode: this is the one place on the page where a line
+ * break is the document's own and has to stay a break. The candidate it reads is the
+ * candidate the digest was computed over, untouched.
  */
 function bodyLines(candidate: PublicationCandidate): string[] {
-  return [`  ${candidate.prTitle}`, '', ...candidate.prBody.split('\n').map((l) => `  ${l}`)];
+  return [
+    `  ${terminalSafeText(candidate.prTitle)}`,
+    '',
+    ...candidate.prBody.split('\n').map((line) => `  ${terminalSafeText(line)}`),
+  ];
 }
 
 function label(name: string, value: string): string {

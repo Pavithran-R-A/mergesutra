@@ -4,7 +4,14 @@
  * Deliberate, clean, and honest: real status words, no fake progress bars, no
  * emoji spam. Colour is disabled automatically when `NO_COLOR` is set or when
  * `--no-color` / a non-TTY stream is detected.
+ *
+ * Colour is also the *last* thing added to a string, which is why the escaping lives
+ * here rather than in each command: `NO_COLOR` decides how a line looks and must never
+ * decide whether a value may take over the terminal. See
+ * `src/security/terminal-safety.ts`.
  */
+
+import { terminalSafeText } from '../security/terminal-safety.js';
 
 export type Status =
   'PASS' | 'FAIL' | 'WARN' | 'SKIP' | 'NOT_AVAILABLE' | 'INFO' | 'READY' | 'WAITING';
@@ -38,8 +45,12 @@ export function resolveColor(noColorFlag: boolean | undefined, env: NodeJS.Proce
 
 export function createRenderer(options: RenderOptions) {
   const { color } = options;
+  // Every string that reaches a style wrapper is made inert *first*, so the only escape
+  // sequences on the line are the ones written below. Escaping afterwards would destroy
+  // this renderer's own colour, and escaping nothing here would let a value that carries
+  // a cursor movement sit inside a trusted row.
   const wrap = (code: string, text: string): string =>
-    color ? `\x1b[${code}m${text}\x1b[0m` : text;
+    color ? `\x1b[${code}m${terminalSafeText(text)}\x1b[0m` : terminalSafeText(text);
 
   return {
     color,
@@ -58,7 +69,7 @@ export function createRenderer(options: RenderOptions) {
     /** One status row: `<badge> <name> <detail?>` */
     row(status: Status, name: string, detail?: string): string {
       const suffix = detail ? `  ${this.dim(detail)}` : '';
-      return `${this.status(status)} ${name}${suffix}`;
+      return `${this.status(status)} ${terminalSafeText(name)}${suffix}`;
     },
   };
 }

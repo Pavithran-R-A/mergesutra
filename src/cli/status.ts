@@ -3,6 +3,7 @@ import { redactDocument } from '../security/redaction.js';
 import { runStatusStage, type StatusStageDeps } from '../lifecycle/status.js';
 import type { StatusSnapshot } from '../lifecycle/snapshot.js';
 import { EXIT } from './exit-codes.js';
+import { terminalSafeDocument, terminalSafeJson } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor, type Renderer } from './render.js';
 
 /**
@@ -19,9 +20,10 @@ import { createRenderer, resolveColor, type Renderer } from './render.js';
  * **Recorded and observed stay in separate blocks, in that order.** A run whose
  * gates passed and whose files then moved has to be shown as `VERIFICATION_PASS`
  * *and* `STALE`, side by side, because either half alone is a different lie. The
- * graph rows are the arbiter of the second half, and they are printed verbatim from
- * the same document `--json` emits, so a reader can check any word on this screen
- * against the machine-readable one.
+ * graph rows are the arbiter of the second half, and they are the same strings
+ * `--json` emits — both are the redacted document with its control bytes made
+ * visible, so a reader can check any word on this screen against the
+ * machine-readable one and get the same answer once the spelling is decoded.
  *
  * **Nothing on this page may read like a verdict.** So there is no "healthy", no
  * "no defects", no "PR ready" and no "published". A review with no findings is
@@ -69,7 +71,7 @@ export async function statusAction(
   const snapshot = redactDocument(result.snapshot);
 
   if (options.json) {
-    write(JSON.stringify(snapshot, null, 2));
+    write(terminalSafeJson(snapshot));
     return EXIT.OK;
   }
 
@@ -87,7 +89,10 @@ const STATE_WORDS: Readonly<Record<string, string>> = {
   ABSENT: 'NOT RECORDED',
 };
 
-export function formatStatus(snapshot: StatusSnapshot, renderer: Renderer): string {
+export function formatStatus(input: StatusSnapshot, renderer: Renderer): string {
+  // Display copy: a value this command only read may not carry a byte that steers
+  // the terminal it is printed on. See src/security/terminal-safety.ts.
+  const snapshot = terminalSafeDocument(input);
   const lines: string[] = [];
   // Sized to the longest truthful label on this page (`Escalated to a human`), because
   // a label that runs into its value is unreadable on the one screen whose entire job

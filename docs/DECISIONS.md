@@ -1944,3 +1944,63 @@ security pass, not aspirations.
   `.docker/config.json`, `application_default_credentials.json` and `.config/gh/hosts.yml`, the last
   one an acknowledged asymmetry against the `.config`+`gcloud` pair this policy does match, because
   nothing in this repository evidenced a project committing it.
+
+## ADR-068 — The terminal is an output device, so untrusted text is disarmed before styling and never after
+
+- **Decision:** `src/security/terminal-safety.ts` is the only place that knows which code points
+  a terminal obeys (`:51-59`: C0, DEL, all of C1 including 8-bit CSI and OSC, the bidi controls,
+  U+2028/9), and it offers two modes rather than one: `terminalSafeSingleLine()` (`:87`) for a
+  value inside one row, which also escapes LF, CR and TAB, and `terminalSafeText()` (`:95`) for a
+  block the screen breaks up itself, which keeps those three as structure. A struck code point is
+  written as the six ASCII characters that name it (`\u001b`), which is JSON's own spelling, so
+  the bytes decode back to what the stage filed. `terminalSafeDocument()` (`:126`) produces a
+  *display copy* of a whole document in single-line mode, and the thirteen command screens render
+  rows from that copy instead of from the document itself — the escaping therefore happens before
+  any row, column or label is composed, not on the finished page. `createRenderer` escapes the
+  value and then adds its own colour (`src/cli/render.ts:53`), the error path redacts a secret and
+  then disarms the terminal in that order (`src/cli/program.ts:513`), and the eleven `--json`
+  sinks serialize through `terminalSafeJson()` so the output stays parseable. One consequence was
+  not anticipated: `mergesutra report` now renders the evidence pack **twice**
+  (`src/cli/report.ts:59-67`) — once from the record, written to disk and digested, and once from
+  the display copy, printed.
+- **Reason:** a terminal does not only display bytes, it obeys some of them, and the authority of
+  a CLI page lives in its left margin: the rows that say `PASS`, `HUMAN APPROVAL RECORDED`,
+  `CONTRIBUTION_READY` are recognised by being at column 0 in the renderer's own style. A stored
+  newline in a limitation therefore does more damage than a stored ESC, because it buys a second
+  row exactly where a verdict is read as a verdict. That is why escaping belongs before layout:
+  once the payload's LF has become a row boundary, the screen has already told the reader that the
+  text under it is MergeSutra's. The double render of the pack is the same argument one layer
+  down. `buildEvidencePack` prints a caveat as `- ${note}` with no folding step, so the first
+  hostile-run hero failed there with a left-margin row reading `VERIFICATION PASS.ts` — the
+  payload's own filename, cut at its own newline. Rewriting the pack itself was refused twice
+  over: §23 of the item forbids editing stored evidence for a display reason, and the pack's
+  `identity` is a digest over those bytes, which Stage 10's `publicationDigest` binds to, so a
+  cosmetic fix would have silently invalidated an approval a human had already typed a digest for.
+  Rendering twice keeps both properties, at the cost of one extra render on a command a person
+  runs occasionally.
+- **Alternatives:** strip every escape from the finished stdout (this is the tempting one, and
+  mutation F in the S12-11 drive did it — five cases went red, all of them §19/§20 colour cases,
+  because the renderer lost its own styling along with the attacker's); censor the vocabulary
+  (refusing to print `PASS` in a quoted value both hides evidence and breaks the JSON round-trip);
+  fold newlines in the pack writer as a special case for limitations (the same defect sits behind
+  every `- ${...}` in `markdown()`, and one patch per field is how the build acquired thirteen
+  private `.replace(/[\r\n]+/g, ' ')` helpers in the first place); sanitise at write time so the
+  files on disk are already inert (forbidden above, and it makes `report.md` disagree with the
+  `outputSha256` over the bytes it describes); keep a per-screen allowlist of "safe" fields
+  (thirteen screens, four new ones since Stage 8, and the memory of which field was hostile last
+  release is not a defence).
+- **Consequence:** `tests/security/terminal-safety.test.ts` (28 cases) walks the control matrix
+  per sink and pins the two properties that are easy to lose while "fixing" this — ordinary
+  repository text (Devanagari, emoji, box drawing) survives byte for byte, and the renderer keeps
+  its own colour with the payload disarmed. `tests/security/terminal-hero.test.ts` (15 cases)
+  builds one run carrying a payload at each of the five doors §26 names, prints it through nine
+  sinks, and compares against the same run built benign, so a page cannot pass by being empty: the
+  claim measured is that the *same* left-margin rows appear either way. Seven mutations (A–G) went
+  4, 2, 17, 9, 12, 5 and 3 cases red; all four touched files were restored byte-for-byte and
+  `cmp`-verified. What this does not claim is in the register entry and in `SECURITY_MODEL.md`
+  §2.8: stored bytes keep their controls, so `cat` of a pack is outside this boundary (measured
+  asymmetry — JSON escapes C0 but writes C1 and bidi raw); model-facing prompt material is §2.7's
+  guard, not this one; an inert value can still be a misleading sentence, and that is a reader's
+  job; and two upstream refusals do a different kind of work — `path-safety.ts:111` refuses a path
+  with a control in its name, and `lock-state.ts:105` prints an unprintable lock host as `a name
+  this build will not print` instead of escaping it.

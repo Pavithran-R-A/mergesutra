@@ -23,6 +23,7 @@ import type { VerifyStageDeps } from '../verify/stage.js';
 import type { ReviewStageDeps } from '../review/stage.js';
 import type { RepairStageDeps } from '../repair/stage.js';
 import type { PrStageDeps } from '../pr/stage.js';
+import { terminalSafeText } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor } from './render.js';
 import { EXIT } from './exit-codes.js';
 import { LIMIT_CAPS } from '../implement/limits.js';
@@ -474,9 +475,12 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       });
   }
 
+  // Commander echoes argv back in its usage and unknown-option messages, and argv is
+  // somebody else's bytes as much as the record is. Its own text carries no colour here,
+  // so the whole string can be encoded on the way out.
   program.configureOutput({
-    writeOut: (str) => write(str.replace(/\n$/, '')),
-    writeErr: (str) => writeErr(str.replace(/\n$/, '')),
+    writeOut: (str) => write(terminalSafeText(str.replace(/\n$/, ''))),
+    writeErr: (str) => writeErr(terminalSafeText(str.replace(/\n$/, ''))),
   });
 
   return program;
@@ -503,14 +507,16 @@ export async function run(
       // Help / version / usage exits — commander already handled output.
       return error.exitCode ?? exitCode;
     }
+    // Two masks, in a fixed order: the redactor decides whether a secret may be visible,
+    // then the terminal encoder decides whether a byte may steer the display. Neither one
+    // edits the error object, which a caller can still catch with everything it was given.
+    const printable = (text: string): string => terminalSafeText(defaultRedactor.text(text));
     if (isAppError(error)) {
-      writeErr(`error: ${defaultRedactor.text(error.message)}`);
-      if (error.remediation) writeErr(`  ${defaultRedactor.text(error.remediation)}`);
+      writeErr(`error: ${printable(error.message)}`);
+      if (error.remediation) writeErr(`  ${printable(error.remediation)}`);
       return error.kind === 'config' ? EXIT.CONFIG : EXIT.ERROR;
     }
-    writeErr(
-      `error: ${defaultRedactor.text(error instanceof Error ? error.message : String(error))}`,
-    );
+    writeErr(`error: ${printable(error instanceof Error ? error.message : String(error))}`);
     return 1;
   }
 }

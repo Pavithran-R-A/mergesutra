@@ -44,7 +44,7 @@ async function cwdOf(): Promise<string> {
 }
 
 describe('mergesutra report', () => {
-  it('prints the pack and writes the same pack it printed', async () => {
+  it('prints a pack and writes a pack beside it', async () => {
     const cwd = await cwdOf();
     const record = await verifiedRecord(['node', '--test']);
     const store = memoryRunStore();

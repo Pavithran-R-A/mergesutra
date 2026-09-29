@@ -12,6 +12,7 @@ import { createFileRunStore, defaultRunStoreRoot, type RunStore } from '../state
 import { newestRunId } from '../state/run-selection.js';
 import { defaultRedactor } from '../security/redaction.js';
 import { exitForOutcome } from './exit-codes.js';
+import { terminalSafeDocument, terminalSafeJson } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor, type Renderer } from './render.js';
 import { PRODUCT_NAME } from '../version.js';
 
@@ -263,7 +264,7 @@ export async function contractAction(
   const result = await runContractStage({ runId, injectedCriteria: humanCriteria(options) }, deps);
 
   if (options.json) {
-    write(JSON.stringify({ recordFile: result.recordFile, record: result.record }, null, 2));
+    write(terminalSafeJson({ recordFile: result.recordFile, record: result.record }));
     return exitForOutcome(result.record.outcome);
   }
 
@@ -273,7 +274,10 @@ export async function contractAction(
   return exitForOutcome(result.record.outcome);
 }
 
-export function formatContract(result: ContractResult, renderer: Renderer): string {
+export function formatContract(input: ContractResult, renderer: Renderer): string {
+  // Display copy: a value this command only read may not carry a byte that steers
+  // the terminal it is printed on. See src/security/terminal-safety.ts.
+  const result = terminalSafeDocument(input);
   const {
     record,
     acceptanceContract: contract,

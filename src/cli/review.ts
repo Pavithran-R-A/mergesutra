@@ -4,6 +4,7 @@ import { MAX_REPAIR_CYCLES_CEILING, MAX_REVIEW_CYCLES_CEILING } from '../repair/
 import type { ReviewFinding } from '../review/schema.js';
 import { runReviewStage, type ReviewStageDeps, type ReviewStageResult } from '../review/stage.js';
 import { exitForOutcome } from './exit-codes.js';
+import { terminalSafeDocument, terminalSafeJson } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor, type Renderer } from './render.js';
 
 /**
@@ -76,7 +77,7 @@ export async function reviewAction(
   );
 
   if (options.json) {
-    write(JSON.stringify({ recordFile: result.recordFile, record: result.record }, null, 2));
+    write(terminalSafeJson({ recordFile: result.recordFile, record: result.record }));
     return exitForOutcome(result.record.outcome);
   }
 
@@ -86,7 +87,10 @@ export async function reviewAction(
   return exitForOutcome(result.record.outcome);
 }
 
-export function formatReview(result: ReviewStageResult, renderer: Renderer): string {
+export function formatReview(input: ReviewStageResult, renderer: Renderer): string {
+  // Display copy: a value this command only read may not carry a byte that steers
+  // the terminal it is printed on. See src/security/terminal-safety.ts.
+  const result = terminalSafeDocument(input);
   const { record, attempt, review, repairPlan, workspace, recordFile, saveError } = result;
   const lines: string[] = [];
 

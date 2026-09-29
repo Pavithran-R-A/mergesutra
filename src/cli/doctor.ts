@@ -1,6 +1,7 @@
 import { loadBharatCodeConfig, summarizeConfig } from '../config/load-config.js';
 import type { BharatCodeClient } from '../bharatcode/client.js';
 import type { RenderOptions, Renderer, Status } from './render.js';
+import { terminalSafeDocument } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor } from './render.js';
 import { defaultRunner, safeRun, type Runner, type RunResult } from '../core/runner.js';
 
@@ -132,7 +133,10 @@ function firstLine(text: string): string {
   return text.split(/\r?\n/)[0]?.trim() ?? '';
 }
 
-export function formatDoctor(checks: readonly DoctorCheck[], renderer: Renderer): string {
+export function formatDoctor(input: readonly DoctorCheck[], renderer: Renderer): string {
+  // Display copy: a value this command only read may not carry a byte that steers
+  // the terminal it is printed on. See src/security/terminal-safety.ts.
+  const checks = terminalSafeDocument(input);
   const lines: string[] = [renderer.heading('MergeSutra doctor'), ''];
   const width = Math.max(...checks.map((c) => c.name.length));
   for (const check of checks) {

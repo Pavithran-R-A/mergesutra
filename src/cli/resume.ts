@@ -14,6 +14,7 @@ import { runVerifyStage, type VerifyStageDeps } from '../verify/stage.js';
 import { PRODUCT_NAME } from '../version.js';
 import { exitForOutcome, EXIT } from './exit-codes.js';
 import { runContractStage, type ContractDeps } from './contract.js';
+import { terminalSafeDocument, terminalSafeJson } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor, type Renderer } from './render.js';
 
 /**
@@ -105,7 +106,7 @@ export async function resumeAction(
   const shown = redactDocument(result);
 
   if (options.json) {
-    write(JSON.stringify(jsonDocument(shown), null, 2));
+    write(terminalSafeJson(jsonDocument(shown)));
     return exitFor(result);
   }
 
@@ -274,9 +275,12 @@ function costRows(plan: ResumePlan, renderer: Renderer, width: number): string[]
 }
 
 export function formatResume(
-  result: Awaited<ReturnType<typeof runResumeStage>>,
+  input: Awaited<ReturnType<typeof runResumeStage>>,
   renderer: Renderer,
 ): string {
+  // Display copy: a value this command only read may not carry a byte that steers
+  // the terminal it is printed on. See src/security/terminal-safety.ts.
+  const result = terminalSafeDocument(input);
   const lines: string[] = [];
   const plan = result.plan;
   const width = 22;

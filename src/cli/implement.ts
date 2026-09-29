@@ -8,6 +8,7 @@ import {
 import { LIMIT_CAPS, type LoopLimits } from '../implement/limits.js';
 import type { ActionOutcome } from '../implement/state.js';
 import { exitForOutcome } from './exit-codes.js';
+import { terminalSafeDocument, terminalSafeJson } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor, type Renderer, type Status } from './render.js';
 
 /**
@@ -59,7 +60,7 @@ export async function implementAction(
   );
 
   if (options.json) {
-    write(JSON.stringify({ recordFile: result.recordFile, record: result.record }, null, 2));
+    write(terminalSafeJson({ recordFile: result.recordFile, record: result.record }));
     return exitForOutcome(result.record.outcome);
   }
 
@@ -97,7 +98,10 @@ function set(key: 'maxSteps' | 'maxWrites' | 'maxCommands', raw: string | undefi
   Object.assign(into, { [key]: value });
 }
 
-export function formatImplementation(result: ImplementStageResult, renderer: Renderer): string {
+export function formatImplementation(input: ImplementStageResult, renderer: Renderer): string {
+  // Display copy: a value this command only read may not carry a byte that steers
+  // the terminal it is printed on. See src/security/terminal-safety.ts.
+  const result = terminalSafeDocument(input);
   const { implementation: impl, record, recordFile, saveError } = result;
   const lines: string[] = [];
 

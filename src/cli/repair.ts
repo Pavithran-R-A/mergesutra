@@ -11,6 +11,7 @@ import { MAX_REPAIR_CYCLES_CEILING, MAX_REVIEW_CYCLES_CEILING } from '../repair/
 import type { RepairExecution } from '../repair/execution.js';
 import { runRepairStage, type RepairStageDeps, type RepairStageResult } from '../repair/stage.js';
 import { exitForOutcome } from './exit-codes.js';
+import { terminalSafeDocument, terminalSafeJson } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor, type Renderer } from './render.js';
 
 /**
@@ -97,19 +98,15 @@ export async function repairAction(
 
   if (options.json) {
     write(
-      JSON.stringify(
-        {
-          runId: result.runId,
-          executed: result.executed,
-          decision: result.decision,
-          recordFile: result.recordFile,
-          packDir: result.packDir,
-          packError: result.packError,
-          record: result.record,
-        },
-        null,
-        2,
-      ),
+      terminalSafeJson({
+        runId: result.runId,
+        executed: result.executed,
+        decision: result.decision,
+        recordFile: result.recordFile,
+        packDir: result.packDir,
+        packError: result.packError,
+        record: result.record,
+      }),
     );
     return exitForOutcome(result.record.outcome);
   }
@@ -120,7 +117,10 @@ export async function repairAction(
   return exitForOutcome(result.record.outcome);
 }
 
-export function formatRepair(result: RepairStageResult, renderer: Renderer): string {
+export function formatRepair(input: RepairStageResult, renderer: Renderer): string {
+  // Display copy: a value this command only read may not carry a byte that steers
+  // the terminal it is printed on. See src/security/terminal-safety.ts.
+  const result = terminalSafeDocument(input);
   const { record, decision, execution, round, recordFile, packDir, packError } = result;
   const lines: string[] = [];
 

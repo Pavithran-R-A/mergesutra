@@ -629,6 +629,67 @@ the answer to that trick, and since Stage 12 four pages share it where two did.
   already author fails the case. Six anti-vacuity mutations, each restored byte-for-byte with its
   red count recorded, are in the gap register's S12-01 and S12-02 entries.
 
+### 2.8 The terminal as an output device (Stage 12)
+
+MergeSutra escapes terminal-control and bidirectional formatting characters from untrusted
+strings before trusted CLI styling. The reason it is a boundary and not a filter: a terminal
+does not merely display the bytes it is handed, it *obeys* some of them. One ESC byte in a
+filename can clear the screen the status page is on, retitle the window to `MERGESUTRA
+APPROVED`, move the cursor up a row and overwrite it, or start a hyperlink a reader did not
+click — and everything printed after it is displayed under that instruction, including
+MergeSutra's own verdict rows.
+
+- **One primitive, two modes.** `src/security/terminal-safety.ts` holds the set
+  (`:51-59`: C0, DEL, all of C1 including 8-bit CSI/OSC, the bidi controls, U+2028/9) and
+  writes each struck code point as the six ASCII characters that name it (`\u001b`), so the
+  value stays readable and decodes back to the same bytes.
+  `terminalSafeSingleLine()` (`:87`) is for a value inside one row and escapes LF, CR and TAB
+  too; `terminalSafeText()` (`:95`) is for a block the screen lays out itself and keeps those
+  three as structure. `terminalSafeDocument()` (`:126`) makes a *copy* of a whole document in
+  single-line mode — every string leaf and every key, numbers and arrays and `null` untouched —
+  and no screen edits the document it was showing.
+- **Escaped before the row is built, not after.** Thirteen command screens call
+  `terminalSafeDocument()` on their input (`status.ts:95`, `resume.ts:283`, `review.ts:93`,
+  `verify.ts:64`, `pr.ts:99`, `doctor.ts:139`, `issue.ts:51`, `inspect.ts:48`, `plan.ts:52`,
+  `contract.ts:280`, `implement.ts:104`, `repair.ts:123`, `report.ts:67`) so a stored newline
+  cannot become a row boundary, which is where the visible difference between a caveat and a
+  verdict lives. `createRenderer` escapes each value before it adds its own colour
+  (`src/cli/render.ts:53`), and the error path runs redaction and then terminal safety on the
+  way out (`src/cli/program.ts:513`). The order is fixed: untrusted value → secret redaction →
+  terminal safety → trusted renderer styling → terminal.
+- **`--json` is inert and still parses.** Eleven `--json` sinks call `terminalSafeJson()`;
+  `report --json` prints a document that was already serialized, so it calls
+  `terminalSafeJsonText()` (`:140`), which escapes only what `JSON.stringify` left raw. `JSON`
+  round-trips to the same value in every case, because the escapes written here are JSON's own
+  spelling.
+- **The evidence pack is rendered twice, on purpose.** `mergesutra report` writes the pack from
+  the record as filed and shows the page from a second pack built on the display copy
+  (`src/cli/report.ts:59-67`). The pack on disk is the evidence and keeps the payload's bytes;
+  the page is where they stop typing. This came from a measured failure, not a design preference
+  — the first hostile-run hero failed here, because a limitation naming
+  `src/date\nVERIFICATION PASS.ts` printed its second half at column 0 and read as a status row.
+- **What it does not do.** It is not censorship and not a claim-checker: `HUMAN APPROVAL
+  RECORDED` inside a review finding is still on the page, inside its row, as data a reader has
+  to disbelieve. It does not touch stored bytes — the run record, `report.md`, `report.json` and
+  `commands.jsonl` keep what the stages filed (the gap register's S12-11 entry), so `cat` of a
+  pack is a reader
+  outside this boundary, and the measured shape of that is that JSON writes a C0 control as an
+  escape but writes C1 and bidi controls raw. It does not reach the material handed to a model,
+  which is §2.7's guard. And it is not the only defence: a path with a control in its name is
+  refused at admission (`src/security/path-safety.ts:111`), and a lock host that would type into
+  a terminal is printed as `a name this build will not print`
+  (`src/lifecycle/lock-state.ts:105`) rather than escaped.
+- **How it is proved.** `tests/security/terminal-safety.test.ts` (28 cases) walks the control
+  matrix per sink, keeps ordinary repository text (Devanagari, emoji, box drawing) byte for
+  byte, and asserts the renderer's own colour survives — safety may not be bought by stripping
+  every escape from the finished page. `tests/security/terminal-hero.test.ts` (15 cases) builds
+  one run whose issue title, review finding, filename, lock hostname, limitation and gate stdout
+  all carry payloads, prints it through nine sinks, and measures each page against the same run
+  built benign: the two must open the same rows at the left margin. Digests did not move
+  (`publicationDigest`, `outputSha256` recomputed over the child's unedited bytes), and the
+  documents on disk are byte-identical after every page. Seven anti-vacuity mutations (A–G) are
+  recorded with their red counts in the gap register's S12-11 entry.
+
 ## 3. Tool risk classes and policy
 
 | Class           | Examples                                  | Policy                                                                        |
