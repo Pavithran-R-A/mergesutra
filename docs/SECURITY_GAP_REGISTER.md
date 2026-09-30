@@ -1833,7 +1833,7 @@ safe-contents test, §42/§59).
 | 26 | S12-03 (policy-before-consent order is already correct at `consent.ts:137-144`; the gap is the classifier) |
 | 27, 28, 29, 30, 31 | Not yet register-ready — gate discovery (`src/verify/gates.ts:208,282`) is the CI/package-manifest entry point; hooks are environment facts (`core.hooksPath` is external on this machine, §29 must state the measured fact) |
 | 32, 33, 34 | S12-16; S12-16 plus record-parse path; §34 already fails closed — `src/state/run-record.ts:676-682` refuses an unknown future `schemaVersion`, migrations `:585,604,621` only add honest absence, and `run-store.ts:60-75` never rewrites on read → **TEST-only** |
-| 35 | PR draft sanitization — `src/pr/draft.ts:129` uses `redactText`; the control-character route is closed by S12-11 (the page is escaped at display, and `draftOf`'s `quote()` folds a foreign line break before it can start a section), while the markdown-*structure* route on the same page is S12-21 and stays open |
+| 35 | PR draft sanitization — `src/pr/draft.ts` uses `redactText`; the control-character route is closed by S12-11 (the page is escaped at display, and the value fold removes a foreign line break before it can start a section), and the markdown-*structure* route on the same page was closed by S12-21, which renders every outside value inert at the sink |
 | 36, 37, 38 | S12-15; catalog TOCTOU at `client.ts:241-246` + config `:74`; key is header-only `client.ts:161` with `Redactor([apiKey])` `:106` → **TEST-only** unless a sink leaks |
 | 39, 40, 41 | S12-12 |
 | 42, 43, 44, 45 | S12-20; credential scan of tracked files *and* reachable history; `commander`/`zod` runtime-only (ADR-009 re-check); LICENSE/metadata coherence |
@@ -1846,30 +1846,100 @@ safe-contents test, §42/§59).
 draft body — the one artifact a human reads as the whole story — can carry structure its
 author did not intend.
 
-**Source.** `src/pr/draft.ts:128-135` `quote()` redacts, scrubs Windows/POSIX paths, folds
-whitespace and escapes a leading `#`; it does not escape `[`, `]`, `*`, or a backtick. Raw
-into structure: `issue.url` on its own line (`:243`), `file.path` inside an inline-code span
-(`:285`) — the path comes from `git diff --name-status -z` / `ls-files --others`
-(`src/verify/patch.ts:191-226`), so a filename containing a backtick closes the span — while
-`gate.argv` in a code span (`:317`) is safe for that specific reason
-(`src/security/command-safety.ts:13` rejects a backtick in a token).
+**Historical description (the pre-fix diagnosis, kept as written at intake).**
+`src/pr/draft.ts` `quote()` redacted, scrubbed Windows/POSIX paths, folded whitespace and
+escaped a leading `#`; it did not escape `[`, `]`, `*`, or a backtick. The entry called the
+raw-into-structure routes `issue.url` on its own line and `file.path` inside an inline-code
+span, noted `gate.argv` as safe for the specific reason that
+`src/security/command-safety.ts:13` rejects a backtick in a token, and asked for "proof that a
+hostile filename cannot alter the draft's markdown structure". Reconnaissance corrected two
+parts of that diagnosis before any code was written, and the correction is part of the record:
+the filename-plus-newline exploit as described does not work, and the list of printed fields
+that bypassed `quote()` entirely was longer than the entry named.
 
-**Protection today.** Redaction, length bounds (`fit` `:433`, `cap` `:30 000`), the
-overclaim screen (`:107-117,138-144`), and a digest-bound candidate/approval
-(`src/pr/approval.ts:44-96`).
+**What was measured, distinguished by what actually happened.**
 
-**Missing.** Proof that a hostile filename cannot alter the draft's markdown structure, and
-the §35 expansion of what sanitization each printed field gets.
+1. **DEMONSTRATED NON-EXPLOIT — a newline-bearing filename with `## ` in it.** `quote()` folded
+   `\s+` to a single space before composition, so a heading marker arriving in a quoted value
+   never started a line and never became a section. The pre-fix entry asserted this route as an
+   exploit; reproduced, it does not produce a heading. It is recorded here as a non-exploit with
+   the mechanism that already defeated it, not as a fix.
+2. **REAL FINDING (pre-fix) — a backtick-bearing reachable filename closed its own inline-code
+   span and introduced active inline Markdown.** `file.path` comes from
+   `git diff --name-status -z` / `ls-files --others` (`src/verify/patch.ts:191-226`), so a name
+   may contain a backtick; the page fenced it with a single backtick on each side, and the
+   value's own backtick ended the span early, letting the rest of the name draw a link.
+   Witnessed RED as `x\`[approved by the maintainer](https://evil.example/claim)\`y.md` emitting
+   an active link (`tests/pr/draft-sanitization.test.ts` group A).
+3. **REAL FINDING (pre-fix) — issue, contract and limitation prose printed bare could draw the
+   page.** `![done](https://…)` became an image, `[review](https://…)` a link, `*all green*` and
+   `_ship it_` emphasis, `<img …>` inline HTML. Group B.
+4. **REAL FINDING (pre-fix) — untrusted body prose could emit a GitHub-active closing keyword.**
+   `Closes #999`, `FIXES: #999`, `resolves owner/repo#999` and `Closes
+   https://github.com/other/thing/issues/7` were printed verbatim, and GitHub obeys each of them
+   on merge. Group C. Widened during this pass: the *headline* screen only matched
+   `(fixes|closes|resolves) #N`, so a title with a colon or a full issue URL passed while GitHub
+   read it — the screen now covers case, colon, `owner/repo#N` and the URL form, and refuses such
+   a title whole instead of re-wording it.
+5. **DEFENCE-IN-DEPTH CASE — fields a person can only reach by editing a persisted record by
+   hand.** `issue.url`, `issue.canonical` and `repository.fullName` were pushed into the page
+   without passing any value route, so a hand-edited record could add headings and raw HTML.
+   Measured by rendering the pre-fix `src/pr/draft.ts` (taken from `HEAD`, not from memory) with
+   the same fixtures the new tests use: `target.fullName = 'projectbharat/datekit\n## Ship it'`
+   produced 10 headings where the stage authors 8; a cross-repository
+   `issue.canonical = 'owner/repo#123\n## Approve now'` produced 9; an `issue.url` carrying a
+   second line produced 9 plus an unescaped `<img src=x onerror=alert(1)>`; and one fixture with
+   every field hostile at once produced 12 headings and the raw tag. Groups D and E. One more
+   route of the same family was found while implementing: the run-metadata HTML comment closed
+   early on a `-->` inside a branch name, letting the remainder of a forged comment out into the
+   page; the JSON is now encoded so a value cannot close the comment it is written in.
 
-**Exploit.** A workspace file named with a backtick plus `## ` text; render the draft; assert
-today the emitted body contains a heading the stage did not author.
+**Protection now.** `src/pr/draft.ts` renders every outside value through one of three routes
+chosen by where the value lands — `quote()` for the headline, `prose()` for body prose (mask →
+path scrubs → fold → Markdown-inert representation, with keyword-anchored neutralisation of
+closing references), `span()` for byte-exact values (a CommonMark fence one backtick longer than
+the longest run inside the value) — and `pageUrl()` for the one line-initial value, which stays
+bare only while it matches the exact shape the intake writes. The transform is private to
+`src/pr/draft.ts`: no new security module, no new dependency, no generic CommonMark framework
+(owner decision D-5). Run schemas were not broadened (owner decision D-2) — the defect was
+closed at the sink so a hand-edited record is still rendered inert. The contract is documented
+in `docs/SECURITY_MODEL.md` §2.5 as what it actually is (owner decision D-3): authored structure
+stays structure; outside text is rendered inert; vocabulary is not censored; quoted data may not
+manufacture Markdown structure or GitHub closing semantics; the one closing reference this run
+earned stays active; the publication digest proves which bytes were approved and sanitises
+nothing.
 
-**Acceptance test.** `tests/pr/draft-sanitization.test.ts` — hostile filename, bracket-heavy
-issue body, already-fenced text: each stays data; the draft's own headings and the approval
-digest survive unchanged.
+**Proof the legitimate path still works.** Guard F asserts the exact bytes of the two
+stage-authored lines — `Fixes #123 — this run is recorded as the whole of what that issue asked
+for.` when the authority check permits, and `Related to someone-else/datekit#123.` when it does
+not — so a transform that stripped closing words page-wide would fail. Guard E pins the heading
+list to the eight authored section titles under a fixture where every field is hostile at once.
+Guard G keeps `gate.argv` byte-exact inside its span with `command-safety.ts` untouched. Guard H
+requires a clean record to render with no escape character at all and an identifier's own
+underscores intact. Guard I re-renders a hostile record twice, and guard J shows
+`publicationDigestOf()` moving for the hostile fixture and for nothing else — the digest
+function itself was not changed.
 
-**Closure.** CODE (escape, or print inside a fenced block with a proven-safe fence), then
-re-check that the publication digest changes only for the fixture.
+**Anti-vacuity.** Five mutations, each restored byte-for-byte: a fixed single-backtick fence made
+group A RED; emitting the link shape unchanged made group B RED; dropping the keyword
+neutralisation from `prose()` made both group C tests RED; printing `issue.url`,
+`issue.canonical` and `target.fullName` raw made group D and guard E RED; moving the
+neutralisation off the values and onto the finished page made six tests RED — the earned
+`Fixes #n` (guard F, and `tests/pr/draft.test.ts`'s closing-keyword case), the byte-exact spans
+(groups A and G), the clean page (guard H) and the metadata comment (group D). That last
+mutation is the reason the transform is per-value: a page-level pass cannot tell this program's
+structure from a stranger's.
+
+**Residual, named.** A value inside `span()` keeps its exact bytes and relies on code-span
+containment, so a closing keyword in a file name is space-broken nowhere; that inertness is a
+claim about GitHub's renderer, not about Markdown, and is not verified offline. `cap()` can cut
+the page at its length limit mid-token. `&`-entity syntax is not escaped. The neutralisation is
+not a CommonMark parser and does not claim to be: it targets the inline syntaxes that render as
+structure and the reference syntaxes GitHub acts on.
+
+**Closure.** CODE in `src/pr/draft.ts` plus `tests/pr/draft-sanitization.test.ts` (22 tests) and
+the §2.5 rewrite; closed in this pass. `src/state/run-record.ts` and `src/intake/issue-url.ts`
+were deliberately left alone per D-2.
 
 ## S12-22 — a consented `npm run` body is interpreted by npm, outside every argv rule
 
@@ -1995,7 +2065,7 @@ attack is by what the gap makes possible in this build's own execution path:
 The order above is the order the register was written in, and it is now stale in two ways.
 **Closed in this stage, each with its own entry and its own measured drive:** S12-01, S12-02,
 S12-03, S12-04, S12-05, S12-06, S12-07, S12-08, S12-09, S12-10, S12-11, S12-13, S12-14,
-S12-15, S12-16, S12-17, S12-18, S12-19, S12-22. **Still open:** S12-12, S12-20, S12-21,
+S12-15, S12-16, S12-17, S12-18, S12-19, S12-21, S12-22. **Still open:** S12-12, S12-20,
 S12-23, S12-24, S12-25.
 
 S12-09 was closed by `82d2958` (CODE + TEST) earlier in this stage; it sat in the open list
@@ -2003,14 +2073,19 @@ below only because the ranking was not updated when that entry was written up. I
 uncertainty — that the interleaving is arranged rather than driven against a real OS scheduler
 with two operating-system processes — is disclosed in the entry and is not a mechanism to add.
 
+S12-21 was closed on 2026-09-30 (CODE in `src/pr/draft.ts`, `tests/pr/draft-sanitization.test.ts`,
+and the `SECURITY_MODEL.md` §2.5 rewrite of what the publication page actually guarantees). It
+had held rank 1 because it was the same shape as S12-11 one layer up — outside bytes that a
+renderer obeys — but on the page that leaves the machine, where the reader is GitHub rather than
+a terminal. Its entry separates the demonstrated non-exploit from the four routes that were real,
+and the anti-vacuity list records that a page-level sanitizer was tried and rejected because it
+cannot tell this program's structure from a stranger's.
+
 Ranked by what each remaining gap makes possible in this build's own execution path:
 
-1. **S12-21** — the PR draft prints untrusted fields as markdown *structure*. S12-11 made the
-   terminal unable to obey those bytes; this is the same shape one layer up, on the page that
-   leaves the machine, where the reader is GitHub rather than a terminal.
-2. **S12-12** — published contents and install behaviour are unread, which is a claim about the
+1. **S12-12** — published contents and install behaviour are unread, which is a claim about the
    artifact rather than about a run. Procedure, not code.
-3. **S12-23, S12-24, S12-25, S12-20** — proof-and-wording closures: hooks, the credential-scan
+2. **S12-23, S12-24, S12-25, S12-20** — proof-and-wording closures: hooks, the credential-scan
    result, documentation stronger than the source, and `BharatCode.txt`'s submission status.
 
 *One correction while re-ranking:* item 5 of the original order names **S12-26**, and this

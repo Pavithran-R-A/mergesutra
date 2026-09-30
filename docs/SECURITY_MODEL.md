@@ -426,14 +426,67 @@ counter-claim, it is met with a shape that has no field for it:
   the temp root this run used, the runs directory, credential-shaped tokens and any
   environment dump, while asserting the *presence* of the repository-relative rows that
   should survive — because a redactor that blanks the page also "passes". No model
-  reasoning is quoted; the body is bounded in length; a URL is never invented, only
-  echoed from the intake record.
+  reasoning is quoted; the body is bounded in length; a URL is never invented, only echoed
+  from the intake record — and the one value the page prints at the start of a line is that
+  echoed URL, which keeps its bare, clickable form only while it matches the exact shape
+  `src/intake/issue-url.ts` writes (`https://host/owner/repo/issues/123`). A hand-edited
+  record whose `issue.url` carries a newline, a tag or a second line gets the same value
+  inside a code span instead, so the line it opens cannot become a heading or raw HTML.
+- **Outside text is data, never the page's structure (S12-21).** The page is authored
+  Markdown: eight headings, one bullet per row, one code span per name. Everything else on
+  it arrived from somewhere that owes this program no truth — an issue, a working tree, a
+  model document, a caveat about a laptop, and for the handful of fields only reachable by
+  editing a persisted record by hand, the record itself. Each such value goes through one
+  of three routes in `src/pr/draft.ts`, chosen by *where it lands on the page*, not by what
+  it says:
+  - `quote()` — the headline. A pull request title is not rendered as Markdown, so a title
+    needs masking, the two path scrubs and the whitespace fold, and a leading `#` is escaped
+    because GitHub shows titles in places that do parse it.
+  - `prose()` — a value printed bare in the body, where Markdown is live. The same fold,
+    then the characters that would change what a reader *renders* are escaped. The escaping
+    is deliberately not uniform: brackets are touched only in the link and image shapes
+    GitHub turns into a destination (`[text](dest)`, `[text][ref]`), because a lone `[` is
+    already text and this program's own `[REDACTED]` and `[local path removed]` markers must
+    keep reading as markers; and an underscore with a word character on each side is left
+    alone, because a Markdown reader cannot open or close emphasis with it, so
+    `NEEDS_HUMAN_REVIEW` still appears as the exact bytes the stage that wrote it produced.
+  - `span()` — a value that has to stay byte-exact: a file name, an argv, a digest, a model
+    id. It is held inside a code fence one backtick longer than the longest run of backticks
+    inside the value, so no content can end the span this program opened for it, and nothing
+    inside a span is Markdown any more — which is also why the value is not escaped there,
+    since an escape character inside a fence would read as one more character of the name.
+  The order is masking first, then the local-path scrubs, then the fold, then the route's
+  own representation. Nothing outside those routes reaches the page.
+- **What that contract does *not* say.** It does not censor vocabulary. Quoted data may say
+  `PASS`, `Approved for merge`, `production ready` or anything else persuasive and stays
+  legible — a word is not a fact, and the page's authority is the row that measured the
+  fact (§19). What quoted data may not do is manufacture Markdown structure, a link, an
+  image, a span breakout, or a GitHub issue-closing reference the stage did not author. And
+  the publication digest is not sanitisation: `publicationDigestOf()` proves *which* bytes a
+  person approved, after the page was rendered; it never alters what the page says.
+  Nor is this a CommonMark implementation. It is a private transform in `src/pr/draft.ts`
+  aimed at the two syntaxes that have consequences here — what GitHub renders, and what
+  GitHub acts on.
 - **A closing keyword is evidence, not typography.** `Fixes #n` appears when the issue
   identity, same-repository closure and a `PASS` on every criterion for the patch on disk
   are all recorded; anything else — including a fork's copy of the same number — is
-  written as `Related to owner/repo#n` and closes nothing. A title that *says* `Fixes
-  #999` is refused rather than reproduced, because GitHub acts on the phrase wherever it
-  appears.
+  written as `Related to owner/repo#n` and closes nothing. That one authored reference is
+  product structure and is emitted without passing through any neutralisation, which is why
+  guard F of `tests/pr/draft-sanitization.test.ts` asserts its exact bytes. Quoted prose
+  cannot manufacture a second one: a closing verb (`close`/`closes`/`closed`,
+  `fix`/`fixes`/`fixed`, `resolve`/`resolves`/`resolved`) followed by the colon or space
+  GitHub tolerates and then by `#n`, `owner/repo#n` or a full issue URL is neutralised at
+  the moment it is rendered, by putting one visible space inside the reference — `#999`
+  becomes `# 999`, `https://…` becomes `https:// …` — so the reviewer still reads the word
+  and the number, and GitHub obeys neither. The transform is anchored to the verb, so a
+  sentence that merely talks about a fix, and a bare `Related to owner/repo#123`, are not
+  touched. A *headline* that is such a reference — any case, with a colon, or beside an
+  issue URL — is refused whole rather than re-worded, because GitHub obeys the title too.
+  Two residuals are named rather than papered over: a closing keyword inside a `span()` is
+  kept as exact bytes and relies on code-span containment (GitHub does not read a reference
+  out of a fenced value), which is a claim about GitHub's renderer rather than about
+  Markdown; and `cap()` can cut a sentence at the page's length limit, so a neutralised
+  reference cut across the boundary is a truncation question, not a keyword question.
 - **The boundary is on the screen, on every path.** Each outcome — including the one
   where a person has just typed the right digest — ends
   `HUMAN APPROVAL RECORDED` / `NO HUMAN APPROVAL RECORDED`, then `REMOTE PUBLICATION NOT

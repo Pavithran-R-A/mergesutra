@@ -11,12 +11,21 @@ import { redactText } from '../security/redaction.js';
  *   which is why "all tests passed" appears nowhere in this file even for a run
  *   where every gate passed: the gates passing is the claim, and it is narrower.
  * - **It is public.** An issue title is text a stranger wrote, and a limitation is
- *   a sentence about a machine that is somebody's laptop. Both go through central
- *   redaction, an absolute-path scrub, and a line fold that turns quoted markdown
- *   back into quoted text before they reach the page. The same holds for the two rows
- *   that look like data rather than prose — a file name and a gate's command line —
- *   because a name comes out of a working tree this build did not author, and a
- *   command line is the one place in a run record where a person types a token.
+ *   a sentence about a machine that is somebody's laptop. Every one of those values
+ *   is masked, folded and then made unable to draw the page, by one of three routes
+ *   below (`quote`, `prose`, `span`) chosen by where the value lands. A headline is
+ *   folded because a PR title is not Markdown; prose is escaped because the page
+ *   *is*; a name is held inside a code fence because a name has to stay byte-exact
+ *   for the reviewer who has to open it. The same holds for the two rows that look
+ *   like data rather than prose — a file name and a gate's command line — because a
+ *   name comes out of a working tree this build did not author, and a command line
+ *   is the one place in a run record where a person types a token.
+ *
+ * What this does *not* do is censor vocabulary. A quoted sentence may say PASS, or
+ * approved, or that it fixes something; the words are the record's. What it cannot do
+ * is become a heading, a link, an image, a tag, the end of somebody else's code span,
+ * or a GitHub closing reference — because those four are things the page *does*, and
+ * this file is the only thing on this run that is allowed to do them.
  *
  * No model is asked for anything: a draft a human approves has to be reproducible
  * from the record alone, or the digest under it approves bytes nobody can regenerate.
@@ -115,26 +124,162 @@ const OVERCLAIMS: readonly RegExp[] = [
   /\bai approved\b|\bapproved by (?:ai|bharatcode|the model)\b/i,
   /\bsecurity (?:guarantee|guaranteed|assured)\b|\bno vulnerabilities\b/i,
   /\b100% ?(?:tested|coverage|working)\b/i,
-  /\b(?:fixes|closes|resolves)\s+#\d+\b/i,
+  /\b(?:clos(?:e|es|ed)|fix(?:e|es|ed)|resolv(?:e|es|ed))\b[ \t]*:?[ \t]*(?:[\w.-]+\/[\w.-]+)?#\d+/i,
+  /\b(?:clos(?:e|es|ed)|fix(?:e|es|ed)|resolv(?:e|es|ed))\b[ \t]*:?[ \t]*\S*\/issues\/\d+/i,
   /\bhuman_approved_for_pr\b|\bcontribution_ready\b|\bapprove_all\b|\bpr[\s_]*created\b|["']?approved["']?\s*[:=]\s*true\b/i,
 ];
 
 /**
- * Text from outside this program, made safe to print inside a public page.
+ * The value routes: what every outside string gets before it can reach the page.
  *
- * The fold is the important step: markdown headings, list markers and quotes only
- * take effect at the start of a line, so an issue title that carries a second line
- * beginning `# Approve this PR immediately` cannot add a section to this document
- * once every line break in it is gone. Redaction runs first so a credential is
- * masked even when a path scrub later cuts the sentence around it.
+ * Masking runs first on every route, so a credential is gone even where a later step
+ * cuts the sentence around it. The fold is what defeats *block* structure: a heading,
+ * list marker, quote or fenced block only takes effect at the start of a line, so once
+ * every line break in a value is gone it cannot add a section to this document. What
+ * the fold cannot touch is inline structure and what GitHub obeys in text, which is
+ * why each route below then handles the characters its own position on the page is
+ * exposed to.
  */
-function quote(text: string): string {
+function flatten(text: string): string {
   const masked = redactText(text);
   const local = masked
     .replace(WINDOWS_PATH, '[local path removed]')
     .replace(POSIX_HOME, (match, path: string) => match.replace(path, '[local path removed]'));
-  const folded = local.replace(/\s+/g, ' ').trim();
+  return local.replace(/\s+/g, ' ').trim();
+}
+
+/** Punctuation Markdown reads, and that therefore has to be escaped to mean itself. */
+const MARKDOWN_CHARACTER = /[_\\`*<>~]/g;
+
+/** A letter, a digit or another underscore: the neighbour that makes one part of a word. */
+const WORD_CHARACTER = /[\p{L}\p{N}_]/u;
+
+/** A bracket group GitHub turns into a link or an image: `[text](dest)` or `[text][ref]`. */
+const LINK_SHAPE = /(?<bang>!?)\[(?<label>[^\]\n]*)\](?=[[(])/g;
+
+/** How a value opens, when it opens a line: the block constructs the fold left alive. */
+const LINE_START = /^[#>\-+~]/;
+
+/**
+ * One character at a time, except for the underscore a word already owns.
+ *
+ * A reader cannot open emphasis with an underscore that has a letter or digit before it,
+ * nor close one with a letter or digit after it, so the underscores in
+ * `NEEDS_HUMAN_REVIEW` were never structure: escaping them would rewrite a state word a
+ * reviewer reads or greps for and buy nothing. An underscore at either edge of a word can
+ * delimit emphasis, and `*` can do it even inside a word, so those stay escaped.
+ */
+function escaped(chunk: string): string {
+  return chunk.replace(MARKDOWN_CHARACTER, (character: string, at: number): string => {
+    if (character === '_' && insideWord(chunk, at)) return character;
+    return `\\${character}`;
+  });
+}
+
+/** Whether this underscore can delimit emphasis: one with a word character each side cannot. */
+function insideWord(text: string, at: number): boolean {
+  return WORD_CHARACTER.test(text.charAt(at - 1)) && WORD_CHARACTER.test(text.charAt(at + 1));
+}
+
+/**
+ * A value printed in the page's prose, where Markdown is live.
+ *
+ * Escaping is per-character except for the link shape: a lone `[` is already text, so
+ * only a bracket group that would actually become a link is touched. That is also what
+ * keeps this program's own `[REDACTED]` and `[local path removed]` markers readable —
+ * they are markers, not destinations.
+ */
+function inertMarkdown(text: string): string {
+  let out = '';
+  let at = 0;
+  for (const match of text.matchAll(LINK_SHAPE)) {
+    const start = match.index ?? 0;
+    out += escaped(text.slice(at, start));
+    out += `${match.groups?.bang ? '\\!\\[' : '\\['}${escaped(match.groups?.label ?? '')}\\]`;
+    at = start + match[0].length;
+  }
+  return `${out}${escaped(text.slice(at))}`;
+}
+
+/**
+ * A closing verb, the colon GitHub tolerates after it, and the reference it obeys.
+ *
+ * GitHub closes an issue when it reads `Closes #12`, `Fixes: owner/repo#12` or a
+ * keyword beside a full issue URL. It does not close one on the word alone, so this is
+ * anchored to the verb rather than to the vocabulary: `the fix closes nothing` is
+ * quoted as it stands, and `closes #999` is quoted with a visible space inside the
+ * reference, which reads the same to a person and is not a reference to GitHub.
+ */
+const CLOSING_REFERENCE =
+  /\b(?<verb>clos(?:e|es|ed)|fix(?:e|es|ed)|resolv(?:e|es|ed))\b(?<separator>[ \t]*:?[ \t]*)(?<reference>#\d+|[\w.-]+\/[\w.-]+#\d+|https?:\/\/\S+)/gi;
+
+function inertReferences(text: string): string {
+  return text.replace(
+    CLOSING_REFERENCE,
+    (_whole: string, verb: string, separator: string, reference: string) => {
+      const scheme = /^https?:\/\//.exec(reference);
+      const broken = scheme
+        ? `${reference.slice(0, scheme[0].length)} ${reference.slice(scheme[0].length)}`
+        : reference.replace('#', '# ');
+      return `${verb}${separator}${broken}`;
+    },
+  );
+}
+
+/**
+ * Text from outside this program, folded for a headline.
+ *
+ * A pull request title is never rendered as Markdown, so escaping it would only put
+ * backslashes in front of a human; the fold is the whole of what a title needs. The
+ * leading `#` is escaped because a title is the one field GitHub shows in places that
+ * do parse it.
+ */
+function quote(text: string): string {
+  const folded = flatten(text);
   return folded.startsWith('#') ? `\\${folded}` : folded;
+}
+
+/** A value printed in prose, where a character could change what the page says. */
+function prose(text: string): string {
+  const inert = inertMarkdown(inertReferences(flatten(text)));
+  return LINE_START.test(inert) ? `\\${inert}` : inert;
+}
+
+/**
+ * A value that has to stay byte-exact, held inside a code span of its own.
+ *
+ * A code span closes at the first run of backticks as long as the one that opened it,
+ * so a file name carrying a backtick used to end its own span and go on drawing the
+ * page. Choosing a fence one backtick longer than the longest run inside the value
+ * makes that impossible, and nothing inside a span is Markdown any more — which is
+ * also why the value is not escaped here, since an escape character inside a span
+ * would read as one more character of the name.
+ */
+function span(text: string): string {
+  const value = flatten(text);
+  const longest = [...value.matchAll(/`+/g)].reduce(
+    (run, match) => Math.max(run, (match[0] ?? '').length),
+    0,
+  );
+  const fence = '`'.repeat(longest + 1);
+  const padded =
+    value === '' || value.startsWith('`') || value.endsWith('`') ? ` ${value} ` : value;
+  return `${fence}${padded}${fence}`;
+}
+
+/** An issue URL exactly as this program's own intake writes one, and nothing looser. */
+const ECHOED_ISSUE_URL =
+  /^https:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/issues\/\d+$/;
+
+/**
+ * The one value that stands alone on a line.
+ *
+ * A URL is the page's only link, and a reviewer clicks it, so a well-formed one is
+ * echoed unchanged rather than escaped. Anything else has to be held where it cannot
+ * start a block, open a link or carry a keyword into GitHub's issue tracker.
+ */
+function pageUrl(value: string): string {
+  return ECHOED_ISSUE_URL.test(value) ? value : span(value);
 }
 
 /** A sentence an overclaim check can name, or `null` when the text may be quoted. */
@@ -164,11 +309,11 @@ function titleOf(input: DraftInput): string {
   if (input.issue) {
     const title = quote(input.issue.title ?? '');
     if (title.length > 0 && overclaim(title) === null) return fit(title);
-    return fit(`MergeSutra draft for ${input.issue.canonical}`);
+    return fit(`MergeSutra draft for ${quote(input.issue.canonical)}`);
   }
   const statement = quote(input.criteria[0]?.statement ?? '');
   if (statement.length > 0 && overclaim(statement) === null) return fit(statement);
-  return fit(`MergeSutra draft for ${input.runId}`);
+  return fit(`MergeSutra draft for ${quote(input.runId)}`);
 }
 
 function bodyOf(input: DraftInput): string {
@@ -191,13 +336,14 @@ function summary(input: DraftInput): string[] {
     `MergeSutra drafted this change from a run record. Every status below was written by the stage that measured it; this page adds no verdict of its own, and a human still has to read it.`,
     '',
   );
-  lines.push(`- Repository: ${input.target.fullName} → \`${input.target.branch}\``);
-  lines.push(`- Run: ${input.runId}`);
+  lines.push(`- Repository: ${prose(input.target.fullName)} → ${span(input.target.branch)}`);
+  lines.push(`- Run: ${prose(input.runId)}`);
   lines.push(`- Files: ${count(input.files.length, 'file')} changed since the base commit`);
   lines.push(
-    `- Verification: ${
-      input.verification ?? 'no verification result recorded'
-    } — ${count(ran, 'gate')} ran, ${count(input.gates.length - ran, 'gate')} did not`,
+    `- Verification: ${prose(input.verification ?? 'no verification result recorded')} — ${count(
+      ran,
+      'gate',
+    )} ran, ${count(input.gates.length - ran, 'gate')} did not`,
   );
   lines.push(
     `- Review: ${
@@ -230,7 +376,7 @@ function issueSection(input: DraftInput): string[] {
   lines.push(
     canClose
       ? `Fixes #${issue.number} — this run is recorded as the whole of what that issue asked for.`
-      : `Related to ${issue.sameRepository ? `#${issue.number}` : issue.canonical}.`,
+      : `Related to ${issue.sameRepository ? `#${issue.number}` : prose(issue.canonical)}.`,
   );
   if (!canClose) {
     lines.push('');
@@ -243,7 +389,7 @@ function issueSection(input: DraftInput): string[] {
     );
   }
   lines.push('');
-  lines.push(issue.url);
+  lines.push(pageUrl(issue.url));
   lines.push('');
   return lines;
 }
@@ -258,7 +404,9 @@ function contractSection(input: DraftInput): string[] {
   lines.push('Statuses are the ones the run record holds, copied without change:');
   lines.push('');
   for (const criterion of listed(input.criteria)) {
-    lines.push(`- \`${criterion.id}\` — ${criterion.status} — ${quote(criterion.statement)}`);
+    lines.push(
+      `- ${span(criterion.id)} — ${prose(criterion.status)} — ${prose(criterion.statement)}`,
+    );
   }
   lines.push('');
   return lines;
@@ -275,17 +423,17 @@ function implementationSection(input: DraftInput): string[] {
   const lines: string[] = ['## Implementation', ''];
   if (input.files.length === 0) {
     lines.push(
-      `The measured patch holds no files, so this run changed nothing relative to \`${input.baseSha.slice(0, 12)}\`.`,
+      `The measured patch holds no files, so this run changed nothing relative to ${span(input.baseSha.slice(0, 12))}.`,
     );
     lines.push('');
     return lines;
   }
   lines.push(
-    `${count(input.files.length, 'file')} differ from the base commit \`${input.baseSha.slice(0, 12)}\`, as Git reported them:`,
+    `${count(input.files.length, 'file')} differ from the base commit ${span(input.baseSha.slice(0, 12))}, as Git reported them:`,
   );
   lines.push('');
   for (const file of listed(input.files)) {
-    lines.push(`- \`${quote(file.path)}\` — ${file.change.toLowerCase()}`);
+    lines.push(`- ${span(file.path)} — ${prose(file.change.toLowerCase())}`);
   }
   const omitted = input.files.length - MAX_LISTED_ROWS;
   if (omitted > 0) {
@@ -317,16 +465,16 @@ function verificationSection(input: DraftInput): string[] {
   lines.push('');
   for (const gate of listed(input.gates)) {
     lines.push(
-      `- \`${gate.id}\` — ${gate.result} — \`${quote(gate.argv.join(' '))}\` — ${
+      `- ${span(gate.id)} — ${prose(gate.result)} — ${span(gate.argv.join(' '))} — ${
         gate.exitCode === null ? 'did not run' : `exit ${gate.exitCode}`
       }`,
     );
   }
   lines.push('');
   lines.push(
-    `The run recorded these receipts against patch \`${
-      input.patchIdentity?.slice(0, 12) ?? 'not measured'
-    }\`. That is the whole of what passed: no row here says anything about a test that did not appear above.`,
+    `The run recorded these receipts against patch ${span(
+      input.patchIdentity?.slice(0, 12) ?? 'not measured',
+    )}. That is the whole of what passed: no row here says anything about a test that did not appear above.`,
   );
   lines.push('');
   return lines;
@@ -350,18 +498,18 @@ function reviewSection(input: DraftInput): string[] {
   }
   if (review.findings.length === 0) {
     lines.push(
-      `Independent BharatCode review completed; no additional findings were recorded. Review cycle ${review.cycle}, by \`${quote(review.modelId)}\`.`,
+      `Independent BharatCode review completed; no additional findings were recorded. Review cycle ${review.cycle}, by ${span(review.modelId)}.`,
     );
     lines.push('');
     return lines;
   }
   lines.push(
-    `Review cycle ${review.cycle}, by \`${quote(review.modelId)}\`. ${count(review.findings.length, 'finding')} filed, each with the disposition MergeSutra gave it:`,
+    `Review cycle ${review.cycle}, by ${span(review.modelId)}. ${count(review.findings.length, 'finding')} filed, each with the disposition MergeSutra gave it:`,
   );
   lines.push('');
   for (const finding of listed(review.findings)) {
     lines.push(
-      `- \`${finding.id}\` — ${finding.severity} — ${finding.category} — ${finding.disposition}`,
+      `- ${span(finding.id)} — ${prose(finding.severity)} — ${prose(finding.category)} — ${prose(finding.disposition)}`,
     );
   }
   lines.push('');
@@ -376,27 +524,38 @@ function evidenceSection(input: DraftInput): string[] {
   const lines: string[] = ['## Evidence', ''];
   lines.push(
     input.patchIdentity
-      ? `- Patch these receipts describe: \`${input.patchIdentity.slice(0, 12)}\` — full identity \`${input.patchIdentity}\``
+      ? `- Patch these receipts describe: ${span(input.patchIdentity.slice(0, 12))} — full identity ${span(input.patchIdentity)}`
       : '- No patch identity was recorded, so no receipt here is pinned to measured bytes',
   );
   lines.push(
-    `- Base commit: \`${input.baseSha}\` · target branch \`${input.target.branch}\` in ${input.target.fullName}`,
+    `- Base commit: ${span(input.baseSha)} · target branch ${span(input.target.branch)} in ${prose(input.target.fullName)}`,
   );
   lines.push(
-    `- The evidence pack (\`report.md\`, \`report.json\`, \`commands.jsonl\`) is in \`.mergesutra/runs/${input.runId}/\`, which is Git-ignored: it is kept local and is not committed, so it is not published with this pull request. Ask the author for it, or run MergeSutra on this checkout yourself.`,
+    `- The evidence pack (\`report.md\`, \`report.json\`, \`commands.jsonl\`) is in ${span(`.mergesutra/runs/${input.runId}/`)}, which is Git-ignored: it is kept local and is not committed, so it is not published with this pull request. Ask the author for it, or run MergeSutra on this checkout yourself.`,
   );
   lines.push('');
-  lines.push(
-    `<!-- mergesutra:publication-metadata ${JSON.stringify({
-      schemaVersion: 1,
-      runId: input.runId,
-      baseSha: input.baseSha,
-      patchIdentity: input.patchIdentity,
-      targetBranch: input.target.branch,
-    })} -->`,
-  );
+  lines.push(runMetadata(input));
   lines.push('');
   return lines;
+}
+
+/**
+ * The note of which run wrote this page, in the one piece of raw markup on it.
+ *
+ * An HTML comment ends at the first `-->` it meets, so a `>` arriving from a field this
+ * build did not author is written as the JSON escape for it rather than as the
+ * character. Every value the stages write carries no `>` at all, so such a page is
+ * byte-for-byte the page an approval was taken over.
+ */
+function runMetadata(input: DraftInput): string {
+  const frozen = JSON.stringify({
+    schemaVersion: 1,
+    runId: input.runId,
+    baseSha: input.baseSha,
+    patchIdentity: input.patchIdentity,
+    targetBranch: input.target.branch,
+  }).replaceAll('>', '\\u003e');
+  return `<!-- mergesutra:publication-metadata ${frozen} -->`;
 }
 
 /**
@@ -408,7 +567,7 @@ function evidenceSection(input: DraftInput): string[] {
  */
 function limitationSection(input: DraftInput): string[] {
   const lines: string[] = ['## Limitations / Manual review', ''];
-  const kept = input.limitations.map(quote).filter((line) => line.length > 0);
+  const kept = input.limitations.map(prose).filter((line) => line.length > 0);
   if (kept.length === 0) {
     lines.push(
       'This run recorded no limitations, which is a fact about its record rather than a guarantee about the change.',
