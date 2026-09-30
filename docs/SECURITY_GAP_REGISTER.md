@@ -1877,22 +1877,41 @@ only become argv through `src/verify/command.ts:36-85` (one line, ≤240, bare p
 `; & | < > $ \`` and quotes and glob chars rejected at `:63-76`) and then
 `shell:false` (`src/core/runner.ts:59-66`). `MUTATION_EVIDENCE` / `executionClass`
 (`src/verify/gates.ts:157,432-438`) is disclosure only, never a refusal. A CI step
-`run: npm publish` therefore reaches argv `['npm','publish']` — well-shaped, and today
-EXECUTE-allowed by policy (`src/process/tool-policy.ts:288`) — and is stopped only because it
-maps to no `TOOL_EVIDENCE` gate kind (`gates.ts:222-231`).
+`run: npm publish` therefore reaches argv `['npm','publish']` — well-shaped — and is now stopped
+at two independent layers: the tool policy classes it `REMOTE_MUTATION` and refuses it before
+consent (`src/process/tool-policy.ts:355-364,395`; `src/verify/consent.ts:137-144`; S12-03's
+fix), and the gate-kind whitelist (`gates.ts:222-231`) is a second, unrelated reason a
+publish-shaped step never becomes a gate.
 
 **Protection today.** Strong and layered for the direct path: shape refusal, bare program,
 workspace cwd, policy-before-consent (`src/verify/consent.ts:137-144`), gate-kind whitelist,
-`postinstall` absent from `SCRIPT_NAMES` (`src/verify/contract.ts:115-121`).
+`postinstall` absent from `SCRIPT_NAMES` (`src/discovery/contract.ts:115-121`).
 
-**Missing.** The `npm publish` half is S12-03's fix. The remaining half is a fact to state:
-once npm runs a script, npm is a second interpreter this build does not govern.
+**Missing** (now closed). The `npm publish` half was S12-03's fix. The remaining half is a fact
+to state, not a mechanism to build: once npm runs a script, npm is a second interpreter this
+build does not govern. Its closure is DOCUMENT + machine-checkable TEST, not CODE — the direct
+package-manager verbs were already refused by the policy before consent.
 
-**Acceptance test.** Inside S12-03's file: `['npm','publish']` refuses, `['npm','test']` and
-`['npm','run','lint']` still classify EXECUTE so legitimate verification is not broken (§7),
-and a scripted repo whose `npm test` body shells out is documented as the boundary.
+**Acceptance test.** The classification half already lives in S12-03's file
+(`tests/process/tool-policy-argv.test.ts:99-160`: `['npm','publish']` refuses, `['npm','test']`
+and `['npm','run','lint']` stay EXECUTE, so legitimate verification is not broken (§7)). The
+documentation half is `tests/security/npm-script-boundary.test.ts` — a meaning-matched contract
+over `SECURITY_MODEL.md` §3, one regex per fact held inside a single sentence, deliberately not
+a line-number snapshot.
 
-**Closure.** CODE (subcommand parsing) + DOCUMENT (the npm-body limit).
+**Closure.** CODE (subcommand parsing) shipped in S12-03; DOCUMENT + TEST for the npm-body
+interpreter limit, closed in this pass.
+
+**Closed in this pass.** `docs/SECURITY_MODEL.md` §3 gained `### npm package scripts are a second
+interpreter`. The test was written first and witnessed **RED** — 7 section cases fail on the
+absent subsection with `expected -1 to be greater than -1`, while the negative guard passed —
+then **GREEN** after the subsection landed (8/8), run alongside `tests/process/tool-policy-argv.test.ts`
+(21/21, re-measured untouched). Anti-vacuity: deleting the one sentence "npm re-parses that body
+and runs it through its own script shell, so a shell operator inside a script body is outside
+MergeSutra's argv parser…" turned exactly **1** test RED, restored byte-for-byte (sha256
+`d307308b6704e30a900a1d99b4b98e00737a3f34ea471bffd783f947f447b0f0`) and re-run GREEN. No
+production code, no execution semantics, and no package-manager classification test changed —
+the reconnaissance held. **REMOTE MUTATIONS: NONE.**
 
 ## S12-23 — Git hooks: what is actually true
 
@@ -1969,23 +1988,20 @@ attack is by what the gap makes possible in this build's own execution path:
 The order above is the order the register was written in, and it is now stale in two ways.
 **Closed in this stage, each with its own entry and its own measured drive:** S12-01, S12-02,
 S12-03, S12-04, S12-05, S12-06, S12-07, S12-08, S12-10, S12-11, S12-13, S12-14, S12-15,
-S12-16, S12-17, S12-18, S12-19. **Still open:** S12-09, S12-12, S12-20, S12-21, S12-22,
+S12-16, S12-17, S12-18, S12-19, S12-22. **Still open:** S12-09, S12-12, S12-20, S12-21,
 S12-23, S12-24, S12-25.
 
 Ranked by what each remaining gap makes possible in this build's own execution path:
 
-1. **S12-22** — a consented `npm run` body is interpreted by npm, so every argv rule in the
-   classifier is downstream of a string the classifier never sees. This is the only open entry
-   on the mutation path, and the one place a model's text can still reach a command.
-2. **S12-09** — the proven-dead takeover's read-then-write window. Corrupts a workspace and
+1. **S12-09** — the proven-dead takeover's read-then-write window. Corrupts a workspace and
    therefore the evidence, and it is the entry the register already flagged as needing a real
    mechanism rather than a wording fix.
-3. **S12-21** — the PR draft prints untrusted fields as markdown *structure*. S12-11 made the
+2. **S12-21** — the PR draft prints untrusted fields as markdown *structure*. S12-11 made the
    terminal unable to obey those bytes; this is the same shape one layer up, on the page that
    leaves the machine, where the reader is GitHub rather than a terminal.
-4. **S12-12** — published contents and install behaviour are unread, which is a claim about the
+3. **S12-12** — published contents and install behaviour are unread, which is a claim about the
    artifact rather than about a run. Procedure, not code.
-5. **S12-23, S12-24, S12-25, S12-20** — proof-and-wording closures: hooks, the credential-scan
+4. **S12-23, S12-24, S12-25, S12-20** — proof-and-wording closures: hooks, the credential-scan
    result, documentation stronger than the source, and `BharatCode.txt`'s submission status.
 
 *One correction while re-ranking:* item 5 of the original order names **S12-26**, and this

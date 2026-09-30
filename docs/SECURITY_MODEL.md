@@ -776,6 +776,30 @@ EXECUTE. That is also why `pr/publisher.ts` sits *beside* this table: it is a
 two-method interface whose only production value throws, and no `tool-policy`
 decision is ever consulted on the way to a refusal that is structural.
 
+### npm package scripts are a second interpreter
+
+MergeSutra invokes npm with an argv array and without a shell, which governs the
+direct invocation it authors. It does not turn the contents of `package.json`
+scripts into argv tokens. When npm runs `test`, `run lint` or any equivalent
+package script, npm itself interprets that repository-authored script body. npm
+re-parses that body and runs it through its own script shell, so a shell operator
+inside a script body is outside MergeSutra's argv parser and outside what
+`shell: false` reaches. (npm's documented default shell is `/bin/sh` on POSIX and
+`cmd.exe` on Windows, and the `script-shell` config can change it.)
+
+This is a trust boundary that sits after consent, not a way around it: consenting
+to run a discovered `npm run <name>` gate is consenting to execute that
+repository-defined script as repository code under the existing gate-consent
+boundary, and is not evidence that MergeSutra parsed, sandboxed or individually
+approved every shell operation in the body. `executionClass` and a
+`MUTATION_CAPABLE` label are disclosure about what a command looks like, not a
+parser or a sandbox for the script body, and they change no execution decision.
+The limit reaches only the script body: it makes no direct package-manager
+subcommand safe to run, since `npm publish`, `npm install` and an unknown verb
+stay classified and refused by the tool policy before consent (§3). Saying
+`shell: false` leaves a script body shell-free would be the false claim; what it
+protects is only the invocation MergeSutra itself composed.
+
 ## 4. Workspace isolation & file safety
 
 - Prefer a dedicated Git worktree tied to the exact base SHA; never casually
