@@ -1323,3 +1323,96 @@ any remote change.
   command at all. What this does **not** buy is durability: a run can still be
   interrupted in a way that loses a write, and recovery's promise is that the result is
   legible and continuable, not that it never happens.
+
+## 10. What the package that ships contains, and what binds it to this source (Stage 12)
+
+Everything before this section is about bytes MergeSutra *executes*. This one is about
+bytes MergeSutra *emits and hands to npm*: a tarball. A tarball is a security artifact for
+the same reason a PR body is — someone installs it and runs it, and after that no
+MergeSutra code is on the path to decide anything. So the contract here is drawn in the
+same shape as §2.5: state what the build guarantees, state what it does not, and test the
+gap rather than assert over it. `tests/security/publish-contents.test.ts` is that test.
+
+**`files` controls the surface, and it is an allowlist.** The manifest ships
+`["dist", "BharatCode.txt", "README.md", "LICENSE"]`, and that list — not the absence of a
+deny list — is what the tests measure against: every top-level path in the inventory must
+be one of those four plus `package.json`, and no repository-only root (`src/`, `tests/`,
+`docs/`, `coverage/`, `node_modules/`, `.mergesutra/`, `.qoder/`, `.github/`, and the
+foreign `cd` path) may appear, nor may any `.env*`, lockfile, `.npmrc`, `*.log`, `*.tgz`,
+`id_rsa` or `*.pem` shape appear. npm adds its own rules on top of `files` and those rules
+are not configurable: root `package.json` is always included, a root `README`/`LICENSE`
+always included, `node_modules` and a handful of SCM files never packed. The measured
+inventory is 448 entries — `package.json`, the three root documents, and 444 files under
+`dist/`.
+
+**A root `.npmignore` is not a defence and is not treated as one.** npm's documented
+semantics put `files` above a root `.npmignore`: a file the allowlist already refused does
+not need a second refusal, and a `.npmignore` placed at the package root does not override
+what `files` includes. Nothing in this section, and no test, asserts that `.npmignore` is
+*absent* — that would be an invariant about a file that cannot carry one. The invariant is
+about `files`, because `files` is the field that decides.
+
+**`prepack` binds the artifact to the source, and it does so before the tarball exists.**
+`prepack` runs for `npm pack`, `npm pack --dry-run` and `npm publish`, and npm creates no
+tarball if it exits nonzero. It is `npm run verify:package`, which is `npm run build`
+(`tsc -p tsconfig.build.json`) followed by the focused verifier. The order is the whole
+point: build first, so the bytes that get packed are compiled from the source that is
+currently in the tree, then verify, so the verifier measures the same tree npm is about to
+pack. Without the build step, `npm pack` would faithfully ship whatever `dist/` happened to
+contain — which is not hypothetical. Before this hook existed, the working tree's `dist/`
+predated two closed security items and packed successfully anyway; and the same manifest with
+`prepack` deleted and no `dist/` at all still packs — measured again while writing this section,
+exit `0` and an 894-byte tarball whose entire listing is `package/package.json`, with `bin`
+naming `./dist/index.js`. Deleting one script line reproduces it, which is why a test case, not
+prose, holds the hook in place. A manifest whose entry point resolves to nothing is a broken
+package, not a refused one, because npm does not read `bin`.
+
+The verifier must not recurse through its own measurement, so the inventory it reads comes
+from `npm pack --dry-run --json --ignore-scripts` — `--dry-run` writes no tarball and
+`--ignore-scripts` keeps `prepack` from re-entering itself. A test asserts both flags are
+present at the single call site, because a silently-reintroduced lifecycle script is the
+way this loop comes back.
+
+**Staleness is refused, never cleaned.** The artifact expectations are *derived*, not
+counted: the module set comes from `src/**/*.ts` (111 modules) and the emit extensions come
+from the TypeScript configuration (`.js`, `.d.ts`, and one `.map` per declaration and source
+map, so 444 files), and the test asserts both directions — every expected compiled artifact
+is present, and nothing under `dist/` lacks a source module. The second half is what makes
+a stale or orphaned build output a failure. The fix for that failure is deliberately *not*
+`rm -rf dist`, `git clean`, `rimraf` or any other deletion: a scan over every script in the
+manifest proves none of those appear. Deleting build output inside a packaging hook is a
+destructive action taken on the operator's machine to make a check pass; refusing and
+leaving the bytes where they are lets a human see what was stale. This is the same stance
+§9 takes about a user's checkout, applied to `dist/`.
+
+**Source maps ship, on purpose, and they are the interesting leak.** Keeping them was an
+owner decision, not an oversight: a consumer who reports a stack trace from
+`dist/index.js:1:4332` is only debuggable if the map exists. What must not ship is the map's
+optional payload. `"sourcesContent"` is the field that embeds the original source text into
+the map — which is how `src/` reaches a published package without ever being listed in
+`files` — and an absolute `"sources"` entry (`C:\Users\…\src\…`, or `/home/…`) names the
+build machine. Both are asserted absent from every packed text artifact. Three separate cases
+hold that: no packed file contains the checkout path, its POSIX spelling or the home directory;
+no map carries `"sourcesContent"`; and every map's `"sources"` is a relative path with no
+`sourceRoot` that names a drive or a filesystem root, and each `.js.map`'s source resolves to a
+file that exists in the checkout it was built from.
+
+**What this section does not claim.** MergeSutra's approval machinery — the typed digest of
+Stage 10, the evidence-pack identity of Stage 8, the run record — authorises *actions in a
+run*. None of it establishes the provenance of an npm artifact. A person who approves a
+publication digest has not certified that the tarball on a registry came from this commit,
+was packed by this machine, or was packed at all by this repository; there is no signature,
+no `provenance` attestation and no `integrity` field asserted here, and publishing is
+Stage 15's decision with its own human approval. The tested claim is narrower and is the
+one worth having: the tarball npm is about to create contains the paths this build intends,
+those paths were compiled from the source sitting next to the manifest, and they carry
+nothing about the machine that built them. Proof of installability was measured once, by
+hand, in an isolated temporary prefix with `--offline` (`file:` install of the packed
+`.tgz`, exit `0`, no registry contact; `--help` and `--version` exit `0`; the installed
+`doctor` exits `1` because `BHARATCODE_API_KEY` is legitimately unset there; the `.bin` shim
+resolves and prints `0.0.1`), and it resolved `commander@12.1.0` and `zod@3.25.76` inside the
+manifest's `^12.1.0` / `^3.23.8`. That last pair is a disclosure of npm's ordinary semver
+behaviour, not a packaging defect: a range permits a newer resolution, and this item
+deliberately adds no `npm-shrinkwrap.json` and pins nothing — dependency policy is not the
+gap S12-12 was about. That hand procedure is not a CI gate, and saying so is part of the
+contract.

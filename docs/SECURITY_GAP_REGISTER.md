@@ -1125,25 +1125,152 @@ item; the authoritative full sweep is the Stage 12 close gate.
 **Claim.** Nobody has proved what the tarball contains or that the installed bin runs.
 
 **Source.** `package.json` — `version 0.0.1`, `bin { mergesutra: ./dist/index.js }`,
-`files ["dist","BharatCode.txt","README.md","LICENSE"]`, runtime deps `commander`, `zod`;
-no `.npmignore`; `prepublishOnly: npm run check`.
+`files ["dist","BharatCode.txt","README.md","LICENSE"]`, runtime deps `commander ^12.1.0` and
+`zod ^3.23.8`; `prepublishOnly: npm run check`, and no lifecycle hook that fired for a plain
+`npm pack`. There is no `.npmignore`, which the first draft of this entry read as a missing
+protection; it is neither a protection nor a gap — see the correction below.
 
-**Protection today.** `files` is an allowlist, so `tests/`, `docs/`, `src/`, `.mergesutra`,
-`.env` are excluded by construction — *by reading*, not yet by test.
+**Protection today** *(at reconnaissance; now extended — see Closure)*. `files` is an allowlist,
+so `tests/`, `docs/`, `src/`, `.mergesutra`, `.env` are excluded by construction — *by reading*,
+not yet by test. What reading did not cover is the other half of a package: whether the paths
+`files` allows are the paths the current source produces.
 
-**Missing.** The actual `npm pack --dry-run` inventory and tarball listing, and an install
-from the tarball in a fresh directory.
+**Missing** *(at reconnaissance; now measured)*. The actual `npm pack --dry-run` inventory and
+tarball listing, and an install from the tarball in a fresh directory. Both are recorded below.
 
-**Exploit.** A file that should never ship and does (scratch evidence, a private lockfile,
-an absolute local path baked into `dist/`).
+**Exploit** *(as written: a demonstrated non-exploit; the real defect is named in Closure)*.
+A file that should never ship and does (scratch evidence, a private lockfile, an absolute local
+path baked into `dist/`). Measured against this tree, no such file ships. What was true instead is
+smaller and worse: a `dist/` that predates the current source packs without complaint.
 
-**Acceptance test.** Not a vitest file: §39/§40 procedure — `npm pack --dry-run`, unpack to
-a scratch dir, assert the exact inventory, then `npm install -g ./mergesutra-0.0.1.tgz` in an
-isolated prefix and run `--help`, `--version`, `doctor`. **No publish, no remote.** Registry
-reachability (or its absence) disclosed verbatim in the closure report (§40).
+**Acceptance test.** `tests/security/publish-contents.test.ts` — 24 cases, the measured npm
+inventory plus the manifest and `dist/` it is derived from; and, once by hand, §39/§40's install
+procedure in an isolated temporary prefix. **No publish, no remote.** Registry reachability (or
+its absence) is disclosed verbatim below.
 
-**Closure.** TEST (procedure) + DOCUMENT (`README.md` install text must not promise
-`npm install -g mergesutra` — §41).
+**Closure.** CODE (`package.json` lifecycle) + TEST (the measured inventory, in-repo and
+re-runnable) + DOCUMENT (`SECURITY_MODEL.md` §10; `README.md` install wording already did not
+promise `npm install -g mergesutra` — §41, re-checked, unchanged).
+
+**Closed in this pass — the four things this entry must keep separate.**
+
+*1. The exploit as written is a demonstrated non-exploit.* The named risk was "a file that
+should never ship and does (scratch evidence, a private lockfile, an absolute local path baked
+into `dist/`)". Reproduced against the baseline `9efb369` tree: `npm pack --dry-run --json`
+reported 448 entries — `package.json`, `BharatCode.txt`, `LICENSE`, `README.md`, and 444 files
+under `dist/`. Two kinds of measurement, kept apart: the *entry names* contain no repository-only
+root (`src/ tests/ docs/ coverage/ node_modules/ .mergesutra/ .qoder/ .github/ cd`), no `.env*`,
+no lockfile, no `.npmrc`, no `*.log`, no `*.tgz`, no `id_rsa` or `*.pem` shape; and the *packed
+bytes* carry no `sourcesContent` and no occurrence of the checkout path, its POSIX spelling or the
+home directory. So the leaked-file story did not happen on this build. Credential *values* were
+S12-24's scan of tracked files and history and stay there; this test does not claim to look for
+them. The non-exploit is recorded as a non-exploit, and the inventory test now keeps it one.
+
+*2. What was actually broken was not on this list: the artifact was not bound to its source.*
+`npm pack` packs whatever `dist/` happens to contain, and nothing in the manifest made the bytes it
+packs depend on the bytes in `src/`. Two measurements, one from reconnaissance and one re-run here
+so the claim does not rest on a memory. At reconnaissance the working tree's `dist/` was older than
+the commits that closed S12-11 and S12-21 — its files' mtimes preceded `82d2958` and `9efb369`, so
+a pack from that tree would have shipped compiled output for source that had since moved; that is a
+timestamp observation over a tree that has since been rebuilt, and it is not re-runnable. The half
+that *is* re-runnable is the sharper one, and it is the mechanism: take that same `package.json`
+with `prepack` and `verify:package` removed and no `dist/` at all, run `npm pack` → exit **`0`**,
+an 894-byte tarball whose full listing is one entry, `package/package.json`, and whose `bin` still
+names `./dist/index.js`. `tar -tzf` exit `0`, one line. npm does not read `bin`, so a package with
+no runtime entry point is not refused — it is *published-shaped* — and `prepublishOnly: npm run
+check` cannot help a `pack` that never fires it. That is a defect with a measurement behind it, not
+a documentation gap.
+
+*3. The fix is mechanical, and it refuses rather than cleans.* Two script lines:
+`prepack: npm run verify:package`, `verify:package: npm run build && vitest run
+tests/security/publish-contents.test.ts`. Build first so the packed bytes are compiled from the
+source next to the manifest, verify second so the verifier measures what npm is about to pack;
+npm creates no tarball when `prepack` exits nonzero (measured: `prepack` exit `3` aborts the pack
+with that same code and writes nothing), so refusal is the mechanism and no deletion is needed.
+Nothing was added to remove stale output — a test scans every script in the manifest and fails if
+`rm -rf`, `rimraf`, `git clean`, `git reset --hard`, `rsync --delete` or `xargs rm` appears, which
+is the same stance §9 takes toward a user's checkout applied to `dist/`. The verifier must not
+recur through its own measurement, so its inventory comes from `npm pack --dry-run --json
+--ignore-scripts` — `--ignore-scripts` is what keeps `prepack` from re-entering itself, and a
+case asserts both flags at the one `spawnSync` site. Expected artifacts are *derived*, never
+remembered: 111 modules from `src/**/*.ts` crossed with the emit extensions read from the
+TypeScript configuration gives 444, and the count is compared to what is on disk in both
+directions, so an orphan is a failure rather than a number nobody notices drifting.
+`npm run check`'s ordering and `prepublishOnly`'s semantics are unchanged and a case pins both
+strings.
+
+*4. The install procedure was run for real, offline, in an isolated prefix.* `npm pack
+--pack-destination <scratch>` exercised the new path end to end (`> mergesutra@0.0.1 prepack` →
+`npm run verify:package` → `tsc -p tsconfig.build.json` → `Tests 24 passed (24)`, `PACK_EXIT=0`);
+`mergesutra-0.0.1.tgz` was 612,281 bytes, `tar -tzf` listed 448 entries, and the set of tarball
+paths was compared to npm's own verified inventory: 448 vs 448, `only in inventory: []`,
+`only in tarball: []`, identical, `dist/index.js` present (sha1
+`03e521b860bf7a47d5325c84e7f8452e3c855214`, sha256 `39e3a932b33aaf16…`). That exact `.tgz` was
+then installed with `npm install --offline --no-audit --no-fund --package-lock=false --prefix
+<TMP>\s1212proc\prefix`: exit `0`, "added 3 packages", **no registry contact and no online
+retry**. Resolved runtime versions: `mergesutra@0.0.1`, `commander@12.1.0` (range `^12.1.0`),
+`zod@3.25.76` (range `^3.23.8`) — that zod is newer than the lockfile-free floor and *inside* the
+declared range, so it is disclosed here and not treated as a packaging failure; no
+`npm-shrinkwrap.json` was added and nothing was pinned, because dependency policy is not this
+item. From that installation: `dist/index.js --help` exit `0` (41 lines of usage), `--version`
+exit `0` → `0.0.1`, `doctor` exit `1` with `FAIL BharatCode key — BHARATCODE_API_KEY is not set`
+(the honest not-ready code in a directory with no credential; the Node/Git/gh/auth rows passed),
+and the installer's own `node_modules\.bin\mergesutra.cmd --version` exit `0` → `0.0.1`, which is
+where the executable bit comes from — tarball entries are normalised to `0644` and npm's shim,
+not the packed bytes, carries the launch. The scratch directory and tarball created for this were
+removed; nothing outside them was touched. This procedure was a measured one-off, not a CI gate,
+and §10 says so.
+
+*.npmignore, corrected.* An earlier draft of this entry (and the reconnaissance note it came from)
+treated "no `.npmignore` exists" as a protection. It is not one: npm's documented semantics put
+`files` above a root `.npmignore`, so a root ignore file cannot override what the allowlist
+includes — and equally cannot leak what it excludes. "`.npmignore` must be absent" is therefore
+recorded nowhere as a security invariant; the invariant is about `files`, the field that decides.
+
+**Anti-vacuity.** Five mutations, each turning the named case red, each restored and hash-checked:
+(a) delete the `"prepack"` line → `runs a prepack hook, so no pack or publish can reach npm
+without it` and `compiles the current source before it verifies the package contents` red
+(2 failed | 22 passed, exit `1`); (b) move `dist/index.js`/`dist/index.js.map` aside →
+`exists for every declared entry point once the source has been built` and the inventory cases
+`carries the runtime entry point the manifest names` / `carries every declared entry point` red
+(5 failed | 19 passed) — the entry point check is not satisfied by a file that merely exists in
+the manifest; (c) add `"src"` to `files` → 4 red (20 passed), and the load-bearing one is
+`leaves no repository-only root inside the package`, which reported 111 `src/*.ts` entries *from
+npm's own inventory*, proving the test drives npm rather than re-reading the manifest; (d) plant
+`dist/security/ghost-module.js` + `.js.map` → `refuses output that belongs to no source module`,
+`holds the number of artifacts derived from the source, not a remembered total` (446 vs 444) and
+`maps every compiled file to a source file that exists in this checkout` red (3 failed | 21
+passed); (e) plant `"sourcesContent"` carrying an absolute checkout path into `dist/index.js.map`
+→ `ships source maps that embed no source text` and `has no packed text file carrying the
+absolute checkout or home path` red (2 failed | 22 passed), while `names only relative sources in
+every map` correctly stayed green — that case guards a different field. Restores: (a) and (c)
+`package.json` sha256 `e87629c2cf0157ef56b8737971af2b71d042ae8e0f262b2d7a7d79c63a5a1f3c`,
+(b) `dist/index.js` `d325c8ebcd1856743ba2b7a3782c00ae77a581d9403e49f84aa9dacf48b47a22` and
+`dist/index.js.map` `a070a0df5307020fdbec17f4992a3ea17e86122dd4982bc9416e68e7ca84a726` (renamed
+back, then re-verified after `npm run build` for (e), which regenerates the map byte-identically),
+`(d)` the two planted files deleted by exact path. Post-mutation re-run: 24 passed, exit `0`. No
+mutation was committed; `git status` after restoration shows only the intended
+`package.json` modification and the new test file.
+
+**What remains outside this item.** `prepack` binds the artifact to the source *on the machine
+that packs it*; it is not provenance. There is no signing, no registry attestation and no
+`integrity` claim, and MergeSutra's digests authorise run actions rather than certifying a
+tarball — publication stays Stage 15's approved decision. The install procedure is a measured
+one-off rather than a CI gate. And the isolated-prefix run covered `--help`, `--version` and
+`doctor`, not a full offline run of every command from an installed package; a consumer that
+resolves a newer in-range dependency is disclosed above, not blocked.
+
+**Gates, measured on the committed state.** `prettier --check .`, `eslint .` and
+`tsc -p tsconfig.json --noEmit` each exit `0`. The new file alone: 24 passed, exit `0` (it was
+witnessed **RED** first — 4 cases failing on the absent `prepack` and the unbuilt-package
+property). The affected surface as a group — `tests/security tests/discovery tests/verify
+tests/process` — 596 passed across 36 files, raw exit `0`; then `tests/pr tests/cli` — 425 passed
+across 31 files, raw exit `0`. `npm run build` after the last mutation exits `0` and regenerates
+`dist/` at 444 files. Per this stage's §29 the ~2,000-test suite was not re-run for a single item;
+the authoritative full sweep is the Stage 12 close gate. **REMOTE MUTATIONS: NONE** — no push, no
+PR, no publish, no remote exists, and no live BharatCode call; the only npm invocations were
+`pack`/`install --offline` inside a temporary scratch prefix and the `--dry-run` probe the test
+drives.
 
 ---
 
@@ -1835,7 +1962,7 @@ safe-contents test, §42/§59).
 | 32, 33, 34 | S12-16; S12-16 plus record-parse path; §34 already fails closed — `src/state/run-record.ts:676-682` refuses an unknown future `schemaVersion`, migrations `:585,604,621` only add honest absence, and `run-store.ts:60-75` never rewrites on read → **TEST-only** |
 | 35 | PR draft sanitization — `src/pr/draft.ts` uses `redactText`; the control-character route is closed by S12-11 (the page is escaped at display, and the value fold removes a foreign line break before it can start a section), and the markdown-*structure* route on the same page was closed by S12-21, which renders every outside value inert at the sink |
 | 36, 37, 38 | S12-15; catalog TOCTOU at `client.ts:241-246` + config `:74`; key is header-only `client.ts:161` with `Redactor([apiKey])` `:106` → **TEST-only** unless a sink leaks |
-| 39, 40, 41 | S12-12 |
+| 39, 40, 41 | S12-12 — closed: §39/§40's inventory and install procedure were measured (`tests/security/publish-contents.test.ts`, 24 cases, plus a one-off offline install into an isolated temporary prefix), §41's README wording was re-checked and already promised no global install |
 | 42, 43, 44, 45 | S12-20; credential scan of tracked files *and* reachable history; `commander`/`zod` runtime-only (ADR-009 re-check); LICENSE/metadata coherence |
 | 46, 47, 48, 49 | Platform-aware skipping named explicitly (S12-10), invariant manifest, optional `npm run test:security`, seeded property tests |
 | 50, 51, 52, 56, 57, 58, 59, 60, 61, 62 | Process, not gaps; §51's wording sweep is the documentation half of every entry above |
@@ -2064,8 +2191,8 @@ attack is by what the gap makes possible in this build's own execution path:
 
 The order above is the order the register was written in, and it is now stale in two ways.
 **Closed in this stage, each with its own entry and its own measured drive:** S12-01, S12-02,
-S12-03, S12-04, S12-05, S12-06, S12-07, S12-08, S12-09, S12-10, S12-11, S12-13, S12-14,
-S12-15, S12-16, S12-17, S12-18, S12-19, S12-21, S12-22. **Still open:** S12-12, S12-20,
+S12-03, S12-04, S12-05, S12-06, S12-07, S12-08, S12-09, S12-10, S12-11, S12-12, S12-13, S12-14,
+S12-15, S12-16, S12-17, S12-18, S12-19, S12-21, S12-22. **Still open:** S12-20,
 S12-23, S12-24, S12-25.
 
 S12-09 was closed by `82d2958` (CODE + TEST) earlier in this stage; it sat in the open list
@@ -2083,10 +2210,21 @@ cannot tell this program's structure from a stranger's.
 
 Ranked by what each remaining gap makes possible in this build's own execution path:
 
-1. **S12-12** — published contents and install behaviour are unread, which is a claim about the
-   artifact rather than about a run. Procedure, not code.
-2. **S12-23, S12-24, S12-25, S12-20** — proof-and-wording closures: hooks, the credential-scan
+1. **S12-23, S12-24, S12-25, S12-20** — proof-and-wording closures: hooks, the credential-scan
    result, documentation stronger than the source, and `BharatCode.txt`'s submission status.
+
+*Correction to the correction (2026-09-30, closing S12-12).* S12-12 has been removed from the
+ranked list above because it is now closed, and its closure refutes one prediction in the original
+order: item 6 filed it under "proof-and-wording closures: tests and truthful documentation, not
+new machinery". Half of that was right — the exploit the entry named is a demonstrated non-exploit,
+and the entry's own acceptance test said "not a vitest file" — but the gap that the measurement
+found is a packaging *behaviour*: `npm pack` shipped a `dist/` compiled from older source, and
+would ship one that had no entry point at all, with exit `0`. That needed two lines of lifecycle
+machinery, so S12-12 closed as CODE + TEST + DOCUMENT, and its entry now carries the inventory
+numbers, the isolated offline install result and the resolved dependency versions. The
+reconnaissance note and this entry also repeated a wrong claim about `.npmignore`; corrected in the
+entry, because a root `.npmignore` does not override the `files` allowlist and "it must be absent"
+is therefore not an invariant this register holds.
 
 *One correction while re-ranking:* item 5 of the original order names **S12-26**, and this
 register has no such entry — it appears nowhere but that line. It is not a gap that was found
