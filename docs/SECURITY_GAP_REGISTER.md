@@ -2274,17 +2274,58 @@ MergeSutra's*. No production behaviour changed.
 
 ## S12-24 — credential scan: clean, with the false positives named
 
-Scanned all 117 commits (`git rev-list --all`) and the tracked tree at HEAD for GitHub PAT,
-`sk-`, AWS and PEM shapes. Output: 4 matched lines, all in
-`tests/verify/receipt.test.ts:99-104` — the fixture whose test at `:95` asserts the string
-does **not** survive into `stderrSummary` and that `receipt.redacted === true` (`:105`), with
-a sibling placeholder at `:109`. `git ls-files` filtered for `.env|secret|credential|id_rsa|
-.pem|.npmrc|token` returns nothing. `.mergesutra` has never been in any commit;
-`.gitignore` covers `dist/`, `.mergesutra/`, `node_modules/`, `coverage/`, `.env`, `.env.*`,
-`*.local`, and `src/git/workspace.ts:206-220` refuses to create a workspace unless the state
-directory is ignored. **Closure: DOCUMENT** (these exact lines as the §43 evidence), no code
-change. A real-looking value would have been reported as `REDACTED, file:line, needs human
-action`; none was found.
+**The original reading, at `88cb7ce`.** Scanned all 117 commits then reachable
+(`git rev-list --all`) and the tracked tree at HEAD for GitHub PAT, `sk-`, AWS and PEM shapes.
+Output: 4 matched lines, all in `tests/verify/receipt.test.ts:99-104` — the fixture whose test at
+`:95` asserts the string does **not** survive into `stderrSummary` and that
+`receipt.redacted === true` (`:105`), with a sibling placeholder at `:109`. `git ls-files`
+filtered for `.env|secret|credential|id_rsa|.pem|.npmrc|token` returns nothing. `.mergesutra` has
+never been in any commit; `.gitignore` covers `dist/`, `.mergesutra/`, `node_modules/`,
+`coverage/`, `.env`, `.env.*`, `*.local`, and `src/git/workspace.ts:206-220` refuses to create a
+workspace unless the state directory is ignored. Closure was written as DOCUMENT, no code change.
+
+**Why that closure did not hold.** It was a hand-run scan, over the commit set that existed when
+it was written, and it never crossed the boundary a customer actually crosses. Re-measuring on
+this checkout: history is 150 reachable commits, not 117 — and neither number matters, because
+nothing re-ran the scan, so the claim was a statement about the past with no gate behind it. The
+npm inventory was not scanned at all: `tests/security/publish-contents.test.ts` proves the
+package's *surface* (which files, and whether they are current with the source) and says nothing
+about their *content*, and `src/security/redaction.ts` masks text this build produces at runtime,
+which is not the same question. Worse, the mask vocabulary is unusable as a whole-artifact
+detector — measured, not argued: over the 448 files npm lists it fires at 74 positions, and all
+74 are code positions (type annotations, optional fields, property accesses, one union of two
+string literal types), while reporting nothing about a real key.
+
+**Closure: TEST + DOCUMENT, on the packaging path.**
+`tests/security/credential-boundary.test.ts` (32 cases) is the same claim re-derived on every
+run, and `verify:package` now runs it after the build, so `npm pack` and `npm publish` refuse
+rather than ship. Its detector is in `tests/helpers/credentialScan.ts` — test-side on purpose,
+because a release-boundary scanner is not a product feature and putting one in `src/` would
+enlarge the very surface this scan exists to protect. Three boundaries, each asserted with a
+coverage floor so an empty scan cannot pass: **package** — the 448 entries from npm's own
+`pack --dry-run --json --ignore-scripts`, read back from disk (2,793,713 bytes of text, 333 of
+them `.map` or `.d.ts`), with `sourcesContent` required to be absent and the packed roots equal to
+`dist`, `BharatCode.txt`, `README.md`, `LICENSE`, `package.json`; **tracked tree** — 138 tracked
+files outside `tests/` (293 in total); **history** — 45,986 added lines across 150 reachable
+commits and 138 distinct paths, outside `tests/`. Results at this checkout: **0 findings in the
+package**, and exactly **1** in the tree and **1** in history — the deliberately fake bearer key
+named in this file's own S12-17 entry, which the allowlist pins as an exact set so a second one
+fails the build. `tests/` is excluded from the last two boundaries and the exclusion is itself
+pinned: fixtures plant credentials by design, and what makes their exclusion safe is that
+`tests/` never ships, re-asserted against the inventory rather than inherited from memory.
+Control tests prove the detector reports all 8 families it claims, that no finding carries the
+value it found, and that the drift between this scan's name list and the built redactor's fails.
+Seven anti-vacuity mutations were each witnessed failing and restored byte-for-byte: dropping a
+shape family, adding a header name the redactor does not have, planting a key in `dist/index.js`,
+planting one in a tracked non-shipped source file, inverting the inert-value predicate, widening
+the history pathspec to include `tests/` (62 findings), and stripping `--ignore-scripts`. The
+first six produced the expected failures; the seventh initially passed, which found a real gap —
+the masking-invariance corpus exercised only the shell-assignment route, so a quoted route that
+echoed a value would not have been caught, and the corpus now carries both. Two named limits,
+documented where the code is: an unquoted bare word after a colon reads as a type or reference
+position and is not reported (that kind is reached by the shape families and the runtime-value
+check), and the scan reads text at the paths npm lists, so a credential hidden in a binary
+payload would not be seen.
 
 ## S12-25 — documentation states properties stronger than the source proves (§51)
 

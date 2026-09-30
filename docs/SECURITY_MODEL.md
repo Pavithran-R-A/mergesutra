@@ -1217,6 +1217,35 @@ be given exact runtime secret values for literal masking.
   places it can (recorded limitations), and asserts both that nothing survives and
   that the repository-relative rows a reviewer needs are still there.
 
+**Nothing that ships carries a credential, and that is a different claim from the mask.** Every
+bullet above is about *runtime* text — what this build prints while it works. Whether a
+credential reaches a customer is decided at the release boundary, and the mask cannot answer it:
+its patterns fire at 74 positions in the shipped artifact and every one of them is a code
+position (a type annotation, an optional field, a property access, a union of two string literal
+types), which is correct for a mask and useless for a detector. So
+`tests/security/credential-boundary.test.ts` re-derives and re-scans three
+boundaries on every run, reporting only where a value is what carries the secret — an
+unambiguous shape (a prefix-bearing token, PEM material) or a literal right-hand side:
+
+- **the package**: the entries npm itself says it would pack, read back from disk, source maps
+  and declaration files included, with an embedded `sourcesContent` required to be absent;
+- **the tracked tree outside `tests/`**, which is what a visitor reads and where a hand-written
+  example key tends to live;
+- **history**: every line ever added outside `tests/`, across every reachable commit, because
+  that is what a clone carries.
+
+`tests/` is excluded from the last two, and the exclusion is pinned rather than assumed — the
+fixtures plant credentials deliberately, and what makes their exclusion safe is that `tests/`
+never ships, which the same file re-checks against the inventory. The one credential-shaped
+string found anywhere in the tree or the history outside `tests/` is the deliberately fake key
+named in `docs/SECURITY_GAP_REGISTER.md`'s S12-17 entry; the scan's allowlist is that single
+row, asserted as an exact set, so a second one fails. Control tests prove the detector sees
+every family it claims and that a finding never carries the value it found. Two named limits:
+an unquoted bare word after a colon (`password: ` plus a short word) reads as a type or
+reference position and is not reported — that kind is reached by the shape families and by the
+runtime-value check, not by the literal predicate; and the scan reads text files at the paths
+npm lists, so a credential hidden inside a binary payload would not be seen by it.
+
 ## 7. Model/provider availability
 
 BharatCode is shared and may be unavailable or rate-limited. Handled with
@@ -1443,7 +1472,10 @@ about `files`, because `files` is the field that decides.
 **`prepack` binds the artifact to the source, and it does so before the tarball exists.**
 `prepack` runs for `npm pack`, `npm pack --dry-run` and `npm publish`, and npm creates no
 tarball if it exits nonzero. It is `npm run verify:package`, which is `npm run build`
-(`tsc -p tsconfig.build.json`) followed by the focused verifier. The order is the whole
+(`tsc -p tsconfig.build.json`) followed by the two verifiers that define the release boundary:
+`tests/security/publish-contents.test.ts`, which decides *surface* (which files, and whether they
+are current with this source), and `tests/security/credential-boundary.test.ts`, which decides
+*content* (whether any byte in that surface carries a credential). The order is the whole
 point: build first, so the bytes that get packed are compiled from the source that is
 currently in the tree, then verify, so the verifier measures the same tree npm is about to
 pack. Without the build step, `npm pack` would faithfully ship whatever `dist/` happened to
@@ -1457,9 +1489,10 @@ package, not a refused one, because npm does not read `bin`.
 
 The verifier must not recurse through its own measurement, so the inventory it reads comes
 from `npm pack --dry-run --json --ignore-scripts` — `--dry-run` writes no tarball and
-`--ignore-scripts` keeps `prepack` from re-entering itself. A test asserts both flags are
-present at the single call site, because a silently-reintroduced lifecycle script is the
-way this loop comes back.
+`--ignore-scripts` keeps `prepack` from re-entering itself. Each verifier asserts, against its
+own source text, that the one npm call it makes carries both flags and that no second npm call
+exists in that file, because a silently-reintroduced lifecycle script is the way this loop
+comes back.
 
 **Staleness is refused, never cleaned.** The artifact expectations are *derived*, not
 counted: the module set comes from `src/**/*.ts` (111 modules) and the emit extensions come
