@@ -2188,32 +2188,89 @@ the reconnaissance held. **REMOTE MUTATIONS: NONE.**
 
 ## S12-23 — Git hooks: what is actually true
 
-**Claim.** Not a gap in the code so much as a claim that must not overstate. Measured:
+**Claim.** Not a gap in the code so much as a claim that must not overstate — and
+this entry is the record of one that did, twice, in opposite directions.
 
-- No hook-firing verb is ever spawned. Every git argv is observation or `worktree add`:
-  `rev-parse` variants, `cat-file`, `status --porcelain`, `check-ignore`, `worktree add/list`,
-  `diff --name-status --no-renames --no-ext-diff -z`, `ls-files --others -z`, `diff --check`,
+**What the original wording got wrong, and what replaces it.** The entry as written
+at reconnaissance time led with an unscoped sentence asserting that no verb capable of
+firing a hook is ever spawned in this repository, and backed it with a grep-based claim
+that no `hooksPath` write exists at all. Both were read the wrong way round, and the
+measurement corrected them:
+
+- **Unscoped is false.** `tests/helpers/git.ts:38-47` writes a *local* `core.hooksPath`
+  into every temporary repository it builds, and so does
+  `tests/security/hook-firing-verbs.test.ts` and, after this item,
+  `tests/git/workspace.test.ts:332-347`. Those writes are test-fixture configuration in
+  a throwaway repository, pointed at an empty directory so Git finds no hook to run.
+  They exist precisely so that a test cannot inherit this machine's global
+  `core.hooksPath` and silently execute the operator's hook tooling. The grep the
+  original entry cited had simply looked in `src/` and reported the whole repository.
+- **Scoped is true, and is now a test.** No `src/` module spawns a commit-capable or
+  rewriting verb. The product's Git argv is observation plus one `worktree add`:
+  `rev-parse` variants, `cat-file`, `status --porcelain`, `check-ignore`,
+  `worktree add`/`worktree list --porcelain`, `diff --name-status --no-renames
+  --no-ext-diff -z`, `ls-files --others -z`, `diff --check`,
   `config --get remote.origin.url`, `--version`
-  (`src/git/workspace.ts:104,114,155,163-170,207,226,236,247`, `src/lifecycle/observe.ts:195,207,339`,
-  `src/verify/patch.ts:191,215`, `src/review/context.ts:431-440`, `src/intake/local-repo.ts:69-87`,
-  `src/cli/doctor.ts:51`). `commit`/`apply`/`am`/`rebase`/`clean`/`gc`/`prune`/
-  `filter-branch`/`push`/`checkout` appear nowhere as a spawn; the destructive set is
-  refused at `src/process/tool-policy.ts:186,308-315` and `push` is REMOTE_MUTATION
-  (`:100-102`). No `git push` exists in the codebase (`src/pr/publisher.ts:113-121` throws).
-- `config` is only ever `--get` (READ, `:103-108`); no `hooksPath` write exists (zero greps);
-  `-c`, `--git-dir`, `--work-tree`, `--exec-path` are refused as hostile global options
-  (`:143-153,341-343`).
-- This machine's environment, read literally: `core.hooksPath` =
-  `C:/Users/Pavithran R A/.codex/git-hooks`, origin `file:C:/Users/Pavithran R A/.gitconfig`,
-  containing `commit-msg`, `pre-commit`, `pre-push`, `pre-commit.old`, `pre-push.old`. That is
-  an operator-level Qoder hook, not a repository-supplied one.
+  (`src/git/workspace.ts:104,114,155,163,170,207,226,236,247`,
+  `src/lifecycle/observe.ts:195,207,339`, `src/verify/patch.ts:96,108,192,215`,
+  `src/verify/workspace.ts:47`, `src/review/context.ts:439`,
+  `src/intake/local-repo.ts:69-86`, `src/cli/doctor.ts:52`). The line numbers had also
+  drifted; they are re-measured here. `git push` is REMOTE_MUTATION
+  (`src/process/tool-policy.ts:102-104`) and no production module imports the publisher,
+  whose only transport throws (`src/pr/publisher.ts`).
+- **The classification half is unchanged, by owner decision D1.** `commit` stays WRITE,
+  `worktree add` stays WRITE, `worktree list` stays READ, `am`/`clean`/`checkout -- .`
+  stay DESTRUCTIVE (`:136`, `:207-218`), and the destructive set is refused at
+  `:476-483`. `git commit --no-verify` measures WRITE, because `FORCEFUL_FLAGS`
+  (`:188`) is consulted only on the push branch (`:103`) — which is why that property is
+  carried by a source-shape guard rather than by the policy, and why the guard exists.
+  `config` is only ever `--get` (READ, `:106-111`); `-c`, `--git-dir`, `--work-tree`,
+  `--exec-path` are refused as hostile global options (`:156-166,168-182`). No
+  hook-bypass or hook-redirect form is authored in `src/`, and the guard fails the build
+  if one is introduced; adding one takes an explicit policy decision first.
 
-**Verdict, at its actual width.** A repository-supplied hook *can* run in one indirect path: a
-consented gate is `npm run <script>` whose body this build never inspects, and if that body
-invokes `git commit`, git fires whatever hooks the operator's config points at. MergeSutra's
-own commands do not fire hooks. Closure: **DOCUMENT** at that width (§29: "do not claim no
-hooks can ever run without evidence"), plus a `TEST` in the source-shape suite that keeps the
-"no hook-firing verb is ever spawned" property from rotting silently.
+**The hook this build can actually fire, measured rather than inferred.** The one
+mutating Git verb it authors is `git worktree add -b <branch> <path> <baseSha>`
+(`src/git/workspace.ts:163`), and Git documents that that verb performs a checkout and
+then fires `post-checkout`. Exercised end-to-end through `prepareWorkspace` against a
+throwaway repository with a controlled hook: `git worktree add` does fire the operator's
+`post-checkout` hook, and the arguments the hook recorded were the all-zero SHA, the
+run's base SHA, and `1`. The exit-status consequence is the sharper half of the
+measurement: Git creates, checks out and registers the worktree *before* running the
+hook, so a hook exiting non-zero makes the whole command fail after the workspace
+already exists. `src/git/workspace.ts:170-177` reads that code and refuses with "git
+could not create the workspace (3)" about a workspace that does exist at the recorded
+base, on the run's own branch — and blames another process holding the repository. The
+next call to the same function finds it registered and returns it as `reused: true`, so
+the divergence is in the report, not in the state. Owner decision D1 keeps this
+documented rather than reclassified, and D3 required the evidence be preserved rather
+than cleaned away to make the story neat; `tests/security/hook-firing-verbs.test.ts`
+asserts all of it, including the misleading message and the `git worktree list` row.
+
+**Environment, read literally.** This machine's `core.hooksPath` is
+`C:/Users/Pavithran R A/.codex/git-hooks`, configured in
+`file:C:/Users/Pavithran R A/.gitconfig`, containing `commit-msg`, `pre-commit`,
+`pre-push`, `pre-commit.old`, `pre-push.old` — an operator-level Qoder hook, not a
+repository-supplied one. Per owner decision D4 the two 10-byte `.git/hooks/post-checkout`
+and `post-commit` files found on the real checkout are report-only: not edited, not
+deleted, not investigated further. Per D5 the "Can't find lefthook in PATH" npm lifecycle
+fact stays register-only; no doctor feature was added. Per D7 every measurement here is
+Windows/Git Bash evidence only, and none of it implies Linux or macOS corroboration —
+including the finding that on this host a hook's stdout and stderr do not reach the
+captured streams through `src/core/runner.ts`, which the test asserts only under a named
+`process.platform === 'win32'` arm.
+
+**Verdict, at its actual width.** The product neither commits nor pushes, and the only
+hooks it can cause to run are the operator's own, fired by Git from `git worktree add`
+(or, indirectly, from a consented `npm run` whose body npm interprets — S12-22). Hook
+output is data, never authority: it arrives bounded to one 120-character line in an
+error's `details` field and cannot author a verdict, a status string, or a piece of
+evidence. **CLOSED — TEST + DOCUMENT.** `tests/security/hook-firing-verbs.test.ts`
+(25 cases: the whole-`src/` argv and bypass-form guard with its planted positive
+control, the fixture-seal enumeration, the classification pins kept by D1, and the real
+`worktree add` → `post-checkout` matrix over a temporary repository) plus the
+`docs/SECURITY_MODEL.md` §9 subsection *Git hooks are the operator's code, not
+MergeSutra's*. No production behaviour changed.
 
 ## S12-24 — credential scan: clean, with the false positives named
 
@@ -2261,8 +2318,8 @@ attack is by what the gap makes possible in this build's own execution path:
 The order above is the order the register was written in, and it is now stale in two ways.
 **Closed in this stage, each with its own entry and its own measured drive:** S12-01, S12-02,
 S12-03, S12-04, S12-05, S12-06, S12-07, S12-08, S12-09, S12-10, S12-11, S12-12, S12-13, S12-14,
-S12-15, S12-16, S12-17, S12-18, S12-19, S12-20, S12-21, S12-22. **Still open:**
-S12-23, S12-24, S12-25.
+S12-15, S12-16, S12-17, S12-18, S12-19, S12-20, S12-21, S12-22, S12-23. **Still open:**
+S12-24, S12-25.
 
 S12-09 was closed by `82d2958` (CODE + TEST) earlier in this stage; it sat in the open list
 below only because the ranking was not updated when that entry was written up. Its remaining
@@ -2279,8 +2336,20 @@ cannot tell this program's structure from a stranger's.
 
 Ranked by what each remaining gap makes possible in this build's own execution path:
 
-1. **S12-23, S12-24, S12-25** — proof-and-wording closures: hooks, the credential-scan result, and
+1. **S12-24, S12-25** — proof-and-wording closures: the credential-scan result, and
    documentation stronger than the source.
+
+*Correction (2026-09-30, closing S12-23).* S12-23 left this list closed as TEST + DOCUMENT, and
+it closed in a shape the original entry did not predict. The entry had filed the hook question as
+a claim about which verbs get spawned; the measurement the closure required was of what Git does
+with the one verb this build *does* spawn. `git worktree add` fires the operator's
+`post-checkout`, a hook's exit status becomes that command's exit status after Git has already
+created and registered the workspace, and the entry's own backing claims — a verb-spawning
+claim stated with no scope, and a grep-based assertion that no `hooksPath` write exists
+anywhere in the repository —
+were both false of the repository they described. The corrected entry names which half is a
+`src/` property, which half is a test-fixture property, and which half is measured on
+Windows/Git Bash only.
 
 *Correction (2026-09-30, closing S12-20).* S12-20 left that list because it closed in the shape the
 original order predicted — DOCUMENT + TEST, no new machinery. The correction this entry needs is

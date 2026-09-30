@@ -1324,6 +1324,94 @@ any remote change.
   interrupted in a way that loses a write, and recovery's promise is that the result is
   legible and continuable, not that it never happens.
 
+### Git hooks are the operator's code, not MergeSutra's
+
+A repository's hook directory is executable code the operator owns, and Git runs it
+when Git decides to, not when MergeSutra does. This subsection draws that boundary
+precisely, because the wording S12-23 first filed for it — that no verb able to fire
+a hook is ever spawned — was too broad in one direction (the test suite builds
+commits), too narrow in another (it said nothing about the verb that does reach a
+hook), and left a
+reader free to conclude something this build has not measured. The check is
+`tests/security/hook-firing-verbs.test.ts`; the facts it states are these.
+
+- **This build authors no commit and no push.** No module under `src/` puts either
+  verb in front of the runner, and the guard enumerates every Git argv site in the
+  tree so that stays a measured property rather than a review opinion. The hooks a
+  commit or a push would fire — `pre-commit`, `prepare-commit-msg`, `commit-msg`,
+  `pre-push` — are consequently not reached by any product command.
+- **The one mutating verb this build authors, `git worktree add`, can fire the
+  operator's `post-checkout` hook.** The argv is
+  `['worktree', 'add', '-b', branch, workspace, baseSha]` at
+  `src/git/workspace.ts:163`; Git's own documentation says that verb checks the
+  recorded commit out and then runs `post-checkout` with the previous HEAD, the new
+  HEAD, and `1` to say the checkout came from a worktree addition. Measured here
+  against a throwaway repository whose hook directory the test controls, the hook did
+  run during `prepareWorkspace`, and the three arguments it recorded were the
+  all-zero SHA, the run's base SHA, and `1`. That is operator code executing while a
+  run is being set up, and no section of this document claims otherwise.
+- **A second, indirect route to operator code exists outside the argv rules
+  altogether:** the npm package-script gate documented under §3 as *npm package
+  scripts are a second interpreter* (S12-22). A discovered repository gate is run as
+  `npm run <name>`, npm re-parses the script body with its own shell, and whatever
+  that body calls — a project hook runner included — is behind npm's interpreter
+  rather than behind this build's argv parser. Consent to run a gate covers that body
+  as repository code; it is not evidence that MergeSutra inspected each operation in
+  it.
+- **Hook output is data, never authority.** Whatever a hook prints on stdout or
+  stderr is read by this product only as bounded diagnostic text attached to a
+  failure — `bound()` at `src/git/workspace.ts:281` collapses newlines and caps the
+  value at 120 characters — and no line a hook wrote can become a MergeSutra verdict,
+  status string, evidence record, or approval. The guard plants a hook that prints an
+  approval and a MergeSutra-shaped status line and asserts that neither phrase appears
+  in the value returned or the error raised.
+- **A hook's exit status becomes the Git command's exit status, so a non-zero
+  `post-checkout` can make `worktree add` fail after Git has already created the
+  workspace.** Git builds the worktree, checks out the base commit and registers it,
+  and only then runs the hook; a hook exiting `3` therefore surfaces as exit `3` on a
+  command that succeeded in its own work. `src/git/workspace.ts:170-177` reads that
+  code and refuses, so the reported result is a refusal naming a workspace that in
+  fact exists at the recorded base — and the next call finds it registered and
+  returns it as reused. Stage 12 keeps that as a disclosed behaviour rather than a
+  fix: this item is test and documentation, and silently treating a created workspace
+  as though the command had failed would mean the product deciding to disbelieve
+  Git's exit status on the one path that creates files.
+
+Two properties make the boundary checkable rather than merely described.
+
+- **The bypass forms are a source-shape property, not a policy outcome.** `decideTool`
+  does not refuse `git commit --no-verify`; it classifies that command WRITE, because
+  `FORCEFUL_FLAGS` (`src/process/tool-policy.ts:188`) is consulted only on the push
+  branch (`:103`). So "no hook-bypass or hook-redirect form is authored here" rests on
+  the guard: it reads every array in `src/` whose first token is a Git verb and fails
+  on `--no-verify`, `--no-checkout`, a bare `-c`, anything naming `hooksPath`, and
+  anything naming a hook path to execute — alongside the list of commit-capable and
+  rewriting verbs it refuses outright. Introducing one of those forms is not a quiet
+  edit then; it takes an explicit policy decision, written up in this section and in
+  the register, before the build will carry it.
+- **Every test repository seals itself against this machine's global hook
+  configuration.** Each temporary repository the suite builds writes a *local*
+  `core.hooksPath` pointing at an empty directory of its own —
+  `tests/helpers/git.ts:38-47`, `tests/git/workspace.test.ts:332-347`, and the fixture
+  in the new test — so an operator's global hook tooling cannot turn a test run into
+  unreviewed code execution. The value is written into the throwaway repository's own
+  config; nothing here edits a user's global or local configuration, and nothing here
+  touches a real checkout's `.git/hooks`.
+
+What remains outside the guarantee is stated rather than smoothed over. The
+measurement above was made on Windows under Git Bash with Git for Windows, and it is
+evidence about that environment only; nothing here is corroborated on Linux or macOS.
+The one platform-specific detail the guard refuses to assert globally: on this host,
+through `src/core/runner.ts`, a hook's own stdout and stderr do not surface in Git's
+captured streams, while the same command in an interactive Git Bash session shows both
+on Git's stderr. So the pinned invariants are platform-independent — the refusal, its
+`validation` kind, the one-line bound detail — and the absence of foreign bytes from
+that detail is asserted only under a named `process.platform === 'win32'` arm. A hook
+can still do whatever the operator's filesystem permissions allow, exactly as it can
+for a human's own `git worktree add`: §4's opening rule holds that a worktree is an
+isolation convenience, and this section claims no protection against code the operator
+installed themselves.
+
 ## 10. What the package that ships contains, and what binds it to this source (Stage 12)
 
 Everything before this section is about bytes MergeSutra *executes*. This one is about

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { AppError } from '../../src/core/errors.js';
@@ -332,10 +332,16 @@ async function hasGit(): Promise<boolean> {
 async function realRepository(ignored: boolean): Promise<string> {
   const repo = await makeFixtureTree({ 'README.md': '# datekit\n' });
   if (ignored) await writeFile(path.join(repo, '.gitignore'), '.mergesutra/\n', 'utf8');
+  // Sealed against this machine: a temporary repository otherwise inherits the operator's
+  // global `core.hooksPath`, and the `git commit` below would run their tooling inside a
+  // test. The value is written into this repository's own config, never into the user's.
+  const hooks = path.join(repo, '.no-hooks');
+  await mkdir(hooks, { recursive: true });
   const steps: readonly (readonly string[])[] = [
     ['init', '-q'],
     ['config', 'user.name', 'MergeSutra Test'],
     ['config', 'user.email', 'test@mergesutra.invalid'],
+    ['config', 'core.hooksPath', hooks],
     ['add', '.'],
     ['commit', '-q', '-m', 'base'],
   ];

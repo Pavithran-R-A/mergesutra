@@ -122,14 +122,23 @@ const GIT_INSIDE = /^\s*['"]git['"]\s*[,\]]/;
  * A value the source does not write out becomes `'value'`, not nothing: git reads
  * its arguments by position, so dropping `-C`'s directory would promote the next
  * flag into the subcommand's seat and classify a command that does not exist.
+ *
+ * Either quote style counts as written out. The anchors above already match both,
+ * and a reader that honoured only the style prettier prefers would let the same
+ * command read as a clean site or as a finding depending on where an apostrophe
+ * happened to sit in it.
+ *
+ * Exported for `tests/security/hook-firing-verbs.test.ts`, which also reads arrays
+ * built as a local value and handed to a runner later — those have no call anchor
+ * next to them, so the scanner inside `constructions` cannot see them.
  */
-function argvOf(contents: string): { tokens: string[]; open: boolean } {
+export function argvOf(contents: string): { tokens: string[]; open: boolean } {
   const tokens: string[] = [];
   let open = false;
   for (const element of splitElements(contents)) {
-    const literal = /^'([^'\n]*)'$/.exec(element);
+    const literal = /^'([^'\n]*)'$|^"([^"\n]*)"$/.exec(element);
     if (literal) {
-      tokens.push(literal[1] ?? '');
+      tokens.push(literal[1] ?? literal[2] ?? '');
       continue;
     }
     // A spread or an interpolation leaves the command only partly known here, and a
@@ -145,7 +154,7 @@ function argvOf(contents: string): { tokens: string[]; open: boolean } {
 }
 
 /** Split an array literal's body on its commas, ignoring those inside a string. */
-function splitElements(contents: string): string[] {
+export function splitElements(contents: string): string[] {
   const out: string[] = [];
   let quote = '';
   let depth = 0;
@@ -182,7 +191,7 @@ function splitElements(contents: string): string[] {
  * pattern that stopped at the first would end the scan early in silence. A command
  * cut off mid-argv looks exactly like a command that was never there.
  */
-function arrayBody(text: string, open: number): string | null {
+export function arrayBody(text: string, open: number): string | null {
   let quote = '';
   for (let i = open + 1; i < text.length; i += 1) {
     const char = text[i];
