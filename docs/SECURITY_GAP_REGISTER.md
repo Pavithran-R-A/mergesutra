@@ -1932,12 +1932,81 @@ without it, and §14's "no live credential" rule is untouched by any of this.
 
 `tests/repair` + `tests/review` after the change: 21 files, 320 tests, 1 skipped, exit `0`.
 
-### S12-20 — `BharatCode.txt` asserts a submission status the build does not have
+### S12-20 — `BharatCode.txt` asserted a submission status the build does not have — CLOSED (DOCUMENT + TEST)
 
-Root `BharatCode.txt` (335 bytes, quoted in full in the §42 audit) says
-`Status: BharatCode Build League Round 1 submission.` — the project has not been submitted
-and Stage 12 forbids submitting it. Closure: DOCUMENT (accurate status line + a presence and
-safe-contents test, §42/§59).
+**Claim.** The root note this package ships said, in the present tense, that the project *is* a
+"submission" — a completed act no part of this build performs, in a file no gate read.
+
+**Source and history.** `BharatCode.txt`, added once in `c62cddb` (2026-09-24) and untouched until
+this pass: 335 bytes, sha256
+`5195faa08eacc967e927f304d614e55b6e76034b9435d9fa573073aa68b70dc7`. The pre-fix line 8 is kept here
+as historical evidence, labelled as the statement it was and not as the statement it is:
+
+> `Status: BharatCode Build League Round 1 submission.`
+
+*(The original entry cited "quoted in full in the §42 audit" and promised a test at "§42/§59". Those
+are sections of the external Stage 12 brief, not paths in this repository — `git grep Tagline`
+resolves only to `BharatCode.txt:5`, so the full text is quoted nowhere in the checkout, and the
+promised test did not exist. Both pointers are dropped rather than left to resolve to nothing.)*
+
+**Why the file still ships.** It is in `files` (`package.json:41`) and S12-12 measured it among the
+448 packed entries; it ships deliberately. This pass changed the sentence, not the shipping, and no
+packaging machinery was touched.
+
+**The document, as closed.** One line replaced; lines 1-7 byte-identical, LF endings, no byte-order
+mark; now 356 bytes, sha256
+`ea9526be9e073f95605708de91a2df16c867b10b0e00c8c6d2caa78cfd7b28a0`.
+
+> `Status: Built for BharatCode Build League — Round 1 (CLI Agent track).`
+
+Three things stay separate, and the wording keeps them from collapsing into one another. The
+**repository fact**: built for Round 1 on the CLI Agent track — the theme, track and runtime named in
+the file, with the adapter that uses that runtime in `src/bharatcode/`. The **repository limitation**:
+no completed submission is evidenced by this repository — no remote is configured, nothing in `src/`
+submits anything, and §53 forbids the remote mutation one would require. And the **deliberate silence
+beyond that**: what happened outside this checkout is not evidence here in either direction, so the
+note records neither "submitted" nor "not submitted" nor "pending" — a negative status is still a
+status, and a present-tense line has to be one this build can keep true.
+
+**The test, as closed.** `tests/security/submission-status.test.ts`, 6 cases, no sentence
+snapshotted: the note is an ordinary file at the root; it stays under one explicit 512-byte bound; it
+carries no byte a terminal or a line reader obeys invisibly — the S12-11 `expectInert` control
+vocabulary, so no second definition of "control" is invented here — and opens with no byte-order
+mark; every non-empty line begins a flat `Key: value` entry with a non-empty value, with only wrapped
+values continuing; exactly one `Status` entry exists; and no entry value matches the
+completed-outcome vocabulary (`submission(s)`, `submitted`, `finalist(s)`, `shortlist(ed)`,
+`winner(s)`, `we won`, `selected for|as|into`, `placed first|second|third`). It scans every entry
+rather than only `Status`, because a claim unsupported in one field is not made supportable by
+renaming it into another. Whether the file ships stays `publish-contents.test.ts`'s business and is
+not re-asserted; credential shapes are S12-24's scan and are not looked for.
+
+**Anti-vacuity.** Three mutations of the note, each restored byte-for-byte to `ea9526be…` with the
+restore re-run: the pre-fix line 8 in place → `asserts no completed competition outcome in any entry`
+red, 1 failed / 5 passed, exit `1`, naming `Status matches /\bsubmissions?\b/i` against the original
+sentence; the `Status` line deleted → `holds exactly one Status entry` red, exit `1`; an unkeyed line
+prepended → `opens every entry with a flat key and leaves nothing unkeyed` red, exit `1`. Restored:
+6 passed, exit `0`.
+
+*How the failure was witnessed, stated plainly.* A first cut of the test file was run against the
+original 335-byte note and failed on the status case alone, which is the RED this item needed. That
+cut then grew a README case and kept a shape assertion that did not yet discriminate, so the file was
+rebuilt to the committed six cases and the single-cause RED was **re-witnessed on the final file**,
+against the pre-fix bytes restored from a saved copy (exit `1`, 1 failed / 5 passed), followed by
+GREEN on the committed note. The numbers above are from that re-run. One more thing happened and is
+recorded rather than smoothed over: partway through, a tool result reported `BharatCode.txt` as still
+335 bytes carrying the old sentence, when the file on disk was already the 356-byte rewrite — a
+stale or fabricated reading, contradicting three later independent measures of the same path
+(`node`, `git status`, `git diff`). Nothing was committed on the strength of that reading; the
+filesystem was re-measured and won.
+
+**Limits this closure does not claim.** The README's `## Hackathon disclosure` ships beside the note
+and is deliberately unchanged — its wording is intent-shaped ("Built for the … Round 1", "Winning is
+pursued through product quality and honest documentation") and asserts no completed act — but it is
+guarded by review only, not by any assertion in CI, so a future edit turning it into a result claim
+would be caught by a reader rather than by a gate. The note's other fields still describe the project as of
+Stage 4 and were left alone by decision. `docs/` is not packed, so `PRODUCT_SPEC.md` §11 and
+`ROADMAP.md:20` carry no published impact. Whether the round is open, judging, or closed is outside
+this repository's knowledge and is recorded nowhere in it.
 
 ---
 
@@ -1963,7 +2032,7 @@ safe-contents test, §42/§59).
 | 35 | PR draft sanitization — `src/pr/draft.ts` uses `redactText`; the control-character route is closed by S12-11 (the page is escaped at display, and the value fold removes a foreign line break before it can start a section), and the markdown-*structure* route on the same page was closed by S12-21, which renders every outside value inert at the sink |
 | 36, 37, 38 | S12-15; catalog TOCTOU at `client.ts:241-246` + config `:74`; key is header-only `client.ts:161` with `Redactor([apiKey])` `:106` → **TEST-only** unless a sink leaks |
 | 39, 40, 41 | S12-12 — closed: §39/§40's inventory and install procedure were measured (`tests/security/publish-contents.test.ts`, 24 cases, plus a one-off offline install into an isolated temporary prefix), §41's README wording was re-checked and already promised no global install |
-| 42, 43, 44, 45 | S12-20; credential scan of tracked files *and* reachable history; `commander`/`zod` runtime-only (ADR-009 re-check); LICENSE/metadata coherence |
+| 42, 43, 44, 45 | S12-20 — closed: the shipped note's status line was rewritten and its shape, size and outcome vocabulary are now asserted (`tests/security/submission-status.test.ts`, 6 cases); credential scan of tracked files *and* reachable history (§43, S12-24, still open); `commander`/`zod` runtime-only (ADR-009 re-check, S12-24); LICENSE/metadata coherence |
 | 46, 47, 48, 49 | Platform-aware skipping named explicitly (S12-10), invariant manifest, optional `npm run test:security`, seeded property tests |
 | 50, 51, 52, 56, 57, 58, 59, 60, 61, 62 | Process, not gaps; §51's wording sweep is the documentation half of every entry above |
 
@@ -2192,7 +2261,7 @@ attack is by what the gap makes possible in this build's own execution path:
 The order above is the order the register was written in, and it is now stale in two ways.
 **Closed in this stage, each with its own entry and its own measured drive:** S12-01, S12-02,
 S12-03, S12-04, S12-05, S12-06, S12-07, S12-08, S12-09, S12-10, S12-11, S12-12, S12-13, S12-14,
-S12-15, S12-16, S12-17, S12-18, S12-19, S12-21, S12-22. **Still open:** S12-20,
+S12-15, S12-16, S12-17, S12-18, S12-19, S12-20, S12-21, S12-22. **Still open:**
 S12-23, S12-24, S12-25.
 
 S12-09 was closed by `82d2958` (CODE + TEST) earlier in this stage; it sat in the open list
@@ -2210,8 +2279,17 @@ cannot tell this program's structure from a stranger's.
 
 Ranked by what each remaining gap makes possible in this build's own execution path:
 
-1. **S12-23, S12-24, S12-25, S12-20** — proof-and-wording closures: hooks, the credential-scan
-   result, documentation stronger than the source, and `BharatCode.txt`'s submission status.
+1. **S12-23, S12-24, S12-25** — proof-and-wording closures: hooks, the credential-scan result, and
+   documentation stronger than the source.
+
+*Correction (2026-09-30, closing S12-20).* S12-20 left that list because it closed in the shape the
+original order predicted — DOCUMENT + TEST, no new machinery. The correction this entry needs is
+about its own wording, though: the line it filed as fact, "the project has not been submitted", was a
+claim about the world rather than about the checkout, which is exactly the fault S12-25 catalogues.
+What this repository can say is that no completed submission is evidenced *by it*. Its two §42/§59
+pointers were also citations of the external Stage 12 brief written as though they resolved to files
+here, and the "presence and safe-contents test" it promised had never been written; the entry now
+names the test that exists instead.
 
 *Correction to the correction (2026-09-30, closing S12-12).* S12-12 has been removed from the
 ranked list above because it is now closed, and its closure refutes one prediction in the original

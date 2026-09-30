@@ -5,4 +5,4 @@ Runtime: BharatCode
 Tagline: Issue in. Evidence-backed PR out.
 Purpose: Turn GitHub issues into verified, contribution-ready pull-request
 drafts with traceable evidence for every acceptance criterion.
-Status: BharatCode Build League Round 1 submission.
+Status: Built for BharatCode Build League — Round 1 (CLI Agent track).
