@@ -843,10 +843,16 @@ directory.
 
 ## S12-09 — the proven-dead takeover has a read-then-write window (§19 asked exactly this)
 
-**Claim.** Two processes that both prove a lock dead can both end up believing they own it.
-The current code is weaker than the comment above it.
+**Status.** **CLOSED — CODE + TEST**, at `82d2958 fix(lifecycle): hold a takeover claim across
+the look that follows it`, an ancestor of the current HEAD. The four paragraphs below
+(**Claim**, **Source**, **Protection today**, **Missing**) are the **pre-fix `88cb7ce`
+diagnosis**, kept as written because the finding is what drove the fix; they do not describe
+this build. The current behaviour is the **Closed** block and the line map in it.
 
-**Source.** `src/lifecycle/lock.ts:213-246`, read in full at `88cb7ce`. Sequence:
+**Claim (as at `88cb7ce`).** Two processes that both prove a lock dead can both end up
+believing they own it. The code then was weaker than the comment above it.
+
+**Source (as at `88cb7ce`).** `src/lifecycle/lock.ts:213-246`. Sequence:
 `inspect` (`:213`) → liveness must be `GONE` to reach `:221` → `mkdir(claim)` (`:225`,
 EEXIST → `TAKEOVER_IN_PROGRESS` `:228`) → `writeOwner` (`:237`, temp+rename **into the
 existing lock directory**, which is never re-created) → `finally rmdir(claim)` (`:239`).
@@ -857,7 +863,8 @@ is removed at `:239`.
 (`:305`); `brokenFrom` records the previous owner (`:230-235`); age is never used as proof
 of death (`:408-419`, `processIsAlive` `:420-428`).
 
-**Missing.** Nothing re-checks, after acquiring the claim, that the owner record is still the
+**Missing (as at `88cb7ce` — this is the gap the fix closed).** Nothing re-checks, after
+acquiring the claim, that the owner record is still the
 dead one the contender proved. Contender B that ran `inspect` before A's write will see the
 old `GONE` owner; A removes the claim at `:239`; B's `mkdir(claim)` then succeeds and B's
 `writeOwner` renames over A's live record. Both hold handles; the last token wins release,
@@ -1987,21 +1994,23 @@ attack is by what the gap makes possible in this build's own execution path:
 
 The order above is the order the register was written in, and it is now stale in two ways.
 **Closed in this stage, each with its own entry and its own measured drive:** S12-01, S12-02,
-S12-03, S12-04, S12-05, S12-06, S12-07, S12-08, S12-10, S12-11, S12-13, S12-14, S12-15,
-S12-16, S12-17, S12-18, S12-19, S12-22. **Still open:** S12-09, S12-12, S12-20, S12-21,
+S12-03, S12-04, S12-05, S12-06, S12-07, S12-08, S12-09, S12-10, S12-11, S12-13, S12-14,
+S12-15, S12-16, S12-17, S12-18, S12-19, S12-22. **Still open:** S12-12, S12-20, S12-21,
 S12-23, S12-24, S12-25.
+
+S12-09 was closed by `82d2958` (CODE + TEST) earlier in this stage; it sat in the open list
+below only because the ranking was not updated when that entry was written up. Its remaining
+uncertainty — that the interleaving is arranged rather than driven against a real OS scheduler
+with two operating-system processes — is disclosed in the entry and is not a mechanism to add.
 
 Ranked by what each remaining gap makes possible in this build's own execution path:
 
-1. **S12-09** — the proven-dead takeover's read-then-write window. Corrupts a workspace and
-   therefore the evidence, and it is the entry the register already flagged as needing a real
-   mechanism rather than a wording fix.
-2. **S12-21** — the PR draft prints untrusted fields as markdown *structure*. S12-11 made the
+1. **S12-21** — the PR draft prints untrusted fields as markdown *structure*. S12-11 made the
    terminal unable to obey those bytes; this is the same shape one layer up, on the page that
    leaves the machine, where the reader is GitHub rather than a terminal.
-3. **S12-12** — published contents and install behaviour are unread, which is a claim about the
+2. **S12-12** — published contents and install behaviour are unread, which is a claim about the
    artifact rather than about a run. Procedure, not code.
-4. **S12-23, S12-24, S12-25, S12-20** — proof-and-wording closures: hooks, the credential-scan
+3. **S12-23, S12-24, S12-25, S12-20** — proof-and-wording closures: hooks, the credential-scan
    result, documentation stronger than the source, and `BharatCode.txt`'s submission status.
 
 *One correction while re-ranking:* item 5 of the original order names **S12-26**, and this
