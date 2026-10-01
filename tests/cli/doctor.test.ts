@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { runDoctor, formatDoctor, doctorAction, type Runner } from '../../src/cli/doctor.js';
 import { createRenderer } from '../../src/cli/render.js';
 import type { BharatCodeClient } from '../../src/bharatcode/client.js';
+import { NAMED_SECRET_ENV_NAMES } from '../helpers/credentialScan.js';
 
 const KEY = 'sk-doctor-SECRETNOTSHOWN-000';
 
@@ -81,6 +82,38 @@ describe('formatDoctor', () => {
     expect(text).toContain('MergeSutra doctor');
     expect(text).toContain('BharatCode key');
     expect(text).not.toContain(KEY);
+  });
+
+  it('prints no credential value this machine names, and echoes no gh auth output', async () => {
+    // What this screen promises about itself is about credential VALUES: one value for every
+    // named credential variable, plus the token line a real `gh auth status` prints on stdout.
+    const planted: Record<string, string> = {};
+    for (const name of NAMED_SECRET_ENV_NAMES) planted[name] = `sk-doctor-${name}-NOTPRINTED-000`;
+    const ghToken = 'ghp_DoctorAuthStatusLineMustNotBeEchoed1234567890';
+    const authRunner: Runner = async (file, args) => {
+      if (file === 'git') return { code: 0, stdout: 'git version 2.55.0', stderr: '' };
+      if (file === 'gh' && args[0] === 'auth') {
+        return {
+          code: 0,
+          stdout: `github.com\n  Logged in to github.com account someone\n  - Active token: ${ghToken}\n`,
+          stderr: '',
+        };
+      }
+      if (file === 'gh') return { code: 0, stdout: 'gh version 2.96.0 (2026-07-02)', stderr: '' };
+      return { code: 1, stdout: '', stderr: 'not found' };
+    };
+
+    const checks = await runDoctor({ env: planted, run: authRunner, nodeVersion: '24.0.0' });
+    const text = formatDoctor(checks, createRenderer({ color: false }));
+
+    for (const [name, value] of Object.entries(planted)) {
+      expect(text, `${name} reached the doctor screen`).not.toContain(value);
+    }
+    expect(text, 'stdout read off gh is not display copy for this screen').not.toContain(ghToken);
+    expect(statusOf(checks, 'GitHub auth'), 'the check still reports what it measured').toBe(
+      'PASS',
+    );
+    expect(text).toContain('GitHub auth');
   });
 });
 

@@ -1954,8 +1954,13 @@ promised test did not exist. Both pointers are dropped rather than left to resol
 packaging machinery was touched.
 
 **The document, as closed.** One line replaced; lines 1-7 byte-identical, LF endings, no byte-order
-mark; now 356 bytes, sha256
-`ea9526be9e073f95605708de91a2df16c867b10b0e00c8c6d2caa78cfd7b28a0`.
+mark; 356 bytes, sha256
+`ea9526be9e073f95605708de91a2df16c867b10b0e00c8c6d2caa78cfd7b28a0` at that closure. *(S12-25 later
+reworded the `Purpose` entry to drop a readiness claim, so lines 6-7 are no longer byte-identical to
+what S12-20 left: the note is now 371 bytes, sha256
+`cc79aeca50bc4e72ea2cb8cbc464cabb0ed715865692457ffd5be03dd641e481` — still flat `Key: value`, still
+one `Status`, still inside the 512-byte bound the test carries. The figures above are the state this
+entry closed in, not a current measurement.)*
 
 > `Status: Built for BharatCode Build League — Round 1 (CLI Agent track).`
 
@@ -2329,12 +2334,86 @@ payload would not be seen.
 
 ## S12-25 — documentation states properties stronger than the source proves (§51)
 
-Counts across `README.md` and `docs/*.md` at `88cb7ce`: `safe` 28, `contribution-ready` 4,
-`symlink-proof` 2, `sandboxed` 1, `crash-proof` 1, `cannot leak` 1, `never`/`always` 45 in
-`docs/SECURITY_MODEL.md` alone. Each of the six flagged absolutes must be either traced to a
-test that proves it or weakened; `symlink-proof` is contradicted by S12-10's own residual
-window and `crash-proof` by the Stage 11 §55 wording. **Closure: DOCUMENT.** The sentence
-"Git worktree isolation is not an OS sandbox" must survive the sweep.
+**The original reading, at `88cb7ce`.** Counts across `README.md` and `docs/*.md`: `safe` 28,
+`contribution-ready` 4, `symlink-proof` 2, `sandboxed` 1, `crash-proof` 1, `cannot leak` 1,
+`never`/`always` 45 in `docs/SECURITY_MODEL.md` alone. The prediction was that each flagged
+absolute would have to be traced to a test or weakened, and that `symlink-proof` was contradicted
+by S12-10's residual window while `crash-proof` was contradicted by the Stage 11 §55 wording.
+
+**What the sweep actually found.** Claim vocabulary was searched over every surface a customer or a
+buyer reads: `README.md` (21 candidate lines), `BharatCode.txt` (1), the eight other `docs/*.md`
+(143 — `SECURITY_MODEL` 48, `DECISIONS` 45, `ROADMAP` 23, `PRODUCT_SPEC` 13, `ARCHITECTURE` 6,
+`ACCEPTANCE_CONTRACT` 6, `COMPETITIVE_ANALYSIS` 2), and the doc comments that compile into shipped
+`dist/*.d.ts` (265 candidate lines across 81 files). 165 lines outside the register were read and
+sorted; nothing was replaced globally, and every edit below is one sentence at one location.
+
+- **Two were false, and the product itself refutes them.** `README.md:6` and `BharatCode.txt:6`
+  opened by promising "a verified, contribution-ready pull-request draft". `src/cli/status.ts:307`
+  prints `Contribution ready  never — no field in this build can set it`; `src/pr/candidate.ts:30`
+  says the words `CONTRIBUTION_READY` and `production ready` appear nowhere in what the tool emits;
+  `src/pr/draft.ts:123` strips them from a title or body if an issue supplies them;
+  `docs/PRODUCT_SPEC.md` §4 records the same refusal as a design decision (ADR-039). A promise that
+  uses a state word the program refuses is not marketing — it advertises a field the record cannot
+  carry. Both now say *evidence-backed*, which is the tagline the same two surfaces already used.
+- **Three were bounded truths wearing absolutes.** The README's command-table row for `doctor` and
+  `src/cli/program.ts:98`
+  claimed `doctor` diagnoses "never leaking secrets" / "without leaking secrets"; the mechanism
+  proves a narrower thing — `SafeConfigSummary` (`src/config/load-config.ts:93-100`) has no field
+  for the key, only `apiKeySource: 'environment' | 'none'`, and the one detail that can carry
+  foreign text routes through `redactor.text` (`src/bharatcode/client.ts:406`). Both strings now
+  name that: *the API key value is never printed*. The two doc comments that compile into
+  `dist/cli/doctor.d.ts` and `dist/config/load-config.d.ts` said "never leaks secrets" and
+  "secret-free description"; they now say the same narrower thing, because a `.d.ts` is a surface a
+  customer reads. The README's resume-screen section said the six cost rows mean a screen "is never
+  a screen that
+  read as safe" — the proven property is that no cost is ever missing from the row set, so that is
+  what it now says, and it is now tested rather than asserted (`tests/cli/resume.test.ts`, six
+  labels on two different plan kinds). `README.md:104` listed an "isolated worktree" first in the
+  safety harness, while `docs/SECURITY_MODEL.md:861` assigns the security guarantee to write
+  confinement and not to the worktree; the bullet now leads with confined writes and marks the
+  worktree as isolation for clarity, **not a sandbox**.
+- **The rest were negations, quotations, or already corrected.** 16 `sandbox` hits: every one is
+  "not a sandbox", "does not claim to be", or the detection pattern at
+  `src/security/injection-scan.ts:59`. 2 `crash-proof` hits: both inside a sentence saying the
+  product does not claim it (`docs/PRODUCT_SPEC.md:344`, `docs/ROADMAP.md:928`). 0 `symlink-proof`
+  hits outside this register's prose about the ban — S12-10 already removed the word. "impossible",
+  "perfectly", "100%" and "durable" occurrences are either quoted finding text, a caption on a
+  captured screen, or a negation ("the digest makes that visible, not impossible"). Retaining them
+  is the correct outcome: a sweep that edited them would have weakened precision to look thorough.
+- **One sentence was required to survive, and did.** "Git worktree isolation is not an OS sandbox"
+  is still at `docs/SECURITY_MODEL.md:1112-1113` (2 occurrences measured after the sweep).
+
+**Closure: TEST + DOCUMENT + WORDING.** `tests/security/promise-vocabulary.test.ts` (6 cases) holds
+the two promise surfaces — the README region before its first rule, and the note's `Tagline` and
+`Purpose` — to the vocabulary the product refuses, with a planted control per claim, a size and
+shape check so the locator cannot silently scan nothing, and a tie that fails if `src/pr/draft.ts`
+stops refusing the words the comparison depends on. It snapshots no sentence: an honest rewording
+keeps it green, a re-introduced readiness claim turns it red. `tests/cli/doctor.test.ts` gains one
+case — a value for every name in `NAMED_SECRET_ENV_NAMES`, plus the token line a real
+`gh auth status` prints, none of which may appear on the screen; `tests/cli/resume.test.ts` gains
+the six-row case. No existing assertion was weakened, and no wording was changed in `docs/ADR`
+history, the captured screens, or this register's own record of earlier claims.
+
+Six mutations were witnessed failing and each restored byte-for-byte (`sha256sum` before and after):
+`README.md:6` and `BharatCode.txt:6` in their pre-fix state (the two RED failures, which is how the
+sweep found the wording wrong); the note's `Purpose:` key renamed so the promise left the scanned
+field; a rule inserted so the README locator no longer finds a promise; `contribution_ready`
+removed from `src/pr/draft.ts`; `detail: 'signed in'` replaced by echoing `auth.stdout` in
+`src/cli/doctor.ts`; the API key value pasted into that same detail line; and the `Workspace` cost
+row deleted from `src/cli/resume.ts`.
+
+**Named limits.** (1) The guard covers the two *promise* surfaces, not the manual; the README's
+later sections earn their adjectives from a test or a captured screen nearby, and a vocabulary
+sweep over the whole manual would be prose policing. (2) The doctor claim is now about
+credential *values the tool reads*, and one path is deliberately outside it: a base URL configured
+as `BHARATCODE_API_BASE` is printed back as typed (`src/cli/doctor.ts:97`), so a credential an
+operator hides in that URL's userinfo is echoed to their own terminal. It is not stored in a run
+record or an evidence pack — `baseUrl` reaches no other sink (`src/bharatcode/client.ts:113,138`
+use it only to build requests) — and this pass changed no behaviour to chase it. If that echo is
+considered a leak worth closing, it is a code change with its own gap entry, not a wording fix.
+(3) `src/security/redaction.ts:4` still says the product "must never leak credentials"; that is a
+requirement on the module, not a claim that it is achieved, and §6 plus S12-24's scan are where the
+achieved part is measured.
 
 ---
 

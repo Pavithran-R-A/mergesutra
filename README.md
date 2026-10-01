@@ -3,8 +3,9 @@
 ### Issue in. Evidence-backed PR out.
 
 MergeSutra is a **BharatCode-powered CLI agent** that turns a GitHub issue into
-a verified, contribution-ready pull-request draft — and maps **every acceptance
-criterion to the evidence that proves it**.
+an evidence-backed pull-request draft — and maps **every acceptance criterion to
+the evidence for it**, naming what passed, what failed, and what no gate in the
+run could check.
 
 A normal coding agent says *"I fixed the issue."*
 MergeSutra says *"Here are the requirements, here is the patch, here is what
@@ -101,9 +102,10 @@ evidence chain the product:
 - **Criterion → change → verification → evidence** — traceable, not prose.
 - **Truthful gates** — `PASS` only if something really ran and succeeded;
   otherwise `FAIL` / `SKIPPED` / `NOT_AVAILABLE` / `BLOCKED` / `INCONCLUSIVE`.
-- **Safety harness above the model** — isolated worktree, risk-classified tool
-  policy, confined writes, central redaction, and **human approval before
-  any remote action**. `mergesutra implement` is the loop that uses them: the
+- **Safety harness above the model** — confined writes, a risk-classified tool
+  policy, central redaction, a worktree per run (isolation for clarity, **not a
+  sandbox**), and **human approval before any remote action**.
+  `mergesutra implement` is the loop that uses them: the
   model picks one action per turn from a closed list, and MergeSutra decides
   whether it runs at all. `mergesutra verify` then judges the result by exit
   codes, and `mergesutra review` reads those same bytes a second time — neither
@@ -1254,6 +1256,14 @@ No files were changed.
 The repair's edit is in the workspace (`1ca4ada661e1`) and its record is not — that gap is
 the whole recovery problem, and the screen names it without filling it in.
 
+**What is "safe" about those next actions** is a bounded thing, and it is the whole of the claim:
+the list can hold only the seven lifecycle commands (`plan`, `implement`, `verify`, `review`,
+`repair`, `report`, `pr`), and no cleanup, reset, branch operation or publish is in its vocabulary
+— a rendered screen is checked against those verbs. Each action prints what it costs in
+capabilities, and one that needs a consent or an approval this run does not hold is named as still
+owed (`HUMAN_APPROVAL`) instead of offered as a step already taken. A run with a blocker gets no
+offers at all rather than the optimistic ones.
+
 **`mergesutra resume <run-id>` — a preview, and a bill.**
 
 ```text
@@ -1284,10 +1294,10 @@ Reading the state this plan was built from
 NOTHING HAS BEEN RUN.
 ```
 
-Six cost rows print every time, including the ones that say "none", so a short screen is
-never a screen that read as safe. The state digest is the preview made durable: it hashes
-every fact the plan was read from except the moment they were read and the row saying who
-holds the run's lock — `--execute` takes that lock before it re-reads anything, so hashing
+Six cost rows print every time, including the ones that say "none": a cost this plan does not
+carry is stated as not carried, not left off the screen. The state digest is the preview made
+durable: it hashes every fact the plan was read from except the moment they were read and the
+row saying who holds the run's lock — `--execute` takes that lock before it re-reads anything, so hashing
 it would expire every legitimate run, and a real collision is refused by the lock itself at
 the moment of the act — and `--execute` re-reads the rest and stops if it has moved. That is
 why there is no `--confirm <digest>` flag to carry a preview forward — compare immediately
@@ -1419,7 +1429,7 @@ thing that flag's absence is for. Stage 15 owns this list.)*
 
 | Command   | Purpose                                        | Status   |
 | --------- | ---------------------------------------------- | -------- |
-| `doctor`  | Diagnose environment, never leaking secrets    | Ready    |
+| `doctor`  | Diagnose environment; the API key value is never printed | Ready    |
 | `--help`  | Usage                                          | Ready    |
 | `--version` | Version                                      | Ready    |
 | `inspect` | Compile what a repository itself requires into a provenanced contract, read-only | Ready    |

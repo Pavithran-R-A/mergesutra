@@ -295,6 +295,34 @@ describe.skipIf(!AVAILABLE)('the resume command', () => {
     expect(stage.calls).toHaveLength(0);
   });
 
+  it('prints all six cost rows whatever the plan, so a short screen cannot hide one', async () => {
+    // The README states this as the reason the row count does not vary: a plan that
+    // spends nothing still prints the row that says so. Printing a row only when its
+    // cost is live would make an omitted line read as "nothing owed here".
+    const COST_ROWS = [
+      'Model request',
+      'Credential',
+      'Workspace',
+      'Repository gates',
+      'Approval',
+      'Remote',
+    ];
+    for (const where of [await contractRun(), await verifiableRun()]) {
+      const screen = capture();
+      const code = await run(['node', 'mergesutra', 'resume', where.record.runId], {
+        ...depsFor(where),
+        write: screen.write,
+        writeErr: screen.writeErr,
+      });
+      expect(code).toBe(EXIT.OK);
+      const cost = screen.text().split('What it costs')[1] ?? '';
+      expect(cost, 'the screen must have a cost block').not.toBe('');
+      for (const label of COST_ROWS) {
+        expect(cost, `${label} is missing from a resume screen`).toContain(label);
+      }
+    }
+  });
+
   it('previews a plan that needs a credential with no credential anywhere', async () => {
     const where = await contractRun();
     const screen = capture();

@@ -6,7 +6,7 @@ import { createRenderer, resolveColor } from './render.js';
 import { defaultRunner, safeRun, type Runner, type RunResult } from '../core/runner.js';
 
 /**
- * `mergesutra doctor` — environment diagnosis that never leaks secrets.
+ * `mergesutra doctor` — environment diagnosis that never prints the API key value.
  *
  * Each check resolves to a truthful PASS / FAIL / WARN / SKIP with a short,
  * actionable detail. Network reachability to BharatCode is opt-in (`connect`)

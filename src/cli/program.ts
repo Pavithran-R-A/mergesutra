@@ -95,7 +95,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
 
   program
     .command('doctor')
-    .description('Diagnose the local environment without leaking secrets')
+    .description('Diagnose the local environment; never prints the API key value')
     .option('--connect', 'Also test reachability to the BharatCode endpoint')
     .action(async (opts: { connect?: boolean }) => {
       const noColorFlag = program.opts().color === false;

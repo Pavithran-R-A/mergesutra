@@ -86,8 +86,9 @@ export function loadBharatCodeConfig(env: Env = process.env): BharatCodeClientCo
 }
 
 /**
- * A secret-free description of the resolved configuration, safe to render in
- * `doctor` output or reports.
+ * A description of the resolved configuration that carries no API key: the key
+ * is not a field of this shape, only whether one was read. `doctor` renders it,
+ * and the base URL it prints is whatever `BHARATCODE_API_BASE` said.
  */
 export interface SafeConfigSummary {
   readonly configured: boolean;
