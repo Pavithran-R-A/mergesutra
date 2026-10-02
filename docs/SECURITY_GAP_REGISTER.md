@@ -2696,12 +2696,88 @@ gate does not mean the documentation is current, and this file does not claim it
 
 ---
 
+## S12-31 — five of the seven variables a customer has to set were named only in `src/` (§51)
+
+**Found by.** Step 6 of the customer-readiness audit, on its "can BharatCode be configured without
+reading source" question, against HEAD `420a4d8`. It is the same direction of error S12-30 names —
+a shipped surface saying less than the mechanism does — but on a surface S12-30's lock sweep never
+touched.
+
+**The gap.** `src/config/load-config.ts` reads seven `BHARATCODE_*` variables (`:33`, `:65`, `:66`,
+`:69`, `:74`, `:78`, `:81`); the README at `420a4d8` named two of them. Measured with
+`git show 420a4d8:README.md | grep -o 'BHARATCODE_[A-Z0-9_]*' | sort | uniq -c`, which prints
+`BHARATCODE_API_KEY` 12 times, `BHARATCODE_API_BASE` twice, and nothing else. The five absent names
+are `BHARATCODE_MODEL`, `BHARATCODE_TIMEOUT_MS`, `BHARATCODE_MAX_RETRIES`,
+`BHARATCODE_RETRY_BASE_MS` and `BHARATCODE_RETRY_MAX_MS`.
+
+`BHARATCODE_MODEL` is the one that stops a first run: `loadBharatCodeConfig` gives it no default
+(`src/config/load-config.ts:74`), and `plan`, `review` and `repair` ask for a completion without
+naming a model (`src/plan/plan.ts:240`, `src/review/engine.ts:145`, and the repair cycle's request
+at `src/repair/stage.ts:206-217` — which passes no `model` field into the loop, so
+`src/implement/loop.ts:265-267` forwards `input.model` as undefined), so each of them reaches
+`complete()`'s `request.model ?? this.config.model` and throws `No BharatCode model selected.` at
+exit `78` (`src/bharatcode/client.ts:338-346`). Three commands of the principal workflow were
+gated on a variable a reader met for the first time in an error message rather than in the
+document that tells them how to configure the product. The loop's budget flags are the same shape
+in milder form: at `420a4d8` `--max-steps` occurred once in the README, inside a usage example
+(`:197`), while `--max-writes` and `--max-commands` did not occur at all.
+
+**Why it existed.** Each stage documented the variables that stage happened to need. Stage 0 wrote
+the key and the base URL into the README because `doctor` reports those two, the timeout and retry
+knobs arrived later in the adapter and were never carried across, and the model requirement was
+only visible from the refusal path. No gate compared the set the code reads against the set the
+README names, and S12-25's sweep looks the other way — it hunts wording *stronger* than the
+mechanism proves, and an undocumented mechanism is wording absent, not strong.
+
+**What it costs.** No credential leaks and no run is corrupted, and the model refusal is not a
+dead end: its remediation line names the variable (`src/bharatcode/client.ts:345`). The cost is
+that the environment is a reactive interface. A customer who follows the README sets a key, points
+at a base URL, and then learns a required third name from a failure — and the numeric knobs are
+worse than merely undocumented: `positiveInt` (`src/config/load-config.ts:22-30`) makes an empty,
+unparseable or negative value fall back to its default with no warning, so
+`BHARATCODE_MAX_RETRIES=three` silently retries three times and a customer has no document to
+discover that from.
+
+**Closure: TEST + DOCUMENT.**
+
+- `README.md` — a new `## Configuration` section (`:1556`) that names all seven, each with its
+  default and its absence-behavior, plus the fallback sentence, the three budget flags with a
+  pointer to `implement --help` for the caps, and a closing paragraph naming `NO_COLOR` and
+  `MERGESUTRA_ALLOW_REMOTE_PUBLICATION` as *not* BharatCode configuration so the two lists cannot
+  be confused.
+- `tests/config/config-docs.test.ts` — two cases, set inclusion rather than prose: every
+  `BHARATCODE_*` identifier read by `src/config/load-config.ts` must appear in the README, and
+  every one named by `src/bharatcode/client.ts` (which is where the refusals live) must too. Each
+  asserts the source-side set is non-empty first, so an empty inventory cannot pass.
+- RED, before the section existed: `VITEST_EXIT=1`, `expected [ 'BHARATCODE_MAX_RETRIES', …(4) ] to
+  deeply equal []` for the configuration layer and `[ 'BHARATCODE_MODEL' ]` for the adapter — the
+  first naming four of the five and the second naming the one the adapter refuses on.
+- GREEN: `VITEST_EXIT=0`, 2 passed; the neighbour suite ran with it
+  (`tests/config/config-docs.test.ts tests/config/load-config.test.ts`) at 9 passed, exit `0`.
+- Two mutations, each restored byte-for-byte: deleting a name from the README fails both cases
+  (exit `1`), and adding a `BHARATCODE_FAKE_KNOB` read to `src/config/load-config.ts` fails the
+  first case (exit `1`), so the guard is driven by the sets and not by the number of names that
+  happen to be missing today. Post-restoration `sha256sum` matched the pre-mutation snapshots —
+  README `3473b8b0738ad81f…` and `src/config/load-config.ts` `25d70df4f8d0753a…`, the latter also
+  confirmed by `git diff --exit-code src/config/load-config.ts` returning clean.
+
+**Named limit.** The guard checks *name presence*, in one direction, over a fixed pair of files. It
+does not check that a name's description or default is right (a README that listed
+`BHARATCODE_TIMEOUT_MS` with the wrong default passes), it does not cover a variable read under
+another prefix or in a module outside that pair, and it says nothing about flags — the three budget
+flags are documented by prose and verified by `implement --help`, not by this test. The Node `>=22`
+floor carried from S12-29 is still untested on a real 22 machine, and `doctor` still does not check
+model configuration; it reports the key.
+
+---
+
 ## Register status
 
 Twelve disclosed items (S12-01…S12-12) and thirteen found in this pass (S12-13…S12-25) all
-cite source read at `88cb7ce`; five more were found after that — S12-26…S12-28 by the closure sweep
+cite source read at `88cb7ce`; six more were found after that — S12-26…S12-28 by the closure sweep
 that ran after S12-25, citing source read at `247987e`, S12-29 by re-running the artifact
-procedure at `299a3d1`, and S12-30 by the customer-readiness audit at `f450114`. The first twenty-five
+procedure at `299a3d1`, and S12-30 and S12-31 by the customer-readiness audit, at `f450114` and
+`420a4d8`. The first twenty-five
 entries were written as reconnaissance, before any of
 them was acted on, and their shared sentence "nothing in this file is a production change" was true
 of the file when it was written and false of it now: S12-27 changed `src/review/prompt.ts`, and
@@ -2824,11 +2900,11 @@ the entries above or named as a limit there:
 
 ### Register status, final (Stage 12 closure sweep)
 
-Thirty items: S12-01 through S12-30, of which **thirty are closed and zero are open** —
-checked mechanically, not by recollection: each of the thirty entries was swept for a closure
+Thirty-one items: S12-01 through S12-31, of which **thirty-one are closed and zero are open** —
+checked mechanically, not by recollection: each of the thirty-one entries was swept for a closure
 statement and every one carries it, and the only list in this file that names items as open is the
-2026-09-30 snapshot below, whose heading and sentence both say they are historical. The five newest
-(S12-26, S12-27, S12-28, S12-29, S12-30) came out of this sweep and the readiness audit that
+2026-09-30 snapshot below, whose heading and sentence both say they are historical. The six newest
+(S12-26, S12-27, S12-28, S12-29, S12-30, S12-31) came out of this sweep and the readiness audit that
 followed it rather than the original reconnaissance, and their commits are the last Stage 12 work in
 this checkout. No item is listed both
 closed and open anywhere in this file: the two places that once said so were the "Re-ranked after
@@ -2836,7 +2912,8 @@ S12-11" snapshot and the ranked list beneath it, and both now carry their tense.
 
 What is *not* closed is the list of named limits each entry discloses — a capped listing with no
 marker, a status screen that displays a gateway's self-report, a manifest pointing at a repository
-this checkout does not evidence, a Node floor nobody tested, an install that needs a registry, and
+this checkout does not evidence, a Node floor nobody tested, an install that needs a registry, a configuration guard that proves a name is printed rather
+than that its description is right, and
 a documentation sweep that only catches claims stronger than their mechanism. Those
 are decisions for a human with information this machine does not have, or work a later pass can do,
 and §26 is the standing rule

@@ -1553,6 +1553,46 @@ a question to put to a model. This project is
 not a clone or replacement of the official BharatCode CLI; it is truthfully
 *powered by* it.
 
+## Configuration
+
+Every value MergeSutra reads from the environment, what it does, and what happens
+when it is absent. The names are the whole interface — setting them requires no
+source.
+
+- **`BHARATCODE_API_KEY`** — the only credential source. There is no default and
+  no argument, flag, file, log or report that carries it. With it missing, a
+  command that asks the gateway refuses before a request leaves, at exit `78`;
+  `doctor` prints `FAIL BharatCode key` and names the variable without printing a
+  value. `inspect`, `contract`, `verify`, `report`, `status`, `resume` (preview)
+  and `pr` need nothing of BharatCode and run without it.
+- **`BHARATCODE_API_BASE`** — defaults to `https://bharatcode.ai/api/model/v1`. It
+  must parse as a URL and use `https:`, with `http:` accepted only so a local stub
+  can be pointed at; anything else is a configuration refusal at exit `78`.
+- **`BHARATCODE_MODEL`** — no default, and the variable a first run most often
+  forgets. A command that reaches the gateway checks the key first and then the
+  model, so a configured key with no model named refuses as
+  `No BharatCode model selected.` and names this variable, at exit `78`. `plan`,
+  `review` and `repair` have no model flag, so for those three this variable is
+  what makes them runnable. `implement` additionally accepts `--model <id>` for a
+  single run. Which models the endpoint offers is what `mergesutra doctor
+  --connect` reports; it needs the key and asks for nothing else.
+- **`BHARATCODE_TIMEOUT_MS`** — the per-request timeout, default `60000`.
+- **`BHARATCODE_MAX_RETRIES`** — the adapter's own bounded retries, default `3`.
+- **`BHARATCODE_RETRY_BASE_MS`** — the backoff floor, default `500`.
+- **`BHARATCODE_RETRY_MAX_MS`** — the backoff ceiling, default `15000`.
+
+A numeric variable that is empty, unparseable, negative or unmeasurable falls back
+to its default instead of failing the run, and a fractional value is floored; `0`
+is honoured, which is how a person turns retrying off
+(`src/config/load-config.ts:22-30`). A loop's budgets are flags rather than
+variables — `--max-steps`, `--max-writes` and `--max-commands` on `implement`,
+each capped, and `mergesutra implement --help` prints the caps.
+
+Two other names appear in this repository and are not BharatCode configuration:
+`NO_COLOR` turns colour off, and `MERGESUTRA_ALLOW_REMOTE_PUBLICATION` is a
+capability this build leaves unset, so nothing on the other side of an approval
+acts on it.
+
 ## Verification model
 
 Verification is many repository-native gates (format, lint, typecheck, unit,
