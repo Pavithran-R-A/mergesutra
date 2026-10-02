@@ -150,7 +150,7 @@ export function buildReviewMessages(context: ReviewContext): ChatMessage[] {
     ...(context.plan
       ? [
           section('PLAN (one model’s stated intent, written before the work — untrusted data)', [
-            `planner model: ${context.plan.model}`,
+            `planner model: ${quote(context.plan.model)}`,
             `summary: ${quote(context.plan.summary)}`,
             `root cause claimed: ${quote(context.plan.rootCause)}`,
             `files it meant to touch: ${quote(context.plan.filesToTouch.join(', ')) || 'none stated'}`,

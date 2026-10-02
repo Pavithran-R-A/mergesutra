@@ -4,12 +4,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * S12-25 — the promise surfaces may not claim a state this build refuses to emit.
+ * S12-25, extended by S12-28 — the promise surfaces may not claim a state this build refuses to emit.
  *
- * Two places tell a stranger what MergeSutra produces: the opening block of `README.md`, and
- * `BharatCode.txt`, which the package `files` allowlist ships. Those two blocks are the product's
- * own words about its output, so they are held to the standard the output holds itself to. That
- * standard is not invented here — it is the vocabulary the code already refuses. `src/pr/draft.ts`
+ * Three places tell a stranger what MergeSutra produces: the opening block of `README.md`,
+ * `BharatCode.txt`, and the `description` field of `package.json`. All three ship: the package
+ * `files` allowlist carries the first two, and the manifest field is inside every tarball and is
+ * what a registry listing says about the product before a person reads any prose. Those blocks are
+ * the product's own words about its output, so they are held to the standard the output holds
+ * itself to. That standard is not invented here — it is the vocabulary the code already refuses.
+ * `src/pr/draft.ts`
  * strips a title or body that says `contribution_ready` or `production ready`; `src/cli/status.ts`
  * prints `Contribution ready  never — no field in this build can set it`; `docs/SECURITY_MODEL.md`
  * §2.5 says the `pr` screen prints the facts instead of `Approved for merge` or `production ready`.
@@ -26,6 +29,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const README = path.join(ROOT, 'README.md');
 const NOTE = path.join(ROOT, 'BharatCode.txt');
+const PKG = path.join(ROOT, 'package.json');
 const DRAFT = path.join(ROOT, 'src', 'pr', 'draft.ts');
 
 /** The promise is two paragraphs, not the manual: this is what the locator is expected to find. */
@@ -145,7 +149,33 @@ function offenders(text: string): string[] {
   );
 }
 
-describe('the promise surfaces claim no state the build refuses (S12-25)', () => {
+/** The manifest's one-line promise, S12-28: this field is inside every tarball and any listing of it. */
+function packagePromise(): string {
+  const parsed = JSON.parse(readFileSync(PKG, 'utf8')) as Record<string, unknown>;
+  expect(
+    parsed.name,
+    'package.json no longer names the package this guard protects, so the locator found the wrong file',
+  ).toBe('mergesutra');
+  const description = parsed.description;
+  expect(
+    typeof description === 'string' && description.length > 0,
+    'package.json lost its description, so there is no manifest promise to hold',
+  ).toBe(true);
+  const text = String(description);
+  expect(
+    text.length,
+    `the manifest description grew to ${String(text.length)} characters, past the ${String(
+      PROMISE_MAX_CHARS,
+    )} within which a promise of this kind is written`,
+  ).toBeLessThanOrEqual(PROMISE_MAX_CHARS);
+  expect(
+    /\bissue\b/i.test(text) && /\bPR\b|pull request/i.test(text),
+    'the scanned field must still say what the product does with an issue and a PR, or this locator is reading the wrong field',
+  ).toBe(true);
+  return text;
+}
+
+describe('the promise surfaces claim no state the build refuses (S12-25, S12-28)', () => {
   it('scans a real README promise region, not an empty match', () => {
     const block = promiseBlock();
     expect(block.length).toBeGreaterThan(80);
@@ -164,6 +194,14 @@ describe('the promise surfaces claim no state the build refuses (S12-25)', () =>
     expect(
       found,
       'the note this package ships asserts a readiness state this build refuses to emit',
+    ).toEqual([]);
+  });
+
+  it('holds the manifest description to the refused vocabulary', () => {
+    const found = offenders(packagePromise());
+    expect(
+      found,
+      'package.json describes the product with a readiness state this build refuses to emit',
     ).toEqual([]);
   });
 

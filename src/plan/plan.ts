@@ -26,8 +26,10 @@ import { ZodError } from 'zod';
  * - the answer must parse as JSON and match `planBodySchema` exactly;
  * - every criterion id it names must exist in the contract, and every criterion
  *   must be named — a plan that quietly narrows the obligations is rejected;
- * - the model does not get to record which model answered, when, or against
- *   which contract. MergeSutra fills that in from the response envelope.
+ * - the answer text may not carry its own provenance: `planBodySchema` refuses a body that
+ *   names a model, a timestamp or a contract, and MergeSutra fills those from the response
+ *   envelope. The envelope's model name is what the gateway reported about itself — kept as a
+ *   quotation, because nothing in this build decides anything by reading it.
  *
  * It holds no process runner, by design: a plan stage that could execute a
  * command could execute the command the model just proposed.
@@ -211,7 +213,7 @@ interface PlanAttempt {
   readonly body: PlanBody | null;
   readonly problem?: string;
   readonly attempts: number;
-  /** Copied from the response envelope: the model does not get to name itself. */
+  /** Copied from the response envelope: what the gateway reported answering. */
   readonly model: string;
   readonly promptTokens: number | null;
   readonly completionTokens: number | null;

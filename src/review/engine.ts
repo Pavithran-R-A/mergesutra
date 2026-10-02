@@ -79,7 +79,7 @@ export interface ReviewAttempt {
   readonly patchPrecondition: ReviewPatchBinding;
   /** Answers that came back and were looked at, including the first. */
   readonly attempts: number;
-  /** Copied from the response envelope: the model does not get to name itself. */
+  /** Copied from the response envelope: what the gateway reported answering. */
   readonly model: string | null;
   readonly detail: string;
   readonly limitations: readonly string[];

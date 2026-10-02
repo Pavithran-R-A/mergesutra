@@ -107,7 +107,7 @@ export type PlanBody = z.infer<typeof planBodySchema>;
 
 export const planProvenanceSchema = z
   .object({
-    /** Filled by MergeSutra from the response envelope, never by the model. */
+    /** Filled by MergeSutra from the response envelope, never from the answer text. */
     model: z.string().min(1),
     source: z.literal('bharatcode'),
     requestedAt: z.string().min(1),

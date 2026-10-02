@@ -152,7 +152,7 @@ export const implementationRecordSchema = z
         detail: z.string(),
       })
       .strict(),
-    /** Copied from the response envelope: which model actually answered. */
+    /** Copied from the response envelope: what the gateway reported answering. */
     model: z.string().min(1),
     workspace: workspaceIdentitySchema,
     /** The contract this loop was pointed at, by identity only. */

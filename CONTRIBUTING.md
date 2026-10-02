@@ -1,8 +1,9 @@
 # Contributing to MergeSutra
 
 Thanks for your interest! MergeSutra is an open-source CLI agent that turns a
-GitHub issue into a verified, contribution-ready PR draft with traceable
-evidence. This guide covers how to set up, test, and propose changes.
+GitHub issue into a reviewable PR draft with traceable evidence for each
+acceptance criterion the run's gates could check. This guide covers how to set
+up, test, and propose changes.
 
 ## Ground rules
 
