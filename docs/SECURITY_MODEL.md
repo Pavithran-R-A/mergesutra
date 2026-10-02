@@ -1527,13 +1527,17 @@ no `provenance` attestation and no `integrity` field asserted here, and publishi
 Stage 15's decision with its own human approval. The tested claim is narrower and is the
 one worth having: the tarball npm is about to create contains the paths this build intends,
 those paths were compiled from the source sitting next to the manifest, and they carry
-nothing about the machine that built them. Proof of installability was measured once, by
-hand, in an isolated temporary prefix with `--offline` (`file:` install of the packed
-`.tgz`, exit `0`, no registry contact; `--help` and `--version` exit `0`; the installed
-`doctor` exits `1` because `BHARATCODE_API_KEY` is legitimately unset there; the `.bin` shim
-resolves and prints `0.0.1`), and it resolved `commander@12.1.0` and `zod@3.25.76` inside the
-manifest's `^12.1.0` / `^3.23.8`. That last pair is a disclosure of npm's ordinary semver
-behaviour, not a packaging defect: a range permits a newer resolution, and this item
-deliberately adds no `npm-shrinkwrap.json` and pins nothing — dependency policy is not the
-gap S12-12 was about. That hand procedure is not a CI gate, and saying so is part of the
-contract.
+nothing about the machine that built them. Proof of installability is a hand procedure, not a CI
+gate, and re-running it is what makes its limits visible. At `299a3d1` the packed `.tgz` installed
+into a fresh temporary prefix and the installed shim answered: `--version` exits `0` and prints
+`0.0.1`, `--help` exits `0`, `doctor` exits `1` with `BHARATCODE_API_KEY is not set.` as the named
+FAIL, and the empty directory it was run from stayed empty. It resolved `commander@12.1.0` and
+`zod@3.25.76` inside the manifest's `^12.1.0` / `^3.23.8` — a disclosure of npm's ordinary semver
+behaviour, not a packaging defect: a range permits a newer resolution, and this item deliberately
+adds no `npm-shrinkwrap.json` and pins nothing; dependency policy is not the gap S12-12 was about.
+What the re-run corrected is the word `offline`. That run reached the registry, because the two
+dependencies are not inside the tarball, and `npm install --offline` on a cold npm cache fails
+`ENOTCACHED` on `https://registry.npmjs.org/commander` before it resolves anything. The earlier
+"no registry contact" result therefore depended on a warm cache on that machine; it was never a
+property of the artifact, and no part of this build claims a customer can install MergeSutra
+without network access to a registry.

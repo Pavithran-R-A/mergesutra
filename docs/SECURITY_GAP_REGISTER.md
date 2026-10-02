@@ -2575,14 +2575,65 @@ manifest `version` is `0.0.1` and `license` is `MIT` with a 1,080-byte MIT `LICE
 coherent, and measured rather than assumed here because S12-12's artifact-to-source check compares
 packed bytes against the tree that produced them.
 
+## S12-29 — the installability proof claimed "no registry contact", and a cold cache disproved it
+
+**How it was found.** By re-running the customer artifact procedure on the final committed tree
+instead of quoting the earlier run. `docs/SECURITY_MODEL.md`'s artifact contract recorded S12-12's
+hand proof as a `file:` install of the packed `.tgz` with exit `0` and *no registry contact*. That
+install, re-run here as
+`npm install -g --prefix <fresh empty dir> --no-audit --no-fund --offline ./mergesutra-0.0.1.tgz`,
+exited `1` without placing a file:
+
+```
+npm error code ENOTCACHED
+npm error request to https://registry.npmjs.org/commander failed: cache mode is
+'only-if-cached' but no cached response is available.
+```
+
+The same command with `--offline` removed exited `0` in 11 seconds, nested `commander@12.1.0` and
+`zod@3.25.76` under `node_modules/mergesutra/node_modules/`, and the installed shim answered
+`--version` → exit `0`, printing `0.0.1`; `--help` → exit `0`; `doctor` → exit `1` naming
+`BHARATCODE_API_KEY is not set.` as the only FAIL — and created nothing in the empty directory it
+was run from. The artifact itself measured clean: 612,763 bytes packed, 448 entries, npm's own
+`shasum 3b9b119b0528316c9e0e92f9a70a243669585083` /
+`sha256 a0ce87b8b1cd0a88a9db36dc47252c6e097157840940e9196fc0a05c5dd67581`, and exactly the five
+intended roots (`dist`, `BharatCode.txt`, `README.md`, `LICENSE`, `package.json`). Read back off the
+extracted tarball by a route independent of the release gate: 0 hits for the credential shape
+families, 0 occurrences of the build machine's username.
+
+**Why the doc was wrong, not merely stale.** The exit `0` was real, and so was "no registry
+contact" — on a machine whose npm cache already held those two packages. What the sentence did not
+name is the condition it depended on. A dependency is not inside the tarball, nothing in this build
+bundles it, and a customer on a clean machine reaches a registry; the claim described one
+machine's cache and read as a property of the artifact.
+
+**Closure: DOCUMENT.** `SECURITY_MODEL.md` now states the re-run, the `ENOTCACHED` failure, the
+non-offline success with its measured versions and exit codes, and the correction as the finding:
+the earlier result "depended on a warm cache and is not a property of the artifact". No test was
+added. Installability is still measured by hand (the file itself says so), and a guard would have to
+locate a sentence in a moving document to assert prose shape rather than a behaviour — the brittle
+kind S12-28 declined to write for `CONTRIBUTING.md`.
+
+**Named limits.** (1) Nothing in CI installs the package; `prepack` proves what goes into the
+tarball, not that a machine can consume it. (2) Registry contact during install is exactly the
+boundary S12-24's scan cannot reach: the credential scan covers the 448 files this build packs and
+says nothing about whatever `^12.1.0` / `^3.23.8` resolves to on a customer's machine at install
+time. That is Stage 15's dependency-policy decision, the same one S12-28's pinning limit points at.
+(3) Node at the manifest floor (`>=22`) is still untested; every measurement in this stage,
+including this one, ran on Node v24.x.
+
 ---
 
 ## Register status
 
 Twelve disclosed items (S12-01…S12-12) and thirteen found in this pass (S12-13…S12-25) all
-cite source read at `88cb7ce`; three more (S12-26…S12-28) were found by the closure sweep that ran
-after S12-25 and cite source read at `247987e`. Nothing in this file is a production change; the
-order of attack is by what the gap makes possible in this build's own execution path:
+cite source read at `88cb7ce`; four more were found after that — S12-26…S12-28 by the closure sweep
+that ran after S12-25, citing source read at `247987e`, and S12-29 by re-running the artifact
+procedure at `299a3d1`. The first twenty-five entries were written as reconnaissance, before any of
+them was acted on, and their shared sentence "nothing in this file is a production change" was true
+of the file when it was written and false of it now: S12-27 changed `src/review/prompt.ts`, and
+S12-25/S12-28 changed strings that ship. Each entry names its own closure type. The order of attack
+is by what the gap makes possible in this build's own execution path:
 
 1. S12-03 / S12-13 / S12-22 — the classifier, because it is the only entry where a model
    action can reach a real network or GitHub mutation today.
@@ -2700,14 +2751,18 @@ the entries above or named as a limit there:
 
 ### Register status, final (Stage 12 closure sweep)
 
-Thirty items: S12-01 through S12-28, of which **twenty-eight are closed and zero are open**. The
-three newest (S12-26, S12-27, S12-28) came out of this sweep rather than the original
-reconnaissance, and their commits are the last Stage 12 work in this checkout. No item is listed both
+Twenty-nine items: S12-01 through S12-29, of which **twenty-nine are closed and zero are open** —
+checked mechanically, not by recollection: each of the twenty-nine entries was swept for a closure
+statement and every one carries it, and the only list in this file that names items as open is the
+2026-09-30 snapshot below, whose heading and sentence both say they are historical. The four newest
+(S12-26, S12-27, S12-28, S12-29) came out of this sweep rather than the original reconnaissance,
+and their commits are the last Stage 12 work in this checkout. No item is listed both
 closed and open anywhere in this file: the two places that once said so were the "Re-ranked after
 S12-11" snapshot and the ranked list beneath it, and both now carry their tense.
 
 What is *not* closed is the list of named limits each entry discloses — a capped listing with no
 marker, a status screen that displays a gateway's self-report, a manifest pointing at a repository
-this checkout does not evidence, a Node floor nobody tested. Those are decisions for a human with
-information this machine does not have, and §26 is the standing rule that says a demonstrated
-non-exploit plus truthful documentation is a correct closure rather than a dodge.
+this checkout does not evidence, a Node floor nobody tested, an install that needs a registry. Those
+are decisions for a human with information this machine does not have, and §26 is the standing rule
+that says a demonstrated non-exploit plus truthful documentation is a correct closure rather than a
+dodge.
