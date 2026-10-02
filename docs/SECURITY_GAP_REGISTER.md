@@ -2771,13 +2771,88 @@ model configuration; it reports the key.
 
 ---
 
+## S12-32 — the one thing a customer must do by hand after a run was documented where they cannot read it (§51)
+
+**Found by.** Step 6 of the customer-readiness audit, on its "uninstall / abandon" question, against
+HEAD `69388b5`. It is the third gap the audit found in the same class — a mechanism that is real,
+tested, and absent from the surface that ships — and this one was about the work the tool
+deliberately refuses to do.
+
+**The gap.** MergeSutra never deletes what it created: `git worktree remove` and `worktree prune`
+are never called, and the writer has no delete in its type (`docs/DECISIONS.md:398` ADR-024,
+`docs/SECURITY_MODEL.md:917-923`). So a single cycle leaves, in the customer's own repository, a
+registered worktree under `.mergesutra/worktrees/`, a branch `mergesutra/<run-id>` that outlives
+that worktree, a run record, an evidence pack, and — after a process died holding the run — a
+`.lock` directory that no command of this build will clear. The rule is a safety rule, and the
+consequence of it is the customer's chore.
+
+That consequence was written down only in `docs/`, and `package.json` ships
+`["dist", "BharatCode.txt", "README.md", "LICENSE"]` — no `docs/`. An installed customer therefore
+has one prose document, and that document contained, at `69388b5`, zero occurrences of
+`git worktree remove`, zero of `git worktree prune`, and zero of any uninstall or removal route
+(`git show 69388b5:README.md | grep -c` returned `0`, `0`, `0`). It named the leftover paths often
+enough — in captured screens — which is precisely why no earlier sweep caught this: the words were
+present, the instruction was not.
+
+**What it costs.** No data loss and no wrong verdict, and the tool's behaviour is correct. The cost
+falls on the person who finishes a first run: they find a worktree, a branch and a `.mergesutra/`
+tree in their repository, no shipped page says those are theirs to remove or in what order, and the
+half-cleanup they are likely to improvise — deleting the directory — leaves Git listing the worktree
+as `prunable` and the branch behind. A deliberate design reads as an omission because the surface
+that ships does not mention it.
+
+**Closure: TEST + DOCUMENT.**
+
+- `README.md` — a new section, "What a run leaves behind, and how to remove it", before
+  `## Limitations`: the five leftovers by the paths the code builds, the ordered removal commands,
+  the `--force` refusal as the safety rule working rather than an error to bypass, the `prune`
+  caveat that it drops *every* stale registration so `git worktree list` comes first, the lock
+  directory's rule, and `npm rm -g mergesutra` as the uninstall with the statement that it removes
+  no run data.
+- `tests/docs/cleanup-surface.test.ts` — four cases, on identifiers rather than sentences: the
+  section exists, both verbs the tool never calls are printed in it, each leftover appears under
+  the name the code gives it (`WORKTREE_BASE_DIR`, `RUN_STATE_DIRNAME` + `/runs`,
+  `SOURCE_BRANCH_PREFIX`), and the uninstall route is printed. Binding the leftovers to imported
+  constants is what keeps the guard honest if a path is renamed.
+- Measured before writing the section, on this machine, in a scratch repository: `git worktree
+  remove` on a dirty worktree exits `128` with "contains modified or untracked files, use --force to
+  delete it"; after the directory is deleted by hand `git worktree list` marks it `prunable`,
+  `git worktree prune` exits `0` and clears the registration, and the branch is still there. The
+  README instructs a customer to type these, so they were run rather than assumed.
+- RED: `VITEST_EXIT=1`, all four cases failing with named messages — `README has no section about
+  run leftovers`, and three `expected '' to contain …`.
+- GREEN: `VITEST_EXIT=0`, 4 passed.
+- Four mutations, each restored byte-for-byte (`README.md` `ea5297a54d73ee50…`,
+  `src/git/workspace.ts` `074798c3b01b96f3…`): both occurrences of `git worktree prune` shortened →
+  1 failed, exit `1`; the uninstall command removed → 1 failed, exit `1`; `WORKTREE_BASE_DIR`
+  changed in **source** → 1 failed, exit `1`, which is the case that proves the test reads the code
+  and not its own literals; the heading renamed → 4 failed, exit `1`. The first prune attempt
+  aborted on its own `count == 1` assertion, which is how the second occurrence was noticed — a
+  mutation script that asserts how many times its target appears cannot pass by mutating less than
+  it meant to.
+
+**No claim of coverage beyond the surface.** The mechanism half was already held:
+`tests/git/workspace.test.ts:159` watches the Git calls the workspace module makes and fails if a
+`remove`/`prune`/`reset`/`clean`/`stash` appears. This item adds only the shipped-document half, and
+does not duplicate that guard.
+
+**Named limit.** Three, in the register's own direction of saying what it cannot prove. The guard
+finds the section by a heading matching a small set of words, so renaming that heading fails the
+test — accepted, because searching the whole README would have passed on the captured screens and
+is the reason the gap survived. The check is that the command names are printed, not that they are
+correct on another platform: they were exercised on Windows with Git 2.55 and Git Bash, and never on
+Linux or macOS. And nothing here makes the cleanup a product feature — the tool still removes
+nothing, by design, and a customer who never reaches this section still has the leftovers.
+
+---
+
 ## Register status
 
 Twelve disclosed items (S12-01…S12-12) and thirteen found in this pass (S12-13…S12-25) all
-cite source read at `88cb7ce`; six more were found after that — S12-26…S12-28 by the closure sweep
+cite source read at `88cb7ce`; seven more were found after that — S12-26…S12-28 by the closure sweep
 that ran after S12-25, citing source read at `247987e`, S12-29 by re-running the artifact
-procedure at `299a3d1`, and S12-30 and S12-31 by the customer-readiness audit, at `f450114` and
-`420a4d8`. The first twenty-five
+procedure at `299a3d1`, and S12-30, S12-31 and S12-32 by the customer-readiness audit, at `f450114`, `420a4d8`
+and `69388b5`. The first twenty-five
 entries were written as reconnaissance, before any of
 them was acted on, and their shared sentence "nothing in this file is a production change" was true
 of the file when it was written and false of it now: S12-27 changed `src/review/prompt.ts`, and
@@ -2900,11 +2975,11 @@ the entries above or named as a limit there:
 
 ### Register status, final (Stage 12 closure sweep)
 
-Thirty-one items: S12-01 through S12-31, of which **thirty-one are closed and zero are open** —
-checked mechanically, not by recollection: each of the thirty-one entries was swept for a closure
+Thirty-two items: S12-01 through S12-32, of which **thirty-two are closed and zero are open** —
+checked mechanically, not by recollection: each of the thirty-two entries was swept for a closure
 statement and every one carries it, and the only list in this file that names items as open is the
-2026-09-30 snapshot below, whose heading and sentence both say they are historical. The six newest
-(S12-26, S12-27, S12-28, S12-29, S12-30, S12-31) came out of this sweep and the readiness audit that
+2026-09-30 snapshot below, whose heading and sentence both say they are historical. The seven newest
+(S12-26, S12-27, S12-28, S12-29, S12-30, S12-31, S12-32) came out of this sweep and the readiness audit that
 followed it rather than the original reconnaissance, and their commits are the last Stage 12 work in
 this checkout. No item is listed both
 closed and open anywhere in this file: the two places that once said so were the "Re-ranked after
@@ -2913,7 +2988,8 @@ S12-11" snapshot and the ranked list beneath it, and both now carry their tense.
 What is *not* closed is the list of named limits each entry discloses — a capped listing with no
 marker, a status screen that displays a gateway's self-report, a manifest pointing at a repository
 this checkout does not evidence, a Node floor nobody tested, an install that needs a registry, a configuration guard that proves a name is printed rather
-than that its description is right, and
+than that its description is right, a cleanup instruction run on one
+platform and quoted for others, and
 a documentation sweep that only catches claims stronger than their mechanism. Those
 are decisions for a human with information this machine does not have, or work a later pass can do,
 and §26 is the standing rule

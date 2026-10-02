@@ -1700,6 +1700,56 @@ Planned initial target:
 Node/TypeScript/JavaScript projects on **public** GitHub repos. Windows and
 Linux are first-class; macOS follows once core CI is strong.
 
+## What a run leaves behind, and how to remove it
+
+MergeSutra writes and never deletes. A delete verb is absent from the writer's
+type by design, and `git worktree remove` and `git worktree prune` are never
+called, so what a run creates stays on your disk until you remove it. That is
+the intended shape: the ceiling on a run is your keyboard, not a prompt the tool
+can be trained to answer.
+
+A run leaves these, under the repository's `.mergesutra/` directory (which must
+be Git-ignored — a workspace path that is not ignored ends the run before any
+directory is created):
+
+- `.mergesutra/worktrees/<run-id>` — the worktree the loop edited, at the base
+  commit the run recorded, on its own branch. The bytes a `verify` receipt
+  describes live here.
+- `mergesutra/<run-id>` — the branch Git registered for that worktree. It outlives
+  the worktree, so removing it is a separate act.
+- `.mergesutra/runs/<run-id>.json` — the run record: stages, outcomes, digests,
+  counts. It carries no API key, no token and no secret value.
+- `.mergesutra/runs/<run-id>/` — the evidence pack `report` renders: `report.md`,
+  `report.json`, `commands.jsonl`.
+- `.mergesutra/runs/<run-id>.lock/` — present only while a process holds the run.
+  A command that finishes cleanly releases it. A lock left by a process that died
+  stays, and no MergeSutra command clears one: `resume` refuses a lock it did not
+  create, which is why `status` prints the `Run lock` row and acts on nothing.
+
+To remove a finished or abandoned run, in the order Git wants:
+
+```bash
+git worktree remove .mergesutra/worktrees/<run-id>
+git branch -D mergesutra/<run-id>
+rm -r .mergesutra/runs/<run-id> .mergesutra/runs/<run-id>.json
+# only when the process that held it is really gone:
+rm -r .mergesutra/runs/<run-id>.lock
+```
+
+`git worktree remove` refuses while the worktree holds modified or untracked
+files and tells you to pass `--force`; the refusal is the safety rule working,
+since those files may be the work. If you deleted the worktree directory
+yourself instead, Git keeps listing it as `prunable`, and `git worktree prune`
+drops stale registrations — including any other worktree Git already thinks is
+gone, so read `git worktree list` before running it. Both verbs were exercised
+against a scratch repository on this machine.
+
+Uninstalling the tool is the reverse of installing it — `npm rm -g mergesutra` —
+and it removes no run data: `.mergesutra/` is yours, and the block above is how
+it goes away. Abandoning a run mid-flight needs no permission and no further
+cleanup, because no command in this build has reached a remote by the time you
+walk away.
+
 ## Limitations
 
 See [docs/PRODUCT_SPEC.md § Limitations](docs/PRODUCT_SPEC.md) and the
