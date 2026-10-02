@@ -2635,9 +2635,20 @@ S12-25, whose sweep is the reason it survived.
 screen does print it: `src/cli/status.ts:114-115` emits a `Run lock` row (state, then a dimmed
 detail line) as the first row of the observation block, on every snapshot, unconditionally.
 `tests/lifecycle/status-lock.test.ts:151-152` asserts that row exists, and the README's own
-captured screens at `:1223` and `:1314` print `Run lock UNHELD` and `Run lock given back`. The
+captured screens print it with its value: `README.md:1223` shows the `Run lock` row reading
+`UNHELD` with the detail line "No lock directory for this run, and looking at it did not make
+one" at `:1224`, and `:1314` shows it reading `given back`. The
 same claim, in four other voices, sat at `docs/PRODUCT_SPEC.md:348`, `docs/ROADMAP.md:930`,
 `CHANGELOG.md:103` and `docs/DECISIONS.md:1463` (ADR-058's consequence).
+
+**A sixth copy, found by widening the search after the first five were fixed.** The Stage 11
+"Known gaps" bullet in the same README (`:1399`) worded it "`status` does not print locks",
+which matched none of the patterns used to find the others ("does not print lock state", "does
+not report lock state", "reports no lock state", "lock state"). The sweep that closes a
+vocabulary-sensitive claim is only as wide as its pattern list, so the second pass searched for
+`lock` on any line that also carried a negation and found this one. It is recorded here because
+the failure mode — a grep whose words are the words of the first copy found — is the reason the
+item survived at all.
 
 **Why it existed.** S12-05 changed the behavior and updated `docs/SECURITY_MODEL.md` §2.6,
 ADR-061, `docs/ACCEPTANCE_CONTRACT.md`, and two places in the README — the status bullet and the
@@ -2654,11 +2665,13 @@ section concludes the lightest screen cannot answer "who is on this run?" and re
 `status` already printed. The stale text pushed a customer toward the heavier command and
 understated the product on the surface a customer actually reads.
 
-**Closure: DOCUMENT**, five surfaces, each corrected in the register its own document keeps:
+**Closure: DOCUMENT**, six surfaces, each corrected in the register its own document keeps:
 
-- `README.md` — says what the row is and what it is not: printed, read without taking anything,
-  so seeing a holder stops nobody, and a lock that appears between that screen and the `resume`
-  after it is met by `resume`, not by `status`.
+- `README.md` limitations section (`:1744`) — says what the row is and what it is not: printed,
+  read without taking anything, so seeing a holder stops nobody, and a lock that appears between
+  that screen and the `resume` after it is met by `resume`, not by `status`.
+- `README.md` Stage 11 "Known gaps" bullet (`:1399`) — the same narrowing, plus the ADR-061
+  pointer the bullet's ADR range lacked.
 - `docs/PRODUCT_SPEC.md` — the same narrowing inside Stage 11's four structural gaps, with the
   collision still named as the enforcement point.
 - `docs/ROADMAP.md` — Stage 11's "Not done, and stated as a gap" bullet keeps its history and

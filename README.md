@@ -1396,11 +1396,12 @@ What those screens are and are not:
   exits `0` because something was attempted.
 - **Known gaps:** the lock is per-run and per-machine — it says nothing about a second
   checkout of the same repository elsewhere, and a takeover of a lock whose owner is gone
-  is deliberately left to a human (`TAKEOVER_IN_PROGRESS`). `status` does not print locks,
-  so an operator asking "who is on this run?" is answered by `resume`, not by the status
-  screen. The state digest is not a flag, so a preview and an execution are two observations
+  is deliberately left to a human (`TAKEOVER_IN_PROGRESS`). `status` prints a `Run lock`
+  row, and it only prints one: the row reads the lock without claiming it, so an operator
+  sees who is on the run here but is still refused by `resume` if they act on it. The state
+  digest is not a flag, so a preview and an execution are two observations
   rather than one signed artefact. See [docs/DECISIONS.md](docs/DECISIONS.md) ADR-056
-  through ADR-058.
+  through ADR-058, and ADR-061 for the row that closed the disclosure half.
 
 ## Installation *(planned)*
 
