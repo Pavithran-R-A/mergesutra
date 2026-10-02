@@ -100,9 +100,11 @@ back, because the recovery this build can offer is legibility, not undo.
 - **Not done, and stated as a gap:** Stage 11 earns recovery, not durability. A process
   killed between a writer's open and its close still loses that write, and nothing here
   brings it back — the tool can see the gap and say so, which is not the same as closing
-  it. Concretely: `status` reports no lock state, so a run held by another process looks
-  identical to one that is merely idle; `expectedObservedStateDigest` is accepted by the
-  service for programmatic callers and has no CLI flag, so a person cannot pin a preview
+  it. Concretely, at this entry's close: `status` printed no lock state, so a run held by
+  another process looked identical to one that is merely idle (Stage 12's S12-05 put a
+  `Run lock` row on that screen — ADR-061 — and the row reads, it does not take);
+  `expectedObservedStateDigest` is accepted by the service for programmatic callers and
+  has no CLI flag, so a person cannot pin a preview
   by hand; `mergesutra resume` inherits the planner's behaviour of filing a plan as a
   **new** run id, so resuming a `contract` action moves the run rather than advancing it;
   and the residual budget is per-entry, which `BUDGET-LINEAGE` states instead of

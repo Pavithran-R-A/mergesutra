@@ -2624,12 +2624,72 @@ including this one, ran on Node v24.x.
 
 ---
 
+## S12-30 — a limitation sentence went false under a code fix that landed two commits earlier (§51)
+
+**Found by.** The customer-readiness audit, against HEAD `f450114`. It is a defect in a closure
+rather than in a mechanism, so it is registered in its own entry instead of being folded into
+S12-25, whose sweep is the reason it survived.
+
+**The gap.** `README.md:1744-1745` told a reader that "`status` does not print lock state, so
+'who is on this run?' is answered by attempting a resume, not by the status screen". The shipped
+screen does print it: `src/cli/status.ts:114-115` emits a `Run lock` row (state, then a dimmed
+detail line) as the first row of the observation block, on every snapshot, unconditionally.
+`tests/lifecycle/status-lock.test.ts:151-152` asserts that row exists, and the README's own
+captured screens at `:1223` and `:1314` print `Run lock UNHELD` and `Run lock given back`. The
+same claim, in four other voices, sat at `docs/PRODUCT_SPEC.md:348`, `docs/ROADMAP.md:930`,
+`CHANGELOG.md:103` and `docs/DECISIONS.md:1463` (ADR-058's consequence).
+
+**Why it existed.** S12-05 changed the behavior and updated `docs/SECURITY_MODEL.md` §2.6,
+ADR-061, `docs/ACCEPTANCE_CONTRACT.md`, and two places in the README — the status bullet and the
+captured crash screen. Its closure list is accurate about what it touched, and it did not touch
+the Stage 11 limitations paragraph in that same README, nor the spec, roadmap, changelog or ADR
+sentences. S12-25 then swept the shipped surfaces for vocabulary stronger than the mechanism
+proves ("always", "impossible", "guaranteed", "sandboxed") — the opposite direction. A sentence
+that was true when written and became false because of someone else's commit is invisible to
+both sweeps.
+
+**What it costs.** No mutation, no leak, and no wrong verdict: a person reading the limitations
+section concludes the lightest screen cannot answer "who is on this run?" and reaches for
+`resume` — the one lifecycle command that claims a lock and can be refused — to learn a fact
+`status` already printed. The stale text pushed a customer toward the heavier command and
+understated the product on the surface a customer actually reads.
+
+**Closure: DOCUMENT**, five surfaces, each corrected in the register its own document keeps:
+
+- `README.md` — says what the row is and what it is not: printed, read without taking anything,
+  so seeing a holder stops nobody, and a lock that appears between that screen and the `resume`
+  after it is met by `resume`, not by `status`.
+- `docs/PRODUCT_SPEC.md` — the same narrowing inside Stage 11's four structural gaps, with the
+  collision still named as the enforcement point.
+- `docs/ROADMAP.md` — Stage 11's "Not done, and stated as a gap" bullet keeps its history and
+  attributes the disclosure half to S12-05 / ADR-061, so a completed checklist stops reading as a
+  current limitation.
+- `CHANGELOG.md` — tense corrected to "at this entry's close" with a pointer to ADR-061. No
+  released entry was rewritten; `[Unreleased]` is the only section above `0.0.1`.
+- `docs/DECISIONS.md` — ADR-058's own words are left as a dated record and pointed forward to
+  ADR-061 rather than edited, because an ADR's value is that it says what was decided when.
+
+**No test added, deliberately.** The behavior was already held by
+`tests/lifecycle/status-lock.test.ts` — that guard is exactly what made the prose falsifiable by
+reading two surfaces against each other. A test that snapshotted one sentence inside a
+rewordable limitations paragraph would fail on every legitimate edit and prove nothing about the
+mechanism; this is the same brittleness rule S12-28's closure and S12-29's closure state, where a
+JSON field name is stable enough to locate and prose in a paragraph is not.
+
+**Named limit.** The two automated wording sweeps now have stated directions: S12-25 catches a
+claim stronger than its mechanism, and nothing in this build catches a claim *weaker* than its
+mechanism that a later commit makes false. The audit that found this item was manual. A green
+gate does not mean the documentation is current, and this file does not claim it does.
+
+---
+
 ## Register status
 
 Twelve disclosed items (S12-01…S12-12) and thirteen found in this pass (S12-13…S12-25) all
-cite source read at `88cb7ce`; four more were found after that — S12-26…S12-28 by the closure sweep
-that ran after S12-25, citing source read at `247987e`, and S12-29 by re-running the artifact
-procedure at `299a3d1`. The first twenty-five entries were written as reconnaissance, before any of
+cite source read at `88cb7ce`; five more were found after that — S12-26…S12-28 by the closure sweep
+that ran after S12-25, citing source read at `247987e`, S12-29 by re-running the artifact
+procedure at `299a3d1`, and S12-30 by the customer-readiness audit at `f450114`. The first twenty-five
+entries were written as reconnaissance, before any of
 them was acted on, and their shared sentence "nothing in this file is a production change" was true
 of the file when it was written and false of it now: S12-27 changed `src/review/prompt.ts`, and
 S12-25/S12-28 changed strings that ship. Each entry names its own closure type. The order of attack
@@ -2751,18 +2811,21 @@ the entries above or named as a limit there:
 
 ### Register status, final (Stage 12 closure sweep)
 
-Twenty-nine items: S12-01 through S12-29, of which **twenty-nine are closed and zero are open** —
-checked mechanically, not by recollection: each of the twenty-nine entries was swept for a closure
+Thirty items: S12-01 through S12-30, of which **thirty are closed and zero are open** —
+checked mechanically, not by recollection: each of the thirty entries was swept for a closure
 statement and every one carries it, and the only list in this file that names items as open is the
-2026-09-30 snapshot below, whose heading and sentence both say they are historical. The four newest
-(S12-26, S12-27, S12-28, S12-29) came out of this sweep rather than the original reconnaissance,
-and their commits are the last Stage 12 work in this checkout. No item is listed both
+2026-09-30 snapshot below, whose heading and sentence both say they are historical. The five newest
+(S12-26, S12-27, S12-28, S12-29, S12-30) came out of this sweep and the readiness audit that
+followed it rather than the original reconnaissance, and their commits are the last Stage 12 work in
+this checkout. No item is listed both
 closed and open anywhere in this file: the two places that once said so were the "Re-ranked after
 S12-11" snapshot and the ranked list beneath it, and both now carry their tense.
 
 What is *not* closed is the list of named limits each entry discloses — a capped listing with no
 marker, a status screen that displays a gateway's self-report, a manifest pointing at a repository
-this checkout does not evidence, a Node floor nobody tested, an install that needs a registry. Those
-are decisions for a human with information this machine does not have, and §26 is the standing rule
+this checkout does not evidence, a Node floor nobody tested, an install that needs a registry, and
+a documentation sweep that only catches claims stronger than their mechanism. Those
+are decisions for a human with information this machine does not have, or work a later pass can do,
+and §26 is the standing rule
 that says a demonstrated non-exploit plus truthful documentation is a correct closure rather than a
 dodge.

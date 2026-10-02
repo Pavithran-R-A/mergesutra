@@ -344,9 +344,10 @@ defect.
   product claims crash-proofing, perfect recovery, or that work is never lost — the
   scenario its own hero walks through *is* a lost write, and the tool's contribution is
   to describe and continue it, not to undo it. Four structural gaps follow from that
-  and are listed rather than smoothed: the lock is per-machine and per-run, and
-  `status` does not report lock state, so a second service finds out by colliding; the
-  observed-state digest is compared by the service but cannot be supplied from the
+  and are listed rather than smoothed: the lock is per-machine and per-run, and the
+  `Run lock` row `status` prints is an observation that takes nothing, so a second
+  service still finds out for certain by colliding; the observed-state digest is
+  compared by the service but cannot be supplied from the
   command line, so cross-process agreement is for programmatic callers; a record shows
   one loop entry's spend, so a resumed stage's budget is measured against the entry
   before it rather than a lifetime total; and `resume` still cannot get a run past a

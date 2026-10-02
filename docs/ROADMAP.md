@@ -927,8 +927,10 @@ purpose is to be refused.
       still lose work — the §22 case this stage builds its hero around *is* a lost write,
       and nothing here prevents one — and no words like crash-proof, never-loses-work or
       perfect recovery appear in this build's documentation because none is earned. The
-      lock is per-machine and per-run, and `status` does not report lock state, so a second
-      service learns about a held lock by colliding with it. The observed-state digest is
+      lock is per-machine and per-run, and a second service learns about a held lock by
+      colliding with it; the `Run lock` row `status` prints is a Stage 12 addition
+      (S12-05, ADR-061) that makes a held run visible before a person acts, and it takes
+      nothing, so the collision is still the enforcement. The observed-state digest is
       compared by the service but is not settable from the command line, so the
       cross-process guarantee is available to programmatic callers only. A record shows one
       loop entry's spend, not a lifetime total, so cumulative budget is read from the entry

@@ -1460,9 +1460,11 @@ security pass, not aspirations.
   holding), then B goes through unchanged after A releases. Holding a lock still buys no
   authority: acquisition happens *after* the capability refusals and the release happens
   before the outcome word is printed, so no path exists where "I own the lock" is the reason
-  something ran. The known gap is disclosure, not mechanism: `status` does not report lock
-  state, so a second service learns about a held lock by colliding with it — recorded in the
-  README limitations and left for a later stage rather than papered over here.
+  something ran. The known gap was disclosure, not mechanism: at this decision `status`
+  reported no lock state, so a second service learned about a held lock by colliding with
+  it — recorded in the README limitations and left for a later stage rather than papered
+  over here. ADR-061 closed the disclosure half of that sentence by adding a `Run lock`
+  row that reads without taking, so the collision stays the enforcement.
 
 ## ADR-059 — A readiness fact about an artifact is read from that artifact, not from the record describing it
 

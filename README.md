@@ -1741,11 +1741,13 @@ decision the tool stops and names whose it is. The limits left in it are
 structural and are listed here rather than hidden: the run lock is per-run and
 per-machine, so a second checkout of the same repository on another host is
 outside what it can exclude, and a lock whose owner process is gone is reported
-rather than taken over automatically; `status` does not print lock state, so "who
-is on this run?" is answered by attempting a resume, not by the status screen; the
-observed-state digest is an internal revalidation and not a flag a person can
-pass, so a preview and the execution that follows it are two observations of the
-same facts rather than one signed artefact; a resumed loop inherits its remaining
+rather than taken over automatically. `status` does print a `Run lock` row, and it
+only prints: the row is read without taking anything, so seeing a holder there
+stops no one, and a lock that appears between that screen and the `resume` that
+follows it is met by `resume`, not by `status`. The observed-state digest is an
+internal revalidation and not a flag a person can pass, so a preview and the
+execution that follows it are two observations of the same facts rather than one
+signed artefact; a resumed loop inherits its remaining
 budget from the record, which means a record that lost an entry's spend loses it
 from the total too; and `mergesutra run` remains planned, because `resume` is the
 answer to a stopped run and not a way to make the unattended pipeline the roadmap
