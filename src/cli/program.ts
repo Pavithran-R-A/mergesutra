@@ -29,6 +29,7 @@ import { EXIT } from './exit-codes.js';
 import { LIMIT_CAPS } from '../implement/limits.js';
 import { MAX_REPAIR_CYCLES_CEILING, MAX_REVIEW_CYCLES_CEILING } from '../repair/bounds.js';
 import { PRODUCT_NAME, TAGLINE, VERSION } from '../version.js';
+import { ROADMAP_URL } from './pointers.js';
 import { isAppError } from '../core/errors.js';
 import { defaultRedactor } from '../security/redaction.js';
 
@@ -467,7 +468,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
             renderer.dim(
               'Of those, `pr` prepares and approves a page; no command in this build opens one. `resume` acts on one stage at a time, and only when told to.',
             ),
-            renderer.dim('Progress: see docs/ROADMAP.md'),
+            renderer.dim(`Progress: ${ROADMAP_URL}`),
           ].join('\n'),
         );
         // Non-zero exit: a planned command must not masquerade as a successful run.

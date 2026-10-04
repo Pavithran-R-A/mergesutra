@@ -87,7 +87,7 @@ becomes a PR."*
 > transport and security
 > hardening are the next
 > stages; see
-> [Roadmap](docs/ROADMAP.md). Where this README shows the finished experience,
+> [Roadmap](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md). Where this README shows the finished experience,
 > it is labelled **target**. What you can run today is shown under
 > [Try it now](#try-it-now).
 
@@ -126,8 +126,8 @@ evidence chain the product:
 | Model output treated as truth  | Model output is untrusted, schema-validated data |
 | Repo text is instructions      | Repo text is data, never authority              |
 
-Full positioning and competitor notes: [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md),
-[docs/ACCEPTANCE_CONTRACT.md](docs/ACCEPTANCE_CONTRACT.md).
+Full positioning and competitor notes: [docs/COMPETITIVE_ANALYSIS.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/COMPETITIVE_ANALYSIS.md),
+[docs/ACCEPTANCE_CONTRACT.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ACCEPTANCE_CONTRACT.md).
 
 ## 60-second demo *(target experience — not yet runnable)*
 
@@ -720,7 +720,7 @@ The story in those lines, in order:
   dressing it up as a repository requirement.
 - **Stage 7 stops short of the verdict nobody earned.** The run ends in `REVIEW`.
   `CONTRIBUTION_READY` is absent from the outcome vocabulary to this point and
-  still is after [Stage 10](docs/ROADMAP.md), which deliberately does not emit it:
+  still is after [Stage 10](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md), which deliberately does not emit it:
   a person's yes gets its own word, `HUMAN_APPROVED_FOR_PR`, because approving a
   page is a different fact from a page being good. The evidence document beside
   this one types its own `contributionReady` as a literal `false`
@@ -822,7 +822,7 @@ Recorded by the stages of this run, oldest first:
 - **`contributionReady` in `report.json` is a constant `false`.** The renderer
   writes it and reads it from nowhere, so Stage 8 has no field for a run to talk
   itself into being ready; that verdict belongs to a human with a diff in front of
-  them, and [Stage 10](docs/ROADMAP.md) ships the place they say so — a
+  them, and [Stage 10](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md) ships the place they say so — a
   digest-bound `HUMAN_APPROVED_FOR_PR` that is still not this field becoming true.
 
 ### Stage 9: the same patch, read a second time
@@ -1181,7 +1181,7 @@ What those screens are and are not:
   commit`, so committing and pushing belong to whoever wires a publisher later,
   not to a stage that says it does neither. Re-rendering the evidence pack changes
   the page's identity and expires an approval exactly as editing the patch does.
-  See [docs/DECISIONS.md](docs/DECISIONS.md).
+  See [docs/DECISIONS.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DECISIONS.md).
 
 ### Stage 11: what is true now, and the one word that acts on it
 
@@ -1405,13 +1405,13 @@ What those screens are and are not:
   row, and it only prints one: the row reads the lock without claiming it, so an operator
   sees who is on the run here but is still refused by `resume` if they act on it. The state
   digest is not a flag, so a preview and an execution are two observations
-  rather than one signed artefact. See [docs/DECISIONS.md](docs/DECISIONS.md) ADR-056
+  rather than one signed artefact. See [docs/DECISIONS.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DECISIONS.md) ADR-056
   through ADR-058, and ADR-061 for the row that closed the disclosure half.
 
 ## Installation *(planned)*
 
 Today MergeSutra is run from a checkout. A published npm package comes at
-[Stage 15](docs/ROADMAP.md); publication requires explicit human approval.
+[Stage 15](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md); publication requires explicit human approval.
 
 ## Quick start *(target)*
 
@@ -1525,7 +1525,7 @@ place the distinction is recorded.
 Repository content, issue text and model output are untrusted. The authority
 hierarchy, risk-classified tools, worktree isolation, confined writes, argv-only
 command execution, and central redaction are described in
-[docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md). **Remote actions always
+[docs/SECURITY_MODEL.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/SECURITY_MODEL.md). **Remote actions always
 require explicit human approval** — and in this build there is nothing on the
 other side of that approval to act: no command of MergeSutra's pushes, comments,
 opens or merges anything, Stage 10's digest-bound yes included. It records the
@@ -1608,7 +1608,7 @@ today compiles the `REPOSITORY_REQUIRED` and `DECLARED_ONLY` rows from
 manifest + CI evidence and never promotes a gate on its own; `contract` turns
 each required gate into a criterion whose verification plan already carries the
 command and the line that cited it. `mergesutra verify` — [Stage
-7](docs/ROADMAP.md), shipped — now runs those gates against the patch and maps
+7](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md), shipped — now runs those gates against the patch and maps
 their receipts back onto the criteria, but it is deliberately not the same thing
 as what `implement` does: the loop can run a **developer check** the model asked for
 (`RUN_CHECK`, argv-only, bounded, inside the workspace) and records its exit
@@ -1659,13 +1659,13 @@ the cycle as a **`repairExecutions`** entry — the loop's account of what it di
 as untrusted input with no verdict field to fill in — and then goes back through
 Stage 7's gates over the bytes that exist now and regenerates the pack from the new
 receipts. The adversarial hardening continues at
-[Stage 12](docs/ROADMAP.md). Nothing
+[Stage 12](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md). Nothing
 here is ever committed automatically. The record is schema version 8, and this build
 reads v6, v7 and v8: a v6 or v7 record still loads and gains an empty
 `repairExecutions` list, while a record outside that range is reported as unreadable
 rather than guessed at, so re-run the stage after upgrading. No older record can
 claim the `repair` stage, which only v8's vocabulary defines.
-Layout: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Layout: [docs/ARCHITECTURE.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ARCHITECTURE.md).
 
 ## Architecture
 
@@ -1680,7 +1680,7 @@ flowchart LR
   Map --> Human[Human Approval] --> PR[PR Draft]
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full diagram, trust
+See [docs/ARCHITECTURE.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ARCHITECTURE.md) for the full diagram, trust
 boundaries and state machine.
 
 ## Supported repositories
@@ -1758,8 +1758,8 @@ walk away.
 
 ## Limitations
 
-See [docs/PRODUCT_SPEC.md § Limitations](docs/PRODUCT_SPEC.md) and the
-[roadmap](docs/ROADMAP.md). In short: the full workflow is not implemented yet;
+See [docs/PRODUCT_SPEC.md § Limitations](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/PRODUCT_SPEC.md) and the
+[roadmap](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md). In short: the full workflow is not implemented yet;
 CI discovery is a bounded line scan, so YAML anchors, aliases, merge keys and
 matrices are reported as *partial coverage* rather than expanded; dev-only
 toolchain advisories (vite/esbuild) are documented rather than force-upgraded
@@ -1794,7 +1794,7 @@ plan is escalated with the bytes left in place, because reverting an unrequested
 would be a second unrequested write. Adversarial hardening is likewise partial by design:
 quoted text that shapes itself like one of the page's own section headings is now
 neutralised on the reviewer's page and on the repair brief, and the same guard on the
-planner and general implementer prompts is [Stage 12](docs/ROADMAP.md) work. Two of a
+planner and general implementer prompts is [Stage 12](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md) work. Two of a
 repair's guards cannot be tested by running them — the commands they refuse would have
 to be started to be refused — so they are tested against the source instead: every
 command a cycle can construct is enumerated and classified by the production risk
@@ -1852,13 +1852,13 @@ promises.
 
 ## Benchmark
 
-A ~10-task, honest evaluation harness ships at [Stage 14](docs/ROADMAP.md). It
+A ~10-task, honest evaluation harness ships at [Stage 14](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md). It
 will publish failures — e.g. `7 PASS / 2 NEEDS_HUMAN_REVIEW / 1 FAIL` — rather
 than a fake 100%. No magic quality score.
 
 ## Roadmap
 
-[docs/ROADMAP.md](docs/ROADMAP.md) — Stages 0 (foundation), 1 (repository +
+[docs/ROADMAP.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md) — Stages 0 (foundation), 1 (repository +
 GitHub issue intake), 2 (repository policy compiler), 3 (Acceptance Contract
 criteria) and 4 (BharatCode implementation plan) are done end to end from the
 command line. Stage 5 (safe worktree, risk-classified tool policy, confined
@@ -1874,18 +1874,18 @@ single status in it. Stage 9 is done too: `mergesutra review` asks a second mode
 about the exact bytes a run pinned, files what comes back with a citation or
 refuses it, freezes a repair plan before any edit, and leaves the workspace
 byte-identical — what it does *not* settle is the execution of that plan. That
-execution is [Stage 9R](docs/ROADMAP.md#stage-9r--carrying-out-a-frozen-repair-plan-and-re-verifying-what-it-changed--done),
+execution is [Stage 9R](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md#stage-9r--carrying-out-a-frozen-repair-plan-and-re-verifying-what-it-changed--done),
 also done: `mergesutra repair` runs a frozen plan through Stage 6's own loop, only
 under `--approve-plan <digest>` — the yes that starts it is bound to the scope it
 names, there is no `--yes` — and then sends the bytes it changed back through
 Stage 7's gates and regenerates the pack from the new receipts, so a repair reports
 what ran rather than what it thinks it fixed. [Stage
-10](docs/ROADMAP.md)
+10](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md)
 is done to its boundary: `mergesutra pr` assembles the pull request body out of the
 run's own records, prints the page with the digest that approves it, and files a
 person's yes as a local fact — with no publication transport behind it, deliberately,
 so nothing it approves can turn into an action by accident. [Stage
-11](docs/ROADMAP.md#stage-11--resumerecovery--failure-ux--done)
+11](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md#stage-11--resumerecovery--failure-ux--done)
 is done to its boundary too: `mergesutra status` reads a run and its workspace
 without touching either and says which recorded documents still describe the bytes
 on disk, and `mergesutra resume` plans the next true step, prints what it costs, and
@@ -1898,12 +1898,12 @@ itself as planned is `mergesutra run`.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+See [CONTRIBUTING.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/CODE_OF_CONDUCT.md).
 Evidence over assertion is the rule.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) and [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md).
+See [SECURITY.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/SECURITY.md) and [docs/SECURITY_MODEL.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/SECURITY_MODEL.md).
 
 ## Hackathon disclosure
 
