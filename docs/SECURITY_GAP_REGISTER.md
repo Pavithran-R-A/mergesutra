@@ -3590,16 +3590,193 @@ gate file.
    Moving the project is therefore two edits that a gate makes into one mistake if only one
    is made.
 
+## S13-5 — the repository's own documents described a project that does not exist yet
+
+**Claim.** Four things were said about this repository that were not true of it: that a
+credential could come from a "secure local config file", that a security report could reach
+the maintainers "via the repository's private vulnerability reporting, or email", that
+commenting on an issue was a gated remote mutation, and that security fixes are "applied to
+the latest release". A fifth was stale rather than false: `CONTRIBUTING.md` told a reader that
+`npm run check` is `format:check + lint + typecheck + test + build`, which stopped being true
+two commits earlier in this same stage when S13-2 moved the build ahead of the tests so the
+boundary verifiers measure compiled bytes.
+
+**How it was found.** Stage 13.5 asked for repository settings and hygiene, so the settings
+were probed read-only before any of them was touched, and the two policy documents were then
+read against the source they describe. Reading them is not a formality: `SECURITY.md` is the
+file a reader reaches when they have found a hole, and `CONTRIBUTING.md` is the file that tells
+them what to run. Both had been written in Stage 0 and revised only for product claims since.
+Each claim was checked where it is decided — `src/config/load-config.ts` for where a key comes
+from, `src/github/gh-client.ts:75` for what the GitHub adapter is allowed to do,
+`package.json`'s `scripts` for the composition of a command, `.github/workflows/ci.yml`'s
+`run:` lines for what CI actually executes.
+
+**What the checking found.**
+
+- *Credential file.* `loadBharatCodeConfig` reads `env.BHARATCODE_API_KEY` and nothing else;
+  there is no `readFile` in that module and no other credential reader in `src/`. The source's
+  own comment says "(or, later, a secure local config file)", and the document had promoted
+  that `later` into a present-tense route. A reader who trusted it would have gone looking for
+  a file to put a key in, which is exactly how a key ends up somewhere the redaction layer
+  never sees.
+- *Reporting route.* Measured on 2026-10-04 against the live API: `GET` and `POST` on
+  `/repos/Pavithran-R-A/mergesutra/private-vulnerability-reporting` both answer `404`, while a
+  control `GET` on the same path for a public repository answers `200` — so the path and the
+  verb are right and the answer is about this repository, whose visibility is private. No
+  maintainer email address appears anywhere in the tracked tree. Both halves of the named route
+  were therefore unavailable, and the file offered them as the intake channel.
+- *Commenting.* `gh-client.ts` builds exactly one command shape, `['api', '--hostname', host,
+  '--method', 'GET', endpoint]`; the only `comment` tokens in `src/github/` read an issue's
+  comment *count* out of the payload. There is no write path that could post one, so listing it
+  as a mutation gated on human approval described a capability the product does not have.
+- *"Latest release".* No version has been published to any registry; the only released bytes
+  this project has ever produced were a local `npm pack` tarball used by the artifact tests.
+- *The guide.* `CONTRIBUTING.md` named seven of the fifteen scripts `package.json` carries — six in
+  its table plus `check` in the setup block — and of the three that guard the release boundary
+  (`verify:package`, `test:artifact`, `test:live`) it named none. A contributor following it to the
+  letter would have run `check`, seen it green, and never executed the gate that decides what
+  ships.
+
+**The gate.** `tests/docs/contributor-commands.test.ts`, nine cases in three groups. It holds
+three mechanical relationships and refuses to pretend at the rest: a command the guide tells a
+person to type must exist in `package.json`; a composition the guide spells out must equal the
+manifest's, in order; and a `src/**.ts` path cited by a policy document must be a file in this
+tree. The third is S13-4's rule applied one layer up — a citation into a module that moved is a
+pointer to nowhere, and a security guarantee described at the wrong address is a guarantee a
+reader cannot go and look at. The template group holds a Stage 15 property early: every triage
+option in the bug-report form must be a command the CLI *registers*, read from the literal
+`.command('name')` calls in `src/cli/program.ts`, which is why a planned command cannot enter
+the set — the loop that registers those passes `planned.name`, an expression, not a literal.
+A reporter told to run `mergesutra merge` would file a report about a command that only prints
+"planned, not yet implemented", and the product's claim to be honest would be the thing on
+trial.
+
+**RED, witnessed before the fix.** Written against the committed tree first: three of the nine
+cases failed on `git show HEAD:CONTRIBUTING.md`, named `spells out the real composition of npm
+run check, in order`, `documents every script the hosted workflow runs` (reporting
+`test:artifact, test:live, verify:package`) and `lists the release-boundary verifiers`. The
+middle one then needed correcting in the detector rather than the document: the first draft
+read `npm run` occurrences anywhere in `ci.yml`, and the workflow's opening comment explains
+that the live suite sits behind `npm run test:live` — a comment is not a step, so counting it
+demanded documentation for a command no hosted job runs. `scriptsRunByCi` now reads `run:`
+lines only.
+
+**Anti-vacuity.** Seven mutations, each aimed at one case, each restored byte-for-byte and
+verified by md5, then the suite re-run green on the restored tree:
+
+| # | Mutation | Case it had to break |
+| - | -------- | -------------------- |
+| M1 | guide's `check` composition back to the stale order | `spells out the real composition of npm run check, in order` |
+| M2 | `test:artifact` renamed to a script that does not exist | `names commands that exist in the manifest` |
+| M3 | one verifier renamed in the guide's list | `lists the release-boundary verifiers, exactly the ones the gate runs` |
+| M4 | `test:artifact` removed from the table *and* the CI paragraph | `documents every script the hosted workflow runs` |
+| M5 | a `merge` option added to the template's dropdown | `offers exactly the commands the CLI registers, plus its non-command labels` |
+| M6 | `mergesutra status` in a placeholder renamed to `mergesutra publish` | `shows placeholders that use commands which exist` |
+| M7 | `src/security/redaction.ts` in `SECURITY.md` pointed at a module that is not there | `resolve to files in this tree` |
+
+M2 and M4 are the pair that shows why the two cases are not one case: renaming a script trips
+existence, while deleting a documented command from both places it appeared trips coverage —
+the failure a contributor actually produces, by following a guide that quietly stopped
+mentioning the release boundary. M4 first landed on M2's case, which is how it was caught: a
+mutation that breaks the wrong assertion proves nothing about the assertion it was written for.
+
+**Settings, measured at the remote rather than assumed.** The owner is `Pavithran-R-A`, type
+`User`, with admin on this repository — so no organisation was invented and nothing was pushed
+outside it.
+
+- Topics: `PATCH /repos/{o}/{r}` accepts a `topics` key and **drops it silently**; the topics
+  endpoint answers `422 "names" wasn't supplied` for the same body. `PUT
+  /repos/{o}/{r}/topics` with `{"names": [...]}` set nine, read back as nine.
+- Homepage: was `null` while `package.json` carries a `homepage`; now set to the same value and
+  read back. A manifest field and the repository's own website field disagreeing is a small
+  version of S13-1, and it was already true here.
+- Wiki: `has_wiki` was `true`; the `/wikis` endpoint answers `404`, so the tab advertised a
+  surface that has no content and no API behind it on this repository. Turned off.
+- Default branch: protected by an active branch ruleset, id `24454501`, `target: branch`,
+  `conditions.ref_name.include: ["~DEFAULT_BRANCH"]`, rules `[update, deletion]`,
+  `bypass_actors: []`, and — the part that matters — `current_user_can_bypass: "never"` for the
+  owner's own token, so a force-push or a delete of `main` is refused rather than merely
+  discouraged. Two API shapes were disproved on the way: `force_pushes` is not a standalone
+  rule (`422 … /rules/1: data matches no possible input`) — it is what the `update` rule does —
+  and a literal `"main"` in `ref_name.include` is refused as an invalid target pattern, which
+  is why the ruleset names the default branch by role rather than by name.
+- Not enabled, on purpose: requiring a pull request and the four `check (…)` contexts before a
+  merge. It would change the cadence this stage has been working in (commit → push → observe
+  CI → fix forward) into a round trip whose only new approval comes from the same person who
+  wrote the change, and a single-maintainer repository cannot review its own pull request. The
+  protection that prevents *losing* the canonical history is in place; the protection that
+  requires *two* humans belongs with the visibility flip, when a second human can reach the
+  repository at all. Recorded below as the one S13-5 item that is deliberately not closed.
+- Intake: `.github/ISSUE_TEMPLATE/bug_report.yml` and `config.yml`. One form, because the
+  product's whole claim is that a result comes with the evidence that produced it, and a report
+  that says "it didn't work" cannot be turned into a fix without the same thing — so the form
+  asks for the exact command line, the version and where it came from, the run id and what
+  `status` printed, and requires the reporter to confirm no credential value is included. The
+  config file exists to point a security reporter at the policy page instead of at a public
+  issue. No feature-request form, no label taxonomy, no PR template: nothing in this slice was
+  added that a reader would have to skip.
+
+**What changed in the documents.** `SECURITY.md`: the credential bullet names the environment
+and the module that reads it and says plainly that no code path reads a key from disk; the
+reporting section states the visibility fact, the two measurements, and the route that exists
+today versus the URL that will exist once the repository is public; the gated-mutation bullet
+drops `comments` and states that no code path writes to an issue; supported versions says what
+is true. `CONTRIBUTING.md`: the composition line, a nine-row script table, the `prepack` and
+`prepublishOnly` wiring, the five verifiers with the question each answers, the four check
+context names, the ruleset and what to do instead of force-pushing, and a ground rule that a
+change is not finished while it lives only on the machine that wrote it. `docs/ROADMAP.md`: the
+Stage 12 lines are checked with the suites that close them, and Stage 13 is split into what
+this stage actually proved and the path-shape matrix it did not.
+
+**Limits, named.**
+
+1. **The gate holds relationships, not meanings.** It can see that `npm run test:artifact` is
+   not a script and cannot see that "credentials come only from the environment" is a claim
+   about a module. The `SECURITY.md` corrections were each verified by reading the source at a
+   named line; repeating that verification means doing it again by hand.
+2. **Nothing re-checks the remote.** Topics, homepage, the wiki flag and ruleset
+   `24454501` are readings taken on 2026-10-04 against `Pavithran-R-A/mergesutra`. Settings can
+   be changed in the UI without touching a commit, and no test in this repository would notice;
+   the tests here read the tree, not GitHub.
+3. **An unverified head is still possible.** The ruleset prevents history being lost, not a
+   commit landing before its hosted run is green. The four `check (…)` contexts remain the
+   authority, and a red run must be fixed forward — never by rewriting what is already pushed.
+4. **Reachability of the new addresses is not proven from here.** An unauthenticated `GET` on
+   the repository, its `/security/policy` page and `blob/HEAD/docs/ROADMAP.md` all answer `404`
+   while the repository is private — which is what privacy means, not what the S13-4 gate calls
+   a dead pointer. The same three readings after the Stage 15 visibility flip are the proof, and
+   enabling private vulnerability reporting is a machine step at that point, not a human one.
+5. **The intake forms are inert until the flip.** A private repository shows its templates only
+   to collaborators, so the bug-report form is verified as a document today and as an intake
+   route later.
+6. **Two blob readings above predate this slice.** The per-link reachability table recorded
+   under S13-4 lists `SECURITY.md` at `742fc94a75` and `CONTRIBUTING.md` at `8d42fd6e7d`; those
+   are the pre-S13-5 blobs, and both files were rewritten here. The other nine entries in that
+   table are unchanged by this slice.
+
 ## Register status, Stage 13
 
 `S13-0` (home directory published), `S13-1` (manifest source address nobody owned), `S13-2`
 (the release-boundary gates had only ever run on one operating system, including the shipped
 command doing nothing on the other), `S13-3` (the hosted workflow had no policy and no
-guard) and `S13-4` (a shipped screen and the shipped README pointed a reader at files the
-package does not contain) are closed as CODE + TEST + DOCUMENT entries, each with its own
-measurements above and each cited against the tree it was measured on. Still open in this
-stage: `S13-5`, repository settings on the real remote (topics, the `homepage` field GitHub
-itself leaves empty, templates, `SECURITY.md`/`CONTRIBUTING.md` accuracy, changelog coverage
-for Stage 12, branch protection), which the hosted matrix and the visibility flip then have
-to be observed.
+guard), `S13-4` (a shipped screen and the shipped README pointed a reader at files the
+package does not contain) and `S13-5` (the policy and contribution documents described
+credential routes, a reporting channel and a release state this project does not have, while
+the guide's command list had gone stale two commits earlier) are closed as CODE + TEST +
+DOCUMENT entries, each with its own measurements above and each cited against the tree it was
+measured on. What is still open is not a defect found and left: it is the boundary of what this
+machine can prove.
+
+- The path-shape matrix — spaces, drive letters, separators, `HOME`/`USERPROFILE`, temp dirs,
+  Git and `gh` discovery — remains open as a Stage 13 line, because green hosted jobs on two
+  platforms are evidence about the gates, not about every shape a customer's path can take.
+- Requiring a pull request and the four check contexts on the default branch is deferred to
+  the visibility flip, with the reason stated in S13-5 above rather than a rule added now that
+  only the same author could satisfy.
+- Private vulnerability reporting, the public reachability of `/security/policy`, and the
+  intake forms becoming live all depend on the repository going public, which is a Stage 15
+  step and is recorded there.
+- The hosted matrix must be observed on every pushed slice, which is continuous rather than
+  closable; the readings for this slice are recorded in the closure report.
+
 

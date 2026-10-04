@@ -938,13 +938,33 @@ purpose is to be refused.
 
 ## Stage 12 — Security hardening
 
-- [ ] Prompt-injection adversarial tests (repo/issue/filenames)
-- [ ] Path/symlink/junction escape tests; shell-metacharacter tests
+- [x] Prompt-injection adversarial tests (repo/issue/filenames) — `tests/security/`
+      `prompt-authority.test.ts`, `injection-scan.test.ts`, `prototype-keys.test.ts`,
+      `terminal-hero.test.ts`; closed as S12-01…S12-32, each entry in
+      `docs/SECURITY_GAP_REGISTER.md` citing the source it was measured on.
+- [x] Path/symlink/junction escape tests; shell-metacharacter tests —
+      `path-safety.test.ts`, `path-confinement-matrix.test.ts`, `toctou-window.test.ts`,
+      `command-safety.test.ts`, `destructive-commands.test.ts`, `hook-firing-verbs.test.ts`.
 
 ## Stage 13 — Windows/Linux qualification
 
+- [x] The release boundary run on both platforms it ships to — the shipped `mergesutra`
+      command no longer exits silently on POSIX, npm resolution walks both install layouts,
+      `npm run check` builds before the suites that hash `dist/`, and `.github/workflows/ci.yml`
+      runs Ubuntu and Windows × Node 22 and 24 against the real gates. S13-2, S13-3.
+- [x] The published identity and the published pointers — one canonical repository, named
+      consistently by the manifest, the README and the screens, with the shipped tree free of
+      the developer's home directory and of instructions that only resolve on the author's
+      machine. S13-0, S13-1, S13-4.
+- [x] Repository settings and the two policy documents — topics, homepage, wiki off, an
+      active branch ruleset on the default branch, a bug-report intake form, and
+      `SECURITY.md`/`CONTRIBUTING.md` held to what the source actually does. S13-5.
 - [ ] Spaces in paths, drive letters, separators, HOME/USERPROFILE, temp dirs,
-      Git/gh discovery
+      Git/gh discovery — this line is the *path-shape matrix*, and it is not closed: the
+      hosted jobs prove the gates run on both platforms, not that every shape a customer's
+      path can take is handled. The repository itself lives under a path with spaces and
+      the suites pass there, which is evidence about this machine, not about drive-letter
+      or `USERPROFILE` handling in general.
 
 ## Stage 14 — Benchmark / evaluation harness
 

@@ -1,0 +1,91 @@
+name: Bug report
+description: A command did not do what the documentation says it does
+title: '[bug] '
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        MergeSutra's whole claim is that a result comes with the evidence that
+        produced it, so a bug report works best the same way. Please paste what
+        actually ran rather than describing it from memory. Never include a
+        credential value — `BHARATCODE_API_KEY`, a GitHub token, or anything
+        that looks like one. Redact it, and say that you redacted it.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where it happened
+      description: The stage or surface the command belongs to.
+      options:
+        - doctor
+        - issue
+        - inspect
+        - contract
+        - plan
+        - implement
+        - verify
+        - review
+        - repair
+        - report
+        - pr
+        - status
+        - resume
+        - packaging or install
+        - documentation
+        - something else
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: The exact command line
+      description: Everything, including flags and how you invoked it.
+      placeholder: node dist/bin.js verify 2026-10-04T09-12-03-481Z-run-7
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version, and where it came from
+      description: Output of `mergesutra -v`, plus source checkout or installed package.
+      placeholder: 0.0.1, installed from a local npm pack tarball
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+      description: |
+        Expected means what this project's README or `--help` promises, so quote
+        the line that made the promise if you can.
+      placeholder: |
+        Expected: the screen names the criterion it could not check.
+        Happened: exit 1 with no output on stderr.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: What the run left behind
+      description: |
+        If the command created a run, paste `mergesutra status <run-id>` and any
+        relevant part of `.mergesutra/runs/<run-id>/`. Redact anything secret.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, shell, and `node -v`.
+      placeholder: Windows 11 / Git Bash / v24.18.0
+    validations:
+      required: true
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Nothing secret included
+      description: Please confirm before submitting.
+      options:
+        - label: I have removed every credential value from this report
+          required: true

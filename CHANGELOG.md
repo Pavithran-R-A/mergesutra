@@ -70,6 +70,41 @@ cases, 1 drift pin — each then restored byte-for-byte. One of its own drafts p
 `https://` literal in its import closure as an endpoint, so the pointers belong in the
 presentation layer and that guard stayed exactly as strict as it was.
 
+`S13-5` was the same class of defect in the repository's own documents: they described a project
+that does not exist. `SECURITY.md` called MergeSutra "a contribution harness", told readers a key
+could come from a credential file when `src/config/load-config.ts:69` reads it from the
+environment and nothing else does, offered GitHub's private vulnerability reporting as an intake
+route, and listed supported versions for a package that has never been published. Every claim was
+checked at the file that decides it, and the intake claim was measured rather than argued: on
+2026-10-04 the REST endpoint behind private vulnerability reporting answered `200` for a public
+repository and `404` for this one, so the honest text is "not a working route while this
+repository is private", with the public address named for the day it becomes one.
+`CONTRIBUTING.md` named seven of the manifest's fifteen scripts, none of the three that guard the
+release boundary, stated `npm run check`'s composition in an order the manifest does not run, and
+never told a contributor that the remote is canonical. Both documents are now accurate and one new gate keeps them that way:
+`tests/docs/contributor-commands.test.ts` (9 cases) re-derives every script name, every command
+name an intake form offers, every `src/**` path a security document cites, and the release-boundary
+verifier list from `package.json`, `src/cli/program.ts`, `.github/workflows/ci.yml` and
+`verify:package` themselves. Its RED was witnessed against the committed blobs, and seven
+mutations each broke the case it was written for — including one that initially broke a *different*
+case, which proved the mutation was mis-aimed rather than the gate being wrong. One detector bug
+was found and fixed in the detector: a comment in `ci.yml` mentioning `npm run test:live` counted
+as a CI step until the reader was restricted to `run:` lines.
+
+Repository settings were then measured at the real remote instead of guessed. Topics required
+`PUT …/topics` with the body key `names` (a `PATCH` of the repository silently dropped them), the
+`homepage` field GitHub itself leaves empty is now set, the wiki is off, and ruleset `24454501`
+blocks force-push and branch deletion on the default branch for everyone, owner included —
+`current_user_can_bypass` reads back `"never"`, which is the property that matters, because the
+failure it prevents is losing the canonical history RULE 1 depends on. Requiring a PR and naming
+the four `check` contexts as required status checks is deliberately deferred to the
+private→public flip: classic protection endpoints answered `404` on this repository, and a ruleset
+whose required checks cannot be satisfied would block the only merge route this project has.
+Hygiene got exactly one intake form rather than a template set: a bug report whose "where it
+happened" dropdown lists the thirteen commands the CLI actually registers (so a report cannot be
+filed against a planned verb), a required field for the exact command line, and a required
+checkbox that the reporter removed every credential value from it.
+
 ### Added — Stage 11: the screen that says what is true now, and the word that continues it
 
 Every stage before this one assumed a run was being watched while it happened. This is
