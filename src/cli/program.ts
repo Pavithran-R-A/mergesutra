@@ -51,8 +51,8 @@ import { defaultRedactor } from '../security/redaction.js';
  * stage at a time: it prints what it would do and what that costs, and only
  * `--execute` runs it — under the same gates the direct command has, so it brings no
  * consent, approval, credential or remote of its own. `pr` is wired but does not
- * publish: it prepares and approves a page locally, and this build has no remote to
- * open one against.
+ * publish: it prepares and approves a page locally, and no publication transport is
+ * wired, so there is nothing in the build for it to open a pull request against.
  */
 
 export interface ProgramDeps {

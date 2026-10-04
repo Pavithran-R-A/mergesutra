@@ -1967,8 +1967,10 @@ entry closed in, not a current measurement.)*
 Three things stay separate, and the wording keeps them from collapsing into one another. The
 **repository fact**: built for Round 1 on the CLI Agent track — the theme, track and runtime named in
 the file, with the adapter that uses that runtime in `src/bharatcode/`. The **repository limitation**:
-no completed submission is evidenced by this repository — no remote is configured, nothing in `src/`
-submits anything, and §53 forbids the remote mutation one would require. And the **deliberate silence
+no completed submission is evidenced by this repository — nothing in `src/` submits anything, and no
+command in the build opens a pull request against an entry. S13-1 changed one half of the reasoning
+that used to support that sentence: a canonical remote now exists, so "no remote is configured" is no
+longer the reason nothing was submitted. The behavioural reason still is. And the **deliberate silence
 beyond that**: what happened outside this checkout is not evidence here in either direction, so the
 note records neither "submitted" nor "not submitted" nor "pending" — a negative status is still a
 status, and a present-tense line has to be one this build can keep true.
@@ -2565,11 +2567,14 @@ the package renamed, which fires the identity anchor, and the description delete
 deliberately — a prose locator in a guide that gets rewritten is a brittle test of formatting, and
 the manifest case is different only because a JSON field name is stable.
 
-**Named limits.** (1) §45's other half is unresolved and is a human decision, not a wording fix: the
-same manifest asserts `homepage`, `repository.url` and `bugs.url` all pointing at
-`github.com/mergesutra/mergesutra`, a repository this checkout does not evidence existing, and this
-stage created no remote (§53). Correcting that field means either inventing an organisation or
-deleting the metadata; the publisher who knows the real remote decides. (2) `engines.node` says
+**Named limits.** (1) §45's other half was left unresolved here, because it is a human decision and
+not a wording fix: the same manifest asserted `homepage`, `repository.url` and `bugs.url` all
+pointing at `github.com/<organisation named after the product>/<product>` — a repository this
+checkout did not evidence existing — and this stage created no remote (§53). Correcting the field
+meant either inventing an organisation or deleting the metadata, and the publisher who knows the
+real remote decides. **Closed by S13-1**: the canonical repository now exists, the three fields name
+it, and `tests/security/public-link-boundary.test.ts` holds every public link in the tracked tree and
+in the shipped surface to it. (2) `engines.node` says
 `>=22` while every measurement in this stage ran on Node v24.18.0, and `README.md:178` repeats
 `Node >= 22` as a prerequisite. Nothing at the floor has been tested, so the bound is a claim about
 intent; it is carried into the customer-readiness audit rather than quietly softened here. (3) The
@@ -3116,3 +3121,116 @@ redactor's own pattern list in `src/`. No live credential in history.
    packed, and never published — which is also why the `--by` fixtures in
    `tests/cli/` are the right place to stop scrubbing: they are the same kind of
    data, and a test that records who approved a contract has to name somebody.
+
+## S13-1 — the manifest shipped a source address nobody owned
+
+**Claim.** `package.json` is a customer-facing document. Its `homepage`,
+`repository.url` and `bugs.url` are what `npm view`, the npm registry page and every
+downstream dependant print as "where this project lives", and all three named
+`github.com/` + an organisation named after the product itself — an address no
+evidence in this checkout ever supported. A reader following it arrives at a 404 on a
+location that does not exist, which is worse than arriving at a page that says the
+project is unpublished.
+
+**Source, measured at `c509fb7`.** Four occurrences in two tracked files: three
+manifest fields (`package.json:8`, `:11`, `:14`) and one prose mention in this
+register (`:2570`), which was the S12-25 entry naming the defect it left open. A
+widened sweep — every `github.com/<owner>/<repo>` shape in every tracked file, not
+only the stale string — found no fifth occurrence: 28 distinct owner/repo pairs in
+the tree, 14 of them third-party package hosts inside `package-lock.json` and the
+rest deliberate fixture addresses (`projectbharat/datekit`, `someone/else`, `a/b`)
+that name somebody else's repository on purpose. Two of the 28 name this project, and
+both are the canonical one. `dist/` holds one GitHub address, `github.com/owner/repo`
+from `src/intake/issue-url.ts:131`, which is not a claim about this project and is
+disclosed as limit 4.
+
+**Protection today.** None, and the two nearest gates do not reach it.
+`publish-contents.test.ts` asks which files npm would pack and whether the artifact
+matches the tree; a wrong *value* in a right field is invisible to it.
+`credential-boundary.test.ts` asks whether bytes look like a secret; a URL is not
+one. The stale addresses survived precisely because the manifest had already been
+audited twice — S12-25 read it and stopped at the wording, recording the address as
+"the publisher who knows the real remote decides".
+
+**Missing.** A boundary that holds the project to one public location, applied to
+both the whole tracked tree (a published clone makes every design note clickable)
+and the shipped surface (the bytes a customer installs), with the canonical identity
+pinned rather than derived.
+
+**Exploit.** Not an exploit — a broken promise. The measurable harm is the reader:
+`npm view mergesutra` prints `homepage`, and a consumer following it to report a bug
+finds nothing to report into. This is the same defect class S12-25 refused to leave
+in a shipped field, one level up: the field was worded honestly and pointed nowhere.
+
+**Acceptance test.** `tests/security/public-link-boundary.test.ts`, 16 cases: seven
+detector controls (identity parsing, the `.git` suffix npm writes, a stale address
+recognised as a *link* rather than as prose, a fixture link to somebody else's real
+repository left alone, several links on separate lines, no `lastIndex` carry-over
+between calls, and the self-reference control proving this file does not contain the
+address it hunts), three tree cases (coverage floors above 100 tracked text files and
+20 under `tests/`; the invented organisation absent from every tracked file; the
+stale `owner/name` pair absent even where it appears without a scheme), three
+manifest cases (all three fields resolve to the pinned identity; each keeps the
+ syntactic form npm documents; the identity equals the `origin` remote when one
+exists), and three shipped-surface cases (the README carries a source link; no
+`mergesutra`-named repository appears under a foreign owner in the packed roots; the
+release wiring names this file).
+
+`shippedSurface()` adds `package.json` to the manifest's own `files` list, because
+npm packs it whatever the list says — `publish-contents.test.ts:17` records that.
+The first draft of this gate omitted it and so passed a mutation it exists to catch;
+the widened rule is what fired the sixth RED failure.
+
+**Mutations.** Five, each witnessed failing and restored sha256-exact, with a green
+control run afterwards (logs `/c/tmp/s13scrub/m1..m5.log`, `control.log`):
+
+1. `homepage` alone repointed at the invented organisation → 4 failed, 12 passed:
+   both tree rules, the manifest identity rule and the shipped-surface owner rule.
+   A single drifted field is caught by four independent means, which is the point of
+   the overlap.
+2. all three fields repointed at a same-named repository under a *different* owner →
+   2 failed, 14 passed: the pinned-identity and shipped-surface rules fire while both
+   invented-organisation rules stay green. This mutation is why rule 2 exists at all:
+   consistency-with-itself cannot detect an address that is merely not this one.
+3. both README links deleted → 1 failed: "ships a README that tells a reader where
+   the source is". Removing one line does not fire it, because the issue-tracker link
+   is also a canonical link — measured, not assumed.
+4. the gate dropped from `verify:package` → 1 failed: the wiring guard.
+5. a stale address appended to `docs/ARCHITECTURE.md`, a file with no relation to
+   publication → 2 failed: both tree rules. This is the case the pre-fix gates could
+   not see: a design note a reader browses on GitHub.
+
+**Wiring.** `verify:package` now runs the four release-boundary files —
+`publish-contents`, `credential-boundary`, `home-path-boundary`,
+`public-link-boundary` — behind `prepack`, and its own case in this file fails if the
+list loses one.
+
+**Named limits.** Four.
+
+1. **Reachability is measured, not asserted.** Offline tests cannot resolve a URL,
+   and this repository is currently private, so an unauthenticated `GET` of both the
+   real and the invented address returns `404` for opposite reasons — recorded here
+   as measured at `c509fb7`: authenticated `GET /repos/Pavithran-R-A/mergesutra`
+   → `private: true`, `has_issues: true`, `default_branch: main`, `/readme` →
+   `README.md`; unauthenticated `GET` of the repository and `/issues` → `404` while
+   private. The public `200` is a gate for the visibility flip in Stage 15, not a
+   claim made here.
+2. **The identity is pinned by hand.** A test that derived it from `origin` would
+   pass on a checkout whose remote drifted and would fail for every fork of this
+   repository; a pinned constant fails loudly when the project moves, which is the
+   moment a person should decide it. The remote tie-in is kept as a third assertion,
+   not as the source of truth.
+3. **Already-pushed history keeps the old address.** 159 commits went to the remote
+   before this fix, and `git log -p` shows the stale fields in the versions of
+   `package.json` that introduced them. Rewriting that history to remove a URL is the
+   kind of change the standing instructions refuse ("no Git history rewrite merely to
+   make it prettier"), and a browsing a commit diff is not a customer-facing link.
+4. **A placeholder address is not a location claim.** `dist/` ships
+   `https://github.com/owner/repo/issues/123`, which resolves to nothing, and it is
+   supposed to: `src/intake/issue-url.ts:131` exports it as `ISSUE_URL_EXAMPLE`, the
+   shape a user pastes into `mergesutra issue`, and the CLI prints it inside error
+   remediations. The shipped-surface rule therefore keys on a repository named like
+   *this* project rather than on "any URL that a browser would not find", and a rule
+   that fired on illustrative syntax would be answered by an allowlist instead of a
+   fix. The distinction is the same position-not-string judgement S13-0 records for
+   usernames.

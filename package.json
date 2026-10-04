@@ -5,13 +5,13 @@
   "type": "module",
   "license": "MIT",
   "author": "MergeSutra contributors",
-  "homepage": "https://github.com/mergesutra/mergesutra#readme",
+  "homepage": "https://github.com/Pavithran-R-A/mergesutra#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mergesutra/mergesutra.git"
+    "url": "git+https://github.com/Pavithran-R-A/mergesutra.git"
   },
   "bugs": {
-    "url": "https://github.com/mergesutra/mergesutra/issues"
+    "url": "https://github.com/Pavithran-R-A/mergesutra/issues"
   },
   "keywords": [
     "bharatcode",
@@ -54,7 +54,7 @@
     "test:watch": "vitest",
     "test:live": "MERGESUTRA_LIVE_BHARATCODE=1 vitest run --all",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
-    "verify:package": "npm run build && vitest run tests/security/publish-contents.test.ts tests/security/credential-boundary.test.ts tests/security/home-path-boundary.test.ts",
+    "verify:package": "npm run build && vitest run tests/security/publish-contents.test.ts tests/security/credential-boundary.test.ts tests/security/home-path-boundary.test.ts tests/security/public-link-boundary.test.ts",
     "prepack": "npm run verify:package",
     "prepublishOnly": "npm run check"
   },

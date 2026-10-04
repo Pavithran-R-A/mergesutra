@@ -15,6 +15,9 @@ becomes a PR."*
 
 ---
 
+**Source:** [github.com/Pavithran-R-A/mergesutra](https://github.com/Pavithran-R-A/mergesutra)
+· **Report a problem:** [issue tracker](https://github.com/Pavithran-R-A/mergesutra/issues)
+
 > **Honest status: Stage 11 — a run can be verified, written down, read a second
 > time by a model that changes nothing, repaired under a yes bound to one plan's
 > digest, assembled into the page a person approves as a pull request, and — when
@@ -1386,8 +1389,10 @@ What those screens are and are not:
   at and reads the record and the workspace back on both sides.
 - **Nothing reaches a remote, and nothing is approved on the way there.** The full capture
   starts no push, fetch, `gh`, publish or deploy process — read from the fixture's own gate
-  log — and the checkout has no remote configured to reach. `publication.remote` stays
-  `NOT_ATTEMPTED_BY_THIS_BUILD` and `MERGESUTRA_ALLOW_REMOTE_PUBLICATION` is still unset.
+  log. That claim is about what these commands can do, not about what the checkout happens to
+  have: `origin` is now configured for this repository, and no command in this build reaches
+  it. `publication.remote` stays `NOT_ATTEMPTED_BY_THIS_BUILD` and
+  `MERGESUTRA_ALLOW_REMOTE_PUBLICATION` is still unset.
 - **Exit codes.** A preview exits `0` for having described a plan, and that `0` is about
   the command, not the run. An executed resume returns the outcome the stage filed — `0`
   only for `VERIFICATION_PASS`, `3` for a review, pack or candidate that was recorded, `4`
