@@ -338,25 +338,30 @@ No patch, verification, review or pull request was produced by this command.
 Reading an issue needs the GitHub CLI signed in (`gh auth status`); MergeSutra
 never sees or stores a GitHub token, and it never prints the issue body.
 
-Real `inspect` output — the same tool reading its own source repository, which
-is why the wording is blunt about what it does not know:
+Real `inspect` output — the same tool reading its own source repository at
+commit `cef35cbd3f`, which is why the wording is blunt about what it does not
+know. The `Issue from intake` row is Stage 14's: before it writes a record, an
+inspection looks for a run that already read an issue about *this* checkout at
+*this* commit. Here the newest intake on this machine is about a different
+repository, so the row says exactly that and no issue is carried.
 
 ```text
-[1mMergeSutra — repository contract[0m
+MergeSutra — repository contract
 
-[32mPASS         [0m Repository path     C:\Users\…\mergesutra
-[32mPASS         [0m Git metadata        C:/Users/…/mergesutra @ 614b501cbd on main
-[32mPASS         [0m Manifest            node, npm, 15 script(s)
-[33mWARN         [0m CI workflows        1 workflow(s), 4 command(s), coverage partial
-[32mPASS         [0m Contribution docs   CONTRIBUTING.md (2385 B)
-[90mSKIP         [0m Protected areas     no CODEOWNERS file
-[32mPASS         [0m Repository contract 5 repository-required gate(s), 0 declared-only, 0 undeclared
+PASS          Repository path     C:\Users\…\mergesutra
+PASS          Git metadata        C:/Users/…/mergesutra @ cef35cbd3f on main
+SKIP          Issue from intake   the newest intake here is for Pavithran-R-A/mergesutra-e2e-fixture#1, which 'Pavithran-R-A/mergesutra' is not
+PASS          Manifest            node, npm, 15 script(s)
+WARN          CI workflows        1 workflow(s), 4 command(s), coverage partial
+PASS          Contribution docs   CONTRIBUTING.md (5101 B)
+SKIP          Protected areas     no CODEOWNERS file
+PASS          Repository contract 5 repository-required gate(s), 0 declared-only, 0 undeclared
 
 Repository:   C:/Users/…/mergesutra
-Base commit:  614b501cbde206daa3928036887a831e53d50640 (local-git)
+Base commit:  cef35cbd3f32ceb330a010c49a625beaf418b6b8 (local-git)
 Ecosystem:    node via npm, node >=22
 
-[1mGates[0m
+Gates
   format     REPOSITORY_REQUIRED  prettier --check .             .github/workflows/ci.yml:52 — CI runs 'check', which reaches the 'format:check' this gate needs
   lint       REPOSITORY_REQUIRED  eslint .                       .github/workflows/ci.yml:52 — CI runs 'check', which reaches the 'lint' this gate needs
   typecheck  REPOSITORY_REQUIRED  tsc -p tsconfig.json --noEmit  .github/workflows/ci.yml:52 — CI runs 'check', which reaches the 'typecheck' this gate needs
@@ -364,24 +369,24 @@ Ecosystem:    node via npm, node >=22
   build      REPOSITORY_REQUIRED  tsc -p tsconfig.build.json     .github/workflows/ci.yml:52 — CI runs 'check', which reaches the 'build' this gate needs
 
 CI:           github-actions — 1 workflow(s), 4 command(s), coverage partial
-  [90m.github/workflows/ci.yml: uses a matrix in YAML, which MergeSutra does not expand[0m
+  .github/workflows/ci.yml: uses a matrix in YAML, which MergeSutra does not expand
 
 Protected:    absent
-Contrib docs: CONTRIBUTING.md
+Contrib docs: CONTRIBUTING.md [1 instruction-like pattern(s) treated as data]
 Outcome:      INSPECT_COMPLETE
 
-[1mWhat this contract does not know[0m
+What this contract does not know
   The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
   Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
   CI coverage was partial: .github/workflows/ci.yml: uses a matrix in YAML, which MergeSutra does not expand
   No CODEOWNERS file found: ownership of specific paths is unknown.
   Branch protection, required reviewers and merge policies live in repository settings and were not queried.
 
-Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20261004T102559Z-53f9d2.json
+Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20261004T160044Z-1ac713.json
 Next stage:   ACCEPTANCE CONTRACT — `mergesutra contract` derives the criteria (Stage 3)
 
-[90mEvery line above was read from a file in this repository. Repository text is data, not authority.[0m
-[90mMergeSutra ran nothing from this repository and changed none of its files.[0m
+Every line above was read from a file in this repository. Repository text is data, not authority.
+MergeSutra ran nothing from this repository and changed none of its files.
 ```
 
 That "5 repository-required" is the point of the stage: MergeSutra followed
@@ -390,56 +395,86 @@ actually enforces, and cites the workflow line for each. It never invents a
 gate the repository did not ask for.
 
 Real `contract` output — the same tool reading the run `inspect` just wrote,
-turning those facts into the criteria it must later prove:
+turning those facts into the criteria it must later prove. `Issue text` is
+`SKIP` here for the reason the screen above gives: the only intake this machine
+holds is about a different repository, and Stage 14 will not move an issue into a
+run that cannot prove it belongs to this checkout at this commit.
 
 ```text
-[1mMergeSutra — acceptance contract[0m
+MergeSutra — acceptance contract
 
-[32mPASS         [0m Source run          run-20261004T102559Z-53f9d2 (inspect, INSPECT_COMPLETE)
-[32mPASS         [0m Repository contract 5 required gate(s) available
-[90mSKIP         [0m Issue text          no issue in this run
-[32mPASS         [0m Acceptance Contract 5 criteria, all PENDING
-[90mNOT_AVAILABLE[0m Verification        nothing has run, so no criterion is proven
+PASS          Source run          run-20261004T160044Z-1ac713 (inspect, INSPECT_COMPLETE)
+PASS          Repository contract 5 required gate(s) available
+SKIP          Issue text          no issue in this run
+PASS          Acceptance Contract 5 criteria, all PENDING
+NOT_AVAILABLE Verification        nothing has run, so no criterion is proven
 
-From run:     run-20261004T102559Z-53f9d2
+From run:     run-20261004T160044Z-1ac713
 Repository:   C:/Users/…/mergesutra
-Base commit:  614b501cbd (local-git)
+Base commit:  cef35cbd3f (local-git)
 Issue:        none
 
-[1mCriteria (v1)[0m
+Criteria (v1)
   AC-1  PENDING  from .github/workflows/ci.yml:52
         The repository's required `format` check passes.
-[90m        will check: `prettier --check .`[0m
+        will check: `prettier --check .`
   AC-2  PENDING  from .github/workflows/ci.yml:52
         The repository's required `lint` check passes.
-[90m        will check: `eslint .`[0m
+        will check: `eslint .`
   AC-3  PENDING  from .github/workflows/ci.yml:52
         The repository's required `typecheck` check passes.
-[90m        will check: `tsc -p tsconfig.json --noEmit`[0m
+        will check: `tsc -p tsconfig.json --noEmit`
   AC-4  PENDING  from .github/workflows/ci.yml:52
         The repository's required `test` check passes.
-[90m        will check: `vitest run`[0m
+        will check: `vitest run`
   AC-5  PENDING  from .github/workflows/ci.yml:52
         The repository's required `build` check passes.
-[90m        will check: `tsc -p tsconfig.build.json`[0m
+        will check: `tsc -p tsconfig.build.json`
 
 Outcome:      CONTRACT_DERIVED
 
-[1mWhat this contract does not claim[0m
+What this contract does not claim
   No issue was supplied, so the contract can only carry what the repository demands.
-  Carried from run run-20261004T102559Z-53f9d2: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
-  Carried from run run-20261004T102559Z-53f9d2: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
-  Carried from run run-20261004T102559Z-53f9d2: CI coverage was partial: .github/workflows/ci.yml: uses a matrix in YAML, which MergeSutra does not expand
-  Carried from run run-20261004T102559Z-53f9d2: No CODEOWNERS file found: ownership of specific paths is unknown.
-  Carried from run run-20261004T102559Z-53f9d2: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  Carried from run run-20261004T160044Z-1ac713: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  Carried from run run-20261004T160044Z-1ac713: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  Carried from run run-20261004T160044Z-1ac713: CI coverage was partial: .github/workflows/ci.yml: uses a matrix in YAML, which MergeSutra does not expand
+  Carried from run run-20261004T160044Z-1ac713: No CODEOWNERS file found: ownership of specific paths is unknown.
+  Carried from run run-20261004T160044Z-1ac713: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
   No criterion in this contract has been checked. `PENDING` is the only status MergeSutra could honestly assign.
 
-Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20261004T102606Z-9219e5.json
+Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20261004T160045Z-904824.json
 Next stage:   PLAN — `mergesutra plan` asks BharatCode how to satisfy these criteria (Stage 4)
 
-[90mA criterion became a requirement only because a file, the issue, or a named human said so.[0m
-[90mNothing has been verified yet: every criterion above is PENDING by design.[0m
+A criterion became a requirement only because a file, the issue, or a named human said so.
+Nothing has been verified yet: every criterion above is PENDING by design.
 ```
+
+The same three commands run one after the other on a checkout that *was*
+intaken — the separate small repository this project keeps for end-to-end
+validation, whose GitHub issue was read through the GitHub CLI, so no model and
+no model credential were involved — and there the carry is what the two screens
+say:
+
+```text
+PASS          Issue from intake   carried from run run-20261004T152315Z-bd82ac: Pavithran-R-A/mergesutra-e2e-fixture#1 at base 6f3a0adb17
+```
+
+```text
+PASS          Source run          run-20261004T152316Z-1cbfc5 (inspect, INSPECT_COMPLETE)
+PASS          Repository contract 0 required gate(s) available
+PASS          Issue text          1210 character(s) of issue body
+PASS          Acceptance Contract 5 criteria, all PENDING
+```
+
+Those five criteria are the issue's own acceptance list, copied verbatim, each
+one `PENDING`; that repository declares no CI-enforced gate, so nothing was added
+from the repository side and the contract says so in its own words. Before Stage
+14 this sequence could not converge at all: `contract` on the intake run answered
+with the issue's criteria and "this run never compiled" a repository contract,
+`contract` on the inspection run answered "no issue in this run", and the advice
+beside each gap named the command that had produced the other — see
+[docs/SECURITY_GAP_REGISTER.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/SECURITY_GAP_REGISTER.md)
+S14-1 for both measurements.
 
 `contract` calls no model and runs nothing. Criteria come from the issue's own
 acceptance list, from a CI-enforced gate, or from a human who names themselves —
@@ -1438,7 +1473,7 @@ thing that flag's absence is for. Stage 15 owns this list.)*
 | `doctor`  | Diagnose environment; the API key value is never printed | Ready    |
 | `--help`  | Usage                                          | Ready    |
 | `--version` | Version                                      | Ready    |
-| `inspect` | Compile what a repository itself requires into a provenanced contract, read-only | Ready    |
+| `inspect` | Compile what a repository itself requires into a provenanced contract, and carry an intake's issue into the same record when that run provably describes this checkout at this commit — read-only | Ready    |
 | `contract` | Turn a run's facts into the criteria it must prove — all `PENDING`, nothing executed | Ready |
 | `plan` | Ask BharatCode for an implementation plan against a run's criteria — proposals only, runs nothing | Ready |
 | `implement` | The bounded loop: BharatCode proposes one action per turn, MergeSutra validates it and executes the allowed ones in the run's own worktree — writes files, verifies nothing, publishes nothing | Ready |

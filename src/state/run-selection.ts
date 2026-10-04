@@ -81,6 +81,23 @@ function refuseOverread(runs: readonly RunSummary[], unreadable: readonly string
 }
 
 /**
+ * The readable records, newest first, after the same refusal `newestRunId` makes.
+ *
+ * A stage that wants more than the current id — Stage 2 reads an intake run to
+ * carry its issue — has to ask the same question, and asking it with its own
+ * copy of `store.list()` would give it its own copy of the overread rule. There
+ * is one rule about stepping over an unreadable record, so there is one door.
+ */
+export async function readableRuns(store: RunStore): Promise<readonly RunSummary[]> {
+  const listing: RunListResult = await store.list();
+  refuseOverread(
+    listing.runs,
+    listing.unreadable.map((entry) => entry.file),
+  );
+  return listing.runs;
+}
+
+/**
  * The id of the run an omitted run id should mean, or `null` when no readable
  * run exists for the caller to describe. Refuses rather than stepping over a
  * record it cannot read.
@@ -89,15 +106,11 @@ export async function newestRunId(
   store: RunStore,
   accept?: (record: RunRecord) => boolean,
 ): Promise<string | null> {
-  const listing: RunListResult = await store.list();
-  refuseOverread(
-    listing.runs,
-    listing.unreadable.map((entry) => entry.file),
-  );
-  const newest = listing.runs[0];
+  const runs = await readableRuns(store);
+  const newest = runs[0];
   if (!newest) return null;
   if (!accept) return newest.runId;
-  for (const summary of listing.runs) {
+  for (const summary of runs) {
     if (accept(await store.load(summary.runId))) return summary.runId;
   }
   return null;

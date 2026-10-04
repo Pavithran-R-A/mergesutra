@@ -12,6 +12,7 @@ import {
 } from '../intake/local-repo.js';
 import { detectCi } from './ci.js';
 import { buildRepositoryContract, type RepositoryContract } from './contract.js';
+import { carryIssueFromIntake } from './intake-carry.js';
 import { detectManifests } from './manifests.js';
 import { scanContributionDocs, scanProtectedAreas } from './policy.js';
 import { openRepoReader, type RepoReader } from './repo-fs.js';
@@ -106,6 +107,17 @@ export async function runInspect(
     });
   }
 
+  // 2b. The issue this checkout may already have been intaken for. Read from the
+  //     run store, never from GitHub: Stage 2's facts about an issue are borrowed
+  //     from the run that established them, and the borrow is only allowed when
+  //     that run provably describes this clone at this commit.
+  const carry = await carryIssueFromIntake({
+    store,
+    origin: local?.origin ?? null,
+    headSha: local?.head.sha ?? null,
+  });
+  checks.push(carry.check);
+
   // 3. Discovery. Each detector reports its own absences.
   const manifests = await detectManifests(reader);
   checks.push(
@@ -193,15 +205,15 @@ export async function runInspect(
     createdAt: now.toISOString(),
     stage: 'inspect',
     outcome,
-    issueRef: null,
-    issue: null,
+    issueRef: carry.issueRef,
+    issue: carry.issue,
     repository,
     base: local?.head ?? null,
     local,
     checks,
     contract,
     nextStage: NEXT_STAGE,
-    limitations: [...contract.limitations],
+    limitations: [...contract.limitations, ...(carry.limitation ? [carry.limitation] : [])],
   });
 
   let recordFile: string | null = null;

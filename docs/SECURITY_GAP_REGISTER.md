@@ -3915,3 +3915,191 @@ machine can prove.
   closable; the readings for this slice are recorded in the closure report.
 
 
+
+## S14-1 — the pipeline `README.md` documents could not reach its third step — CLOSED (CODE + TEST + DOCUMENT)
+
+**Found by.** Stage 14's credential-free half: before a model call is in scope, the plan requires
+the real chain to have arrived, intact, at `contract` against a real issue in a real repository.
+`README.md` tells a reader to run `mergesutra issue <url> --repo <clone>`, then
+`mergesutra inspect <clone>`, then `mergesutra contract`. That sequence was run on the Stage 14
+validation repository (`Pavithran-R-A/mergesutra-e2e-fixture`, issue #1, read through the GitHub
+CLI, no model credential in scope) against the tree at HEAD `cef35cb` — the tree as shipped, with
+nothing added — and it stopped.
+
+**The defect.** `issue` writes a run record holding `issueRef`, `issue`, `base` and `local`, and
+`contract: null`. `inspect` writes a *second* record holding `contract`, `base` and `local` and —
+`src/discovery/inspect.ts` at `cef35cb`, in its own `createRunRecord` call — `issueRef: null,
+issue: null`. `mergesutra contract` reads exactly one source run. So no sequence of the documented
+verbs could produce the record Stage 4 onward consumes, and each screen's advice named the command
+that had just produced the other half. Measured, verbatim, in that order:
+
+```
+$ node dist/bin.js issue https://github.com/Pavithran-R-A/mergesutra-e2e-fixture/issues/1 --repo C:/tmp/ms14-fixture   → EXIT 0
+$ node dist/bin.js inspect C:/tmp/ms14-fixture                                                                            → EXIT 0
+$ node dist/bin.js contract                                                                                                → EXIT 3
+
+PASS          Source run          run-20261004T160749Z-b49627 (inspect, INSPECT_COMPLETE)
+PASS          Repository contract 0 required gate(s) available
+SKIP          Issue text          no issue in this run
+FAIL          Acceptance Contract no criterion could be derived
+…
+  No criterion could be derived. `contract` refuses to emit an empty contract, so this run has no Acceptance Contract.
+Next stage:   INSPECT — then retry `mergesutra contract`
+```
+
+The `Next stage` line is the defect in one sentence: the run it had just read *was* the INSPECT
+run. Pointing `contract` at the intake run instead answered the other half and lost the first —
+exit `0`, the issue's five criteria, and `NOT_AVAILABLE Repository contract this run never compiled
+one`, so `plan`, `implement`, `verify`, the evidence pack and the pull-request page would all read a
+record describing the issue with no knowledge of what the repository demands. The fixture's own
+shape made the failure total rather than partial: it declares no CI-enforced gate, so its
+inspection contributes zero criteria, and an empty contract is refused by design
+(`src/contract/derive.ts`, `AcceptanceContractUnavailable`). A repository that *does* declare gates
+hides the second symptom entirely — the chain still converges on half the obligations and reports
+`CONTRACT_DERIVED` as if that were the whole list.
+
+**Why no gate could see it.** Three reasons, each checked in the suite rather than assumed.
+(1) The helpers every downstream stage builds its fixture run from come in two kinds and say so in
+their own names: `contractBackedRun` starts at `runInspect` (`tests/helpers/plan.ts:54`) and
+`issueBackedRun` starts at `runIntake` (`:71`). Nothing chained them, so Stage 4 through Stage 11
+were each proved against one family of criteria and never against the handoff. (2) The `contract`
+CLI's own tests call both stages — `inspectedRun` (`tests/cli/contract.test.ts:97`) and `intakeRun`
+(`:106`) — but always one or the other, and its docstring records the split as a property of the
+world: *"A Stage 1 run: an issue with the given body, and no repository contract."* The rule that
+would have caught the defect — derive from a run written by a *different* stage — was never written
+down. (3) The unit tests around `deriveAcceptanceCriteria` hand-build a `DeriveInput` carrying both
+a `contract` and an `issue`, which is legal input and is not what the CLI can produce. Same class as
+S13-4 and S13-6: a component suite that passes because no test asks the components to talk to each
+other.
+
+**The change.** `inspect` now carries an intake's issue into its own record, and only on proof.
+
+- `src/discovery/intake-carry.ts` (new, `carryIssueFromIntake`) — the whole decision, with its
+  reasons in the header. The proof is three facts: this clone names an `origin` whose
+  host/owner/repo equal the host/owner/repo the intake's issue belongs to (case-insensitively,
+  because GitHub names are); the intake pinned a base commit and it is the commit being inspected
+  now; the intake holds both an `issueRef` and an `issue` document. The directory path is
+  deliberately *not* part of the proof — a person who clones twice or moves a clone has the same
+  repository at the same commit, and a path comparison would refuse for a reason that says nothing
+  about which repository a run describes. Conversely no path reaches any string this module
+  produces: only host/owner/repository, taken from `parseRepositoryUrl`, which discards any
+  userinfo a remote URL carried, and the raw `local.originUrl` is never printed.
+- The lookup walks newest-first and stops at `INTAKE_SCAN_BOUND = 25` records, and it **never
+  throws**: a store it cannot consult is `NOT_AVAILABLE` and an inspection that still completes,
+  because deciding what a repository declares is Stage 2's job and a missing borrow is not a
+  repository fact. When the bound is what stopped a carry, the refusal says "among the newest 25"
+  rather than implying no intake ever happened.
+- The overread rule exists once: `readableRuns` is now exported from `src/state/run-selection.ts:91`
+  and the carry goes through it, so a directory holding a newer record this build cannot parse
+  refuses the borrow instead of quietly using an older one — the same door `newestRunId` uses.
+- `src/discovery/inspect.ts:114` calls it and pushes its check row; `:208-209` writes
+  `issueRef: carry.issueRef, issue: carry.issue`; `:216` appends the limitation. A carried issue is
+  copied byte-for-byte, not re-redacted (a second pass would be a second place to diverge), and the
+  record says where it came from: *"The issue in this record was carried from run `<id>`, which read
+  it from GitHub. This stage re-read no issue and did not check that it is still open."*
+
+**Measured after**, same host, same three commands, same issue, on the restored tree:
+
+```
+$ node dist/bin.js issue … --repo C:/tmp/ms14-fixture    → EXIT 0
+$ node dist/bin.js inspect C:/tmp/ms14-fixture           → EXIT 0
+$ node dist/bin.js contract                              → EXIT 0
+
+PASS          Issue from intake   carried from run run-20261004T160823Z-cf67aa: Pavithran-R-A/mergesutra-e2e-fixture#1 at base 6f3a0adb17
+…
+PASS          Source run          …  (inspect, INSPECT_COMPLETE)
+PASS          Repository contract 0 required gate(s) available
+PASS          Issue text          1210 character(s) of issue body
+PASS          Acceptance Contract 5 criteria, all PENDING
+Next stage:   PLAN — `mergesutra plan` asks BharatCode how to satisfy these criteria (Stage 4)
+```
+
+One record now carries both families, and the `contract` run it feeds is the one Stage 14's
+real-model step will read. `tests/discovery/carried-issue.test.ts` holds 11 cases over the real
+`runIntake`, `runInspect` and `runContractStage` — byte-identical carry, a contract citing issue
+*and* `repository_policy` criteria from the single run, the limitation naming its source run,
+newest-of-two intakes, the base commit never moving, and five refusals (different commit, different
+repository, no `origin`, empty store, unreadable newer record) plus the 31-record bounded scan. All
+11 were seen to fail before the module existed (10 failed, 1 passed — the one that passed asserted
+that an inspection cannot invent a base commit, and it was already true).
+
+**Mutations, each restored byte-for-byte.** Pre-mutation hashes: `src/discovery/intake-carry.ts`
+`31e78817f640ffdfed4d9b7dd8a6232ecdb8c4cd48650694b9354c30d6d22116`,
+`src/discovery/inspect.ts`
+`86d53254b607f16322d7795fe63a3cbd504a81c564b35e3d59d3fcd39c458fbf`,
+`src/state/run-selection.ts`
+`73dec7f27506c8777ab0167b7d0a77d6eb83a33a23f7b2406a13751d118a31da`,
+`tests/discovery/carried-issue.test.ts`
+`efd98fb879949aba109cfb444671d8c792a5d155015bbf7d43323f6d4956b26a`. Each was run against
+`npx vitest run tests/discovery/carried-issue.test.ts`; every one exited `1` on **exactly the case
+written for it**, 1 failed | 10 passed, except MUT-F:
+
+- **MUT-A** base-commit proof dropped → *leaves the issue out when the clone has moved to a
+  different commit*.
+- **MUT-B** repository-identity proof dropped → *leaves the issue out when this clone points at a
+  different repository*.
+- **MUT-C** `runs.slice(0, INTAKE_SCAN_BOUND)` replaced by the whole list → *stops looking instead
+  of walking a whole run directory*.
+- **MUT-D** store fault rethrown instead of reported → *refuses to carry past a record this build
+  cannot read, and still inspects*.
+- **MUT-E** `limitation: null` → *names in the record the run a carried issue was read from*.
+- **MUT-F** `inspect.ts` writing the pre-fix `issueRef: null, issue: null` → 3 failed
+  | 8 passed: the carry case, the both-families contract case, and newest-of-two. This is the
+  regression pair for the defect itself, and it is also how the authentic before-measurement above
+  was produced: `git show HEAD:src/discovery/inspect.ts` was put in place, built, and run, then the
+  fixed file restored.
+- **MUT-G** `readableRuns` no longer calling `refuseOverread` → the unreadable-record case, proving
+  the shared door is load-bearing here and not decoration.
+
+After each mutation the file was restored from a byte-exact copy and its hash re-measured equal to
+the value above. Focused gate on the restored tree: exit `0`, 11 passed (11).
+
+**Documents corrected.** `README.md`'s "Real `inspect` output" and "Real `contract` output" captures
+were the defect in print — they showed `SKIP Issue text no issue in this run` on a screen the
+reader was told would later hold the issue's criteria — and both were re-measured on the fixed tree
+at `cef35cbd3f`, the first now carrying the `Issue from intake` row in its refusing form. A short
+third block shows the same three commands on a checkout that *was* intaken, with the two rows that
+matter quoted whole. The command-surface row for `inspect` and `docs/PRODUCT_SPEC.md:199-204`
+("joins an issue run and a repository contract", which had been aspirational) now describe the
+carry and its proof. No shipped document points a reader at the validation repository as a link:
+the screens that name it are quoted output, and its visibility is not this product's promise.
+
+**Limitations.**
+
+1. A carried issue is as current as the run it came from. `inspect` re-reads nothing from GitHub,
+   so an issue edited or closed after the intake is carried in its earlier state. The record says so
+   in those words; the alternative — re-reading — would move a network call into Stage 2, which is
+   specified read-only.
+2. The carry needs both commands to have been run from the same working directory, because
+   `defaultRunStoreRoot` is `<cwd>/.mergesutra/runs` for both (`src/state/run-store.ts:44`), not a
+   path derived from the repository being inspected. This is pre-existing behaviour that S12-32
+   already documents as where a run leaves files; the carry inherits it, and Stage 14's procedure
+   names one working directory for the whole chain.
+3. Twenty-five records is a chosen window, not a proven one. An intake buried under 25 later runs in
+   the same store will not carry, and the refusal states the window it searched. The cost is bounded
+   the other way too: one `inspect` may now open up to 25 run files.
+4. The proof is identity-plus-commit, so a clone of the *same* repository at the *same* commit in a
+   second working directory that shares a store can supply an intake for a checkout it was not run
+   in. Nothing unsafe follows — the issue belongs to that repository at that commit, which is what
+   the record claims, and no path is carried — but it is why the proof is stated as three facts
+   rather than as "the run made for this directory".
+5. Green hosted contexts are evidence about the gates, not about this handoff: no CI job runs the
+   real-fixture chain, and the unit cases use injected GitHub and Git tables. The measurements above
+   are Windows readings of the shipped `dist/bin.js`; the Linux reading is Stage 14's remaining
+   credential-free line.
+
+## Register status, Stage 14 (in progress)
+
+`S14-1` (the documented `issue → inspect → contract` chain could not put both families of criteria
+in the one record every later stage reads) is closed as CODE + TEST + DOCUMENT above. What Stage 14
+still has to measure, and what it will not claim before it does:
+
+- The credential-free half is not finished: `verify`, `status`, `report` and the recovery behaviour
+  have to be walked against the same fixture with raw exit codes, and the canary file in the fixture
+  working tree has to be shown untouched afterwards.
+- The live harness has to be *proved* incapable of leaking the key into logs, run records or the
+  evidence pack, and its blast radius proved to be the fixture repository and nothing else, before
+  any credential is in scope.
+- The real-model run is the boundary of this machine's proof. Nothing in this stage may be presented
+  as a live-model result until it has happened, and the register will record the commands, the cost
+  ceiling and the outcome rather than a summary.

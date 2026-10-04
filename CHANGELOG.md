@@ -6,6 +6,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — Stage 14 so far: the documented pipeline could not reach its third step
+
+`README.md` tells a reader to run `mergesutra issue <url> --repo <clone>`, then
+`mergesutra inspect <clone>`, then `mergesutra contract`. Measured on a real GitHub issue in a
+real repository, that sequence never produced a contract that knew about the issue: `issue` writes
+a run holding the issue and no repository contract, `inspect` writes a *second* run holding the
+contract and, by design until now, no issue, and `contract` reads exactly one run. So the
+documented chain ended with the issue's criteria and "this run never compiled a repository
+contract", or with the repository's gates and "no issue in this run" — and the advice printed beside
+each gap named the command that had just produced the other half, which is a cycle, not a pipeline.
+Everything from `plan` onward, and the pull-request page, read the one record `contract` writes.
+
+`inspect` now carries an intake's issue into its own record, and only when the intake proves it was
+about *this* checkout: the clone's `origin` names the host/owner/repository the issue belongs to,
+the intake pinned the base commit being inspected, and the intake actually holds both an issue
+reference and an issue document. The directory path is deliberately not part of the proof, so
+moving or re-cloning a repository does not lose a carry; nothing printed by the carry quotes a
+remote URL whole, only its host/owner/repository. The lookup walks the newest records and stops at
+25, and a run store this build cannot read is reported as an absence beside an inspection that still
+completes — Stage 2 never fails because a borrow was unavailable. A carried issue is labelled in
+the record with the run id it came from, and Stage 2 says plainly that it re-read nothing and did
+not check whether the issue is still open.
+
+Measured after the fix, same commands, real issue read through the GitHub CLI, no model credential
+in scope: `issue` → `inspect` (`PASS Issue from intake carried from run …`) → `contract` → exit `0`
+with the issue's five criteria in one record, all `PENDING`. Before the fix the third step exited
+`3`. Proved by 11 cases in `tests/discovery/carried-issue.test.ts`, each of which was seen to fail
+for the missing behaviour, and each rule re-witnessed by a mutation that broke the case written for
+it (register S14-1).
+
 ### Fixed — Stage 13 so far: the release boundary stopped being a Windows-only claim
 
 Until this stage every proof about the published artifact had been run on one machine, on one

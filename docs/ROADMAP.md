@@ -968,8 +968,23 @@ purpose is to be refused.
       the suites pass there, which is evidence about this machine, not about drive-letter
       or `USERPROFILE` handling in general.
 
-## Stage 14 — Benchmark / evaluation harness
+## Stage 14 — Real-issue end-to-end validation
 
+- [x] The documented pipeline reaches its third step — `mergesutra issue` then `mergesutra
+      inspect` then `mergesutra contract` used to end in a refusal, because the inspection
+      record never carried the intake's issue and the contract stage reads exactly one record.
+      An inspection now carries that issue forward when the intake run provably describes this
+      clone's repository at the commit being inspected, so one record holds both families of
+      criteria. `tests/discovery/carried-issue.test.ts`; S14-1.
+- [ ] The credential-free walk of the remaining stages against a real fixture repository —
+      `verify`, `status`, `report` and the recovery paths, each with its raw exit code recorded,
+      and proof that the fixture's untouched files are byte-identical afterwards.
+- [ ] The credential-boundary proofs: that the live harness cannot print, commit, argument-pass
+      or artifact-write a credential, and that its blast radius is the one fixture repository it
+      is pointed at. A guard where a claim is not yet enforced, not a claim.
+- [ ] The real-model run itself, which is the boundary this stage stops at: a named model, a
+      budget ceiling, and a controlled E2E procedure. Do not fabricate, substitute or simulate
+      this evidence.
 - [ ] ~10 real tasks across classes; publish honest metrics **and failures**
 
 ## Stage 15 — Demo + README + release readiness
