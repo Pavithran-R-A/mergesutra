@@ -3490,17 +3490,116 @@ raise a budget, and a rule that only exists as a intention gets negotiated away.
    commits in their own repositories while writing this; no test re-resolves a SHA to a tag,
    and the tag comment is not itself verified on every run.
 
+## S13-4 — the shipped product told readers to open files the package does not contain
+
+**Claim.** A screen printed `Progress: see docs/ROADMAP.md` and the README printed
+twenty-five links into `docs/`, `SECURITY.md` and `CONTRIBUTING.md`. None of those exist
+after `npm install -g mergesutra`: the manifest's `files` is `dist`, `BharatCode.txt`,
+`README.md` and `LICENSE`, npm adds only its own `package.json` and `LICENSE`, and
+`publish-contents.test.ts` *refuses* a package that carries `docs/`. So the tool whose
+entire design is saying what is true was shipping directions into a directory only its
+developer owns — on the one surface (`README.md`) that is read on the npm package page,
+where a customer has nothing but the package.
+
+**How it was found, since nothing could have said it.** No gate read a pointer as a
+pointer. `credential-boundary.test.ts` hunts bytes that must not be present, and
+`home-path-boundary.test.ts` hunts a path that must not be the developer's; a promise to
+open a file is neither, and both suites were green while the sentence was in the build.
+The measurement that closes it starts the real command from a directory that holds none
+of this repository's documents — one process per command the shipped `--help` advertises,
+plus the help, version and unknown-command screens — and reads every pointer-shaped token
+it prints. Run from a checkout, `docs/ROADMAP.md` exists and the question cannot be
+asked, which is why this survived twelve stages.
+
+**The first version of the gate passed for the wrong reason.** Judging a README link
+against the working tree resolves every link, so the document layer reported all-clear on
+the twenty-five links it existed to catch; the tree has to be a proxy for an install
+directory, not for this checkout. Re-judged against the empty temp directory it went RED
+with all twenty-five named — 27 relative links in `README.md`, 25 of them into 10
+repository-only targets, only `BharatCode.txt` and `LICENSE` resolving inside the package.
+
+**Fix, at the layer rather than the string.** A reader-facing pointer is now composed, in
+`src/cli/pointers.ts`, from the repository URL the manifest already publishes, and the
+screen prints `Progress: https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md`.
+`blob/HEAD` rather than `blob/main` because a link must survive a default-branch rename —
+the form was fetched against a public repository and returned 200 before it was written
+down. The twenty-five README links were absolutised the same way, leaving the two
+package-internal ones relative, so a reader with the tarball and a reader on npm get the
+same document.
+
+**A guard that had to be told the difference between a route and a citation.** Widening
+the document layer from links to every pointer-shaped token in prose produced 25 further
+"offences" that were not defects — `` `tests/repair/boundaries.test.ts` `` and friends
+identify where code lives, which is provenance a source-reading customer needs. The answer
+is a semantic rule, not an allowlist: this layer judges **links**, because a renderer turns
+a link into something a reader follows, and leaves backticked paths to the reader's judgement.
+`reads a link as a route and a backtick as a citation` pins that distinction in the gate,
+with the README's own citation as the fixture.
+
+**The collision that proves the guard belongs in `verify:package`.** Putting
+`REPOSITORY_URL` in `src/version.ts` first, before the layering was understood, turned
+`npm run check` red on an unrelated suite: `tests/lifecycle/source-shape.test.ts` reads
+the comment-stripped code of every module reachable from `cli/status.ts` and refuses an
+`https://` literal anywhere in that closure, because the read-only half of recovery owes
+no endpoint — and `cli/status.ts` imports `version.ts` for `PRODUCT_NAME`. The message was
+`→ https://: expected true to be false` with `CHECK_EXIT=1`. Nothing was weakened. The
+pointers moved to the presentation layer, which only the command screen imports, and the
+lifecycle guard kept its crude, correct proxy: a URL literal is now *evidence* of a
+reachable network claim, and this repository prints one from exactly one module.
+
+**The gate.** `tests/security/shipped-pointer-boundary.test.ts`, 23 cases in five groups:
+the pointer detector's own semantics (a tracked-but-unshipped target is the offence; a
+packed entry and a file in the workspace under inspection are not; absolute paths are left
+to the home-directory gate; a Windows-shaped pointer is the same pointer), the screens a
+customer can run (including that the planned-command screen both stays inside the installed
+surface and still says where the command is going), the shipped root documents, the packed
+surface this measures against, and the wiring. It runs inside `verify:package`, which is
+`prepack`, so a pointer defect refuses a pack rather than shipping.
+
+**Three mutations, each restored byte-for-byte.** M1: `ROADMAP_URL` losing its scheme, back
+to `docs/ROADMAP.md` — 3 failures, `points at nothing only the developer has`,
+`keeps the planned-command screen inside the surface the customer installed`, and `still
+says where a planned command is going, in a form the reader can follow`. M2: one README link
+made relative again — 2 failures, `links to nothing that a reader with only the package
+cannot open` and `keeps every remaining relative link inside the installed package`. M3: the
+pointer drifted to a same-shaped URL under a different owner — 1 failure, `composes its
+pointers from the repository the manifest publishes`, i.e. the screen layer stayed green while
+the drift pin fired, which is the point of having both. All three then reverted, and
+`md5sum -c` reports `OK` for `src/cli/pointers.ts`, `src/cli/program.ts`, `README.md` and the
+gate file.
+
+**Named limits.** Four.
+
+1. **Identity and position are asserted; reachability is not.** These cases resolve
+   pointers against npm's own inventory and the filesystem. An `https:` pointer's status
+   code is a network measurement, and the repository is private until the Stage 15
+   visibility flip, so a 200 assertion here would be a claim about the future. The
+   `blob/HEAD` shape was verified once, against a public repository, and is recorded as
+   such above.
+2. **Screens are read as printed, not as they could be printed.** The set is the help
+   screen plus one invocation per advertised command, run with no arguments from an empty
+   directory. Text that appears only under a specific flag, a specific workspace or a
+   specific failure branch is not scanned, and no fake credential or repository is planted
+   to reach those branches here.
+3. **Only root-level packed prose is read as a document.** Today that is `README.md` and
+   `BharatCode.txt`; a document added under `dist/` or a nested path would need the layer
+   widened, and `reads more than one shipped prose document` refuses a silent shrink to one
+   file.
+4. **The URL is a literal, duplicated with `package.json`.** One test compares them; the
+   runtime does not read the manifest, and no code enforces the equality outside the suite.
+   Moving the project is therefore two edits that a gate makes into one mistake if only one
+   is made.
+
 ## Register status, Stage 13
 
 `S13-0` (home directory published), `S13-1` (manifest source address nobody owned), `S13-2`
 (the release-boundary gates had only ever run on one operating system, including the shipped
-command doing nothing on the other) and `S13-3` (the hosted workflow had no policy and no
-guard) are closed as CODE + TEST + DOCUMENT entries, each with its own measurements above and
-each cited against the tree it was measured on. Still open in this stage: `S13-4`, the shipped
-screens pointing a customer at paths the package does not contain — of which the verified
-instance is `src/cli/program.ts:470` printing `Progress: see docs/ROADMAP.md`, since `files`
-ships `dist`, `BharatCode.txt`, `README.md` and `LICENSE` and no `docs/` — and `S13-5`,
-repository settings on the real remote (topics, templates, `SECURITY.md`/`CONTRIBUTING.md`
-accuracy, changelog coverage for Stage 12, branch protection), which the hosted matrix and
-the visibility flip then have to be observed.
+command doing nothing on the other), `S13-3` (the hosted workflow had no policy and no
+guard) and `S13-4` (a shipped screen and the shipped README pointed a reader at files the
+package does not contain) are closed as CODE + TEST + DOCUMENT entries, each with its own
+measurements above and each cited against the tree it was measured on. Still open in this
+stage: `S13-5`, repository settings on the real remote (topics, the `homepage` field GitHub
+itself leaves empty, templates, `SECURITY.md`/`CONTRIBUTING.md` accuracy, changelog coverage
+for Stage 12, branch protection), which the hosted matrix and the visibility flip then have
+to be observed.
 

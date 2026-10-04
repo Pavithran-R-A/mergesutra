@@ -50,6 +50,26 @@ package no longer prints its author's home directory (S13-0), and its `homepage`
 `repository.url` and `bugs.url` point at the repository that now exists rather than one that
 never did (S13-1). A dead-link gate keeps them that way.
 
+The shipped product also told readers to open files they do not have (S13-4). A screen printed
+`Progress: see docs/ROADMAP.md` and `README.md` carried 25 relative links into `docs/`,
+`SECURITY.md`, `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` — none of which npm packs, because
+`files` ships `dist`, `BharatCode.txt`, `README.md` and `LICENSE`, and a gate refuses a package
+that carries `docs/`. Every one of those directions was aimed at this repository's developer.
+Reader-facing pointers are now composed in `src/cli/pointers.ts` from the repository URL the
+manifest already publishes (`…/blob/HEAD/docs/ROADMAP.md`, so the link survives a
+default-branch rename), the README's links are absolute, and the two package-internal ones stay
+relative. `tests/security/shipped-pointer-boundary.test.ts` (23 cases) starts the real installed
+command once per advertised verb — from a directory holding none of this checkout's documents,
+which is the only way the question can be asked — and judges each pointer by position: legal if
+npm packs it, legal if it belongs to the repository being inspected, an offence if this checkout
+tracks it and the package does not ship it. It reads a markdown link as a route a customer
+follows and a backticked path as a citation, so provenance in prose is not mistaken for a
+broken promise. Three mutations named the failures they caused — 3 screen cases, 2 document
+cases, 1 drift pin — each then restored byte-for-byte. One of its own drafts put the URL in
+`src/version.ts` and was caught by a *different* guard: the read-only half of recovery treats a
+`https://` literal in its import closure as an endpoint, so the pointers belong in the
+presentation layer and that guard stayed exactly as strict as it was.
+
 ### Added — Stage 11: the screen that says what is true now, and the word that continues it
 
 Every stage before this one assumed a run was being watched while it happened. This is

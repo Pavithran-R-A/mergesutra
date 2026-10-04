@@ -1458,9 +1458,11 @@ be one of those four plus `package.json`, and no repository-only root (`src/`, `
 foreign `cd` path) may appear, nor may any `.env*`, lockfile, `.npmrc`, `*.log`, `*.tgz`,
 `id_rsa` or `*.pem` shape appear. npm adds its own rules on top of `files` and those rules
 are not configurable: root `package.json` is always included, a root `README`/`LICENSE`
-always included, `node_modules` and a handful of SCM files never packed. The measured
-inventory is 448 entries — `package.json`, the three root documents, and 444 files under
-`dist/`.
+always included, `node_modules` and a handful of SCM files never packed. The inventory measured
+against this tree is 456 entries — `package.json`, the three root documents, and 452 files under
+`dist/`. That sentence is a reading, not a rule: `publish-contents.test.ts` re-measures the
+inventory through npm on every run, so the count moves with the build and nothing depends on it
+staying 456.
 
 **A root `.npmignore` is not a defence and is not treated as one.** npm's documented
 semantics put `files` above a root `.npmignore`: a file the allowlist already refused does
@@ -1472,10 +1474,17 @@ about `files`, because `files` is the field that decides.
 **`prepack` binds the artifact to the source, and it does so before the tarball exists.**
 `prepack` runs for `npm pack`, `npm pack --dry-run` and `npm publish`, and npm creates no
 tarball if it exits nonzero. It is `npm run verify:package`, which is `npm run build`
-(`tsc -p tsconfig.build.json`) followed by the two verifiers that define the release boundary:
-`tests/security/publish-contents.test.ts`, which decides *surface* (which files, and whether they
-are current with this source), and `tests/security/credential-boundary.test.ts`, which decides
-*content* (whether any byte in that surface carries a credential). The order is the whole
+(`tsc -p tsconfig.build.json`) followed by the verifiers that define the release boundary, each
+answering a different question about the bytes npm is about to ship:
+`tests/security/publish-contents.test.ts` decides *surface* (which files, and whether they are
+current with this source); `tests/security/credential-boundary.test.ts` decides *content*
+(whether any byte in that surface carries a credential); `tests/security/home-path-boundary.test.ts`
+decides *provenance* (whether the artifact names the developer's own directory);
+`tests/security/public-link-boundary.test.ts` decides *identity* (whether the manifest's public
+links all name the one repository that now exists); and
+`tests/security/shipped-pointer-boundary.test.ts` decides *direction* (whether every place a
+shipped screen or a shipped root document tells the reader to look is somewhere that reader can
+actually go — S13-4). The order is the whole
 point: build first, so the bytes that get packed are compiled from the source that is
 currently in the tree, then verify, so the verifier measures the same tree npm is about to
 pack. Without the build step, `npm pack` would faithfully ship whatever `dist/` happened to
