@@ -18,7 +18,7 @@ const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
  * Neither sentence was refuted by anything that runs.
  *
  * A document cannot be held to reality in general, and this file does not try: prose is
- * prose. What it does hold are three relationships that are mechanical, each with a drift
+ * prose. What it does hold are four relationships that are mechanical, each with a drift
  * it can see coming.
  *
  * 1. **A command the guide tells a person to type must exist.** `npm run X` and
@@ -31,6 +31,12 @@ const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
  * 3. **A path a document cites must be a file.** `src/security/redaction.ts` in a policy
  *    file is a pointer into the tree; when the module moves, the pointer is a lie about
  *    where the guarantee lives.
+ * 4. **A script that starts the program must start the program.** S13-2 moved the
+ *    command-line entry from `src/index.ts` to `src/bin.ts` to make the installed CLI run on
+ *    the platform npm ships it to, and left `dev` pointing at the module that new design
+ *    made deliberately inert. The documented source command then exited 0 printing nothing —
+ *    on every platform — which is precisely the failure S13-2 exists to prevent, reintroduced
+ *    one layer up by the fix itself. Nothing could see it because no test ran the script.
  *
  * What this file does **not** claim: it does not read meaning into a sentence, so it cannot
  * tell whether an accurate-looking paragraph is honest. `SECURITY.md`'s credential claims
@@ -48,6 +54,8 @@ const MANIFEST = path.join(ROOT, 'package.json');
 
 interface Manifest {
   scripts?: Record<string, string>;
+  bin?: Record<string, string>;
+  main?: string;
 }
 
 function scripts(): Record<string, string> {
@@ -151,6 +159,57 @@ describe('what CONTRIBUTING.md tells a developer to run', () => {
       listed,
       'the verifiers this guide describes are not the set verify:package actually runs',
     ).toEqual(wired);
+  });
+});
+
+describe('the manifest scripts that start the program from source', () => {
+  function manifest(): Manifest {
+    return JSON.parse(readFileSync(MANIFEST, 'utf8')) as Manifest;
+  }
+
+  /** The module the installed package runs as `mergesutra`, written in source form. */
+  function executableSourceModule(): string {
+    const entry = manifest().bin?.mergesutra;
+    expect(entry, 'the manifest registers no executable entry').toBeTruthy();
+    return `src/${(entry ?? '').replace(/^\.\/dist\//, '').replace(/\.js$/, '.ts')}`;
+  }
+
+  function sourceRunnerBodies(): Array<[string, string]> {
+    return Object.entries(manifest().scripts ?? {})
+      .filter(([, body]) => /(?:tsx|node)\s+src\//.test(body))
+      .sort(([a], [b]) => a.localeCompare(b));
+  }
+
+  /** Scripts that launch a file under `src/` through a Node runner. */
+  function sourceRunners(): string[] {
+    return sourceRunnerBodies().map(([name]) => name);
+  }
+
+  it('start the same program the installed package starts', () => {
+    expect(
+      sourceRunners().length,
+      'no npm script launches a file under src/, so the rule below proves nothing',
+    ).toBeGreaterThan(0);
+    const wrong = sourceRunners().filter(
+      (name) => !manifest().scripts?.[name]?.includes(executableSourceModule()),
+    );
+    expect(
+      wrong,
+      `scripts launching a source module other than the executable (${executableSourceModule()}): ${wrong.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('do not launch the library entry, which runs no command line', () => {
+    const library = `src/${(manifest().main ?? '')
+      .replace(/^\.\/dist\//, '')
+      .replace(/\.js$/, '.ts')}`;
+    const launching = sourceRunners().filter((name) =>
+      manifest().scripts?.[name]?.includes(library),
+    );
+    expect(
+      launching,
+      `${library} exports only, by design: running it exits 0 having printed nothing. Offenders: ${launching.join(', ')}`,
+    ).toEqual([]);
   });
 });
 

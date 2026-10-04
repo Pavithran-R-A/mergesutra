@@ -3338,6 +3338,9 @@ dist/index.js …` instructions in the shipped README became `node dist/bin.js �
 `docs/SECURITY_MODEL.md` records that the entry point the artifact contract names changed
 under S13-2 while the measured properties did not.
 
+That sweep was incomplete, and the omission is its own entry: `dev` was left pointing at the module
+the split had just made inert. See S13-6.
+
 **Regression protection, and its cross-platform reach.** `tests/release/installed-artifact.test.ts`
 now has 13 cases, three of which are the new boundary:
 `runs when started through a launcher path that is not its realpath` (a symlink to the
@@ -3791,16 +3794,111 @@ this stage actually proved and the path-shape matrix it did not.
    are the pre-S13-5 blobs, and both files were rewritten here. The other nine entries in that
    table are unchanged by this slice.
 
+## S13-6 — the fix that made the installed command platform-independent broke the documented source command — CLOSED (CODE + TEST + DOCUMENT)
+
+**Found by:** the first command Stage 14's credential-free validation needed — running
+`mergesutra doctor` against the E2E fixture repository through the source entry the contribution
+guide names.
+
+**The defect.** `package.json` carried `"dev": "tsx src/index.ts"`, and `CONTRIBUTING.md` tells a
+contributor to run `npm run dev -- help` "Run the CLI from source via `tsx`". S13-2 (`c92b3b3`)
+moved the command line into a new module, `src/bin.ts`, and left `src/index.ts` as exports only —
+deliberately, so that "importing the library cannot run a command line". The refactor did not touch
+`dev`, so the documented source command started a module whose own documentation says it decides
+nothing about how it was started. Measured before the fix:
+
+```
+$ npm run dev -- doctor; echo "EXIT=$?"
+
+> mergesutra@0.0.1 dev
+> tsx src/index.ts doctor
+
+EXIT=0        (whole log: 51 bytes, npm's banner only)
+```
+
+`npm run dev -- --help` measured the same way: exit `0`, the banner, no usage screen — while
+`npx tsx src/bin.ts --help` on the same tree printed the full command list and exited `0`. Exit
+`0`, empty product output, on every platform. That is the S13-2 symptom — "a published
+package that does nothing" — reintroduced one layer up by the fix for it, and it is worse than a
+crash because nothing about it invites investigation.
+
+**Why no gate could see it.** `tests/docs/contributor-commands.test.ts` case 1 already held that
+every `npm run X` the guide names resolves to a manifest key, and it passed: `dev` exists. A rule
+about a *name* cannot see what the script *runs*. Same class as the OS blind spot S13-2 closed —
+correct by construction, wrong by target.
+
+**The change.** One line in the manifest: `"dev": "tsx src/bin.ts"`. Two cases were added to the
+same file, and both derive their expectation from the manifest instead of naming a file, so a
+future rename moves the rule rather than breaking it:
+
+- *start the same program the installed package starts* — every script whose body launches a module
+  under `src/` through `tsx` or `node` must launch the module the `bin` field registers, computed
+  from `bin.mergesutra` (`./dist/bin.js` → `src/bin.ts`).
+- *do not launch the library entry, which runs no command line* — the complement, computed from
+  `main` (`./dist/index.js` → `src/index.ts`), with the symptom named in the failure message.
+
+**Measured after the fix**, same host, same command line:
+
+```
+$ npm run dev -- doctor
+EXIT=1
+
+MergeSutra doctor
+
+PASS          Node              v24.21.0
+PASS          Git               git version 2.55.0.windows.5
+PASS          GitHub CLI        gh version 2.96.0 (2026-07-02)
+PASS          GitHub auth       signed in
+FAIL          BharatCode key    BHARATCODE_API_KEY is not set.
+SKIP          BharatCode reach  pass --connect to test
+
+Not ready. Resolve the FAIL items above.
+```
+
+Six checks, and the `FAIL` is the true pre-credential state rather than a missing key being
+worked around — which is also the read Stage 14 needs before any model call is in scope.
+
+**Mutations, each restored byte-for-byte.** Pre-mutation hashes: `package.json`
+`1c84af0291c575fd0865f34caf41e48f1f1c2bad75faea17b7dc45875d0baa14`,
+`tests/docs/contributor-commands.test.ts`
+`fbb96e6520fbf61a778124b765a97dc71531fb31148a6dbdd95ca8cfd651599a`.
+
+- **MUT-1 (production)** — `dev` reverted to `tsx src/index.ts`: focused gate exit `1`, and *both*
+  new cases failed (`scripts launching a source module other than the executable (src/bin.ts): dev`
+  and `src/index.ts exports only, by design…: dev`). Restored: both hashes re-measured equal to the
+  values above.
+- **MUT-2 (guard sensitivity)** — the scan's pattern narrowed to a prefix no script has, so it sees
+  no source runner: focused gate exit `1` on `no npm script launches a file under src/, so the rule
+  below proves nothing: expected 0 to be greater than 0` (1 failed | 10 passed), which is the
+  anti-vacuity case doing its job. Restored, hashes re-measured equal.
+- Focused gate on the restored tree: `npx vitest run tests/docs/contributor-commands.test.ts` →
+  exit `0`, 11 passed (11).
+
+**Limitations.**
+
+1. The rule covers scripts that launch a module under `src/`. A script launching the compiled
+   `dist/` entry is outside it by design; that path is the artifact suite's, which spawns the built
+   bin and would fail loudly.
+2. `dev` is not run by the hosted matrix, so the four green `check (…)` contexts say nothing about
+   it. The post-fix reading above is a Windows measurement; the mechanism (a module that starts no
+   command line) is platform-independent, but it was verified here only.
+3. This is the second time in Stage 13 that a fix created a defect no local gate could see. The
+   pattern the register now records for both: after changing how something is *entered* (an entry
+   module, a protected ref), perform the operation the change is meant to permit and read its
+   output, rather than only re-reading the configuration.
+
 ## Register status, Stage 13
 
 `S13-0` (home directory published), `S13-1` (manifest source address nobody owned), `S13-2`
 (the release-boundary gates had only ever run on one operating system, including the shipped
 command doing nothing on the other), `S13-3` (the hosted workflow had no policy and no
 guard), `S13-4` (a shipped screen and the shipped README pointed a reader at files the
-package does not contain) and `S13-5` (the policy and contribution documents described
+package does not contain), `S13-5` (the policy and contribution documents described
 credential routes, a reporting channel and a release state this project does not have, while
-the guide's command list had gone stale two commits earlier) are closed as CODE + TEST +
-DOCUMENT entries, each with its own measurements above and each cited against the tree it was
+the guide's command list had gone stale two commits earlier) and `S13-6` (the S13-2 entry-module
+split left the documented source command launching the deliberately inert library module, so it
+exited 0 printing nothing) are closed as CODE + TEST + DOCUMENT entries, each with its own
+measurements above and each cited against the tree it was
 measured on. What is still open is not a defect found and left: it is the boundary of what this
 machine can prove.
 

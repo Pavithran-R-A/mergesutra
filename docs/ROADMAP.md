@@ -952,6 +952,8 @@ purpose is to be refused.
       command no longer exits silently on POSIX, npm resolution walks both install layouts,
       `npm run check` builds before the suites that hash `dist/`, and `.github/workflows/ci.yml`
       runs Ubuntu and Windows × Node 22 and 24 against the real gates. S13-2, S13-3.
+- [x] The documented source command launches the same executable the installed package does,
+      after the S13-2 entry-module split had left it launching the inert library surface. S13-6.
 - [x] The published identity and the published pointers — one canonical repository, named
       consistently by the manifest, the README and the screens, with the shipped tree free of
       the developer's home directory and of instructions that only resolve on the author's

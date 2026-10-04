@@ -116,6 +116,23 @@ happened" dropdown lists the thirteen commands the CLI actually registers (so a 
 filed against a planned verb), a required field for the exact command line, and a required
 checkbox that the reporter removed every credential value from it.
 
+The Stage 14 groundwork then found a defect this stage had itself made. Preparing the
+first credential-free command — `mergesutra doctor` — through the source command the contribution
+guide names (`npm run dev`, documented as "Run the CLI from source via `tsx`") produced exit `0`
+and 51 bytes of output: npm's own banner, and nothing from the product. S13-2 had moved the command
+line from `src/index.ts` into a new `src/bin.ts` and deliberately left `src/index.ts` as imports
+only, so that importing the library could never start a CLI — and had left `dev` pointing at that
+now-inert module. The documented source run therefore inherited exactly the symptom S13-2 exists to
+prevent, "exit code 0, no stdout and no stderr", on every platform instead of two. Nothing could
+see it for the same reason the first one went unseen: a gate that checks that a script *name*
+resolves cannot see what the script *runs*. `dev` now launches `src/bin.ts`; two cases in
+`tests/docs/contributor-commands.test.ts` hold the relationship, both derived from the manifest
+itself (the executable from `bin`, the inert module from `main`) so they follow a future rename
+rather than freezing today's filenames. Measured on this host after the change, the same command
+line that had printed nothing prints the six-check screen and exits `1` on the honest pre-credential
+state — `Node v24.21.0 PASS`, `Git … 2.55.0 PASS`, `GitHub CLI … 2.96.0 PASS`, `GitHub auth
+signed in PASS`, `BharatCode key … is not set FAIL`, `BharatCode reach … SKIP`.
+
 ### Added — Stage 11: the screen that says what is true now, and the word that continues it
 
 Every stage before this one assumed a run was being watched while it happened. This is
