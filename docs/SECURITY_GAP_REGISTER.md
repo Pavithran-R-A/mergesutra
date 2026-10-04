@@ -3234,3 +3234,273 @@ list loses one.
    that fired on illustrative syntax would be answered by an allowlist instead of a
    fix. The distinction is the same position-not-string judgement S13-0 records for
    usernames.
+
+## S13-2 — every release-boundary gate had been run on exactly one operating system
+
+**Claim.** Stage 12 proved the artifact's boundaries — that the packed tree carries no
+credential, names no developer's home directory, resolves to a repository that exists, and
+runs after installation — and every one of those proofs was measured on this Windows host.
+A proof that has only ever run on one platform establishes what that platform does, not what
+a customer gets: `npm` lays out its own modules differently on POSIX, launches a `bin`
+entry differently, and applies a different file-permission model, and the suites had baked
+in all three accidents. Six distinct defects were hiding under that single word "green".
+Five of them were defects of the *harness*, which is embarrassing but bounded. The sixth
+was a defect of the *product*, and it would have shipped: on Linux and macOS the command
+every customer types after `npm install -g mergesutra` prints nothing and exits `0`.
+
+**Where the boundary was crossed.** Roadmap 13.3 asks for real CI on Ubuntu and Windows at
+Node 22 and 24 running the authoritative gates. The first such run — Actions run
+`37191104028`, head SHA `614b501`, four matrix entries — failed in all four, at the step
+"Run all deterministic gates", with the same five files red on Linux:
+
+```text
+Test Files  5 failed | 135 passed | 3 skipped (143)
+Error: Cannot find module '/opt/hostedtoolcache/node/24.21.0/x64/bin/node_modules/npm/bin/npm-cli.js'
+```
+
+(the hosted log is kept at `/c/tmp/s13ci/hosted-ubuntu-fail.log`). Those five files are
+`publish-contents`, `credential-boundary`, `home-path-boundary`, `hook-firing-verbs` and
+`lifecycle/interruption` — that is, the release-boundary suite itself, which had never
+before been executed anywhere except this machine.
+
+**The six defects, and what each one actually was.**
+
+1. **A — npm's location, guessed from one platform.** The suites that ask npm what it would
+   pack reached its entry script as `dirname(process.execPath)/node_modules/npm/bin/npm-cli.js`.
+   That is where it lives on Windows. A POSIX install puts the binary in `<prefix>/bin` and
+   its own modules in `<prefix>/lib`, so on every Linux runner — and under nvm, apt and
+   Homebrew — the path does not exist. Fixed at the architecture level rather than by
+   patching the string: `tests/helpers/npmInvocation.ts:22` `npmCliScript()` searches both
+   layouts, under the recorded directory *and* under the directory it resolves to (a
+   symlinked global Node keeps npm one level away), and returns `null` when npm genuinely
+   cannot be found; `requireNpmCli()` then names what it looked at. Four suites use it.
+2. **B — the build ran after the suites that hash the build.** `check` was
+   `format && lint && typecheck && test && build`. On a fresh checkout `dist/` does not
+   exist, so the S12-12 case that proves every manifest entry point is reachable in `dist/`
+   measured an empty directory — and on this host it had always measured a `dist/` left
+   behind by some earlier command, which is how the ordering stayed invisible for a stage.
+   Fixed by ordering `build` before `test`; the exact string is pinned at
+   `tests/security/publish-contents.test.ts:321`, so a future edit that re-loops the order
+   fails a test instead of quietly measuring a stale pack.
+3. **C — a fixture repository that inherited the machine's noise.** Test fixtures created a
+   Git repository with no `.gitignore`. The toolchain on the inherited `PATH` then wrote
+   `node_modules/.vite/vitest/results.json` into the workspace under measurement, and
+   whether that happened depended on the platform — which is precisely why
+   `tests/lifecycle/interruption.test.ts` reported the previous stage's evidence as **stale
+   on Linux and current on Windows** for the same code and the same scenario. A patch that
+   is machine-litter looks exactly like a patch that is work. Fixed by a default ignore in
+   `tests/helpers/git.ts:34` (`.mergesutra/` and `node_modules/`), overridable by callers.
+4. **D — a hook without the exec bit.** `hook-firing-verbs` wrote Git hooks from a test and
+   expected them to fire. Windows does not consult the mode bit; POSIX does, so the hook
+   was an unreadable non-executable file and never ran — a test of the *absence* of a hook
+   that reported the presence of one. Fixed with `chmod(hook, 0o755)` and a comment saying
+   why the line is load-bearing.
+5. **E — a checkout too shallow for the history the suites read.** `credential-boundary`
+   re-derives what has ever been added outside `tests/` and refuses a checkout that cannot
+   reach the full history (`tests/security/credential-boundary.test.ts:539`, with the
+   added-lines floor at `:560`). `actions/checkout` defaults to `fetch-depth: 1`, so on the
+   hosted runner the gate that proves the artifact carries no credential failed because it
+   could not see the commits. Fixed by `fetch-depth: 0` at `.github/workflows/ci.yml:40`
+   and, so that it cannot drift back, by a rule in the workflow guard (S13-3).
+6. **F — the shipped command answered "no" to a question about how it was started.** This is
+   the one that would have reached a customer. The old `src/index.ts` ended in
+   `if (entry && import.meta.url === pathToFileURL(entry).href) void main();` — the familiar
+   "am I the entry point?" guard. On Linux and macOS npm's launcher at
+   `node_modules/.bin/mergesutra` is a **symlink** to `../mergesutra/dist/index.js`; the
+   kernel hands the interpreter the *link* path in `process.argv[1]` while Node realpaths the
+   module it loads, so the comparison is false, `main()` is never called, and the process
+   exits `0` having printed nothing to either stream. Windows is immune because its `.cmd`
+   launcher invokes `node` with the realpath. Every probe that could distinguish "the file is
+   broken" from "the guard is wrong" said the file was fine, measured on the Linux clone: the
+   installed file mode `-rwxr-xr-x`, the shebang bytes `#!/usr/bin/env node` with no `CRLF`,
+   `node <realpath> --version` → `0.0.1`, and `/usr/bin/env node <realpath> --version` →
+   `0.0.1`. The failing thing was being asked the question at all.
+
+**Evidence-integrity finding, disclosed because it voids earlier readings.** While
+reproducing F outside Windows it was measured that `wsl.exe` invoked from Git Bash expands
+`$` tokens in the command string *before* Linux's shell sees them: `false; echo $?` printed
+`0`, while `false || echo MARKER` fired correctly. Every `CHECK_EXIT=0` / `ARTIFACT_EXIT=0`
+line recorded earlier in this stage through `wsl.exe -- bash -lc "…"` is therefore **void and
+is not cited anywhere in this entry**. The Linux measurements below were taken by running a
+*script file* inside Linux (`MSYS_NO_PATHCONV=1 wsl.exe -d Ubuntu -- bash /path/gate.sh`),
+where `$?` is the Linux shell's own. The same mechanism mangles Linux absolute paths passed in
+from Git Bash unless `MSYS_NO_PATHCONV=1` is set, which is why the first copy attempt failed
+with `mkdir: Permission denied` on an empty `$HOME`.
+
+**How F was fixed — the architecture, not the string.** The guard was not loosened (a
+launcher that runs when started *either* way would import-and-run the library on every
+`import 'mergesutra'`). The two jobs were separated: `src/bin.ts` is now the executable the
+manifest registers and runs the command line **unconditionally**, and `src/index.ts` is
+exports-only, so importing the library can never start a CLI and starting the CLI can never
+be declined. `package.json`'s `bin` points at `./dist/bin.js` while `main`/`exports` stay at
+`./dist/index.js`, `package-lock.json`'s root `bin` entry moved with it, all 30 `node
+dist/index.js …` instructions in the shipped README became `node dist/bin.js …`, and
+`docs/SECURITY_MODEL.md` records that the entry point the artifact contract names changed
+under S13-2 while the measured properties did not.
+
+**Regression protection, and its cross-platform reach.** `tests/release/installed-artifact.test.ts`
+now has 13 cases, three of which are the new boundary:
+`runs when started through a launcher path that is not its realpath` (a symlink to the
+installed file, which is the launcher npm creates — Windows developers' editions can make
+symlinks, so the case is not platform-exclusive; it is `it.skipIf(!CAN_SYMLINK)`, and that
+skip is itself the disclosure), `imports as a library without starting a command line`
+(asserting that `import('mergesutra')` prints nothing and yields a function), and the `--help`
+case repointed from `manifest.main` to the file `bin` registers. The mutation was then
+witnessed on the platform where F existed — the identity guard put back into `src/bin.ts`,
+rebuilt, installed, and run:
+
+```text
+ FAIL … > prints its version through the bin entry it registers
+AssertionError: expected '' to be '0.0.1'
+ FAIL … > runs when started through a launcher path that is not its realpath
+AssertionError: started through a symlink the command printed nothing
+ Test Files  1 failed (1)
+      Tests  3 failed | 10 passed (13)
+ARTIFACT_MUTANT_EXIT=1
+```
+
+`src/bin.ts` was then restored byte-for-byte (md5 `88b7f1e8f3e3ab113bad311f5c3b9bcb` before
+and after, both written by Linux), and the suite re-run: 13 passed, `ARTIFACT_RESTORED_EXIT=0`.
+The third failing name is not in the saved log — the reporter truncated that section; the
+count and the two quoted names are. Full log: `/c/tmp/s13ci/linux-mutate-F.log`.
+
+**Re-measured on both platforms after the fixes.** Windows (`/c/tmp/s13ci/check-windows-s13b.log`):
+`npm run check` → `CHECK_EXIT=0` at line 618, `Test Files 141 passed | 3 skipped (144)`,
+`Tests 2189 passed | 3 skipped (2192)`, 262.34 s. Linux, WSL2 Ubuntu on native ext4,
+`node v22.23.3` / `npm 10.9.9` (`/c/tmp/s13ci/linux-gate.log`, exit codes printed inside
+Linux): the same 17 changed files verified md5-identical on both sides before running, then
+`CHECK_EXIT=0` with `Test Files 141 passed | 3 skipped (144)` and `Tests 2186 passed | 6
+skipped (2192)` in 31.41 s, and `ARTIFACT_EXIT=0` with 13 passed in 7.09 s.
+
+**Named limits.** Six, none of them a mechanism to add.
+
+1. **The Linux used here is WSL2 Ubuntu, not a GitHub-hosted ubuntu image.** Same kernel
+   semantics for symlinks, exec bits and `PATH` layout — which is what F needed — different
+   image, different npm cache warmth. The hosted proof for this tree is the CI run this
+   commit triggers, and it is deliberately not claimed here in advance.
+2. **Node 22 was measured on Linux and Node 24 on Windows.** The 24-on-Linux and 22-on-Windows
+   combinations exist only in the hosted matrix.
+3. **Three tests cannot run on a case-sensitive filesystem.** The 2186/6 versus 2189/3
+   difference is `tests/security/path-confinement-matrix.test.ts` (55 tests, 3 skipped on
+   Linux): its `needsCaseFold` rows (`:306`) describe Windows path-fold behaviour and are
+   skipped rather than silently reinterpreted. The reverse asymmetry also holds — the 8.3
+   short-name group (`:480`) only exists on Windows.
+4. **The mutation log lost one failing name to reporter truncation.** Recorded above rather
+   than reconstructed from memory.
+5. **Nothing here is measured on macOS**, and nothing on this point claims it is; the README
+   makes the same statement about its own support claims.
+6. **`npm run check` does not include the installed-artifact suite.** `tests/release/` is
+   excluded from `vitest.config.ts` because it is the only suite that contacts the registry,
+   and `check` documents itself as the offline gate. CI runs it as a separate named step,
+   which is why its absence from the offline promise is not an absence of coverage.
+
+## S13-3 — nothing held the hosted workflow itself to a policy
+
+**Claim.** A workflow file is the one place this repository's claims become enforced rather
+than written down, and it is also the one place where the code that runs does so on somebody
+else's compute with somebody else's token. Before this entry the file existed, had never been
+validated against a stated policy, and had four properties that each look normal in a tutorial
+and are each a finding here: no `permissions:` block at all, floating major-version tags on
+third-party actions, the checkout's default shallow fetch, and a job name that collapsed the
+Node axis. There was also no rule anywhere preventing the trigger that turns CI into a
+credential hunt — and the moment Stage 15 adds a publish job, that rule is the only thing
+standing between a routine edit and a workflow that mints an OIDC token on pull requests from
+forks.
+
+**What the file looked like, quoted from `git show 614b501:.github/workflows/ci.yml`.**
+`uses: actions/checkout@v4` (a moving reference: whatever `v4` points at the day a run starts
+is what executes here), no `permissions:` key, no `with:` block on the checkout, job name
+`check (${{ matrix.os }})` while the matrix multiplied by two Node lines — so eight logical
+checks presented as four, and a Node-22-only failure was indistinguishable from a
+Node-24-only failure in the runs list — and only two gates, `npm ci` and `npm run check`. The
+artifact gates (`verify:package`, `test:artifact`) were not being run hosted at all.
+
+**The pinning was verified, not copied from documentation.** Both SHAs in the new file were
+resolved through the API and checked as commits in the action's own repository before being
+written down: `actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4` and
+`actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4`, each with a signed commit
+object, and each `action.yml` declaring `runs: using: node20`. The tag is kept as a trailing
+comment because a bare SHA is unreadable in review, and the guard requires the comment so the
+two cannot disagree later.
+
+**The guard.** `tests/security/workflow-policy.test.ts`, 24 cases in three groups: the policy
+applied to the file that really runs (permissions exactly `contents: read`; triggers only
+`push`/`pull_request` plus a stated absence of `workflow_run` and `schedule`; the file says in
+its own words that nothing here reaches a live model; every `uses:` pinned to 40 hex with a
+tag comment; the checkout step fetching the whole history; the four gates present and in the
+order install → source gates → artifact gates; both OS and both Node lines with
+`fail-fast: false`), the same policy fed the exact mutations it exists to catch, and a
+completeness group. `workflowViolations()` is a pure function over text, which is what makes
+the control group meaningful: the assertion against the real file passes because the policy
+holds, not because nobody edited the file.
+
+**Two silent-pass bugs in the guard, found by writing its own controls.** First, a YAML block
+walk that only recognised list items and a step-boundary test that compared indentation
+without walking back to the `-` that opens a step — either one lets a rule read an empty
+region and report "clean". Then, on the coverage floor below, a trigger rule that only read a
+*block map* under `on:`, so the equally legal flow form passed silently:
+
+```text
+× rejects a dangerous trigger written as a flow sequence rather than a block map
+  → expected [] to include '`pull_request_target` runs PR code with the base repository's token'
+```
+
+Written RED first, then `triggerNames()` was implemented to accept all three shapes GitHub
+documents for `on:` — inline flow sequence, block map, block sequence — and to strip a
+trailing comment so prose on that line cannot be mistaken for a trigger. Both branches were
+then proved load-bearing separately: emptying the inline branch fails the flow case and the
+comment case; `null`-ing the sequence branch fails the block-sequence case. Restored, 24 pass.
+
+**A coverage floor, because the same silent-shrinkage argument applies to whole files.** The
+guard originally read `ci.yml` by name. A second workflow — Stage 15's publish job is the
+likely one — would then run on every future push with rights this suite has never reviewed,
+and nothing would be red. So `no hosted workflow escapes this policy` enumerates
+`.github/workflows/` and refuses any file outside `GUARDED_WORKFLOWS`, with its own controls
+(a file beside the guarded set, and the guarded set emptied rather than widened). Witnessed
+by dropping a probe workflow into the directory — 1 failed, naming the file and saying what to
+do about it — then deleting it, leaving one file:
+
+```text
+× no hosted workflow escapes this policy > reads every workflow file the repository ships
+  → a workflow file exists that this suite has no rules for: … expected [ 'zz-policy-probe.yml' ] to deeply equal []
+```
+
+**Why the credential rule belongs in this file and not only in a comment.** The workflow says
+in prose that no step receives a repository secret and that no live-model suite is invoked.
+`workflowViolations()` turns that into `a job is handed a repository secret` on any `secrets.`
+reference, `a failure is swallowed` on `continue-on-error` or `|| true`, and refuses a
+`timeout-minutes` — because this project's rule is that hosted slowness is not a reason to
+raise a budget, and a rule that only exists as a intention gets negotiated away.
+
+**Named limits.** Four.
+
+1. **YAML is read as text with hand-rolled scanning, not parsed.** The three shapes the
+   controls cover are the three GitHub documents for `on:`; a trigger smuggled into a
+   multi-line block scalar would not be seen. Widening that is a parser dependency, which is
+   a decision to make deliberately rather than in a security patch.
+2. **The scope rule is written for CI and will have to be widened on purpose.** Anything
+   other than `contents: read` is a violation today, which is correct here and will reject
+   the `id-token: write` a Trusted-Publishing job needs. That rejection is the feature: the
+   Stage 15 workflow has to be added to `GUARDED_WORKFLOWS` with its own scoped policy in the
+   same commit that creates it.
+3. **The guard cannot see repository settings.** Default workflow permissions, branch
+   protection and required reviews live outside the tree; they are 13.5's subject and are not
+   claimed by this entry.
+4. **A pinned SHA is a point-in-time verification.** The two above were checked as signed
+   commits in their own repositories while writing this; no test re-resolves a SHA to a tag,
+   and the tag comment is not itself verified on every run.
+
+## Register status, Stage 13
+
+`S13-0` (home directory published), `S13-1` (manifest source address nobody owned), `S13-2`
+(the release-boundary gates had only ever run on one operating system, including the shipped
+command doing nothing on the other) and `S13-3` (the hosted workflow had no policy and no
+guard) are closed as CODE + TEST + DOCUMENT entries, each with its own measurements above and
+each cited against the tree it was measured on. Still open in this stage: `S13-4`, the shipped
+screens pointing a customer at paths the package does not contain — of which the verified
+instance is `src/cli/program.ts:470` printing `Progress: see docs/ROADMAP.md`, since `files`
+ships `dist`, `BharatCode.txt`, `README.md` and `LICENSE` and no `docs/` — and `S13-5`,
+repository settings on the real remote (topics, templates, `SECURITY.md`/`CONTRIBUTING.md`
+accuracy, changelog coverage for Stage 12, branch protection), which the hosted matrix and
+the visibility flip then have to be observed.
+

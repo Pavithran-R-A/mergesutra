@@ -1483,7 +1483,9 @@ contain — which is not hypothetical. Before this hook existed, the working tre
 predated two closed security items and packed successfully anyway; and the same manifest with
 `prepack` deleted and no `dist/` at all still packs — measured again while writing this section,
 exit `0` and an 894-byte tarball whose entire listing is `package/package.json`, with `bin`
-naming `./dist/index.js`. Deleting one script line reproduces it, which is why a test case, not
+naming `./dist/index.js`. (Measured then; the executable the manifest names is `./dist/bin.js`
+since S13-2 — what the measurement shows is a property of the missing hook, not of which file
+`bin` points at.) Deleting one script line reproduces it, which is why a test case, not
 prose, holds the hook in place. A manifest whose entry point resolves to nothing is a broken
 package, not a refused one, because npm does not read `bin`.
 

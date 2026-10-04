@@ -183,36 +183,36 @@ npm ci
 npm run build
 
 # These work today:
-node dist/index.js --version
-node dist/index.js --help
-node dist/index.js doctor            # add --connect to probe BharatCode
-node dist/index.js issue https://github.com/owner/repo/issues/123
-node dist/index.js issue --repo /path/to/an/existing/clone
-node dist/index.js inspect .         # compile a repository's own contract
-node dist/index.js inspect /path/to/clone --json
-node dist/index.js contract          # turn the newest run into criteria to prove
-node dist/index.js contract <run-id> --json
-node dist/index.js contract --criterion "Docs say 22 is the floor" --by "Maintainer"
-node dist/index.js contract --criterion "Empty input throws" --check "node --test test/invalid.test.mjs" --by "Maintainer"
-node dist/index.js plan              # needs BHARATCODE_API_KEY; proposes, runs nothing
-node dist/index.js plan <run-id> --json
-node dist/index.js implement         # needs a key; writes inside its own worktree only
-node dist/index.js implement <run-id> --max-steps 8 --json
-node dist/index.js verify            # plans the gates; runs none until you name them
-node dist/index.js verify <run-id> --allow VG-001 --allow VG-002
-node dist/index.js report            # render the newest run's evidence pack
-node dist/index.js report <run-id> --json
-node dist/index.js review            # needs a key; asks a second model about this run's patch
-node dist/index.js review <run-id> --json
-node dist/index.js repair            # shows the newest run's frozen plan; needs no key, edits nothing
-node dist/index.js repair <run-id> --approve-plan <64-hex>   # the only command that edits, and only on that word
-node dist/index.js pr <run-id>                      # prints the page and the digest that approves it; needs no key
-node dist/index.js pr <run-id> --approve <64-hex>   # records that yes locally; opens nothing
-node dist/index.js status            # what is true about the newest run, read without changing it
-node dist/index.js status <run-id> --json
-node dist/index.js resume            # the plan for the newest run and everything it costs; runs nothing
-node dist/index.js resume <run-id> --execute                        # the only word that acts
-node dist/index.js resume <run-id> --execute --allow VG-001 --allow VG-002
+node dist/bin.js --version
+node dist/bin.js --help
+node dist/bin.js doctor            # add --connect to probe BharatCode
+node dist/bin.js issue https://github.com/owner/repo/issues/123
+node dist/bin.js issue --repo /path/to/an/existing/clone
+node dist/bin.js inspect .         # compile a repository's own contract
+node dist/bin.js inspect /path/to/clone --json
+node dist/bin.js contract          # turn the newest run into criteria to prove
+node dist/bin.js contract <run-id> --json
+node dist/bin.js contract --criterion "Docs say 22 is the floor" --by "Maintainer"
+node dist/bin.js contract --criterion "Empty input throws" --check "node --test test/invalid.test.mjs" --by "Maintainer"
+node dist/bin.js plan              # needs BHARATCODE_API_KEY; proposes, runs nothing
+node dist/bin.js plan <run-id> --json
+node dist/bin.js implement         # needs a key; writes inside its own worktree only
+node dist/bin.js implement <run-id> --max-steps 8 --json
+node dist/bin.js verify            # plans the gates; runs none until you name them
+node dist/bin.js verify <run-id> --allow VG-001 --allow VG-002
+node dist/bin.js report            # render the newest run's evidence pack
+node dist/bin.js report <run-id> --json
+node dist/bin.js review            # needs a key; asks a second model about this run's patch
+node dist/bin.js review <run-id> --json
+node dist/bin.js repair            # shows the newest run's frozen plan; needs no key, edits nothing
+node dist/bin.js repair <run-id> --approve-plan <64-hex>   # the only command that edits, and only on that word
+node dist/bin.js pr <run-id>                      # prints the page and the digest that approves it; needs no key
+node dist/bin.js pr <run-id> --approve <64-hex>   # records that yes locally; opens nothing
+node dist/bin.js status            # what is true about the newest run, read without changing it
+node dist/bin.js status <run-id> --json
+node dist/bin.js resume            # the plan for the newest run and everything it costs; runs nothing
+node dist/bin.js resume <run-id> --execute                        # the only word that acts
+node dist/bin.js resume <run-id> --execute --allow VG-001 --allow VG-002
 ```
 
 An omitted `<run-id>` means the newest run recorded in this directory. When the
@@ -342,46 +342,46 @@ Real `inspect` output — the same tool reading its own source repository, which
 is why the wording is blunt about what it does not know:
 
 ```text
-MergeSutra — repository contract
+[1mMergeSutra — repository contract[0m
 
-PASS          Repository path     C:\Users\…\mergesutra
-PASS          Git metadata        C:/Users/…/mergesutra @ 43a9e57274 on main
-PASS          Manifest            node, npm, 12 script(s)
-WARN          CI workflows        1 workflow(s), 2 command(s), coverage partial
-PASS          Contribution docs   CONTRIBUTING.md (2345 B)
-SKIP          Protected areas     no CODEOWNERS file
-PASS          Repository contract 5 repository-required gate(s), 0 declared-only, 0 undeclared
+[32mPASS         [0m Repository path     C:\Users\…\mergesutra
+[32mPASS         [0m Git metadata        C:/Users/…/mergesutra @ 614b501cbd on main
+[32mPASS         [0m Manifest            node, npm, 15 script(s)
+[33mWARN         [0m CI workflows        1 workflow(s), 4 command(s), coverage partial
+[32mPASS         [0m Contribution docs   CONTRIBUTING.md (2385 B)
+[90mSKIP         [0m Protected areas     no CODEOWNERS file
+[32mPASS         [0m Repository contract 5 repository-required gate(s), 0 declared-only, 0 undeclared
 
 Repository:   C:/Users/…/mergesutra
-Base commit:  43a9e5727494019db25a8c1f4374d535f1f49616 (local-git)
+Base commit:  614b501cbde206daa3928036887a831e53d50640 (local-git)
 Ecosystem:    node via npm, node >=22
 
-Gates
-  format     REPOSITORY_REQUIRED  prettier --check .             .github/workflows/ci.yml:34 — CI runs 'check', which reaches the 'format:check' this gate needs
-  lint       REPOSITORY_REQUIRED  eslint .                       .github/workflows/ci.yml:34 — CI runs 'check', which reaches the 'lint' this gate needs
-  typecheck  REPOSITORY_REQUIRED  tsc -p tsconfig.json --noEmit  .github/workflows/ci.yml:34 — CI runs 'check', which reaches the 'typecheck' this gate needs
-  test       REPOSITORY_REQUIRED  vitest run                     .github/workflows/ci.yml:34 — CI runs 'check', which reaches the 'test' this gate needs
-  build      REPOSITORY_REQUIRED  tsc -p tsconfig.build.json     .github/workflows/ci.yml:34 — CI runs 'check', which reaches the 'build' this gate needs
+[1mGates[0m
+  format     REPOSITORY_REQUIRED  prettier --check .             .github/workflows/ci.yml:52 — CI runs 'check', which reaches the 'format:check' this gate needs
+  lint       REPOSITORY_REQUIRED  eslint .                       .github/workflows/ci.yml:52 — CI runs 'check', which reaches the 'lint' this gate needs
+  typecheck  REPOSITORY_REQUIRED  tsc -p tsconfig.json --noEmit  .github/workflows/ci.yml:52 — CI runs 'check', which reaches the 'typecheck' this gate needs
+  test       REPOSITORY_REQUIRED  vitest run                     .github/workflows/ci.yml:52 — CI runs 'check', which reaches the 'test' this gate needs
+  build      REPOSITORY_REQUIRED  tsc -p tsconfig.build.json     .github/workflows/ci.yml:52 — CI runs 'check', which reaches the 'build' this gate needs
 
-CI:           github-actions — 1 workflow(s), 2 command(s), coverage partial
-  .github/workflows/ci.yml: uses a matrix in YAML, which MergeSutra does not expand
+CI:           github-actions — 1 workflow(s), 4 command(s), coverage partial
+  [90m.github/workflows/ci.yml: uses a matrix in YAML, which MergeSutra does not expand[0m
 
 Protected:    absent
 Contrib docs: CONTRIBUTING.md
 Outcome:      INSPECT_COMPLETE
 
-What this contract does not know
+[1mWhat this contract does not know[0m
   The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
   Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
   CI coverage was partial: .github/workflows/ci.yml: uses a matrix in YAML, which MergeSutra does not expand
   No CODEOWNERS file found: ownership of specific paths is unknown.
   Branch protection, required reviewers and merge policies live in repository settings and were not queried.
 
-Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20260924T193559Z-40dbc8.json
+Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20261004T102559Z-53f9d2.json
 Next stage:   ACCEPTANCE CONTRACT — `mergesutra contract` derives the criteria (Stage 3)
 
-Every line above was read from a file in this repository. Repository text is data, not authority.
-MergeSutra ran nothing from this repository and changed none of its files.
+[90mEvery line above was read from a file in this repository. Repository text is data, not authority.[0m
+[90mMergeSutra ran nothing from this repository and changed none of its files.[0m
 ```
 
 That "5 repository-required" is the point of the stage: MergeSutra followed
@@ -393,52 +393,52 @@ Real `contract` output — the same tool reading the run `inspect` just wrote,
 turning those facts into the criteria it must later prove:
 
 ```text
-MergeSutra — acceptance contract
+[1mMergeSutra — acceptance contract[0m
 
-PASS          Source run          run-20260924T193559Z-40dbc8 (inspect, INSPECT_COMPLETE)
-PASS          Repository contract 5 required gate(s) available
-SKIP          Issue text          no issue in this run
-PASS          Acceptance Contract 5 criteria, all PENDING
-NOT_AVAILABLE Verification        nothing has run, so no criterion is proven
+[32mPASS         [0m Source run          run-20261004T102559Z-53f9d2 (inspect, INSPECT_COMPLETE)
+[32mPASS         [0m Repository contract 5 required gate(s) available
+[90mSKIP         [0m Issue text          no issue in this run
+[32mPASS         [0m Acceptance Contract 5 criteria, all PENDING
+[90mNOT_AVAILABLE[0m Verification        nothing has run, so no criterion is proven
 
-From run:     run-20260924T193559Z-40dbc8
+From run:     run-20261004T102559Z-53f9d2
 Repository:   C:/Users/…/mergesutra
-Base commit:  43a9e57274 (local-git)
+Base commit:  614b501cbd (local-git)
 Issue:        none
 
-Criteria (v1)
-  AC-1  PENDING  from .github/workflows/ci.yml:34
+[1mCriteria (v1)[0m
+  AC-1  PENDING  from .github/workflows/ci.yml:52
         The repository's required `format` check passes.
-        will check: `prettier --check .`
-  AC-2  PENDING  from .github/workflows/ci.yml:34
+[90m        will check: `prettier --check .`[0m
+  AC-2  PENDING  from .github/workflows/ci.yml:52
         The repository's required `lint` check passes.
-        will check: `eslint .`
-  AC-3  PENDING  from .github/workflows/ci.yml:34
+[90m        will check: `eslint .`[0m
+  AC-3  PENDING  from .github/workflows/ci.yml:52
         The repository's required `typecheck` check passes.
-        will check: `tsc -p tsconfig.json --noEmit`
-  AC-4  PENDING  from .github/workflows/ci.yml:34
+[90m        will check: `tsc -p tsconfig.json --noEmit`[0m
+  AC-4  PENDING  from .github/workflows/ci.yml:52
         The repository's required `test` check passes.
-        will check: `vitest run`
-  AC-5  PENDING  from .github/workflows/ci.yml:34
+[90m        will check: `vitest run`[0m
+  AC-5  PENDING  from .github/workflows/ci.yml:52
         The repository's required `build` check passes.
-        will check: `tsc -p tsconfig.build.json`
+[90m        will check: `tsc -p tsconfig.build.json`[0m
 
 Outcome:      CONTRACT_DERIVED
 
-What this contract does not claim
+[1mWhat this contract does not claim[0m
   No issue was supplied, so the contract can only carry what the repository demands.
-  Carried from run run-20260924T193559Z-40dbc8: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
-  Carried from run run-20260924T193559Z-40dbc8: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
-  Carried from run run-20260924T193559Z-40dbc8: CI coverage was partial: .github/workflows/ci.yml: uses a matrix in YAML, which MergeSutra does not expand
-  Carried from run run-20260924T193559Z-40dbc8: No CODEOWNERS file found: ownership of specific paths is unknown.
-  Carried from run run-20260924T193559Z-40dbc8: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  Carried from run run-20261004T102559Z-53f9d2: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  Carried from run run-20261004T102559Z-53f9d2: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  Carried from run run-20261004T102559Z-53f9d2: CI coverage was partial: .github/workflows/ci.yml: uses a matrix in YAML, which MergeSutra does not expand
+  Carried from run run-20261004T102559Z-53f9d2: No CODEOWNERS file found: ownership of specific paths is unknown.
+  Carried from run run-20261004T102559Z-53f9d2: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
   No criterion in this contract has been checked. `PENDING` is the only status MergeSutra could honestly assign.
 
-Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20260924T193559Z-aa7e41.json
+Run record:   C:\Users\…\mergesutra\.mergesutra\runs\run-20261004T102606Z-9219e5.json
 Next stage:   PLAN — `mergesutra plan` asks BharatCode how to satisfy these criteria (Stage 4)
 
-A criterion became a requirement only because a file, the issue, or a named human said so.
-Nothing has been verified yet: every criterion above is PENDING by design.
+[90mA criterion became a requirement only because a file, the issue, or a named human said so.[0m
+[90mNothing has been verified yet: every criterion above is PENDING by design.[0m
 ```
 
 `contract` calls no model and runs nothing. Criteria come from the issue's own
@@ -1702,8 +1702,9 @@ patch it just produced. Nothing is
 committed, pushed or
 opened.
 Planned initial target:
-Node/TypeScript/JavaScript projects on **public** GitHub repos. Windows and
-Linux are first-class; macOS follows once core CI is strong.
+Node/TypeScript/JavaScript projects on **public** GitHub repos. The hosted gate
+runs Windows and Linux on Node 22 and Node 24. Nothing is claimed about macOS:
+no gate in this repository runs there, so no sentence here could be checked.
 
 ## What a run leaves behind, and how to remove it
 

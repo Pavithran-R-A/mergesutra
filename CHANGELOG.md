@@ -6,6 +6,50 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — Stage 13 so far: the release boundary stopped being a Windows-only claim
+
+Until this stage every proof about the published artifact had been run on one machine, on one
+operating system. Putting the same gates on real Linux and on hosted runners found six defects,
+five in the test harness and one in what a customer installs:
+
+- **`mergesutra` printed nothing and exited successfully on Linux and macOS.** npm's POSIX
+  launcher is a symlink, so the command's own "am I the entry point?" check answered no and
+  `main()` never ran — exit `0`, empty output, on every platform except the one it had been
+  tested on. The executable and the library are now separate modules: `dist/bin.js` is what the
+  manifest registers and runs the command line unconditionally, `dist/index.js` is imports only
+  and cannot start a CLI. `package.json`'s `bin`, `package-lock.json`, and every `node
+  dist/index.js …` instruction in the README moved with it. Guarded by an installed-artifact
+  test that starts the command through a symlink, plus one that asserts importing the library
+  prints nothing; the failure was re-witnessed on Linux by putting the old check back
+  (register S13-2).
+- **The suites that ask npm what it would pack looked for npm in a Windows-shaped place.**
+  Resolution now walks both install layouts, beside the executable and one level up under
+  `lib`, through symlinks too (S13-2).
+- **`npm run check` built `dist/` after the suites that hash it,** so a fresh checkout measured
+  an absent build and this host measured whatever a previous command had left. Order corrected
+  and pinned by a test (S13-2).
+- **A test fixture could inherit the machine's build noise** — an ignored-less `node_modules/`
+  write inside the workspace under measurement, which read as a stale patch on Linux and as
+  current on Windows. Fixtures now carry a default ignore (S13-2).
+- **Test-written Git hooks had no POSIX exec bit**, so a hook-firing test passed on Windows
+  while testing the absence of a hook (S13-2).
+- **The hosted checkout was too shallow for the history the credential gate reads.** Full
+  history is fetched now, and a guard refuses a workflow that would not be (S13-2, S13-3).
+
+`.github/workflows/ci.yml` is also now Ubuntu and Windows × Node 22 and 24 running `npm ci`,
+`npm run check`, `npm run verify:package` and `npm run test:artifact` — the artifact gates were
+not running in CI at all — with `permissions: contents: read`, both external actions pinned to
+verified commit SHAs with their tags named beside them, the job name carrying the Node axis it
+actually runs, and no secret, no live-model suite and no swallowed failure anywhere in it.
+`tests/security/workflow-policy.test.ts` (24 cases) enforces all of that against the real file,
+against the exact mutations it exists to catch, and against any workflow file added later
+(S13-3).
+
+Two earlier entries in this stage closed customer-facing lies in the published surface: the
+package no longer prints its author's home directory (S13-0), and its `homepage`,
+`repository.url` and `bugs.url` point at the repository that now exists rather than one that
+never did (S13-1). A dead-link gate keeps them that way.
+
 ### Added — Stage 11: the screen that says what is true now, and the word that continues it
 
 Every stage before this one assumed a run was being watched while it happened. This is
