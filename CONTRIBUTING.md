@@ -78,10 +78,11 @@ Node 22 and 24, running `npm ci`, `npm run check`, `npm run verify:package` and
 - `check (windows-latest, node 24.x)`
 
 `main` is guarded by an active branch ruleset that blocks force-pushing and
-deleting it, for administrators included. Rebase and push forward instead of
-reaching for `git push --force`; if history genuinely has to change, the
-ruleset is removed deliberately in the repository's Settings rather than
-worked around.
+deleting it, for administrators included. A fast-forward push is still allowed:
+the guard is against losing history, not against landing it. Rebase and push
+forward instead of reaching for `git push --force`; if history genuinely has to
+change, the ruleset is removed deliberately in the repository's Settings rather
+than worked around.
 
 ## Proposing changes
 

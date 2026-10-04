@@ -94,12 +94,23 @@ as a CI step until the reader was restricted to `run:` lines.
 Repository settings were then measured at the real remote instead of guessed. Topics required
 `PUT …/topics` with the body key `names` (a `PATCH` of the repository silently dropped them), the
 `homepage` field GitHub itself leaves empty is now set, the wiki is off, and ruleset `24454501`
-blocks force-push and branch deletion on the default branch for everyone, owner included —
+holds the default branch with `[deletion, non_fast_forward]` for everyone, owner included —
 `current_user_can_bypass` reads back `"never"`, which is the property that matters, because the
-failure it prevents is losing the canonical history RULE 1 depends on. Requiring a PR and naming
-the four `check` contexts as required status checks is deliberately deferred to the
-private→public flip: classic protection endpoints answered `404` on this repository, and a ruleset
-whose required checks cannot be satisfied would block the only merge route this project has.
+failure it prevents is losing the canonical history RULE 1 depends on.
+
+That ruleset was itself a defect first. It went in with the `update` rule, which is GitHub's
+"Restrict updates" — it refuses *every* push, not only non-fast-forward ones — and the discovery
+was the push itself: `main` rejected `78f9440` with `GH013 … Cannot update this protected ref`,
+leaving a completed, gate-green slice stranded on one machine while every local gate stayed green.
+No test in this repository can see a repository setting, so the fix was a measurement on a
+disposable branch rather than a re-read of the docs: under `non_fast_forward` a fast-forward push
+was accepted and both a forced push and a delete were refused (`Cannot force-push to this branch`,
+`Cannot delete this branch`), the probe artifacts were then deleted and verified gone, and `main`
+accepted the same commit. Two rules that sound alike were separated the same way: requiring a pull
+request blocks a direct push outright, while `required_status_checks` only gates a merge — which
+is why the first is deferred to the visibility flip with a measured reason and the second is a
+Stage 15 decision that costs nothing in cadence. Classic branch-protection endpoints answered
+`404` on this repository, so the ruleset API is the only protection layer available here.
 Hygiene got exactly one intake form rather than a template set: a bug report whose "where it
 happened" dropdown lists the thirteen commands the CLI actually registers (so a report cannot be
 filed against a planned verb), a required field for the exact command line, and a required

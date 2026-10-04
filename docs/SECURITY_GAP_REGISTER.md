@@ -3693,20 +3693,54 @@ outside it.
 - Wiki: `has_wiki` was `true`; the `/wikis` endpoint answers `404`, so the tab advertised a
   surface that has no content and no API behind it on this repository. Turned off.
 - Default branch: protected by an active branch ruleset, id `24454501`, `target: branch`,
-  `conditions.ref_name.include: ["~DEFAULT_BRANCH"]`, rules `[update, deletion]`,
-  `bypass_actors: []`, and — the part that matters — `current_user_can_bypass: "never"` for the
-  owner's own token, so a force-push or a delete of `main` is refused rather than merely
-  discouraged. Two API shapes were disproved on the way: `force_pushes` is not a standalone
-  rule (`422 … /rules/1: data matches no possible input`) — it is what the `update` rule does —
+  `conditions.ref_name.include: ["~DEFAULT_BRANCH"]`, rules `[deletion, non_fast_forward]`
+  (the API reorders the list it is given), `bypass_actors: []`, and — the part that matters —
+  `current_user_can_bypass: "never"` for the owner's own token, so a force-push or a delete of
+  `main` is refused rather than merely discouraged. Two API shapes were disproved on the way:
+  `force_pushes` is not a standalone rule (`422 … /rules/1: data matches no possible input`),
   and a literal `"main"` in `ref_name.include` is refused as an invalid target pattern, which
   is why the ruleset names the default branch by role rather than by name.
-- Not enabled, on purpose: requiring a pull request and the four `check (…)` contexts before a
-  merge. It would change the cadence this stage has been working in (commit → push → observe
-  CI → fix forward) into a round trip whose only new approval comes from the same person who
-  wrote the change, and a single-maintainer repository cannot review its own pull request. The
-  protection that prevents *losing* the canonical history is in place; the protection that
-  requires *two* humans belongs with the visibility flip, when a second human can reach the
-  repository at all. Recorded below as the one S13-5 item that is deliberately not closed.
+- **The first version of that ruleset was a defect, and the push that found it was the test.**
+  It was created with rules `[update, deletion]`, and the `update` rule is GitHub's *Restrict
+  updates* — it blocks **every** push to the branch, not only non-fast-forward ones. The
+  consequence arrived minutes later: `git push origin main` for `78f9440` was refused with
+  `GH013 … Cannot update this protected ref`, which is the exact failure RULE 1 exists to
+  prevent — a completed slice that cannot reach the canonical remote. Nothing in the repository
+  could have caught it; only the act of pushing could. Fixed the same slice by replacing
+  `update` with `non_fast_forward`, after measuring what each rule actually does rather than
+  inferring it from the name:
+  - A disposable probe branch (`s135-protection-probe`) carried the candidate ruleset
+    (`protect-probe`, id `24455654`, same two rules, targeted by `ref_name.include:
+    ["refs/heads/s135-protection-probe"]`) so that `main` was never the experiment.
+  - A fast-forward push to the probe branch was **accepted** (`78f9440..c8b54c1`, exit `0`), so
+    the rule does not over-block.
+  - A forced push to an ancestor was **refused**: exit `1`, `remote rejected … Cannot force-push
+    to this branch`, and the probe tip read back unchanged at `c8b54c1`.
+  - A delete of the probe branch was **refused**: `422 Cannot delete this branch`.
+  - Cleanup verified rather than assumed: the probe ruleset and probe branch were deleted, the
+    ruleset list then contains only `protect-main`, the branch list only `main`, and the probe
+    branch reads back `404 Branch not found`.
+  - `main` was then pushed successfully and `origin/main` equals local `HEAD` at
+    `78f94402676947a03baff73c6c2a82f3b06396a3`.
+  One API reading quirk worth recording: `GET /repos/{o}/{r}/rulesets` (the list) does **not**
+  include the `rules` field, so a rule set asserted from the list alone is an assumption; the
+  rules were read from `GET /repos/{o}/{r}/rulesets/{id}` each time.
+- Not enabled, on purpose: requiring a pull request before a merge. That one is now measured
+  rather than assumed, on the same disposable probe branch under ruleset `24455722` with
+  `rules: [{type: pull_request}]`: a ordinary fast-forward push to it was refused — exit `1`,
+  `remote rejected … Changes must be made through a pull request`, tip unchanged — while
+  `required_status_checks` naming `check (ubuntu-latest, node 22.x)` with `strict: true` was
+  measured to leave a direct push **accepted** (exit `0`, `78f9440..c8b54c1`). So the two
+  settings do different things, and only the first would change this stage's cadence
+  (commit → push → observe CI → fix forward) into a branch-plus-PR round trip whose only new
+  approval comes from the same person who wrote the change; a single-maintainer repository
+  cannot review its own pull request. Required checks gate a merge, not a push, so naming the
+  four `check (…)` contexts is a Stage 15 decision that costs nothing in cadence and is worth
+  taking once there is a merge to protect. The protection that prevents *losing* the canonical
+  history is in place; the protection that requires *two* humans belongs with the visibility
+  flip, when a second human can reach the repository at all. Recorded below as the S13-5 item
+  that is deliberately not closed. Both probe artifacts were deleted afterwards and the
+  repository reads back with one ruleset (`protect-main`) and one branch (`main`).
 - Intake: `.github/ISSUE_TEMPLATE/bug_report.yml` and `config.yml`. One form, because the
   product's whole claim is that a result comes with the evidence that produced it, and a report
   that says "it didn't work" cannot be turned into a fix without the same thing — so the form
@@ -3737,7 +3771,10 @@ this stage actually proved and the path-shape matrix it did not.
 2. **Nothing re-checks the remote.** Topics, homepage, the wiki flag and ruleset
    `24454501` are readings taken on 2026-10-04 against `Pavithran-R-A/mergesutra`. Settings can
    be changed in the UI without touching a commit, and no test in this repository would notice;
-   the tests here read the tree, not GitHub.
+   the tests here read the tree, not GitHub. That is not a hypothetical: the ruleset's first
+   version made `main` unpushable, every local gate stayed green, and the only thing that found
+   it was trying to push. Any future settings change therefore has to be followed by the
+   operation it is supposed to permit, not only by reading the setting back.
 3. **An unverified head is still possible.** The ruleset prevents history being lost, not a
    commit landing before its hosted run is green. The four `check (…)` contexts remain the
    authority, and a red run must be fixed forward — never by rewriting what is already pushed.
