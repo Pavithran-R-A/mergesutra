@@ -423,7 +423,7 @@ security pass, not aspirations.
   ancestor is `realpath`'d — walking up to the first component the filesystem
   agrees about and re-joining the missing tail — and the result must still sit
   inside the realpath'd root. Windows is why this is not optional:
-  `C:\Users\PAVITH~1\…` and `C:\Users\Pavithran R A\…` are one directory and
+  `C:\Users\ALEX~1\…` and `C:\Users\Alex Tester\…` are one directory and
   unequal as strings.
 - **Reason:** A containment check on the spelling of a path is a check on what
   the caller typed. Symlinks, junctions, case-insensitive volumes and 8.3

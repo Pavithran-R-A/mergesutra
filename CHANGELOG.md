@@ -753,8 +753,8 @@ whose refusals are quoted below rather than asserted.
   shared by the Stage 4 plan validator instead of duplicated inside it: argv
   arrays, non-empty tokens, no `; & | ` $ < >` or newline.
 - Two real bugs surfaced by Windows, both fixed: an 8.3 short path
-  (`C:\Users\PAVITH~1\…`) is the same directory as
-  `C:\Users\Pavithran R A\…` but not equal under `path.resolve`, so paths are
+  (`C:\Users\ALEX~1\…`) is the same directory as
+  `C:\Users\Alex Tester\…` but not equal under `path.resolve`, so paths are
   compared after `realpath`; and case-insensitive containment needed the same
   treatment the lexical checker already had.
 - Direct end-to-end evidence against real Git in a scratch repository: a

@@ -2253,8 +2253,10 @@ than cleaned away to make the story neat; `tests/security/hook-firing-verbs.test
 asserts all of it, including the misleading message and the `git worktree list` row.
 
 **Environment, read literally.** This machine's `core.hooksPath` is
-`C:/Users/Pavithran R A/.codex/git-hooks`, configured in
-`file:C:/Users/Pavithran R A/.gitconfig`, containing `commit-msg`, `pre-commit`,
+`C:/Users/<operator>/.codex/git-hooks` — the account name is elided, because it
+identifies the operator rather than any MergeSutra surface, and the shape is what
+the finding turns on — configured in
+`file:C:/Users/<operator>/.gitconfig`, containing `commit-msg`, `pre-commit`,
 `pre-push`, `pre-commit.old`, `pre-push.old` — an operator-level Qoder hook, not a
 repository-supplied one. Per owner decision D4 the two 10-byte `.git/hooks/post-checkout`
 and `post-commit` files found on the real checkout are report-only: not edited, not
@@ -2995,3 +2997,122 @@ are decisions for a human with information this machine does not have, or work a
 and §26 is the standing rule
 that says a demonstrated non-exploit plus truthful documentation is a correct closure rather than a
 dodge.
+
+---
+
+# Stage 13 release register
+
+Built for the release programme (Stages 13–15: canonical remote, CI, real-model
+validation, public package). Stage 12's register above is closed and is not
+rewritten here; each entry below is measured on the checkout it names, in the same
+form — what was read, what the test proves, and what the closure does not claim.
+
+## S13-0 — the repository published its author's home directory
+
+**Claim.** Everything this project would put in front of a stranger carried the
+account name of the machine it was built on, in path position. This is not a
+credential and invalidates nothing; it is data about a person that no test and no
+document needs, and a public repository cannot be unpublished.
+
+**Source, measured at `6ca061a`.** Ten occurrences across seven tracked files:
+`CHANGELOG.md:756-757` and `docs/DECISIONS.md:426` (both the long spelling and its
+8.3 alias, as the illustration of one directory having two unequal strings),
+`docs/SECURITY_GAP_REGISTER.md:2256-2257` (the operator's `core.hooksPath` and
+`gitconfig`, quoted "read literally" by S12-23), and three fixtures —
+`tests/pr/draft.test.ts:172,347,348` and `tests/pr/injection.test.ts:300` — which
+plant an absolute path to prove the PR draft redacts it.
+
+**Protection today.** Two gates, and neither covers this.
+`tests/security/publish-contents.test.ts:240` builds `LOCAL_PATH_NEEDLES` from
+`ROOT` and `os.homedir()` and asserts no packed text file contains either
+(`:419`), so it does catch a leaked home path — *on the machine that has that home
+directory*. Run on a Linux runner the needles become `/home/runner`, and a
+hard-coded `C:\Users\<account>\…` inside the shipped README passes.
+`tests/security/credential-boundary.test.ts` is machine-independent but asks a
+different question (credential shapes), and it deliberately excludes `tests/` from
+its tree and history boundaries because fixtures plant fake keys — which is exactly
+the blind spot a public clone cannot afford, since GitHub publishes the suite too.
+
+**Missing.** A boundary that is anchored to the *identity* rather than to the
+*host*, that includes `tests/`, and that runs at pack time.
+
+**Exploit.** None needed: the content was already in the tracked tree. To show the
+gate is not decoration, a path of the form `C:\Users\<account>\x` is appended to
+`README.md` and to a file under `tests/`, and the artifact-boundary rule is
+separately fed a path naming somebody else (`/home/somebody/else/project`).
+
+**Acceptance test.** `tests/security/home-path-boundary.test.ts` (19 cases), with
+the detector in `tests/helpers/homePathScan.ts` — test-side on purpose, in the same
+reasoning that kept the credential scanner out of `src/`: a release-boundary
+scanner is not a product feature, and putting one in `src/` enlarges the surface
+the scan exists to protect. Two rules, deliberately not one:
+
+- **Repository boundary** — the owner token in a path position, over every tracked
+  text file including `tests/`. Anchored to a separator, so a name in a fixture
+  (`--by '<account name>'` at `tests/cli/contract.test.ts:152,185,198`, `by:` and
+  `author:` fields across seven more) is a person a test is entitled to name and
+  stays. The 8.3 alias is matched anywhere: it only ever occurs inside a path, so
+  it has no non-path reading to defend.
+- **Artifact boundary** — any concrete home path, whoever it belongs to, over the
+  files npm lists at its own `pack --dry-run --json --ignore-scripts` inventory.
+  An elision (`C:/Users/…/`) is not a finding, because eliding is the spelling this
+  project already uses when it quotes a real screen; the gate asserts that spelling
+  still exists in the tree, so the tolerance cannot quietly become untested.
+
+RED first: the tree rule reported all ten findings and nothing else. GREEN after
+the scrub, which replaced the account name with `Alex Tester` / `ALEX~1` in prose
+(the sentences are about one directory having two spellings, so both spellings stay
+in the sentence) and with `other` in fixtures — the neutral name `S12`-era tests
+already use at `tests/security/path-safety.test.ts:51`. The register's own
+`core.hooksPath` quotation now reads `C:/Users/<operator>/.codex/git-hooks`, and
+says so in the sentence, because that section's whole point is that it was read
+literally.
+
+Five mutations, each witnessed failing and restored byte-for-byte (sha256 verified):
+planting an owner path in `README.md` failed three cases (tree, artifact-concrete,
+artifact-owner); planting one inside `tests/` failed the tree case, which is the
+proof the suite is in the inventory; planting a *foreign* concrete path in
+`README.md` failed only the artifact-concrete case, which is the proof the two
+rules are independent and neither is carrying the other; weakening the 8.3 pattern
+failed the three controls that exercise it; and adding a `tests/` exclusion to the
+inventory failed both the coverage floor and the structural guard that reads this
+file's own `trackedText()` body for the absence of that exclusion. A control run on
+the unmutated tree passed 18/18 (19 with the wiring case).
+
+Wiring: `verify:package` now names this file, so `npm pack` and `npm publish`
+refuse rather than ship an artifact that names a person; `npm run check` already
+ran it, because the full suite does. The wiring itself is asserted, so it cannot
+rot.
+
+Also closed here, by measurement rather than by recollection: the credential
+history boundary had never read `tests/`, so a public push would have published
+whatever was there. Scanned at `6ca061a` — 158 reachable commits, 96,375 added
+lines across all paths — 38 distinct credential-shaped spans, every one synthetic
+(`SECRETVALUE`, `DO-NOT-ECHO`, `never-send-this`, alphabet runs, PEM blocks
+labelled `fake`/`not-a-private-key`) and every one in `tests/`, in `docs/`, or in a
+redactor's own pattern list in `src/`. No live credential in history.
+
+**Named limits.** Four, and they are the point of the entry rather than a caveat:
+
+1. **History is not covered.** The commits written before this scrub name the same
+   directory, and this stage's instruction is to push the complete existing history
+   rather than a rewritten one. A path is not a credential: nothing is invalidated,
+   and no secret is exposed by an old diff that a clone can read.
+2. **Commit metadata keeps the author's name.** 130 of 158 commits are authored
+   `Pavithran R A <pavithran@localhost>`; the remainder use `MergeSutra` and
+   `MergeSutra Author` identities. The name in `--by` fixtures was kept by owner
+   decision; the name in commit headers is the same fact, arrives with any history
+   rewrite being the only way to remove it, and is disclosed rather than changed.
+3. **The identity is pinned by hand.** Rule 1 knows one account name. A second
+   operator's path in a tracked file would pass rule 1 and be caught by rule 2 only
+   in the artifact. This is a deliberate economy: a whole-tree rule of the form
+   "no `Users/<word>/` anywhere" was measured to fire on the repository's own
+   elided quotations and on a regex flag (`[\\/]Users[\\/]/i` at
+   `tests/pr/injection.test.ts:317`), and a scan that fires on syntax gets an
+   allowlist and then gets ignored.
+4. **Local run records still carry the real path.** 28 files under
+   `.mergesutra/runs/` on this host embed the absolute checkout and home path in
+   `requestedPath`/`toplevel`/`detail`. They are ignored (`.gitignore:11`), never
+   packed, and never published — which is also why the `--by` fixtures in
+   `tests/cli/` are the right place to stop scrubbing: they are the same kind of
+   data, and a test that records who approved a contract has to name somebody.

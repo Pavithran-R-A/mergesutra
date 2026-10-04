@@ -297,7 +297,7 @@ describe.skipIf(!AVAILABLE)('Stage 10 against text that claims approval', () => 
     const workspace = fixture.workspace.replace(/\\/g, '/');
     const hostile = recordWith(fixture.record, {
       limitations: [
-        `Copied out of C:\\Users\\pavithran\\Documents\\${fixture.record.runId}\\src\\parse.ts`,
+        `Copied out of C:\\Users\\other\\Documents\\${fixture.record.runId}\\src\\parse.ts`,
         `Wrote to ${workspace}/.mergesutra/worktrees/src/parse.ts`,
         'Key printed by the failing gate: ghs_16字符ABCDEFGHijklmnop (GitHub token)',
         'Read C:/Program Files/mergesutra/.env and found BHARATCODE_API_KEY=abc123def456ghi789',

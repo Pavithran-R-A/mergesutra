@@ -169,7 +169,7 @@ describe('the title', () => {
           canonical: 'projectbharat/datekit#123',
           number: 123,
           url: 'https://github.com/projectbharat/datekit/issues/123',
-          title: 'Fix C:\\Users\\pavithran\\.ssh\\id_rsa leak ghp_abc123def456ghi789',
+          title: 'Fix C:\\Users\\other\\.ssh\\id_rsa leak ghp_abc123def456ghi789',
           sameRepository: true,
         },
       }),
@@ -344,8 +344,8 @@ describe('what the body must never carry', () => {
     const body = draftOf(
       draftInput({
         limitations: [
-          'Wrote to C:\\Users\\pavithran\\AppData\\Local\\Temp\\mergesutra-x\\src\\parser.ts',
-          'Copied from /home/pavithran/build/datekit/src/parser.ts',
+          'Wrote to C:\\Users\\other\\AppData\\Local\\Temp\\mergesutra-x\\src\\parser.ts',
+          'Copied from /home/other/build/datekit/src/parser.ts',
         ],
         files: [{ path: 'src/parser.ts', change: 'MODIFIED' }],
       }),
