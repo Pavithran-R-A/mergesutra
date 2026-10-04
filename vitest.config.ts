@@ -5,6 +5,17 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     /**
+     * `tests/release/` installs the packed artifact from the registry, which is the
+     * one suite here that needs the network. It is excluded rather than skipped so
+     * that `npm run check` keeps meaning "offline, deterministic, no registry" — the
+     * claim its own documentation makes — and it runs on every hosted matrix entry
+     * through `npm run test:artifact`, which reads `vitest.release.config.ts`.
+     *
+     * Naming a directory that no test matched exits 1, so a deleted suite fails the
+     * step instead of passing it vacuously.
+     */
+    exclude: ['**/node_modules/**', '**/dist/**', 'tests/release/**'],
+    /**
      * A 5-second budget is written for tests that only touch memory. Part of this
      * suite starts real Git processes, and when every core is busy spawning
      * `git` at once a 366ms test can be starved past the limit and report a

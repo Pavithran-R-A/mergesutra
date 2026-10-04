@@ -19,6 +19,21 @@ export async function hasGit(): Promise<boolean> {
 }
 
 /**
+ * The rules every real Node repository carries, so a fixture is not asked to
+ * prove one it never stated.
+ *
+ * This is not tidiness. A fixture whose gates really run inherits this
+ * process's PATH, so the *outer* project's `vitest` can answer `npm test` inside
+ * the fixture workspace and leave `node_modules/.vite/vitest/results.json`
+ * behind — an untracked byte that then counts as a patch change. Whether that
+ * happens depends on the machine and the platform, which is exactly why an
+ * interruption in one stage was reporting the previous stage's evidence as stale
+ * on a Linux runner and as current on Windows. Callers that want their own rules
+ * pass `.gitignore` and win.
+ */
+const FIXTURE_IGNORE = '.mergesutra/\nnode_modules/\n';
+
+/**
  * A committed throwaway repository holding exactly these files.
  *
  * The `core.hooksPath` and `core.autocrlf` steps are not project setup, they are
@@ -33,7 +48,7 @@ export async function hasGit(): Promise<boolean> {
 export async function initRepository(
   files: Record<string, string>,
 ): Promise<{ dir: string; base: string }> {
-  const dir = await makeFixtureTree(files);
+  const dir = await makeFixtureTree({ '.gitignore': FIXTURE_IGNORE, ...files });
   const hooks = path.join(dir, '.no-hooks');
   await mkdir(hooks, { recursive: true });
   const steps: readonly (readonly string[])[] = [
@@ -60,7 +75,6 @@ export async function initRepository(
 export async function realRepository(extra: Record<string, string> = {}): Promise<string> {
   const { dir } = await initRepository({
     ...NODE_REPO_FILES,
-    '.gitignore': '.mergesutra/\nnode_modules/\n',
     'src/parse.ts':
       'export function parseDate(input: string): Date {\n  return new Date(input);\n}\n',
     ...extra,

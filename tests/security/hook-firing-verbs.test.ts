@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -462,7 +462,13 @@ describe.skipIf(!GIT_AVAILABLE)(
         const body = [`printf '%s|%s|%s\\n' "$1" "$2" "$3" > '${marker}'`, build(marker)].join(
           '\n',
         );
-        await writeFile(path.join(hooks, 'post-checkout'), `#!/bin/sh\n${body}\n`, 'utf8');
+        const hook = path.join(hooks, 'post-checkout');
+        await writeFile(hook, `#!/bin/sh\n${body}\n`, 'utf8');
+        // Git on POSIX executes a hook only if the file carries the executable bit, and
+        // a file created by `writeFile` does not carry one. Without this the hook sits
+        // on disk silently unfired, and a runner that reads no `args.txt` would report
+        // "no post-checkout ran" — a false verdict about Git, not a failing assertion.
+        await chmod(hook, 0o755);
       }
       await mustRun(repo, ['config', 'user.name', 'MergeSutra Test']);
       await mustRun(repo, ['config', 'user.email', 'test@mergesutra.invalid']);

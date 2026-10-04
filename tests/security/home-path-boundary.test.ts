@@ -9,6 +9,7 @@ import {
   scanHomePaths,
   type HomePathFinding,
 } from '../helpers/homePathScan.js';
+import { npmCliScript, requireNpmCli } from '../helpers/npmInvocation.js';
 
 /**
  * S13-0 — does anything this repository publishes carry the developer, rather
@@ -51,15 +52,9 @@ import {
 const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const SELF = readFileSync(fileURLToPath(import.meta.url), 'utf8');
 
-const NPM_CLI = path.join(
-  path.dirname(process.execPath),
-  'node_modules',
-  'npm',
-  'bin',
-  'npm-cli.js',
-);
+const NPM_CLI = npmCliScript();
 const BUILD_PRESENT = existsSync(path.join(ROOT, 'dist'));
-const NPM_PRESENT = existsSync(NPM_CLI);
+const NPM_PRESENT = NPM_CLI !== null;
 
 interface PackEntry {
   readonly path: string;
@@ -75,7 +70,7 @@ function inventory(): PackReport {
   if (measured) return measured;
   const result = spawnSync(
     process.execPath,
-    [NPM_CLI, 'pack', '--dry-run', '--json', '--ignore-scripts'],
+    [requireNpmCli(), 'pack', '--dry-run', '--json', '--ignore-scripts'],
     { cwd: ROOT, encoding: 'utf8', windowsHide: true },
   );
   expect(

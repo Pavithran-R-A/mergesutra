@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { npmCliScript, requireNpmCli } from '../helpers/npmInvocation.js';
 
 /**
  * S12-12 — what a package may contain, and whether it is the source it claims to be.
@@ -87,14 +88,8 @@ const REPOSITORY_ONLY = [
 const BUILD_PRESENT = existsSync(DIST_DIR);
 
 /** npm's own CLI, driven through this Node binary: an argv array, no shell, no registry. */
-const NPM_CLI = path.join(
-  path.dirname(process.execPath),
-  'node_modules',
-  'npm',
-  'bin',
-  'npm-cli.js',
-);
-const NPM_PRESENT = existsSync(NPM_CLI);
+const NPM_CLI = npmCliScript();
+const NPM_PRESENT = NPM_CLI !== null;
 
 /** Regular files under a directory, posix-relative to it. A symlink is not build output. */
 function walk(dir: string, base: string): string[] {
@@ -201,7 +196,7 @@ let measured: PackReport | undefined;
 /** npm's own answer to "what would this package contain", with lifecycle scripts disabled. */
 function inventory(): PackReport {
   if (measured) return measured;
-  const argv = [NPM_CLI, 'pack', '--dry-run', '--json', '--ignore-scripts'];
+  const argv = [requireNpmCli(), 'pack', '--dry-run', '--json', '--ignore-scripts'];
   const result = spawnSync(process.execPath, argv, {
     cwd: ROOT,
     encoding: 'utf8',
@@ -317,9 +312,13 @@ describe('the packaging lifecycle binds the artifact to the source (S12-12)', ()
     expect(calls, 'a second npm invocation must carry the same two flags').toHaveLength(1);
   });
 
-  it('leaves the gates that already guard this checkout exactly as they were', () => {
+  it('pins the gate order, with the build ahead of the suites that read it', () => {
+    // Build before test is not a preference. Three release-boundary suites hash the
+    // bytes under `dist/`, so a `check` that builds last proves only that some
+    // build output happened to be on disk — which is how this checkout passed its
+    // own gate on a developer's machine and failed on a runner's clean one.
     expect(manifest.scripts?.check).toBe(
-      'npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build',
+      'npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test',
     );
     expect(manifest.scripts?.prepublishOnly).toBe('npm run check');
   });

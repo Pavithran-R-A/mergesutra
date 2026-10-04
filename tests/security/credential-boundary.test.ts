@@ -14,6 +14,7 @@ import {
   type CredentialFamily,
   type CredentialFinding,
 } from '../helpers/credentialScan.js';
+import { npmCliScript, requireNpmCli } from '../helpers/npmInvocation.js';
 
 /**
  * S12-24 — does anything this build hands a customer carry a credential?
@@ -66,14 +67,8 @@ const DIST_NAME = buildConfig.compilerOptions.outDir ?? 'dist';
 const DIST_DIR = path.join(ROOT, DIST_NAME);
 const BUILD_PRESENT = existsSync(DIST_DIR);
 
-const NPM_CLI = path.join(
-  path.dirname(process.execPath),
-  'node_modules',
-  'npm',
-  'bin',
-  'npm-cli.js',
-);
-const NPM_PRESENT = existsSync(NPM_CLI);
+const NPM_CLI = npmCliScript();
+const NPM_PRESENT = NPM_CLI !== null;
 
 interface PackEntry {
   readonly path: string;
@@ -90,7 +85,7 @@ let measured: PackReport | undefined;
 /** npm's own answer to "what would this package contain", with lifecycle scripts disabled. */
 function inventory(): PackReport {
   if (measured) return measured;
-  const argv = [NPM_CLI, 'pack', '--dry-run', '--json', '--ignore-scripts'];
+  const argv = [requireNpmCli(), 'pack', '--dry-run', '--json', '--ignore-scripts'];
   const result = spawnSync(process.execPath, argv, {
     cwd: ROOT,
     encoding: 'utf8',
