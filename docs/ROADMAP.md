@@ -976,9 +976,16 @@ purpose is to be refused.
       An inspection now carries that issue forward when the intake run provably describes this
       clone's repository at the commit being inspected, so one record holds both families of
       criteria. `tests/discovery/carried-issue.test.ts`; S14-1.
+- [x] The same carry reaching the end of the chain — `mergesutra pr` on the run that chain produces
+      refused with "no earlier stage recorded a default branch for this repository", because the
+      intake's repository identity stayed in the intake run while the clone's Git named none. An
+      inspection now carries that identity too, only into an absence, and only when the intake record
+      agrees with itself about which repository it describes. `tests/discovery/carried-issue.test.ts`;
+      S14-2.
 - [ ] The credential-free walk of the remaining stages against a real fixture repository —
       `verify`, `status`, `report` and the recovery paths, each with its raw exit code recorded,
-      and proof that the fixture's untouched files are byte-identical afterwards.
+      and proof that the fixture's untouched files are byte-identical afterwards. Walked on this
+      host; the recorded readings still have to be re-taken on the fixed tree and on a second one.
 - [ ] The credential-boundary proofs: that the live harness cannot print, commit, argument-pass
       or artifact-write a credential, and that its blast radius is the one fixture repository it
       is pointed at. A guard where a claim is not yet enforced, not a claim.

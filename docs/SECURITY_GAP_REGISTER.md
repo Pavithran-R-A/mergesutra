@@ -4088,15 +4088,203 @@ the screens that name it are quoted output, and its visibility is not this produ
    are Windows readings of the shipped `dist/bin.js`; the Linux reading is Stage 14's remaining
    credential-free line.
 
+## S14-2 — the chain S14-1 repaired still could not name a branch to merge into — CLOSED (CODE + TEST + DOCUMENT)
+
+**Found by.** Walking the rest of `README.md`'s pipeline after the S14-1 fix, on the same fixture and
+the same working directory: `issue` → `inspect` → `contract` → `pr`. The chain now reached `contract`
+with both families of criteria and stopped one verb later at Stage 10, the one whose whole design is to
+refuse to guess. `mergesutra pr` takes a run id, and the record the pre-fix chain had left in
+`.mergesutra/runs/` — an inspection of this clone at this commit, holding `repository: null` and
+`local.defaultBranch: ""` — still answers that way on the current build. That is the fix's shape, not a
+second defect: what changed is what an inspection *writes*, so a record an older build already filed
+keeps its gap until someone runs `inspect` on that checkout again. Reproduced on the shipped build:
+
+```
+$ node dist/bin.js pr run-20261004T160824Z-7a55f3   → EXIT 4
+
+FAIL          Publication proposal                  Cannot name a branch for a pull request: no earlier stage recorded a default branch for this repository. MergeSutra will not fill the gap from a model, a template, or this stage’s own guess.
+```
+
+Bare `mergesutra pr` is a separate fact, and it is what a walk script that forgot the argument meets:
+exit `1` with `error: missing required argument 'run-id'`. Both numbers are recorded per command below.
+
+**The defect.** The run this chain feeds to `pr` recorded `local.defaultBranch` as the empty string,
+and no `repository` identity at all. Both facts came from the same honest rule applied twice.
+`src/intake/local-repo.ts:98` reads the default branch only from
+`git symbolic-ref --short refs/remotes/origin/HEAD`, a ref `git clone` creates and `git init` plus
+`git remote add` does not — which is exactly how the fixture working tree was made — so
+`identityFromLocalSnapshot` (`src/intake/local-repo.ts:195-210`) returned `null` rather than invent an
+identity it could not complete, and `targetOf` (`src/pr/branch.ts:116-138`) was left with two empty
+answers and refused. Meanwhile the intake run of the *same* checkout at the *same* commit held
+`repository.defaultBranch: "main"`, read from the GitHub API. S14-1 had copied that run's issue into
+Stage 2's record and left its repository identity behind, so the documented chain carried one half of
+the pair both stages had proved and lost the half Stage 10 needs.
+
+The refusal was correct; the missing carry was the defect. `mergesutra pr` must not guess a target
+branch, and a person following the README to the letter had no verb that could supply it — the
+advice on the screen pointed at `mergesutra issue`, which they had already run.
+
+**The change.** The same proof now carries the same pair.
+
+- `src/discovery/intake-carry.ts` gained a fourth condition and a second payload. The condition is
+  that an intake record has to agree with *itself* before either half is trusted: if it also recorded
+  a `repository` identity, that identity must name this clone's `origin` on all three fields, or the
+  whole carry is refused — *"the intake run `<id>` does not agree with itself: its issue belongs to
+  `<canonical>`, but it also records a repository named `<owner>/<repo>`, which `<origin>` is not"*.
+  A record that contradicts itself lends nothing, and the field it would lend is the one a reviewer
+  cannot see wrong in a diff. The payload is `CarryResult.repository`, copied byte-for-byte.
+- The identity comparison exists once (`sameClone`, three lower-cased fields) and both halves of the
+  proof call it. Two comparisons that can drift are two proofs, one of which can quietly stop
+  checking.
+- `src/discovery/inspect.ts:124` fills only an absence: `carriedRepository` is computed from
+  `carry.repository` **only when Git named no identity**, and `:215` keeps `repository ??`
+  ahead of it. What this stage observed is never replaced by what another run read.
+- `:224` states the second provenance limitation, and states it only when something was actually
+  borrowed: *"The repository identity in this record, including the default branch `'main'` a pull
+  request would merge into, was carried from run `<id>`, which read it from GitHub. This stage called
+  no API and re-read none of it."*
+
+**Measured after** as one captured walk on the fixed tree: same host, same fixture, one working
+directory, `HEAD` `ed0f6ed`, `BHARATCODE_API_KEY` unset (the log opens with
+`UNSET_CREDENTIAL_PROOF BHARATCODE_API_KEY_SET=no`), and it echoes the command and the exit code of each
+verb — including the two facts about `pr` that the earlier draft of this entry had merged into one
+number:
+
+```
+$ node dist/bin.js doctor                                              → EXIT 1
+$ node dist/bin.js issue https://github.com/Pavithran-R-A/mergesutra-e2e-fixture/issues/1 --repo C:/tmp/ms14-fixture
+                                                                       → EXIT 0  (files run-20261004T170959Z-6d5b10)
+$ node dist/bin.js inspect C:/tmp/ms14-fixture                         → EXIT 0  (files run-20261004T171003Z-e153f9)
+$ node dist/bin.js contract                                            → EXIT 0  (files run-20261004T171008Z-597ba7)
+$ node dist/bin.js plan                                                → EXIT 78
+$ node dist/bin.js verify                                              → EXIT 1
+$ node dist/bin.js report                                              → EXIT 0
+$ node dist/bin.js status                                              → EXIT 0
+$ node dist/bin.js pr                                                  → EXIT 1  (missing required argument 'run-id')
+$ node dist/bin.js pr run-20261004T171008Z-597ba7                      → EXIT 4
+
+PASS          Issue from intake   carried from run run-20261004T170959Z-6d5b10: Pavithran-R-A/mergesutra-e2e-fixture#1 at base 6f3a0adb17
+PASS          Source run          run-20261004T171003Z-e153f9 (inspect, INSPECT_COMPLETE)
+PASS          Repository contract 0 required gate(s) available
+PASS          Issue text          1210 character(s) of issue body
+PASS          Acceptance Contract 5 criteria, all PENDING
+FAIL          Publication proposal                  Cannot build a publication candidate: no patch identity has been measured for this run, so an approval would bind to no bytes. MergeSutra will not fill the gap from a model, a template, or this stage’s own guess.
+```
+
+The default-branch refusal is gone — `grep` for it across every screen the walk captured returns
+nothing — replaced by the refusal that *should* be the last one on a credential-free walk: no patch
+exists because no model has planned one. Read out of the inspection's own record file rather than the
+screen, the two facts the fix turns on are both there: `repository.source` is `"github-api"` with
+`defaultBranch: "main"`, while `local.defaultBranch` is still `""`, and all seven limitations say which
+run each was read from. The six files of the fixture working tree hashed byte-identical before and after
+the walk, and `git status --porcelain` inside the fixture still named only its own untracked lockfile.
+
+One property of Stage 10 this reading exposed, and it is design rather than defect: `pr` files its page
+under the run id it was given (`src/pr/stage.ts:546-570` carries `runId` and `createdAt` forward), so
+`run-20261004T171008Z-597ba7` now reports `stage: pr`, `outcome: PR_PUBLICATION_BLOCKED` where `contract`
+had filed it. A walk that reads records back after the fact therefore cannot recover an intermediate
+stage's view of a run; only the captured screen can, which is why every row above is quoted from the log
+and not from the store.
+
+**Tests.** `tests/discovery/carried-issue.test.ts` now holds 20 cases over the real `runIntake`,
+`runInspect`, `runContractStage` and `targetOf`. The six new ones: the identity is carried byte-for-byte
+when Git names none; `targetOf` on the carried record yields branch `main` and
+`projectbharat/datekit`; the borrowed branch is named in the limitations; Git's own answer survives the
+carry and no "carried … default branch" note is then stated; an internally inconsistent intake record
+refuses the whole carry; an intake with no repository identity still lends its issue.
+
+Three further cases close a gap this slice's own mutation run exposed. Before them, `sameClone`'s
+`host` and `repo` clauses were each individually droppable without any test failing: the only
+mismatching-origin case in the suite changed *owner* as well, so one comparison on two of its three
+fields looked identical to a comparison on all three. The added cases isolate each field — same host
+and owner, different repository; same owner and repository, different host — and one more combines a
+mismatch with the very gap the carry fills (`origin` naming another repository *and* no
+`refs/remotes/origin/HEAD`), which is the shape under which a wrong default branch could otherwise
+reach a pull request.
+
+**Mutations, each restored byte-for-byte.** Pre-mutation hashes:
+`src/discovery/intake-carry.ts` `99cd9fc5afab9aff7950cd97152bdb21805abe79381d94b08f2217eded592847`,
+`src/discovery/inspect.ts` `5ea92c2d247f727a219f0cf3f383411f066c3070fa890ae570084f7a44d2bf6b`,
+`tests/discovery/carried-issue.test.ts` `8062007defe476427661f5cfe3f25d390b0a6a09705df88e635ae8c412d7da80`.
+Each was run against `npx vitest run tests/discovery/carried-issue.test.ts`; every one exited `1` on
+exactly the case written for it, 1 failed | 19 passed (MUT-B: 2 failed | 18 passed).
+
+- **MUT-A** the self-consistency condition deleted → *refuses the whole carry when the intake's
+  repository is not this clone's*.
+- **MUT-B** `repo` dropped from `sameClone` → *leaves the issue out when only the repository name
+  differs* and *leaves the default branch out too when the identity gap and the identity mismatch come
+  together*.
+- **MUT-C** `host` dropped from `sameClone` → *leaves the issue out when only the host differs*.
+- **MUT-D** both `inspect.ts` sites changed so the carry overwrites Git (`:124` guard removed **and**
+  `:215` reordered) → *keeps the branch Git itself named instead of overwriting it*.
+- **MUT-E** the provenance note no longer names the borrowed branch → *names in the record the run a
+  carried repository came from*. `npx tsc --noEmit` was re-run and returned `0` for this mutation; the
+  first draft of it (`repositoryLimitation: false && intake.repository`) had typechecked to exit `2`,
+  so it was discarded and rewritten as a behaviour change a typechecker accepts.
+
+MUT-D is compound, and that is a finding worth stating rather than smoothing over: either site alone
+is neutralised by the other. `repository ?? carriedRepository` cannot overwrite anything once `:124`
+has already decided a carried identity is `null`, and `carriedRepository ?? repository` cannot pick the
+carry once `:124` has nulled it. The rule "what Git observed wins" is therefore expressed twice, and
+mutation testing of a doubly-expressed rule needs both sites broken at once. What is *not* redundant is
+the limitation: MUT-D as a single-site change (`:124` guard removed, `:215` left alone) broke
+*keeps the branch Git itself named instead of overwriting it* on its own, via the new assertion that a
+fact which was not borrowed must not be labelled as borrowed — which is why that assertion exists.
+
+After each mutation the file was restored from a byte-exact copy and its hash re-measured equal to the
+value above. Focused suite on the restored tree: exit `0`, 20 passed (20).
+
+**Documents corrected.** `README.md`'s `inspect` section now says the row carries the issue *and* the
+repository identity, with the fill-only-an-absence rule and the second limitation quoted; its
+Stage 14 status line records that the credential-free chain now reaches the model boundary instead of
+the branch-name refusal. `docs/ROADMAP.md`'s Stage 14 list keeps S14-1 checked and names S14-2 beside
+it; `docs/PRODUCT_SPEC.md` and `CHANGELOG.md` describe the handoff as a pair. No document claims a
+pull request was opened, and the `pr` screen quoted above is the refusing one.
+
+**Limitations.**
+
+1. The carried identity is as current as the intake that read it. If the repository's default branch
+   changes after `issue`, `inspect` carries the old name and says it re-read nothing. A wrong target
+   is still caught by `targetOf`'s other rule — when Git *does* name a branch and it disagrees with
+   the API, the stage blocks rather than choosing — but that guard needs two answers, and the case this
+   slice fixes is the one where Git has only one.
+2. Only an *absence* is filled. A clone whose Git answer is present but stale (a `main`/`master`
+   rename fetched halfway) keeps the stale name; Stage 2 reports what Git says, and the carry is not a
+   re-validation of it.
+3. The self-consistency condition rejects an intake record that disagrees with itself; it cannot detect
+   a record that is *coherently* wrong, e.g. an intake run made against a different clone that happens
+   to name the same repository and the same commit. That is S14-1's limitation 4 unchanged, now
+   covering two payloads instead of one.
+4. `pr`'s remediation text beside this particular gap still points at `mergesutra issue`
+   (`src/pr/branch.ts:126-130`), which is now a complete answer only if the person then re-runs
+   `inspect` on that checkout. The advice is not wrong, but it is one step short of naming the carry;
+   left as-is deliberately, since rewording it without a measured screen to quote would replace one
+   unverified claim with another.
+5. Green hosted contexts are evidence about the gates, not about this handoff: the unit cases use
+   injected GitHub and Git tables, and the fixture readings above are Windows readings of the shipped
+   `dist/bin.js`.
+6. Re-verifying this entry means re-running the chain, not opening the store. The last verb of a walk
+   advances the record it was pointed at, so the run a `contract` screen quoted from is filed as a `pr`
+   record by the time a reader looks for it; the captured screens are the evidence, and the records are
+   the state a later verb left behind.
+
 ## Register status, Stage 14 (in progress)
 
 `S14-1` (the documented `issue → inspect → contract` chain could not put both families of criteria
-in the one record every later stage reads) is closed as CODE + TEST + DOCUMENT above. What Stage 14
+in the one record every later stage reads) and `S14-2` (the repaired chain still reached `mergesutra
+pr` and refused for want of a default branch, because the carry copied the issue and left the
+repository identity behind) are closed as CODE + TEST + DOCUMENT above. What Stage 14
 still has to measure, and what it will not claim before it does:
 
-- The credential-free half is not finished: `verify`, `status`, `report` and the recovery behaviour
-  have to be walked against the same fixture with raw exit codes, and the canary file in the fixture
-  working tree has to be shown untouched afterwards.
+- The credential-free half has one host left to prove it on. Walked on this machine at `ed0f6ed`
+  with no key in the environment (`BHARATCODE_API_KEY` unset, recorded in the log), from one working
+  directory, the verbs answer `doctor` 1, `issue` 0, `inspect` 0, `contract` 0, `plan` 78,
+  `verify` 1, `report` 0, `status` 0, bare `pr` 1, `pr <run-id>` 4 — each refusal naming the thing that
+  is genuinely missing (a key, an implementation) and no screen anywhere in the walk containing the
+  default-branch refusal S14-2 removed. The six files of the fixture working tree hashed byte-identical
+  before and after, and `git status --porcelain` inside it still says exactly `?? pnpm-lock.yaml`, which
+  is what it said before. What is left is the same chain read on a second host, since every number above
+  is Windows.
 - The live harness has to be *proved* incapable of leaking the key into logs, run records or the
   evidence pack, and its blast radius proved to be the fixture repository and nothing else, before
   any credential is in scope.

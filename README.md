@@ -343,7 +343,14 @@ commit `cef35cbd3f`, which is why the wording is blunt about what it does not
 know. The `Issue from intake` row is Stage 14's: before it writes a record, an
 inspection looks for a run that already read an issue about *this* checkout at
 *this* commit. Here the newest intake on this machine is about a different
-repository, so the row says exactly that and no issue is carried.
+repository, so the row says exactly that and no issue is carried. When a carry
+does happen it copies that intake's issue *and* its repository identity — the
+default branch a pull request would merge into — and the identity fills only a
+gap: a clone whose `origin` Git can read but whose remote HEAD it cannot resolve
+names no default branch of its own, and what the intake read from GitHub is
+offered for that absence. Where Git named an identity, Git's answer is what the
+record holds, and no "carried" note is written beside it. Both kinds of borrow
+say which run they came from, in the record and on the screen.
 
 ```text
 MergeSutra — repository contract
@@ -456,11 +463,20 @@ no model credential were involved — and there the carry is what the two screen
 say:
 
 ```text
-PASS          Issue from intake   carried from run run-20261004T152315Z-bd82ac: Pavithran-R-A/mergesutra-e2e-fixture#1 at base 6f3a0adb17
+PASS          Issue from intake   carried from run run-20261004T170959Z-6d5b10: Pavithran-R-A/mergesutra-e2e-fixture#1 at base 6f3a0adb17
+```
+
+and the two lines that inspection's "What this contract does not know" section
+states about it, because a borrowed fact is never left looking like an observed
+one:
+
+```text
+  The issue in this record was carried from run run-20261004T170959Z-6d5b10, which read it from GitHub. This stage re-read no issue and did not check that it is still open.
+  The repository identity in this record, including the default branch 'main' a pull request would merge into, was carried from run run-20261004T170959Z-6d5b10, which read it from GitHub. This stage called no API and re-read none of it.
 ```
 
 ```text
-PASS          Source run          run-20261004T152316Z-1cbfc5 (inspect, INSPECT_COMPLETE)
+PASS          Source run          run-20261004T171003Z-e153f9 (inspect, INSPECT_COMPLETE)
 PASS          Repository contract 0 required gate(s) available
 PASS          Issue text          1210 character(s) of issue body
 PASS          Acceptance Contract 5 criteria, all PENDING
@@ -475,6 +491,23 @@ with the issue's criteria and "this run never compiled" a repository contract,
 beside each gap named the command that had produced the other — see
 [docs/SECURITY_GAP_REGISTER.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/SECURITY_GAP_REGISTER.md)
 S14-1 for both measurements.
+
+Carrying the repository identity as well is what let the same chain continue one
+verb further. `mergesutra pr` on the run that chain produced used to answer
+*"Cannot name a branch for a pull request: no earlier stage recorded a default
+branch for this repository"* — true of the checkout, which was made with
+`git init` and a `git remote add` and so has no `refs/remotes/origin/HEAD`, and
+wrong as advice, since the intake of that same checkout had already read `main`
+from GitHub (register S14-2). On the run above,
+`mergesutra pr run-20261004T171008Z-597ba7` now answers with the refusal that
+needs the credential instead (exit `4`):
+
+```text
+FAIL          Publication proposal                  Cannot build a publication candidate: no patch identity has been measured for this run, so an approval would bind to no bytes. MergeSutra will not fill the gap from a model, a template, or this stage’s own guess.
+```
+
+No branch was pushed and no pull request was opened by any of the commands
+quoted on this page.
 
 `contract` calls no model and runs nothing. Criteria come from the issue's own
 acceptance list, from a CI-enforced gate, or from a human who names themselves —
@@ -1473,7 +1506,7 @@ thing that flag's absence is for. Stage 15 owns this list.)*
 | `doctor`  | Diagnose environment; the API key value is never printed | Ready    |
 | `--help`  | Usage                                          | Ready    |
 | `--version` | Version                                      | Ready    |
-| `inspect` | Compile what a repository itself requires into a provenanced contract, and carry an intake's issue into the same record when that run provably describes this checkout at this commit — read-only | Ready    |
+| `inspect` | Compile what a repository itself requires into a provenanced contract, and carry an intake's issue — plus the repository identity it read, where Git named none — into the same record when that run provably describes this checkout at this commit — read-only | Ready    |
 | `contract` | Turn a run's facts into the criteria it must prove — all `PENDING`, nothing executed | Ready |
 | `plan` | Ask BharatCode for an implementation plan against a run's criteria — proposals only, runs nothing | Ready |
 | `implement` | The bounded loop: BharatCode proposes one action per turn, MergeSutra validates it and executes the allowed ones in the run's own worktree — writes files, verifies nothing, publishes nothing | Ready |

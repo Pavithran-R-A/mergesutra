@@ -117,6 +117,11 @@ export async function runInspect(
     headSha: local?.head.sha ?? null,
   });
   checks.push(carry.check);
+  // Git's own answer wins where Git has one: this stage observed this checkout,
+  // while a carried identity is what one intake read earlier. The carry fills the
+  // gap a clone leaves when Git cannot resolve its remote HEAD, and fills nothing
+  // else — see `identityFromLocalSnapshot`.
+  const carriedRepository = repository === null ? carry.repository : null;
 
   // 3. Discovery. Each detector reports its own absences.
   const manifests = await detectManifests(reader);
@@ -207,13 +212,17 @@ export async function runInspect(
     outcome,
     issueRef: carry.issueRef,
     issue: carry.issue,
-    repository,
+    repository: repository ?? carriedRepository,
     base: local?.head ?? null,
     local,
     checks,
     contract,
     nextStage: NEXT_STAGE,
-    limitations: [...contract.limitations, ...(carry.limitation ? [carry.limitation] : [])],
+    limitations: [
+      ...contract.limitations,
+      ...(carry.limitation ? [carry.limitation] : []),
+      ...(carriedRepository && carry.repositoryLimitation ? [carry.repositoryLimitation] : []),
+    ],
   });
 
   let recordFile: string | null = null;

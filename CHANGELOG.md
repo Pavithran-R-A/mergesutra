@@ -6,6 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — Stage 14: the repaired pipeline still could not name a branch to merge into
+
+Carrying the issue forward was the first half of the handoff. Walking the rest of the documented
+chain found the second: `mergesutra pr` on the run the chain produces answered
+*"Cannot name a branch for a pull request: no earlier stage recorded a default branch for this
+repository"*, and the advice beside it pointed at `mergesutra issue` — the command that had already
+been run, and whose record held `defaultBranch: "main"`, read from GitHub. The refusal was correct
+and the gap was real: the validation clone was made with `git init` plus `git remote add`, so it has
+no `refs/remotes/origin/HEAD`, Git could name no default branch, and the identity rule that stops
+MergeSutra inventing one (`identityFromLocalSnapshot` returns null rather than guessing) left the
+record with nothing for Stage 10 to target.
+
+An inspection now carries that intake's repository identity into its own record on the same proof as
+the issue, with one condition added: the intake has to agree with *itself*, so a record whose issue
+belongs to this clone while its repository field names another lends nothing at all. The carried
+identity fills only an absence — where Git named a branch, Git's answer stays, and no "carried" note
+is written beside a fact this stage observed — and a borrowed branch is labelled with the run that
+read it, because the branch a pull request merges into is the one wrong fact a reviewer cannot see in
+a diff.
+
+Measured after, same fixture and same working directory: `issue` → `inspect` → `contract` → exit `0`
+each, and `pr` now stops one step later, at *"no patch identity has been measured for this run"* —
+the credential boundary, which is where a model-free walk is supposed to end. Before, it stopped at
+the branch refusal. Proved by `tests/discovery/carried-issue.test.ts`, now 20 cases, with six written
+for this fix and three more the fix's own mutation run asked for: dropping either the `host` or the
+`repo` clause of the identity comparison used to leave every test green, so each field is now
+isolated by a case of its own, including the combination that matters — a mismatching `origin`
+*and* no remote HEAD (register S14-2).
+
 ### Fixed — Stage 14 so far: the documented pipeline could not reach its third step
 
 `README.md` tells a reader to run `mergesutra issue <url> --repo <clone>`, then

@@ -1,6 +1,6 @@
 import type { RepositoryContext } from '../github/types.js';
 import { defaultRedactor } from '../security/redaction.js';
-import type { IssueRefStored, RunCheck, RunRecord } from '../state/run-record.js';
+import type { RunCheck, RunRecord } from '../state/run-record.js';
 import type { RunStore, RunSummary } from '../state/run-store.js';
 import { readableRuns } from '../state/run-selection.js';
 
@@ -17,12 +17,22 @@ import { readableRuns } from '../state/run-selection.js';
  * was about *this* checkout at *this* commit.
  *
  * The proof is three facts, all read from data this stage already has or from the
- * intake record's own claims:
+ * intake record's own claims, plus one condition the record has to meet about
+ * itself:
  *
  * 1. this clone names an `origin`, and its host/owner/repo equal the host/owner/repo
  *    the intake's issue belongs to;
  * 2. the intake pinned a base commit, and it is the commit being inspected now;
- * 3. the intake record actually holds both an issue reference and an issue document.
+ * 3. the intake record actually holds both an issue reference and an issue document;
+ * 4. if the intake also recorded a repository identity, that identity names this
+ *    same clone — a record that disagrees with itself lends nothing.
+ *
+ * What is carried is therefore the pair Stage 1 read from GitHub: the issue and the
+ * repository it belongs to, the second only filling the gap a clone leaves when Git
+ * cannot resolve its remote HEAD (see `identityFromLocalSnapshot`), never overwriting
+ * what Git observed here. Without that second half the documented chain reaches
+ * `mergesutra pr` and stops at "no earlier stage recorded a default branch", which is
+ * the mistake Stage 10 exists to refuse to guess its way past.
  *
  * Deliberately *not* part of the proof: the directory path. A person who clones
  * the same repository twice, or moves a clone, still has the same repository at
@@ -66,17 +76,31 @@ export interface CarryResult {
   readonly issueRef: RunRecord['issueRef'];
   readonly issue: RunRecord['issue'];
   /**
+   * The repository identity the same intake read from GitHub, offered for the one
+   * case it is needed: a clone whose `origin` names a repository but whose remote
+   * HEAD Git cannot resolve, so Stage 2's own identity is null. What Git did
+   * observe is never replaced by what another run read.
+   */
+  readonly repository: RunRecord['repository'];
+  /**
    * Stated in the record beside a carried issue, naming the run it came from.
    * A reader of the Stage 2 record has to be able to tell a copied fact from an
    * observed one, so the carry is never silent.
    */
   readonly limitation: string | null;
+  /** The same, for the carried repository identity, and only when one was read. */
+  readonly repositoryLimitation: string | null;
 }
 
-const EMPTY: Pick<CarryResult, 'issueRef' | 'issue' | 'limitation'> = {
+const EMPTY: Pick<
+  CarryResult,
+  'issueRef' | 'issue' | 'repository' | 'limitation' | 'repositoryLimitation'
+> = {
   issueRef: null,
   issue: null,
+  repository: null,
   limitation: null,
+  repositoryLimitation: null,
 };
 
 export async function carryIssueFromIntake(input: CarryInput): Promise<CarryResult> {
@@ -132,7 +156,7 @@ export async function carryIssueFromIntake(input: CarryInput): Promise<CarryResu
     }
     if (intake.stage !== 'intake' || !intake.issueRef || !intake.issue) continue;
 
-    if (!sameRepository(intake.issueRef, origin)) {
+    if (!sameClone(intake.issueRef, origin)) {
       reasons.identity ??= `the newest intake here is for ${intake.issueRef.canonical}, which '${namedRepository(origin)}' is not`;
       continue;
     }
@@ -140,13 +164,28 @@ export async function carryIssueFromIntake(input: CarryInput): Promise<CarryResu
       reasons.base ??= `the intake run ${intake.runId} pinned base commit ${short(intake.base?.sha ?? '(none)')}, but this checkout is at commit ${short(headSha)}`;
       continue;
     }
+    // The same record has to agree with itself before either half is trusted. A
+    // run whose issue names this clone but whose repository field names another
+    // is not describing a place a person forgot to fetch — it is a record this
+    // build cannot account for, and the target branch it would lend a pull
+    // request is the one wrong fact a reviewer cannot see in a diff.
+    if (intake.repository && !sameClone(intake.repository, origin)) {
+      return refuse(
+        `the intake run ${intake.runId} does not agree with itself: its issue belongs to ${intake.issueRef.canonical}, but it also records a repository named ${intake.repository.owner}/${intake.repository.repo}, which '${namedRepository(origin)}' is not`,
+      );
+    }
 
     return {
       issueRef: intake.issueRef,
       issue: intake.issue,
+      repository: intake.repository,
       limitation:
         `The issue in this record was carried from run ${intake.runId}, which read it from GitHub. ` +
         'This stage re-read no issue and did not check that it is still open.',
+      repositoryLimitation: intake.repository
+        ? `The repository identity in this record, including the default branch '${intake.repository.defaultBranch}' a pull request would merge into, was carried from run ${intake.runId}, which read it from GitHub. ` +
+          'This stage called no API and re-read none of it.'
+        : null,
       check: {
         name: CARRY_CHECK_NAME,
         status: 'PASS',
@@ -169,12 +208,16 @@ function refuse(detail: string): CarryResult {
 /**
  * GitHub names are case-insensitive and `origin` is lower-cased by the parser
  * that made it, so neither side of this comparison is trusted for its case.
+ *
+ * One function serves both halves of the proof — an issue reference and a
+ * repository identity are the same three fields here, and an identity claimed by
+ * two code paths is an identity one of the paths can quietly stop checking.
  */
-function sameRepository(issueRef: IssueRefStored, origin: RepositoryContext): boolean {
+function sameClone(identity: RepositoryContext, origin: RepositoryContext): boolean {
   return (
-    issueRef.host.toLowerCase() === origin.host.toLowerCase() &&
-    issueRef.owner.toLowerCase() === origin.owner.toLowerCase() &&
-    issueRef.repo.toLowerCase() === origin.repo.toLowerCase()
+    identity.host.toLowerCase() === origin.host.toLowerCase() &&
+    identity.owner.toLowerCase() === origin.owner.toLowerCase() &&
+    identity.repo.toLowerCase() === origin.repo.toLowerCase()
   );
 }
 

@@ -198,9 +198,11 @@ defect.
   and writes a versioned run record), **repository policy discovery**
   (`mergesutra inspect <repo>` — reads CI, manifests and contributor docs
   read-only and compiles the gates the repository itself demands, each with a
-  file-and-line citation, and carries forward the issue from an intake run only
-  when that run provably describes this clone's repository at the commit being
-  inspected), **Acceptance Contract derivation**
+  file-and-line citation, and carries forward the issue — and, where Git named
+  no repository identity for this clone, the repository identity including its
+  default branch — from an intake run only when that run provably describes this
+  clone's repository at the commit being inspected and agrees with itself about
+  which repository that is), **Acceptance Contract derivation**
   (`mergesutra contract [run-id]` — joins an issue run and a repository contract
   into versioned criteria that cannot record a `PASS` without evidence),
   **implementation planning** against BharatCode (`mergesutra plan [run-id]` —
