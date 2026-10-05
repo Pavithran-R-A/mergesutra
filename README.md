@@ -2,6 +2,8 @@
 
 ### Issue in. Evidence-backed PR out.
 
+[![CI](https://github.com/Pavithran-R-A/mergesutra/actions/workflows/ci.yml/badge.svg)](https://github.com/Pavithran-R-A/mergesutra/actions/workflows/ci.yml)
+
 MergeSutra is a **BharatCode-powered CLI agent** that turns a GitHub issue into
 an evidence-backed pull-request draft — and maps **every acceptance criterion to
 the evidence for it**, naming what passed, what failed, and what no gate in the
@@ -18,80 +20,57 @@ becomes a PR."*
 **Source:** [github.com/Pavithran-R-A/mergesutra](https://github.com/Pavithran-R-A/mergesutra)
 · **Report a problem:** [issue tracker](https://github.com/Pavithran-R-A/mergesutra/issues)
 
-> **Honest status: Stage 11 — a run can be verified, written down, read a second
-> time by a model that changes nothing, repaired under a yes bound to one plan's
-> digest, assembled into the page a person approves as a pull request, and — when
-> it stops anywhere along that road — observed for what is true now and continued
-> one honest step at a time.**
-> What you can run today is `mergesutra doctor`, `mergesutra issue <url>`,
-> `mergesutra inspect <dir>`, `mergesutra contract [run-id]`,
-> `mergesutra plan [run-id]`, `mergesutra implement [run-id]`,
-> `mergesutra verify [run-id]`, `mergesutra report [run-id]`,
-> `mergesutra review [run-id]`,
-> `mergesutra repair [run-id]`,
-> `mergesutra pr [run-id]`,
-> `mergesutra status [run-id]` and
-> `mergesutra resume [run-id]`: intake
-> reads a GitHub issue and pins the exact repository and base commit into a
-> versioned run record, `inspect` compiles what a repository itself requires
-> into a provenanced contract, `contract` turns those facts into the criteria a
-> run must prove, `plan` asks BharatCode how to satisfy them, `implement`
-> runs the first bounded loop — BharatCode proposes one action at a time,
-> MergeSutra validates it, decides whether it is allowed, and executes the
-> allowed ones inside a Git worktree at the pinned base commit. Files really
-> change there; **they are not verified by that stage**, so every criterion is
-> still `PENDING` and a run that ends well exits `3`, not `0`, because the model
-> declaring itself finished is a claim Stage 7 has to check. `verify` runs that
-> check: the repository's own gates, only the ones a human names by id, each
-> judged by its exit code, with one receipt per gate bound to the patch identity
-> it measured. `report` renders those receipts into an evidence pack, and
-> `review` asks a second model about exactly those bytes — it files findings it
-> can cite, routes them, freezes a repair plan before any edit, and returns with
-> the workspace byte-identical. `repair` is the stage that carries a frozen plan
-> out, and until `pr` it was the only shipped command that acts on the strength
-> of a human decision: nothing runs until you type `--approve-plan <digest>`, the
-> digest of the plan you read, there is no `--yes` and no `--force`, and reading a
-> plan asks for no credential at all. The cycle then runs through `implement`'s
-> own bounded loop under a brief narrowed to the plan's files, and because the
-> bytes moved, `verify`'s gates run again over them and `report`'s pack is
-> regenerated — a repair never gets to certify itself. `pr` is the last command,
-> and the first whose subject is a person rather than a measurement: it assembles
-> a pull-request title and body out of what those stages already recorded — no
-> model is asked anything, no gate is re-run, no earlier verdict is re-read —
-> prints the page in full, and takes one thing as a yes: that page's 64-hex
-> digest, typed back after being read. The approval is filed in the run record,
-> and filing it is the end of what this build can do with it.
+> **Release status: v0.1.0 release candidate.** The deterministic source gates,
+> package-boundary gates and packed-artifact install test run on GitHub-hosted
+> Ubuntu and Windows with Node 22 and Node 24. The shipped command surface is
+> `doctor`, `issue`, `inspect`, `contract`, `plan`, `implement`,
+> `verify`, `report`, `review`, `repair`, `pr`, `status` and
+> `resume`. The unattended `run` command remains deliberately planned rather
+> than pretending that consent and approval can be skipped.
 >
-> **Shipped end to end:** intake, policy, contract, plan, implement, verify,
-> evidence pack, independent review, digest-approved repair, pack rebuild,
-> **the PR candidate with a local human approval**, and — for a run that stops
-> partway — **`status`, which reads what is true, and `resume`, which continues it
-> one stage at a time without holding any approval of its own.**
+> **Important boundary:** `mergesutra pr` prepares a reviewable pull-request
+> page and records a digest-bound human approval locally; this build still does
+> not run `git commit`, push a branch or open the GitHub pull request for you.
+> A worktree is isolation for clarity, not an operating-system sandbox.
 >
-> **Not yet live-published:** a real `git push` and a real GitHub pull request.
-> No command of MergeSutra's commits, pushes, comments or opens a PR; the only
-> publication transport this build defines throws when called and has no
-> production importer, and no output shape has a pull-request address to print.
-> So `HUMAN_APPROVED_FOR_PR` — the strongest word
-> Stage 10 has — means one person approved one page by digest, and does not mean
-> the code is good, that no defect remains, or that anything was accepted.
-> `CONTRIBUTION_READY` is still handed out by no stage, and `pr`'s result types
-> `published` as the literal `false` on the screen where the news is good.
-> **Nothing is published.** The BharatCode adapter,
-> configuration, central secret
-> redaction, structured errors, tests and CI are **implemented and green**. The
-> full `issue → PR` workflow is **under construction**: `mergesutra run` is still
-> a planned stub that exits `2`, `status` reads a run and changes nothing, and
-> `resume` continues one only when a person types `--execute` — it holds no
-> consent, no approval and no remote permission of its own. A publication
-> transport and security
-> hardening are the next
-> stages; see
-> [Roadmap](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md). Where this README shows the finished experience,
-> it is labelled **target**. What you can run today is shown under
-> [Try it now](#try-it-now).
-
+> **Live-model status:** the BharatCode adapter and opt-in live tests ship, but
+> this release candidate does not claim a completed real-endpoint Stage-14 run.
+> That evidence requires a real `BHARATCODE_API_KEY`; the repository records the
+> missing credential as a release-validation gap rather than fabricating a pass.
+>
+> See the [Roadmap](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md)
+> and [real-model E2E procedure](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/REAL_MODEL_E2E_PROCEDURE.md)
+> for the remaining validation boundary.
 ---
+
+## Install
+
+MergeSutra requires **Node.js 22 or newer** and Git. GitHub issue intake also
+requires the GitHub CLI (`gh`) signed in.
+
+Once v0.1.0 is present on the npm registry:
+
+```bash
+npm install --global mergesutra
+mergesutra --version
+mergesutra doctor
+```
+
+Until registry publication is complete, run the exact same CLI from source:
+
+```bash
+git clone https://github.com/Pavithran-R-A/mergesutra.git
+cd mergesutra
+npm ci
+npm run build
+node dist/bin.js --version
+node dist/bin.js doctor
+```
+
+BharatCode-backed stages need `BHARATCODE_API_KEY`. Set
+`BHARATCODE_MODEL` when you want to pin an explicit model rather than use the
+configured/default selection. MergeSutra never needs the key for `status`,
+`report`, approval previews or other read-only recovery paths.
 
 ## Why MergeSutra
 
@@ -176,6 +155,8 @@ Final state: CONTRIBUTION_READY   →  mergesutra report   |   mergesutra pr
 ```
 
 ## Try it now
+
+The examples below use the source checkout (`node dist/bin.js`). After the npm release, replace `node dist/bin.js` with `mergesutra`.
 
 ```bash
 # Node >= 22
