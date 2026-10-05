@@ -48,8 +48,10 @@ describe('the npm publish workflow is release-only and least-privilege', () => {
 
   it('checks out the complete history on Node 24 against the public npm registry', () => {
     expect(WORKFLOW).toMatch(/fetch-depth:\s*0/);
+    expect(WORKFLOW).toMatch(/persist-credentials:\s*false/);
     expect(WORKFLOW).toMatch(/node-version:\s*'24\.x'/);
     expect(WORKFLOW).toContain("registry-url: 'https://registry.npmjs.org'");
+    expect(WORKFLOW).toMatch(/package-manager-cache:\s*false/);
   });
 
   it('runs source, runtime-audit and package gates before the publish helper', () => {
