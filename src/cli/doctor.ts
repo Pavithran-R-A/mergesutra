@@ -3,7 +3,13 @@ import type { BharatCodeClient } from '../bharatcode/client.js';
 import type { RenderOptions, Renderer, Status } from './render.js';
 import { terminalSafeDocument } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor } from './render.js';
-import { defaultRunner, githubReadRunner, safeRun, type Runner, type RunResult } from '../core/runner.js';
+import {
+  defaultRunner,
+  githubReadRunner,
+  safeRun,
+  type Runner,
+  type RunResult,
+} from '../core/runner.js';
 
 /**
  * `mergesutra doctor` — environment diagnosis that never prints the API key value.
