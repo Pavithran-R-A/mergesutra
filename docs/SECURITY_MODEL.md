@@ -1141,17 +1141,22 @@ current Node binary with hostile arguments and assert both that they arrive
 unchanged and that no file was created. A command that could not start reports
 its reason instead of a blank failure.
 
-It also decides what that process can see. Every command starts from an
-environment with `BHARATCODE_API_KEY` and `BHARATCODE_KEY` removed, whatever the
-caller supplied and whatever this process inherited, because a run may name
-`printenv`, `env` or a repository script that reads its own configuration and all
-of those are legitimate checks (S14-3). `GH_TOKEN`/`GITHUB_TOKEN` are *not*
-removed: `gh` is this build's read transport (`src/github/gh-client.ts` asks it for
-one `GET` per issue) and authenticates from those names, so stripping them would
-break `mergesutra issue` — the disclosure that matters here is the model
-credential, which nothing downstream has any use for. `tests/core/spawn-boundary.test.ts` reads the import
-closure to keep "the single place" true, since the scrub is worth one boundary
-only while that boundary is the only door.
+It also decides what that process can see. Every ordinary repository/workspace
+command starts from an environment with the BharatCode credentials and the
+environment-backed GitHub credentials (`GH_TOKEN`, `GITHUB_TOKEN`, `GITHUB_PAT`)
+removed, whatever the caller supplied and whatever this process inherited,
+because a run may name `printenv`, `env` or a repository script that reads its
+own configuration and all of those are legitimate checks (S14-3, S14-9).
+MergeSutra's own GitHub read transport is a separate runner:
+`src/github/gh-client.ts` and the doctor's `gh` probe use
+`githubReadRunner`, which still strips the BharatCode credential but preserves
+GitHub authentication for `gh api --method GET` / `gh auth status`. That
+exception is not handed to a repository command. This narrows the ambient-token
+blast radius; it is not an OS sandbox and cannot stop a repository program from
+using some other credential source available to the operating-system account.
+`tests/core/spawn-boundary.test.ts` reads the import closure to keep "the single
+place" true, since the scrub is worth one boundary only while that boundary is
+the only door.
 
 The classify/apply-policy half of that list is `src/process/tool-policy.ts`
 (§3), and the shape rules it uses — non-empty argv, no shell syntax in any
