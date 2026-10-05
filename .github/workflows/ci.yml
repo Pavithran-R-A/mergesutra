@@ -53,11 +53,8 @@ jobs:
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Run path-qualification format probe
-        run: |
-          npx prettier --write scripts/path-shape-qualification.mjs
-          git diff -- scripts/path-shape-qualification.mjs
-          exit 1
+      - name: Run all deterministic gates
+        run: npm run check
 
       - name: Qualify customer path shapes and real Git/gh discovery
         run: npm run qualify:path-shapes
