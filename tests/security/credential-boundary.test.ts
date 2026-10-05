@@ -195,6 +195,7 @@ function describeFindings(findings: readonly CredentialFinding[]): string {
 
 /** Values planted by this file. They are fake, and they are also the leak check. */
 const PLANTED = {
+  bharatCurrent: 'bc_live_Plant1234567890abcdef',
   bearer: 'sk-Plant1234567890abcdef',
   githubClassic: 'ghp_Plant1234567890abcdefgh',
   githubFineGrained: 'github_pat_Plant1234567890ab',
@@ -219,7 +220,17 @@ function families(findings: readonly CredentialFinding[]): CredentialFamily[] {
 }
 
 describe('the boundary detector reports every family it claims to (S12-24)', () => {
-  it('reports a BharatCode/OpenAI-style bearer value', () => {
+  it('reports the current BharatCode bc_live_ key family', () => {
+    const findings = scanForCredentials(
+      'planted.ts',
+      `const auth = '${PLANTED.bharatCurrent}';`,
+    );
+    expect(families(findings)).toEqual(['bearer-key']);
+    expect(findings[0]?.excerpt).toContain('bc_live_');
+    expect(findings[0]?.excerpt).not.toContain(PLANTED.bharatCurrent);
+  });
+
+  it('reports the legacy/OpenAI-style sk- bearer value', () => {
     const findings = scanForCredentials('planted.ts', `const auth = '${PLANTED.bearer}';`);
     expect(families(findings)).toEqual(['bearer-key']);
   });
