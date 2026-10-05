@@ -51,11 +51,8 @@ jobs:
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Run Stage 15 format probe
-        run: |
-          npx prettier --write scripts/publish-or-verify.mjs scripts/verify-release-tag.mjs tests/security/publish-workflow-policy.test.ts
-          git diff -- scripts/publish-or-verify.mjs scripts/verify-release-tag.mjs tests/security/publish-workflow-policy.test.ts
-          exit 1
+      - name: Run all deterministic gates
+        run: npm run check
 
       - name: Verify the shipping artifact's boundaries
         run: npm run verify:package
