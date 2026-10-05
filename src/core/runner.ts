@@ -171,10 +171,7 @@ export function createRunner(options: RunnerOptions = {}): Runner {
  * so `gh api --method GET` and `gh auth status` can use an environment-backed
  * login. Do not use this runner for repository/workspace commands.
  */
-export const githubReadRunner: Runner = createRunnerWithEnvFilter(
-  {},
-  withoutModelCredentialEnv,
-);
+export const githubReadRunner: Runner = createRunnerWithEnvFilter({}, withoutModelCredentialEnv);
 
 /** The default production runner: bounded, hidden console on Windows, argv only. */
 export const defaultRunner: Runner = createRunner();
