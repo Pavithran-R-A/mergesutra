@@ -4927,3 +4927,25 @@ its own network calls. The roadmap's broader "one fixture and nothing else" live
 remains open until the controlled experiment is executed in an isolated/scoped environment.
 
 **Status: CODE + TEST + DOCUMENT, awaiting hosted CI on this branch.**
+
+## S13-7 — Windows 8.3 home aliases defeated HOME/USERPROFILE abbreviation
+
+**Finding.** Stage 13's remaining path-shape line was not closed by merely running the ordinary suite
+on Windows and Linux. The dedicated hosted qualification created a real repository beneath the OS temp
+directory with spaces in the path and set HOME/USERPROFILE to that temp root. On Windows, Node exposed
+the root with an 8.3 short-name component while Git's `rev-parse --show-toplevel` returned the same
+directory using its long name. The old prefix comparison therefore treated the two aliases as unrelated
+and printed the concrete home path.
+
+**Fix.** `src/intake/intake.ts` exports `abbreviateHomePath` and, on Windows, canonicalizes existing
+candidate/home paths with `realpathSync.native` before separator normalization and case-insensitive
+comparison. Nonexistent synthetic paths keep the old string-only fallback.
+
+**Evidence.** `npm run qualify:path-shapes` runs after the deterministic suite in every hosted CI
+matrix entry. It creates a real temp repository with spaces, uses forward-slash spelling on the
+Windows drive-letter path, exercises production `issue`, `inspect` and `doctor`, checks
+HOME/USERPROFILE abbreviation, and proves real Git/gh discovery. Run 37291606875 is green on
+Ubuntu Node 22/24 and Windows Node 22/24 after the fix. The ordinary suite in those jobs also remains
+green before the qualification.
+
+**Status: CLOSED.**

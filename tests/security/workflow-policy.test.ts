@@ -36,6 +36,7 @@ const REQUIRED_STEPS = [
   'npm ci',
   'npm audit --omit=dev --audit-level=high',
   'npm run check',
+  'npm run qualify:path-shapes',
   'npm run verify:package',
   'npm run test:artifact',
 ];
@@ -191,8 +192,13 @@ function workflowViolations(text: string): string[] {
   const checkout = stepBlock(text, 'actions/checkout');
   if (checkout === null) {
     problems.push('no checkout step was found, so the history rule cannot be read');
-  } else if (!/fetch-depth:\s*0\b/.test(checkout)) {
-    problems.push('checkout does not fetch the whole history the release-boundary suites read');
+  } else {
+    if (!/fetch-depth:\s*0\b/.test(checkout)) {
+      problems.push('checkout does not fetch the whole history the release-boundary suites read');
+    }
+    if (!/persist-credentials:\s*false\b/.test(checkout)) {
+      problems.push('checkout persists the Actions credential into Git configuration');
+    }
   }
 
   return problems;
@@ -241,11 +247,15 @@ describe('the hosted workflow obeys the Actions security policy', () => {
     }
   });
 
-  it('reads the whole history, not the shallow default', () => {
+  it('reads the whole history without persisting the Actions credential', () => {
     const checkout = stepBlock(REAL, 'actions/checkout') ?? '';
     expect(/fetch-depth:\s*0\b/.test(checkout), 'the checkout step must fetch every commit').toBe(
       true,
     );
+    expect(
+      /persist-credentials:\s*false\b/.test(checkout),
+      'repository commands must not inherit the Actions token through Git configuration',
+    ).toBe(true);
   });
 
   it('runs every authoritative gate, in order, with nothing swallowed', () => {
@@ -268,6 +278,7 @@ describe('the policy fires on the mutations it exists for', () => {
     '      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6',
     '        with:',
     '          fetch-depth: 0',
+    '          persist-credentials: false',
   ].join('\n');
 
   function skeleton(runLine: string): string {
@@ -377,10 +388,17 @@ describe('the policy fires on the mutations it exists for', () => {
     expect(workflowViolations(padded).join(' ')).toContain('set for a slow runner');
   });
 
-  it('rejects a checkout that would starve the history the suites read', () => {
+  it('rejects a checkout that starves history or persists its credential', () => {
     const shallow = skeleton('      - run: npm ci').replace('fetch-depth: 0', 'fetch-depth: 1');
     expect(workflowViolations(shallow)).toContain(
       'checkout does not fetch the whole history the release-boundary suites read',
+    );
+    const persisted = skeleton('      - run: npm ci').replace(
+      'persist-credentials: false',
+      'persist-credentials: true',
+    );
+    expect(workflowViolations(persisted)).toContain(
+      'checkout persists the Actions credential into Git configuration',
     );
   });
 });
@@ -404,7 +422,7 @@ describe('the gate set is complete, not merely valid', () => {
     }
   });
 
-  it('orders them install, runtime audit, source gates, then artifact gates', () => {
+  it('orders them install, runtime audit, source gates, path qualification, then artifact gates', () => {
     expect(runs.map((r) => r.raw.replace(/^\s*run:\s*/, '').trim())).toEqual(REQUIRED_STEPS);
   });
 });

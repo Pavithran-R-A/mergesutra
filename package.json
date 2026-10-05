@@ -57,6 +57,7 @@
     "test:watch": "vitest",
     "test:live": "MERGESUTRA_LIVE_BHARATCODE=1 vitest run --all",
     "test:artifact": "vitest run --config vitest.release.config.ts",
+    "qualify:path-shapes": "node scripts/path-shape-qualification.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test",
     "verify:package": "npm run build && vitest run tests/security/publish-contents.test.ts tests/security/credential-boundary.test.ts tests/security/home-path-boundary.test.ts tests/security/public-link-boundary.test.ts tests/security/shipped-pointer-boundary.test.ts",
     "prepack": "npm run verify:package",

@@ -38,6 +38,8 @@ jobs:
           # gate that proves the artifact carries no credential would fail for a
           # reason that has nothing to do with credentials.
           fetch-depth: 0
+          # Repository checks must not inherit an Actions credential through Git config.
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -53,6 +55,9 @@ jobs:
 
       - name: Run all deterministic gates
         run: npm run check
+
+      - name: Qualify customer path shapes and real Git/gh discovery
+        run: npm run qualify:path-shapes
 
       - name: Verify the shipping artifact's boundaries
         run: npm run verify:package
