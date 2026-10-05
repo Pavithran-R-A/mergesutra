@@ -1039,7 +1039,20 @@ purpose is to be refused.
 
 ## Stage 15 — Demo + README + release readiness
 
-- [ ] 60–90s hero demo; polished README; npm publication (requires human approval)
+- [x] Public release CI: Ubuntu/Windows × Node 22/24 runs source gates, runtime-only
+      npm audit, package-boundary verification and packed-artifact installation.
+- [x] npm release workflow prepared with GitHub OIDC, immutable action pins,
+      release-tag/commit identity checks and idempotent registry verification.
+- [x] v0.1.0 package identity and consumer README prepared.
+- [ ] Controlled real-BharatCode run and ~10-task benchmark from Stage 14. These
+      remain evidence requirements; no credential is available to this environment
+      and no result is fabricated.
+- [ ] 60–90s hero demo recorded from a real run.
+- [ ] First npm publication. npm requires the package to exist before a Trusted
+      Publisher can be configured, so the namespace bootstrap needs an authenticated
+      npm maintainer/2FA action once; later releases can use the OIDC workflow.
+- [ ] Publish GitHub Release v0.1.0 after the exact npm package version is present
+      and the release workflow can verify it.
 
 ## Cross-cutting backlog
 
