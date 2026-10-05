@@ -19,7 +19,9 @@ function runCommands(text: string): string[] {
 describe('the npm publish workflow is release-only and least-privilege', () => {
   it('runs only for a published GitHub Release', () => {
     expect(WORKFLOW).toMatch(/^on:\n  release:\n    types: \[published\]/m);
-    expect(WORKFLOW).not.toMatch(/pull_request_target|pull_request:|\bpush:|workflow_dispatch|schedule:/);
+    expect(WORKFLOW).not.toMatch(
+      /pull_request_target|pull_request:|\bpush:|workflow_dispatch|schedule:/,
+    );
   });
 
   it('keeps top-level permissions read-only and grants OIDC only to the publish job', () => {
@@ -27,7 +29,7 @@ describe('the npm publish workflow is release-only and least-privilege', () => {
     expect(WORKFLOW).toMatch(
       /jobs:\n  publish:[\s\S]*?    permissions:\n      contents: read\n      id-token: write\n/,
     );
-    expect((WORKFLOW.match(/id-token:\s*write/g) ?? [])).toHaveLength(1);
+    expect(WORKFLOW.match(/id-token:\s*write/g) ?? []).toHaveLength(1);
     expect(WORKFLOW).not.toMatch(/contents:\s*write/);
   });
 
