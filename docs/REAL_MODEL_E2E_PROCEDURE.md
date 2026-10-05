@@ -239,6 +239,7 @@ run was worth doing.
 
 ```sh
 node dist/bin.js --json report <run-id> > /dev/null   # the pack is on disk; this only proves it parses
+grep -REno 'bc_live_[A-Za-z0-9_-]{8,}' .mergesutra | wc -l   # expect 0
 grep -REno 'sk-[A-Za-z0-9_-]{12,}' .mergesutra | wc -l   # expect 0
 grep -REno 'gh[pousr]_[A-Za-z0-9]{12,}' .mergesutra | wc -l   # expect 0
 git status --short   # expect only what it showed in §3
@@ -246,8 +247,8 @@ unset BHARATCODE_API_KEY
 ```
 
 Screen the artifacts by shape, never by the key's value: `grep -F "$BHARATCODE_API_KEY" …` puts
-the credential in a command argument, which is the thing §1 forbids. The two patterns above are
-the families this build's release boundary already refuses to pack
+the credential in a command argument, which is the thing §1 forbids. The three patterns above are
+credential families this build's release boundary refuses to pack
 (`tests/security/credential-boundary.test.ts`).
 
 Then, and only then, clean the fixture: `git -C <fixture-clone> worktree list` names the worktree
