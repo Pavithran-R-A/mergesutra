@@ -56,7 +56,7 @@ describe('the controlled live-validation workflow', () => {
   it('requires a deliberate live trigger and pins the only model this run is allowed to use', () => {
     const live = job('live-model');
     expect(live).toContain("contains(github.event.head_commit.message, '[live-model]')");
-    expect(live).toContain("inputs.run_live == true");
+    expect(live).toContain('inputs.run_live == true');
     expect(live).toContain('BHARATCODE_MODEL: deepseek-v4.1-flash');
     expect(live).toContain('needs: no-key-chain');
     expect(live).toContain('timeout-minutes: 15');
@@ -71,9 +71,9 @@ describe('the controlled live-validation workflow', () => {
   });
 
   it('pins every external action to an immutable verified commit', () => {
-    expect(WORKFLOW.match(new RegExp(`actions/checkout@${CHECKOUT_SHA} # v6`, 'g')) ?? []).toHaveLength(
-      2,
-    );
+    expect(
+      WORKFLOW.match(new RegExp(`actions/checkout@${CHECKOUT_SHA} # v6`, 'g')) ?? [],
+    ).toHaveLength(2);
     expect(
       WORKFLOW.match(new RegExp(`actions/setup-node@${SETUP_NODE_SHA} # v6`, 'g')) ?? [],
     ).toHaveLength(2);
@@ -92,9 +92,7 @@ describe('the controlled live-validation workflow', () => {
   });
 
   it('uploads only the validation driver’s sanitized export directory', () => {
-    expect(
-      WORKFLOW.match(/path:\s*\.mergesutra\/live-validation-export\//g) ?? [],
-    ).toHaveLength(2);
+    expect(WORKFLOW.match(/path:\s*\.mergesutra\/live-validation-export\//g) ?? []).toHaveLength(2);
     expect(WORKFLOW).not.toMatch(/path:\s*\.mergesutra\s*$/m);
     expect(WORKFLOW.match(/retention-days:\s*14/g) ?? []).toHaveLength(2);
   });
