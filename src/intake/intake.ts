@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { AppError, isAppError } from '../core/errors.js';
 import { defaultRunner, type Runner } from '../core/runner.js';
 import { GhCliGitHubSource, type GitHubSource } from '../github/gh-client.js';
@@ -370,8 +371,20 @@ export function abbreviateHomePath(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): string {
+  const canonical = (input: string): string => {
+    if (platform !== 'win32') return input;
+    try {
+      // Windows temp/home variables may use an 8.3 short-name alias while Git
+      // reports the same existing directory by its long name. Canonicalize both
+      // spellings before comparing so USERPROFILE/HOME abbreviation is about the
+      // directory, not which alias named it.
+      return realpathSync.native(input);
+    } catch {
+      return input;
+    }
+  };
   const normalize = (input: string): string => {
-    const separators = platform === 'win32' ? input.replaceAll('\\', '/') : input;
+    const separators = platform === 'win32' ? canonical(input).replaceAll('\\', '/') : input;
     return separators.length > 1 ? separators.replace(/\/+$/, '') : separators;
   };
   const candidate = normalize(value);
