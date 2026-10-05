@@ -961,16 +961,17 @@ purpose is to be refused.
 - [x] Repository settings and the two policy documents — topics, homepage, wiki off, an
       active branch ruleset on the default branch, a bug-report intake form, and
       `SECURITY.md`/`CONTRIBUTING.md` held to what the source actually does. S13-5.
-- [ ] Spaces in paths, drive letters, separators, HOME/USERPROFILE, temp dirs,
-      Git/gh discovery — this line is the *path-shape matrix*, and it is not closed: the
-      hosted jobs prove the gates run on both platforms, not that every shape a customer's
-      path can take is handled. The repository itself lives under a path with spaces and
-      the suites pass there, which is evidence about this machine, not about drive-letter
-      or `USERPROFILE` handling in general. S14-8 took the first Linux reading of the whole sequence
-      and it is green there, which retires the *platform* half of this line's worry and leaves the
-      *shape* half: the case-collision and 8.3 short-name rows in
-      `tests/security/path-confinement-matrix.test.ts` are Windows-shaped by construction and skip on
-      a case-sensitive filesystem, so the Linux column proves independence, not coverage.
+- [x] Spaces in paths, drive letters, separators, HOME/USERPROFILE, temp dirs,
+      Git/gh discovery — the hosted matrix now runs `npm run qualify:path-shapes` on Ubuntu and
+      Windows × Node 22 and 24. The qualification creates a real Git repository below the OS temp
+      directory with spaces in both parent and repository names, feeds Windows the same drive-letter
+      path with forward slashes, runs the production `issue`, `inspect` and `doctor` surfaces,
+      verifies HOME/USERPROFILE abbreviation, and discovers real `git` and `gh` executables through
+      PATH. Its first Windows run found the gap this line existed to catch: the runner's temp root
+      arrived through HOME as an 8.3 short-name alias while Git reported the same directory by its
+      long name, so the CLI leaked the concrete home path instead of abbreviating it. Intake now
+      canonicalizes existing Windows paths with `realpathSync.native` before comparing aliases.
+      The full four-context run is green after that fix. S13-7.
 
 ## Stage 14 — Real-issue end-to-end validation
 
