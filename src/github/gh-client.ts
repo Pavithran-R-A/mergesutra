@@ -1,5 +1,5 @@
 import { AppError, kindForStatus, type AppErrorKind } from '../core/errors.js';
-import { defaultRunner, type Runner } from '../core/runner.js';
+import { githubReadRunner, type Runner } from '../core/runner.js';
 import { isSafePathSegment } from '../security/path-safety.js';
 import { defaultRedactor, type Redactor } from '../security/redaction.js';
 import { toIssueDocument, toRepositoryIdentity, commitPayloadSchema } from './schemas.js';
@@ -11,11 +11,11 @@ import type { CommitRef, IssueDocument, RepositoryIdentity } from './types.js';
  *
  * `gh` is used rather than a hand-rolled REST client because it already owns
  * the credential problem: the user runs `gh auth login` once, and MergeSutra
- * never sees, stores, passes or prints a token. What it does is inherit the
- * environment `gh` resolves its credential from — which is also why a command
- * a run starts still carries `GH_TOKEN`, the one exception to the child
- * environment this module cannot remove without stopping reading issues
- * (docs/SECURITY_MODEL.md §5, register S14-4). Commands are argv arrays with
+ * never stores, forwards or prints a token. Environment-backed GitHub
+ * authentication is preserved only for this dedicated read transport; ordinary
+ * repository/workspace commands run through the default runner, which strips
+ * `GH_TOKEN`, `GITHUB_TOKEN` and `GITHUB_PAT` before spawning them.
+ * Commands are argv arrays with
  * `--hostname`, so a GitHub Enterprise host is a value, never part of a shell
  * string, and every path segment is re-validated before it is interpolated.
  *
@@ -38,7 +38,7 @@ export class GhCliGitHubSource implements GitHubSource {
   private readonly redactor: Redactor;
 
   constructor(deps: GhClientDeps = {}) {
-    this.run = deps.run ?? defaultRunner;
+    this.run = deps.run ?? githubReadRunner;
     this.redactor = deps.redactor ?? defaultRedactor;
   }
 

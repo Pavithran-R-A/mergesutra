@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — Stage 14: workspace commands no longer inherit GitHub environment credentials
+
+The process boundary now strips `GH_TOKEN`, `GITHUB_TOKEN` and `GITHUB_PAT` from every ordinary
+repository/workspace child, alongside the BharatCode credential. MergeSutra's owned GitHub read
+transport and doctor probe use a dedicated runner that preserves GitHub authentication only for
+their `gh` reads. Real child-process tests pin both halves, and the implementation evidence-pack
+test proves neither model nor GitHub sentinel reaches the kept run artifacts. This narrows the
+controlled E2E blast radius without pretending the worktree is an OS sandbox. Register S14-9.
+
+
 ### Added — Stage 14: a second host read the gates, and the difference was three tests
 
 Every measured number Stage 14 hands to a human came off one machine, and the hosted matrix that would

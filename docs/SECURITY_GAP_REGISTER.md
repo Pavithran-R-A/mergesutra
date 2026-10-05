@@ -4897,3 +4897,33 @@ measure, and what it will not claim before it does:
   model name this build cannot list for them. Nothing in this stage may be presented as a live-model
   result until it has happened, and the register will record the commands, the cost and the outcome
   rather than a summary.
+
+## S14-9 — GitHub environment credentials crossed the workspace process boundary
+
+**Finding.** Stage 14's controlled-run procedure could not honestly say its GitHub blast radius was
+the fixture repository while an ordinary repository command inherited `GH_TOKEN` or
+`GITHUB_TOKEN`. The parent process needs GitHub authentication to read issue/repository metadata,
+but that does not make the same credential part of a repository build's authority. A permitted
+`node workspace.js`, test runner or environment-dump command therefore received a credential it
+never needed.
+
+**Fix.** `src/core/runner.ts` now has two environment policies at the one process-spawn boundary.
+The ordinary/default runner removes the BharatCode names plus `GH_TOKEN`, `GITHUB_TOKEN` and
+`GITHUB_PAT`; the dedicated `githubReadRunner` removes the BharatCode credential but preserves
+GitHub authentication for MergeSutra-owned `gh api --method GET` / `gh auth status` reads.
+`src/github/gh-client.ts` and `src/cli/doctor.ts` are the only production consumers moved to that
+dedicated runner.
+
+**Tests.** `tests/core/runner.test.ts` starts real child processes and proves (a) ordinary children
+see both GitHub token names as ABSENT while the parent still holds them, (b) the dedicated GitHub
+read runner sees the GitHub sentinel, and (c) that dedicated runner still cannot see the BharatCode
+sentinel. `tests/implement/credential-env.test.ts` drives a real Stage 6 check and the evidence-pack
+builder with both model and GitHub sentinels live in the parent; the command and every kept artifact
+see only ABSENT values.
+
+**Limit.** This is credential-boundary hardening, not a sandbox claim. A repository program can use
+another credential source available to the operating-system account, and arbitrary code can make
+its own network calls. The roadmap's broader "one fixture and nothing else" live-run item therefore
+remains open until the controlled experiment is executed in an isolated/scoped environment.
+
+**Status: CODE + TEST + DOCUMENT, awaiting hosted CI on this branch.**

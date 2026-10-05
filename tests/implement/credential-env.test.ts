@@ -41,14 +41,18 @@ afterEach(async () => {
   tempDirs.length = 0;
 });
 
-async function withLiveKey<T>(body: () => Promise<T>): Promise<T> {
-  const previous = process.env.BHARATCODE_API_KEY;
+async function withLiveCredentials<T>(body: () => Promise<T>): Promise<T> {
+  const previousModel = process.env.BHARATCODE_API_KEY;
+  const previousGitHub = process.env.GH_TOKEN;
   process.env.BHARATCODE_API_KEY = SENTINEL;
+  process.env.GH_TOKEN = SENTINEL;
   try {
     return await body();
   } finally {
-    if (previous === undefined) delete process.env.BHARATCODE_API_KEY;
-    else process.env.BHARATCODE_API_KEY = previous;
+    if (previousModel === undefined) delete process.env.BHARATCODE_API_KEY;
+    else process.env.BHARATCODE_API_KEY = previousModel;
+    if (previousGitHub === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = previousGitHub;
   }
 }
 
@@ -63,7 +67,8 @@ function realChecksSimulatedGit(state: {
     const answer = answerWorkspaceGit(args, state);
     if (answer.code === 0 && args.slice(2).join(' ').startsWith('worktree add')) {
       await plantWorkspace(state.workspacePath, {
-        'dump-env.js': "console.log(process.env.BHARATCODE_API_KEY ?? 'ABSENT');\n",
+        'dump-env.js':
+          "console.log(JSON.stringify({ model: process.env.BHARATCODE_API_KEY ?? 'ABSENT', github: process.env.GH_TOKEN ?? 'ABSENT' }));\n",
       });
     }
     return answer;
@@ -98,18 +103,20 @@ async function implementWithARealCheck(): Promise<{
 
 describe('a check that reads its own environment', () => {
   it('runs, and what it saw is the absence of the credential', async () => {
-    const { implementation } = await withLiveKey(implementWithARealCheck);
+    const { implementation } = await withLiveCredentials(implementWithARealCheck);
     const kept = JSON.stringify(implementation);
+    const check = implementation.actions.find((action) => action.action === 'RUN_CHECK');
 
     // Non-vacuity: the command really started, really succeeded, and its output
-    // really reached the document the run keeps. Without this line the next
-    // assertion would be a scan of a pack that never carried anything.
-    expect(kept).toContain('ABSENT');
+    // really reached the document the run keeps. Inspect the action field itself
+    // rather than its JSON-escaped representation.
+    expect(check?.detail).toContain('"model":"ABSENT"');
+    expect(check?.detail).toContain('"github":"ABSENT"');
     expect(kept).not.toContain(SENTINEL);
   });
 
   it('leaves no credential in the run record or in any file of the evidence pack', async () => {
-    const { record, implementation } = await withLiveKey(implementWithARealCheck);
+    const { record, implementation } = await withLiveCredentials(implementWithARealCheck);
     const pack = buildEvidencePack(record);
 
     expect(JSON.stringify(record)).not.toContain(SENTINEL);

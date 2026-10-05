@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createRunner, defaultRunner, safeRun, type Runner } from '../../src/core/runner.js';
+import {
+  createRunner,
+  defaultRunner,
+  githubReadRunner,
+  safeRun,
+  type Runner,
+} from '../../src/core/runner.js';
 
 /**
  * These tests spawn the *current Node binary* with `-e`. That is the only way
@@ -176,15 +182,38 @@ describe('the environment a started command receives', () => {
     });
   });
 
-  it('still passes the token the GitHub read transport authenticates from', async () => {
-    // Deliberate scope, pinned so a later over-broad scrub cannot quietly break
-    // `mergesutra issue` for everyone who authenticates through the environment:
-    // `gh` is MergeSutra's read transport and it reads its own credential from
-    // here, so stripping it would refuse the product's first command.
+  it('does not hand GitHub credentials to an ordinary repository command', async () => {
     await withEnv('GH_TOKEN', SENTINEL, async () => {
-      const result = await createRunner()(NODE, ['-e', readEnv('GH_TOKEN')]);
+      await withEnv('GITHUB_TOKEN', SENTINEL, async () => {
+        const result = await createRunner()(NODE, [
+          '-e',
+          'process.stdout.write(JSON.stringify({gh: process.env.GH_TOKEN ?? "ABSENT", github: process.env.GITHUB_TOKEN ?? "ABSENT"}))',
+        ]);
 
+        expect(result.code).toBe(0);
+        expect(result.stdout).toBe('{"gh":"ABSENT","github":"ABSENT"}');
+        expect(result.stdout).not.toContain(SENTINEL);
+        expect(process.env.GH_TOKEN).toBe(SENTINEL);
+        expect(process.env.GITHUB_TOKEN).toBe(SENTINEL);
+      });
+    });
+  });
+
+  it('preserves GitHub authentication only for the dedicated owned read runner', async () => {
+    await withEnv('GH_TOKEN', SENTINEL, async () => {
+      const result = await githubReadRunner(NODE, ['-e', readEnv('GH_TOKEN')]);
+
+      expect(result.code).toBe(0);
       expect(result.stdout).toBe(SENTINEL);
+    });
+  });
+
+  it('still strips the BharatCode credential from the dedicated GitHub read runner', async () => {
+    await withEnv('BHARATCODE_API_KEY', SENTINEL, async () => {
+      const result = await githubReadRunner(NODE, ['-e', readEnv('BHARATCODE_API_KEY')]);
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toBe('ABSENT');
     });
   });
 

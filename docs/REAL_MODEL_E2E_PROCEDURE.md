@@ -69,14 +69,19 @@ export BHARATCODE_MODEL='<the model your account offers>'
 | `<mergesutra-checkout>/.mergesutra/` | writes the run record and the evidence pack |
 | anything else | nothing. Not this repository's own files, not another repository on the account, not your shell configuration. |
 
-The table above is a promise about intent, not an enforced sandbox. A command this run permits can
-start a process that inherits whatever GitHub login the shell already has, because `gh` is this
-build's read transport (§10). So bring a **throwaway credential scoped to the fixture repository
-alone** — a fine-grained token that can see `Pavithran-R-A/mergesutra-e2e-fixture` and nothing else
-— rather than running the validation signed in as an account that can write everything you own. If
-that is not available to you, run the chain with no GitHub login at all and expect `issue` to fail
-before any budget is spent; a run that cannot read is honest, and a run that can write too much is
-not.
+The table above is a promise about intent, not an enforced sandbox. Since S14-9, ordinary
+repository/workspace commands do **not** inherit environment-backed GitHub credentials:
+`GH_TOKEN`, `GITHUB_TOKEN` and `GITHUB_PAT` are removed by the production runner, while the
+dedicated MergeSutra-owned `gh api --method GET` transport keeps its authentication. The same
+boundary removes the BharatCode key from child commands. This closes the direct environment-token
+leak that the earlier procedure named.
+
+It still does not turn a worktree into an OS sandbox. A repository program may use another
+credential source available to the operating-system account (for example an independently
+configured credential helper or keyring), or make unauthenticated network calls of its own. For
+the controlled Stage 14 run, use an isolated account/session or a throwaway credential scoped to
+`Pavithran-R-A/mergesutra-e2e-fixture` only. A run that cannot read is honest; a run that can
+write more than the experiment intends is not.
 
 The fixture clone is pinned at `6f3a0adb17389b93fd76b95c21a1c9eb7b161998` on `main`, and its issue
 asks for one deterministic change: `slugify` must trim separator characters from both ends, with

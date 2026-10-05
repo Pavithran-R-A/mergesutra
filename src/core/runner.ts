@@ -10,9 +10,10 @@ import { promisify } from 'node:util';
  * issue and model text therefore cannot become shell syntax.
  *
  * The second property lives here because this is the only place a process is
- * actually started: a command MergeSutra runs never receives the model
- * credential, whatever the caller put in the environment. See
- * `CREDENTIAL_ENV_NAMES`.
+ * actually started: a command MergeSutra runs never receives model or GitHub
+ * credentials, whatever the caller put in the environment. The one exception is
+ * the dedicated GitHub read runner below, used only by MergeSutra's own `gh api`
+ * transport and doctor probe; repository/workspace commands never receive it.
  */
 
 export interface RunResult {
@@ -42,27 +43,25 @@ export interface RunnerOptions {
 }
 
 /**
- * Environment names whose value is never handed to a command MergeSutra starts.
+ * Environment names whose values are never handed to repository/workspace
+ * commands that MergeSutra starts.
  *
- * The model credential is read by this process and spoken only to the BharatCode
- * endpoint, in a request header, by `src/bharatcode/client.ts`. No command a run
- * can name has any use for it — and a run *can* name `printenv`, `env`, or a
- * script that dumps its own environment, because those are ordinary programs and
- * the workspace is a legitimate place to run them. Refusing them would break the
- * repository's own build for a mistake MergeSutra makes by inheritance, so the
- * value is simply not there to print.
- *
- * `GH_TOKEN` and `GITHUB_TOKEN` are deliberately absent: `gh` is the read
- * transport and authenticates from them, so stripping them would break
- * `mergesutra issue` for every user who does not keep credentials in its
- * keyring. That is a different trust domain, and it is named in the docs rather
- * than quietly widened here.
+ * Model credentials belong only to the BharatCode client. GitHub credentials
+ * belong only to MergeSutra's own read transport. A repository command may be a
+ * perfectly legitimate `printenv`, `env`, test runner, or script that prints
+ * its environment; refusing such commands would break real repositories, so the
+ * safer boundary is to omit the credentials from the child environment.
  */
-const CREDENTIAL_ENV_NAMES = ['bharatcode_api_key', 'bharatcode_key'];
+const MODEL_CREDENTIAL_ENV_NAMES = ['bharatcode_api_key', 'bharatcode_key'];
+const GITHUB_CREDENTIAL_ENV_NAMES = ['gh_token', 'github_token', 'github_pat'];
+const COMMAND_CREDENTIAL_ENV_NAMES = [
+  ...MODEL_CREDENTIAL_ENV_NAMES,
+  ...GITHUB_CREDENTIAL_ENV_NAMES,
+];
 
-/** The environment names this module refuses to pass on, in their lower-case spelling. */
+/** The environment names ordinary child commands are never allowed to receive. */
 export function isCredentialEnvName(name: string): boolean {
-  return CREDENTIAL_ENV_NAMES.includes(name.toLowerCase());
+  return COMMAND_CREDENTIAL_ENV_NAMES.includes(name.toLowerCase());
 }
 
 /**
@@ -80,6 +79,14 @@ export function withoutCredentialEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv 
   ) as NodeJS.ProcessEnv;
 }
 
+function withoutModelCredentialEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      ([name]) => !MODEL_CREDENTIAL_ENV_NAMES.includes(name.toLowerCase()),
+    ),
+  ) as NodeJS.ProcessEnv;
+}
+
 export const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 export const DEFAULT_MAX_OUTPUT_BYTES = 1_048_576;
 
@@ -94,7 +101,10 @@ interface ExecFailure {
   message?: string;
 }
 
-export function createRunner(options: RunnerOptions = {}): Runner {
+function createRunnerWithEnvFilter(
+  options: RunnerOptions,
+  filterEnv: (env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv,
+): Runner {
   const timeoutMs = options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
   const maxBuffer = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
 
@@ -104,7 +114,7 @@ export function createRunner(options: RunnerOptions = {}): Runner {
     // runners the Stage 6 loop and the Stage 7 gate engine build, so a command a
     // model named and a command a repository named are covered by the same three
     // lines and there is no second door to remember to close.
-    const env = withoutCredentialEnv(options.env ?? process.env);
+    const env = filterEnv(options.env ?? process.env);
     try {
       const { stdout, stderr } = await execFileAsync(file, [...args], {
         cwd: options.cwd,
@@ -149,6 +159,19 @@ export function createRunner(options: RunnerOptions = {}): Runner {
     }
   };
 }
+
+export function createRunner(options: RunnerOptions = {}): Runner {
+  return createRunnerWithEnvFilter(options, withoutCredentialEnv);
+}
+
+/**
+ * Dedicated runner for MergeSutra-owned GitHub reads.
+ *
+ * It still strips the BharatCode credential, but preserves GitHub authentication
+ * so `gh api --method GET` and `gh auth status` can use an environment-backed
+ * login. Do not use this runner for repository/workspace commands.
+ */
+export const githubReadRunner: Runner = createRunnerWithEnvFilter({}, withoutModelCredentialEnv);
 
 /** The default production runner: bounded, hidden console on Windows, argv only. */
 export const defaultRunner: Runner = createRunner();
