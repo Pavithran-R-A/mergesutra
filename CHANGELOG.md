@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Validated — Stage 14 credential-free chain on hosted Windows and Linux
+
+Controlled workflow run `37306482235` executed the credential-free chain on GitHub-hosted Ubuntu
+and Windows with the real-model job skipped. Both hosts reached the expected configuration/refusal
+states, left the disposable fixture clone's tracked bytes and status unchanged, and reported zero
+credential-shaped output or artifact findings. A post-merge Windows rerun cloned public `main` at
+`61cbaf8d2980c81705eaa50a31e152f407e5935a` and repeated the clean result. This closes the
+cross-host no-key evidence gap only; the real BharatCode run remains credential-bound.
+
 ## [0.1.0] - 2026-10-05
 
 ### Fixed — Stage 13 qualification: Windows 8.3 home aliases
