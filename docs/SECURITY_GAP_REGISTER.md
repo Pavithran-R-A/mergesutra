@@ -4757,6 +4757,71 @@ guard re-ran against it: `2 files / 20 passed`, exit `0` (`C:\tmp\s147-green4.lo
    evidence exists, the second host has not read the chain, and the blast-radius half of the harness
    question is still open below.
 
+## S14-8 — Every number in Stage 14, and Stage 13's platform claim, rested on one host — CLOSED (MEASUREMENT)
+
+**The gap.** Stage 13 closed with "the release boundary runs on both platforms it ships to", and what
+that meant in evidence was: `check (ubuntu-latest, …)` exists in `.github/workflows/ci.yml`, and
+Windows ran the gates. The hosted jobs that would have made the first half a measurement rather than a
+declaration have not run since the account's spending limit (`C:\tmp\s147-ci-blocked.txt`, and re-taken
+on `c66369f` in the block below). So the tree was green on one filesystem, one path grammar, one
+line-ending convention, and one `/tmp`, with no second opinion available from CI.
+
+**What was measured instead.** A fresh clone of the shipped commit on a real Linux host — WSL2 Ubuntu,
+`Linux Pavithran 6.18.33.2-microsoft-standard-WSL2 x86_64`, node `v22.23.3`, npm `10.9.9`, git
+`2.53.0`, ext4 and therefore case-sensitive — `npm ci` clean, then the whole quality sequence:
+
+| Reading | Windows 10 / node 24 | Linux WSL2 / node 22 |
+| --- | --- | --- |
+| `npm run check` | exit `0` (`C:\tmp\s148-check.log`) | exit `0` (`C:\tmp\s14linux-check.log`) |
+| Test files | `148 passed \| 3 skipped (151)` | `148 passed \| 3 skipped (151)` |
+| Tests | `2276 passed \| 3 skipped (2279)` | `2273 passed \| 6 skipped (2279)` |
+| Wall clock | 247.21 s | 31.03 s |
+
+**The three-test delta is named, not averaged.** A JSON-reporter pass on the Linux side
+(`C:\tmp\s14linux-skips.txt`) accounts for all six skips, and they are two different populations.
+Three are the live-mode tests (`tests/plan/live.test.ts`, `tests/implement/live.test.ts`,
+`tests/review/live.test.ts`) and they skip on *both* hosts, for want of a credential — the same
+boundary this stage stops at, visible from the inside of the suite. The other three are
+`tests/security/path-confinement-matrix.test.ts`: two case-collision rows, skipped because the row
+predicate at `tests/security/path-confinement-matrix.test.ts:306` requires a case-insensitive
+filesystem (`isCaseInsensitivePlatform`, `src/security/path-safety.ts:18`), and the `8.3 short names
+(Windows only)` block, gated at `tests/security/path-confinement-matrix.test.ts:480`. Neither host is
+therefore a superset: the Windows-filesystem shapes this matrix exists to attack are reachable only on
+Windows, and the Linux reading adds nothing but independence where the code says they cannot exist.
+Two hosts together cover the 2 279; one does not, and "green on Linux" said on its own would hide that.
+
+The fixture this stage points the chain at also crossed hosts without changing: its five tracked files
+hash identically on both (`C:\tmp\s14win-fixture-hashes.txt`, `C:\tmp\s14linux-fixture-hashes.txt`),
+which is what lets a second-host *gate* reading and a first-host *chain* reading describe the same bytes.
+
+**A measurement-hygiene finding, recorded because it nearly produced a fake number.** The first attempt
+to take Linux exit codes for the chain was thrown away, and the reason is worth keeping: a multi-line
+`wsl -- bash -lc '…'` script arrived at bash with carriage returns attached, so every `cd` in it named a
+directory that does not exist, the script went on running in the *Windows* checkout it was launched
+from, and it printed a HEAD belonging to a different repository than the one it claimed to be reading.
+Two commands also reported a credential as `ABSENT` with its name eaten by the carriage return. Had
+those codes been pasted into §4's table they would have looked exactly like the real thing. Checked
+after the fact: no record under `.mergesutra/` names either Linux-side path fragment, `git status
+--short` in the checkout showed no tracked file modified beyond the commit already pushed (only the four
+foreign untracked paths this project is instructed not to touch, which were there before), and the
+fixture clone's five tracked digests are the same five as before. Single-line invocations, with paths
+expanded inside the quotes rather than through `$HOME`, produced the numbers above.
+
+**Limitations.**
+1. This is a *local* Linux reading, not hosted CI. `check (ubuntu-latest, node 24.x)` has still never
+   started on the hosted runners, so the CI-verified half of the goal is unchanged by this entry, and
+   the WSL2 kernel is not the Ubuntu Azure runners offer.
+2. The chain has no second reading. `gh` is not installed on this Linux host, and it is the transport
+   `issue` uses to read an issue URL (`src/core/runner.ts:55`), so step 2 cannot run there and nothing
+   downstream of it threads. Installing and authenticating a third-party CLI is the operator's call, not
+   a step to take on the way past a boundary.
+3. One Linux host, one filesystem, node 22 only. The matrix above has no macOS column and no case-
+   insensitive Linux (nothing ordinary offers one), and the Windows column is node 24 while the Linux
+   column is node 22 — platform and runtime differ together, which is a weakness of the design, not of
+   the result.
+4. The 31-second Linux duration is a wall clock on an idle-ish machine while the Windows 247 seconds
+   were taken on a shared host; it is reported for provenance, not as a performance claim.
+
 ## Register status, Stage 14 (in progress)
 
 `S14-1` (the documented `issue → inspect → contract` chain could not put both families of criteria
@@ -4769,7 +4834,8 @@ above; `S14-6` (the README described an environment variable that no code reads,
 whose safety claim is that no such switch exists) is closed DOCUMENT + TEST; `S14-7` (Stage 14 required
 a controlled E2E procedure and a budget ceiling, and had neither outside a roadmap sentence, so the
 credential boundary was a paragraph rather than something an operator could run) is closed TEST +
-DOCUMENT. What Stage 14 still has to
+DOCUMENT; `S14-8` (every measured number this stage hands to a human came from one host, while the
+hosted matrix that would have settled it could not start) is closed MEASUREMENT. What Stage 14 still has to
 measure, and what it will not claim before it does:
 
 - The credential-free pipeline walk has one host left to prove it on. Re-taken on this machine at
@@ -4797,15 +4863,18 @@ measure, and what it will not claim before it does:
   same five tracked files at the same five digests as that pass (`pnpm-lock.yaml`, untracked, is the
   sixth entry the earlier script enumerated), and `status --porcelain` again says only
   `?? pnpm-lock.yaml`. What is left is the same chain read on a second host, since every number above is
-  Windows; the WSL rig for the same chain exists, and the hosted Linux reading of the same suite is the
+  Windows — and S14-8 narrows what that sentence still means: the *gates* have their second reading now
+  (green on Linux, with the three-test delta named), while the *chain* does not, because `gh` is absent
+  on that host and it is how step 2 reads an issue. The hosted Linux reading of the same suite is the
   one this account's Actions spending limit currently prevents — the failure signature, captured from the
   API rather than from a UI, is in `C:\tmp\s142-ci-blocked.txt` (`runner_id: 0`, `steps: []`, a job that
   "completed" in about three seconds), re-confirmed on this push in `C:\tmp\s147-ci-blocked.txt`
   (run `37265382086`, four check-runs, all `runner_id: 0` with no steps, annotated "The job was not
   started because recent account payments have failed or your spending limit needs to be increased",
   while `actions/permissions` reports `enabled=true, allowed_actions=all` — the workflow is permitted
-  and the runners are not), and it is an external billing condition rather than a defect in this
-  tree.
+  and the runners are not), re-taken once more for `c66369f` (run `37266807277`, opened `05:13:22Z`,
+  closed `05:14:00Z`, four jobs, every one `runner_id: 0` with zero steps and the same spending-limit
+  annotation), and it is an external billing condition rather than a defect in this tree.
 - The leak half of the harness question is now measured: S14-3 keeps the value out of the environment a
   run is given, S14-5 keeps it out of what a run writes back, and the two are tested against a sentinel
   through the production `execFile` and a loopback HTTP server. What is *not* closed is the fixture-scoping

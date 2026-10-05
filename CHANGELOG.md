@@ -6,6 +6,43 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Stage 14: a second host read the gates, and the difference was three tests
+
+Every measured number Stage 14 hands to a human came off one machine, and the hosted matrix that would
+have settled it has not started a job since the account's spending limit — `c66369f` is four jobs with
+`runner_id: 0` and zero steps, annotated as a payment failure while `actions/permissions` says the
+workflow itself is permitted. So the second reading was taken locally instead: a fresh clone of the
+shipped commit on WSL2 Ubuntu (node v22.23.3, git 2.53.0, ext4), `npm ci`, then the whole
+`npm run check` — exit `0`, `148 passed | 3 skipped` files, `2273 passed | 6 skipped` tests in 31.03 s
+(`C:\tmp\s14linux-check.log`).
+
+The interesting part is the delta, because averaging it away would have hidden the only real finding.
+Windows reports `2276 passed | 3 skipped`; Linux `2273 | 6`. A JSON-reporter pass named all six
+(`C:\tmp\s14linux-skips.txt`): the live-model trio in `tests/plan/live.test.ts`,
+`tests/implement/live.test.ts` and `tests/review/live.test.ts` skips on *both* hosts for want of a
+credential, and the other three are the confinement matrix's case-collision rows plus its
+`8.3 short names (Windows only)` block, gated in code at
+`tests/security/path-confinement-matrix.test.ts:306` and `:480`. Neither host is a superset of the
+other, "green on Linux" therefore claims nothing about a case-insensitive path, and the 2 279
+expectations are covered between two machines rather than by one. The fixture crossed unchanged: its
+five tracked files hash identically on both hosts
+(`C:\tmp\s14linux-fixture-hashes.txt`, `C:\tmp\s14win-fixture-hashes.txt`).
+
+What it does not buy is stated where a reader will need it. This is not hosted CI, and it is not the
+chain: `gh`, which is how `issue` reads an issue URL, is absent on that Linux host, so §4's step 2 cannot
+run there and nothing downstream threads — now written into §10 of the procedure instead of left for the
+next person to rediscover. §1 also gained the cheapest thing a key can buy, `npm run test:live`, with the
+equally important sentence that a green live-mode suite proves nothing about gates, patches or a PR page
+and does not close the stage.
+
+One finding about how numbers get made here, kept because it nearly produced a fake one. The first attempt
+at Linux chain codes was discarded after it returned plausible garbage: a multi-line `wsl -- bash -lc`
+script reached bash with carriage returns attached, so every `cd` in it failed, and it went on running
+inside the *Windows* checkout — printing a HEAD belonging to a different repository, and credential names
+whose values had eaten the line they were on. Checked afterwards: no record under `.mergesutra/` names a
+Linux-side path, no tracked file differed from the commit already pushed, and the fixture's five digests
+never moved. Register S14-8.
+
 ### Added — Stage 14: the real-model runbook, and a guard that reads it against the shipped CLI
 
 Stage 14's roadmap line asked for "a named model, a budget ceiling, and a controlled E2E procedure"

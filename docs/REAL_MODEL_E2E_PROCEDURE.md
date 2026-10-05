@@ -30,6 +30,16 @@ different models, and the evidence pack would not say so clearly enough to be wo
 **There is no other variable to set.** Nothing in this build reads a switch that opens remote
 publication; that sentence was false in this repository's own manual until S14-6 removed it.
 
+**One cheaper way to spend a key, and what it does not buy.** `npm run test:live`
+(`package.json:55`) is the suite's own live mode: it sets an enable flag itself
+(`MERGESUTRA_LIVE_BHARATCODE`, read at `tests/plan/live.test.ts:21`) and runs everything, which is what
+turns the three tests that reach the real endpoint from skips into runs — `tests/plan/live.test.ts`,
+`tests/implement/live.test.ts` (with that loop capped at 3 steps, `tests/implement/live.test.ts:96`),
+and `tests/review/live.test.ts`. All three skip on a machine with no key, which is why every offline run
+of this suite reports them as skipped rather than as passed. This is the shortest possible proof that the
+adapter speaks to the gateway, and it is not §4's chain: it runs no gate, writes no patch, files no
+evidence pack and renders no PR page, so a green live-mode suite does not close Stage 14.
+
 ### Putting the key into the environment
 
 Type it into the shell at a prompt, so it never appears in a command line, a history entry, or a
@@ -262,8 +272,13 @@ about what a live run "should show" remains a prediction.
 
 - It is not a real-model result. The run it describes has not happened, and nothing here may be
   presented as one.
-- Its measured column is one host: Windows 10 with Git Bash, and the second-host reading of the
-  same chain is still open.
+- Its measured column is one host: Windows 10 with Git Bash. The gates have a second reading now —
+  the full quality sequence ran green on Linux (WSL2) at the same commit, recorded as S14-8 in
+  `docs/SECURITY_GAP_REGISTER.md` — but §4's chain does not, and the reason is a dependency this file
+  states only here: `gh`, which is how `issue` reads an issue URL (`src/core/runner.ts:55`), is not
+  installed on that Linux host, so step 2 cannot run there and nothing downstream of it can be
+  threaded. A second reading of this chain needs a Linux host with an authenticated `gh`, or a second
+  Windows machine.
 - It does not make a run's blast radius provably the fixture. A process a permitted command starts
   still inherits the ambient `gh` login, because `gh` is this build's read transport
   (`src/core/runner.ts:55`, and S14-4's limitation 3). That is why §2 tells whoever runs this to

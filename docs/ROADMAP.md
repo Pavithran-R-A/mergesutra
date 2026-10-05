@@ -966,7 +966,11 @@ purpose is to be refused.
       hosted jobs prove the gates run on both platforms, not that every shape a customer's
       path can take is handled. The repository itself lives under a path with spaces and
       the suites pass there, which is evidence about this machine, not about drive-letter
-      or `USERPROFILE` handling in general.
+      or `USERPROFILE` handling in general. S14-8 took the first Linux reading of the whole sequence
+      and it is green there, which retires the *platform* half of this line's worry and leaves the
+      *shape* half: the case-collision and 8.3 short-name rows in
+      `tests/security/path-confinement-matrix.test.ts` are Windows-shaped by construction and skip on
+      a case-sensitive filesystem, so the Linux column proves independence, not coverage.
 
 ## Stage 14 — Real-issue end-to-end validation
 
@@ -990,7 +994,17 @@ purpose is to be refused.
       pass at `5f31a8c` threads the run ids the way the procedure now documents them and adds a
       read-only `resume` preview, eleven codes, none of which moved from the pass at `0802817`. It
       stays open because that is one host — every number is a Windows reading, and the second
-      reading has not been taken.
+      reading has not been taken. S14-8 narrows what that costs: the *gates* now have a Linux
+      reading, and the chain's blocker on that host is named rather than assumed — `gh`, the
+      transport `issue` uses, is not installed there, so step 2 cannot run and nothing downstream
+      of it threads.
+- [x] The quality sequence read on a second host, taken locally because the hosted one is blocked —
+      `npm run check` green on Linux (WSL2, node 22, ext4) at the commit that ships the procedure,
+      exit `0`, `148 passed | 3 skipped` files. Its test count differs from Windows by three, and the
+      three are named and explained rather than averaged away: the live-model trio (no credential,
+      so skipped on both hosts) plus the two case-collision rows and the 8.3 short-name block that
+      the confinement matrix gates to a Windows filesystem in code. Neither host is a superset of the
+      other, and the entry says so. `docs/SECURITY_GAP_REGISTER.md`; S14-8.
 - [x] That the live harness cannot print, commit, argument-pass or artifact-write a credential —
       measured, not asserted: a command a run starts no longer receives the model key in its
       environment, and the value a configuration reads is registered with the masks that write
