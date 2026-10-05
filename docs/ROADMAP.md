@@ -1011,14 +1011,15 @@ purpose is to be refused.
       anything down, so a gateway that echoes the key back inside its answer is masked rather than
       filed. Both proved against a sentinel through the real `execFile` and a loopback HTTP gateway,
       with seven mutations showing what each assertion is load-bearing for. S14-3, S14-5.
-- [ ] That a run's blast radius is the one fixture repository it is pointed at. Not closed, and this
-      line is the guard standing where the claim is not yet enforced. One token, `node -p`, used to
-      classify arbitrary code as ordinary workspace execution and grant it with no approval at all;
-      that route is shut (S14-4), and with it the version of the risk that left no trace. What
-      remains is named rather than argued away: a permitted `node workspace.js` still inherits this
-      machine's `GH_TOKEN`, because `gh` is the read transport and MergeSutra holds no GitHub token of
-      its own. Closing it means either a reader that does not shell out with ambient credentials or a
-      per-run scoped one, which is a human decision about the live run and not a flag to add.
+- [ ] That a run's blast radius is the one fixture repository it is pointed at. Not closed, because
+      a worktree is still not an OS sandbox. S14-4 removed the `node -p` bypass; S14-9 then removed
+      `GH_TOKEN`, `GITHUB_TOKEN`, `GITHUB_PAT` and the BharatCode key from every ordinary
+      repository/workspace child while preserving GitHub authentication only on MergeSutra's own
+      read transport. That closes the direct environment-credential leak and is covered by real
+      child-process tests plus the implementation evidence-pack path. The remaining claim is wider:
+      a repository program can still use some other credential source available to the OS account or
+      make its own network calls. The controlled live run therefore still needs an isolated
+      account/session or a credential scoped to the fixture before this line can honestly close.
 - [x] The controlled E2E procedure and its budget ceiling, written down and held to the shipped
       command line — `docs/REAL_MODEL_E2E_PROCEDURE.md` gives the eleven commands a live run types,
       the variables it exports, the digests it approves, the routing each exit code sends the
