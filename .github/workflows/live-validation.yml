@@ -1,8 +1,6 @@
 name: Controlled live validation
 
 on:
-  push:
-    branches: [release/live-validation-harness]
   workflow_dispatch:
     inputs:
       run_live:

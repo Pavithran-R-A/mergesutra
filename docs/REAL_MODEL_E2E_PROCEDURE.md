@@ -65,7 +65,7 @@ export BHARATCODE_MODEL='<the model your account offers>'
 | Target | What the run does to it |
 | --- | --- |
 | `Pavithran-R-A/mergesutra`, issue #8 | reads it. Nothing here comments on it, closes it, or edits it. |
-| public branch `e2e-fixture` of that repository | cloned anonymously and pinned to the fixture SHA; the production `main` tree is not used as the task repository |
+| public `main` branch of that repository | cloned anonymously at the head observed when validation starts; only the dedicated `fixtures/stage14-e2e/` task area and issue #8 are in scope |
 | the fixture clone (called `<fixture-clone>` below) | reads it, then writes only inside a worktree the run creates for its own patch |
 | `<mergesutra-checkout>/.mergesutra/` | writes the run record and the evidence pack |
 | anything else | nothing. Not this repository's own files, not another repository on the account, not your shell configuration. |
@@ -84,10 +84,11 @@ the controlled Stage 14 run, use an isolated account/session or a throwaway cred
 `Pavithran-R-A/mergesutra` only. A run that cannot read is honest; a run that can
 write more than the experiment intends is not.
 
-The fixture clone is pinned at `153b330c08a7780e38390a7af8b53fa25b5e5760` on the public `e2e-fixture` branch, and its issue
-asks for one deterministic change: `slugify` must trim separator characters from both ends, with
-five acceptance criteria that each resolve to a command exit code. Issue #1 is the task; the
-criteria are the contract; nothing about the run depends on anyone's opinion.
+The hosted harness snapshots the public `main` head at validation start, clones that branch anonymously,
+and refuses if the advertised head moves while the clone is being made. The task itself is isolated to
+`fixtures/stage14-e2e/`: `slugify` must trim separator characters from both ends, with five acceptance
+criteria that each resolve to a command exit code. Issue #8 is the task; the criteria are the contract;
+nothing about the run depends on anyone's opinion.
 
 **The end of this chain is a page, not a pull request.** `src/pr/publisher.ts:98`
 (`unavailableRemote()`) is the publication transport this build ships, and both of its methods —
@@ -103,7 +104,7 @@ cd <mergesutra-checkout>
 npm ci
 npm run build
 node dist/bin.js --version
-git -C <fixture-clone> rev-parse HEAD   # must print 153b330c08a7780e38390a7af8b53fa25b5e5760
+git -C <fixture-clone> rev-parse HEAD   # record this SHA; do not pull or move the clone during the run
 git -C <fixture-clone> status --porcelain   # must print only what it printed before you started
 ```
 
