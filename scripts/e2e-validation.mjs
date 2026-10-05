@@ -131,9 +131,14 @@ async function writeStep(record, index) {
 
 function assertExit(record, allowed) {
   if (!allowed.includes(record.exitCode)) {
-    fail(
+    const detail = [
       `${record.label} exited ${String(record.exitCode)}; expected one of ${allowed.join(', ')}`,
-    );
+      record.stdout.trim() ? `stdout: ${record.stdout.trim().slice(0, 1200)}` : '',
+      record.stderr.trim() ? `stderr: ${record.stderr.trim().slice(0, 1200)}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
+    fail(detail);
   }
 }
 
