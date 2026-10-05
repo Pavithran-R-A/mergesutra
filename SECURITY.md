@@ -11,13 +11,15 @@ not a bolt-on.
 Do **not** open a public issue for a security problem. Include: what happened,
 steps to reproduce, and impact.
 
-This repository is private until its first release, so GitHub's private
-vulnerability reporting is not a working intake route for it yet. That is a
-measurement, not a guess: on 2026-10-04 the REST endpoint behind that feature
-answered `200` for a public repository and `404` for this one. While the
-repository stays private, report through whoever gave you access to it. The
-route once the repository is public is
-`https://github.com/Pavithran-R-A/mergesutra/security/advisories/new`.
+This repository is public. Prefer GitHub's private vulnerability-reporting
+surface when it is available:
+
+`https://github.com/Pavithran-R-A/mergesutra/security/advisories/new`
+
+If GitHub does not offer the private report form for this repository, do **not**
+put exploit details, credentials, private logs, or proof-of-concept payloads in a
+public issue. A public issue may say only that the private security intake is
+unavailable so the maintainer can enable or repair that route.
 
 ## What we treat as secrets
 
