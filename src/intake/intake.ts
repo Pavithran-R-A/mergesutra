@@ -1,6 +1,6 @@
 import { realpathSync } from 'node:fs';
 import { AppError, isAppError } from '../core/errors.js';
-import { defaultRunner, type Runner } from '../core/runner.js';
+import { defaultRunner, githubReadRunner, type Runner } from '../core/runner.js';
 import { GhCliGitHubSource, type GitHubSource } from '../github/gh-client.js';
 import type { CommitRef, IssueDocument, RepositoryIdentity } from '../github/types.js';
 import { describeFindings } from '../security/injection-scan.js';
@@ -38,7 +38,10 @@ export interface IntakeOptions {
 
 export interface IntakeDeps {
   readonly github?: GitHubSource;
+  /** Runner for local repository reads. GitHub-owned reads use githubRun. */
   readonly run?: Runner;
+  /** Dedicated runner for MergeSutra-owned `gh api` reads. */
+  readonly githubRun?: Runner;
   readonly store?: RunStore;
   readonly cwd?: string;
   readonly now?: () => Date;
@@ -71,7 +74,11 @@ export async function runIntake(
   }
 
   const run = deps.run ?? defaultRunner;
-  const github = deps.github ?? new GhCliGitHubSource({ run });
+  // Preserve the old injected-run behavior for tests/embedders that supplied one
+  // runner for every subprocess, but production GitHub reads must use the
+  // credential-preserving read boundary introduced by S14-9.
+  const githubRun = deps.githubRun ?? deps.run ?? githubReadRunner;
+  const github = deps.github ?? new GhCliGitHubSource({ run: githubRun });
   const store = deps.store ?? createFileRunStore(defaultRunStoreRoot(deps.cwd));
   const checks: RunCheck[] = [];
   const limitations: string[] = [];
