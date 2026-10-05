@@ -105,12 +105,13 @@ describe('a check that reads its own environment', () => {
   it('runs, and what it saw is the absence of the credential', async () => {
     const { implementation } = await withLiveCredentials(implementWithARealCheck);
     const kept = JSON.stringify(implementation);
+    const check = implementation.actions.find((action) => action.action === 'RUN_CHECK');
 
     // Non-vacuity: the command really started, really succeeded, and its output
-    // really reached the document the run keeps. Without this line the next
-    // assertion would be a scan of a pack that never carried anything.
-    expect(kept).toContain('"model":"ABSENT"');
-    expect(kept).toContain('"github":"ABSENT"');
+    // really reached the document the run keeps. Inspect the action field itself
+    // rather than its JSON-escaped representation.
+    expect(check?.detail).toContain('"model":"ABSENT"');
+    expect(check?.detail).toContain('"github":"ABSENT"');
     expect(kept).not.toContain(SENTINEL);
   });
 
