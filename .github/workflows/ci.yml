@@ -53,11 +53,8 @@ jobs:
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Run live-validation format probe
-        run: |
-          npx prettier --write scripts/e2e-validation.mjs tests/security/credential-boundary.test.ts tests/security/live-validation-workflow-policy.test.ts
-          git diff -- scripts/e2e-validation.mjs tests/security/credential-boundary.test.ts tests/security/live-validation-workflow-policy.test.ts
-          exit 1
+      - name: Run all deterministic gates
+        run: npm run check
 
       - name: Qualify customer path shapes and real Git/gh discovery
         run: npm run qualify:path-shapes
