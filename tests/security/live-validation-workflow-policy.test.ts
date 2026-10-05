@@ -8,6 +8,7 @@ const WORKFLOW = readFileSync(
   path.join(ROOT, '.github', 'workflows', 'live-validation.yml'),
   'utf8',
 );
+const DRIVER = readFileSync(path.join(ROOT, 'scripts', 'e2e-validation.mjs'), 'utf8');
 
 const CHECKOUT_SHA = 'd23441a48e516b6c34aea4fa41551a30e30af803';
 const SETUP_NODE_SHA = '249970729cb0ef3589644e2896645e5dc5ba9c38';
@@ -59,7 +60,6 @@ describe('the controlled live-validation workflow', () => {
     expect(live).toContain("if: github.ref == 'refs/heads/main' && inputs.run_live == true");
     expect(live).toContain('needs: no-key-chain');
     expect(live).toContain('BHARATCODE_MODEL: deepseek-v4.1-flash');
-    expect(live).toContain('needs: no-key-chain');
     expect(live).toContain('timeout-minutes: 15');
     expect(live).toContain('node scripts/e2e-validation.mjs live');
   });
@@ -101,5 +101,14 @@ describe('the controlled live-validation workflow', () => {
   it('does not use a shell command to print the secret or environment', () => {
     expect(WORKFLOW).not.toMatch(/\b(?:env|printenv|set)\b[^\n]*BHARATCODE/i);
     expect(WORKFLOW).not.toMatch(/echo[^\n]*bc_live_|echo[^\n]*sk-/i);
+  });
+
+  it('reports the same fixture branch and issue that it actually clones', () => {
+    expect(DRIVER).toContain("const FIXTURE_BRANCH = 'main';");
+    expect(DRIVER).toContain(
+      "const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra/issues/8';",
+    );
+    expect(DRIVER).toContain('branch: FIXTURE_BRANCH');
+    expect(DRIVER).not.toContain("branch: 'e2e-fixture'");
   });
 });
