@@ -434,7 +434,7 @@ describe('the gate set is complete, not merely valid', () => {
  * So the set of files on disk is compared against the set this file has rules for, and a
  * new file makes the suite red until someone writes its policy.
  */
-const GUARDED_WORKFLOWS = ['ci.yml', 'publish.yml'];
+const GUARDED_WORKFLOWS = ['ci.yml', 'live-validation.yml', 'publish.yml'];
 
 function workflowFiles(): string[] {
   return readdirSync(path.join(ROOT, '.github', 'workflows'))
