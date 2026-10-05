@@ -3,8 +3,7 @@
 Thanks for your interest! MergeSutra is a CLI agent that turns a GitHub issue
 into a reviewable PR draft with traceable evidence for each acceptance criterion
 the run's gates could check. This guide covers how to set up, test, and propose
-changes. The code is MIT-licensed; the repository stays private until the first
-release, so today the audience for this file is whoever has been given access.
+changes. The code is MIT-licensed and the canonical repository is public.
 
 ## Ground rules
 
@@ -42,6 +41,7 @@ Useful scripts:
 | `npm run build`             | Emit `dist/`                                                       |
 | `npm run verify:package`    | Build, then run the five release-boundary verifiers listed below    |
 | `npm run test:artifact`     | Install a real tarball in a clean directory and run what it ships   |
+| `npm run qualify:path-shapes`| Exercise temp/space/drive/separator paths plus real Git/gh discovery|
 | `npm run test:live`         | The live-model tests, which skip unless a credential is offered     |
 
 `prepack` runs `verify:package` and `prepublishOnly` runs `check`, so an ordinary
@@ -69,7 +69,8 @@ same scripts as explicit steps rather than relying on the hooks.
 ## Branches, CI and the remote
 
 Continuous integration is `.github/workflows/ci.yml`: Ubuntu and Windows, each on
-Node 22 and 24, running `npm ci`, `npm run check`, `npm run verify:package` and
+Node 22 and 24, running `npm ci`, the runtime-only dependency audit,
+`npm run check`, `npm run qualify:path-shapes`, `npm run verify:package` and
 `npm run test:artifact`. The four check contexts are named exactly:
 
 - `check (ubuntu-latest, node 22.x)`
