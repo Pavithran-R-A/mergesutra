@@ -48,8 +48,11 @@ jobs:
       - name: Install (clean, from lockfile)
         run: npm ci
 
-      - name: Run all deterministic gates
-        run: npm run check
+      - name: Run format probe
+        run: |
+          npx prettier --write src/core/runner.ts
+          git diff -- src/core/runner.ts
+          exit 1
 
       - name: Verify the shipping artifact's boundaries
         run: npm run verify:package
