@@ -28,7 +28,9 @@ function verify(meta) {
   const version = typeof meta === 'string' ? meta : meta?.version;
   const gitHead = typeof meta === 'object' && meta !== null ? meta.gitHead : undefined;
   if (version !== pkg.version) {
-    console.error(`Registry version mismatch: expected ${pkg.version}, received ${String(version)}.`);
+    console.error(
+      `Registry version mismatch: expected ${pkg.version}, received ${String(version)}.`,
+    );
     process.exit(1);
   }
   if (gitHead && gitHead !== head) {
@@ -58,5 +60,7 @@ for (let attempt = 1; attempt <= 5; attempt += 1) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);
 }
 
-console.error(`${spec} was published but was not readable from the registry after verification retries.`);
+console.error(
+  `${spec} was published but was not readable from the registry after verification retries.`,
+);
 process.exit(1);
