@@ -22,7 +22,7 @@ function job(name: string, next?: string): string {
 
 describe('the controlled live-validation workflow', () => {
   it('has no pull-request trigger and no path to main pushes', () => {
-    expect(WORKFLOW).toMatch(/^on:\n  workflow_dispatch:/m);
+    expect(WORKFLOW).toMatch(/^on:\n {2}workflow_dispatch:/m);
     expect(WORKFLOW).not.toMatch(/pull_request(?:_target)?:/);
     expect(WORKFLOW).not.toMatch(/^\s*push:/m);
   });
