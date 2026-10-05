@@ -247,7 +247,7 @@ async function main() {
     const doctor = exec('doctor-connect', process.execPath, [BIN, 'doctor', '--connect']);
     assertExit(doctor, [1]);
 
-    const intake = cli('issue', ['issue', ISSUE_URL, '--repo', fixture], [0]);
+    cli('issue', ['issue', ISSUE_URL, '--repo', fixture], [0]);
     const inspect = cli('inspect', ['inspect', fixture], [0]);
     const contract = cli('contract', ['contract', inspect.json.record.runId], [0]);
     runId = contract.json.record.runId;
@@ -281,7 +281,7 @@ async function main() {
     const doctor = exec('doctor-connect', process.execPath, [BIN, 'doctor', '--connect']);
     assertExit(doctor, [0]);
 
-    const intake = cli('issue', ['issue', ISSUE_URL, '--repo', fixture], [0]);
+    cli('issue', ['issue', ISSUE_URL, '--repo', fixture], [0]);
     const inspect = cli('inspect', ['inspect', fixture], [0]);
     const contract = cli('contract', ['contract', inspect.json.record.runId], [0]);
     runId = contract.json.record.runId;
