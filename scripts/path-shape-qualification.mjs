@@ -91,9 +91,7 @@ try {
     allowed: [3],
   });
   const localLine =
-    intake.stdout
-      .split(/\r?\n/)
-      .find((line) => line.includes('Local repository')) ?? '';
+    intake.stdout.split(/\r?\n/).find((line) => line.includes('Local repository')) ?? '';
   requireText(localLine, /~[\\/]Repository With Spaces/, 'HOME/USERPROFILE abbreviation');
 
   const inspect = run(process.execPath, [BIN, '--no-color', 'inspect', inputPath], {
