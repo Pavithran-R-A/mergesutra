@@ -4718,14 +4718,26 @@ both re-measured after the run):
 | MD | change a step's verb to `publish`, which this CLI has never registered | exit `1` (`C:\tmp\s147-md.log`): `the procedure types a command this CLI does not register: publish (registered: doctor, issue, inspect, … resume)` |
 | — | unmutated | `9 passed (9)`, exit `0` (`C:\tmp\s147-final.log`) |
 
-**A defect the writing caught in itself.** §10 originally pointed the operator at "§1" for the
-throwaway-credential instruction, and §1 was about the model key — a wrong cross-reference in a
-procedure is the same class of fault as a wrong flag, because it sends a person somewhere that does
-not have what they need. The recommendation now lives in §2, beside the table of what the run is
-allowed to touch, and §10 points there. No test could have seen this; it was found by reading the
-document once as a runbook. The corrected file hashes
-`faaf1fb3e467806b62681c02bd9c48944ad8cf7b0bbbfd3e9064d7ae720ca63e`, and the guard plus the
-cited-path guard re-ran against it: `2 files / 20 passed`, exit `0` (`C:\tmp\s147-green2.log`).
+**Two defects the writing and the walking caught in itself.** §10 originally pointed the operator at
+"§1" for the throwaway-credential instruction, and §1 was about the model key — a wrong
+cross-reference in a procedure is the same class of fault as a wrong flag, because it sends a person
+somewhere that does not have what they need. The recommendation now lives in §2, beside the table of
+what the run is allowed to touch, and §10 points there. That one was caught by reading the document
+once as a runbook. The second was caught only by *executing* it: the procedure said "`<run-id>` is the
+id the `inspect` screen prints", which is a sentence true of three ids on that screen and useless for
+the run. `issue`, `inspect` and `contract` each file a **new** record and print its path on their own
+`Run record:` line, while from `plan` onward a stage writes into the record it is handed. Threading the
+intake's id into `plan` — exactly what that sentence invited — gives
+`error: Run … has no Acceptance Contract, so there is nothing to plan against` at exit `1`, which is
+among the first two refusals a new operator would meet. §3 now states the threading rule, §4's rows 4
+and 5 name which step's id each takes, §7 routes the refusal by the text it prints, and §10 records
+that the guard cannot see this class at all. Neither defect was refutable by anything that runs, and
+that asymmetry is the honest limit of what this slice can promise.
+
+The document as shipped hashes `8f19b9c9bb62ca4bad184eaeb5aa38f49d84def175dd927d9013ee599bdacf58`,
+after the mutation run above (whose base copy is still
+`af9ce055290a61d7acf3f705c153a643f991fdfc2b25e0dee1ebd048b309acdf`); the guard and the cited-path
+guard re-ran against it: `2 files / 20 passed`, exit `0` (`C:\tmp\s147-green4.log`).
 
 **Limitations.**
 1. The guard checks that each flag appears on the help screen of the verb it is typed with. It cannot
@@ -4774,11 +4786,25 @@ measure, and what it will not claim before it does:
   The readings are identical to the earlier pass at `ed0f6ed`, which
   is what a repaired chain should *not* change. The fixture's six working-tree files hashed byte-identical
   before and after, and `git status --porcelain` inside it still says exactly `?? pnpm-lock.yaml`, which is
-  what it said before. What is left is the same chain read on a second host, since every number above is
+  what it said before. Re-taken a third time at `5f31a8c`, the commit that ships
+  `docs/REAL_MODEL_E2E_PROCEDURE.md`, with the run-id threading that document now states (§3) rather
+  than the intake id guessed from the screen: `doctor` 1, `issue` 0, `inspect` 0, `contract` 0,
+  `plan` 78, `verify` 1, `report` 0, `status` 0, bare `pr` 1, `pr <contract run>` 4, and a read-only
+  `resume` preview at 0 (`C:\tmp\s147-walk3.log`, first to last step log `04:56:08Z`→`04:56:20Z`
+  on 2026-10-05, with `UNSET_CREDENTIAL_PROOF` reporting `BHARATCODE_API_KEY`, `BHARATCODE_MODEL`,
+  `GH_TOKEN` and `GITHUB_TOKEN` all absent before the first command). Not one code moved from the pass at
+  `0802817`, which is what a documentation-only slice should produce. The fixture's file set is the
+  same five tracked files at the same five digests as that pass (`pnpm-lock.yaml`, untracked, is the
+  sixth entry the earlier script enumerated), and `status --porcelain` again says only
+  `?? pnpm-lock.yaml`. What is left is the same chain read on a second host, since every number above is
   Windows; the WSL rig for the same chain exists, and the hosted Linux reading of the same suite is the
   one this account's Actions spending limit currently prevents — the failure signature, captured from the
   API rather than from a UI, is in `C:\tmp\s142-ci-blocked.txt` (`runner_id: 0`, `steps: []`, a job that
-  "completed" in about three seconds), and it is an external billing condition rather than a defect in this
+  "completed" in about three seconds), re-confirmed on this push in `C:\tmp\s147-ci-blocked.txt`
+  (run `37265382086`, four check-runs, all `runner_id: 0` with no steps, annotated "The job was not
+  started because recent account payments have failed or your spending limit needs to be increased",
+  while `actions/permissions` reports `enabled=true, allowed_actions=all` — the workflow is permitted
+  and the runners are not), and it is an external billing condition rather than a defect in this
   tree.
 - The leak half of the harness question is now measured: S14-3 keeps the value out of the environment a
   run is given, S14-5 keeps it out of what a run writes back, and the two are tested against a sentinel

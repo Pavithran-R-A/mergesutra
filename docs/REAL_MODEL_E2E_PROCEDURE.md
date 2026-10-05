@@ -92,10 +92,16 @@ git -C <fixture-clone> status --porcelain   # must print only what it printed be
 ```
 
 Every command below is typed from `<mergesutra-checkout>`, in this order, and each one reads the
-run record the previous one wrote. Use one shell, so the record's path assumptions hold. `<run-id>`
-is the id the `inspect` screen prints; from `contract` onward you may let each command take the
-newest run, but naming it is better, because it makes a mistake visible in the screen rather than
-in someone else's record.
+run record the previous one wrote. Use one shell, so the record's path assumptions hold.
+
+**`<run-id>` is not one id for the whole chain.** `issue`, `inspect` and `contract` each file a *new*
+record and print its path on their own `Run record:` line; from `plan` onward a stage writes into the
+record it is handed and the id holds. So after each of the first three steps, read the id off that
+line and use it for the next command. The ids that appear inside a screen's prose — "carried from run
+…" — name *earlier* records; handing one of those to `plan` produces "has no Acceptance Contract",
+which is a threading mistake and not a missing key (§7). From step 4 onward you may also omit the id
+and let the command take the newest run, but naming it is better, because it makes a mistake visible
+in your screen rather than in someone else's record.
 
 Capture each step's own output as you go (`… | tee step-04.log`), and never redirect a dump of the
 environment into a log (`env >`, `set >`, `printenv >>`): that is how a key gets into an artifact.
@@ -107,8 +113,8 @@ environment into a log (`env >`, `set >`, `printenv >>`): that is how a key gets
 | 1 | `node dist/bin.js doctor --connect` | no completion; one read of `/models` | `1` | `0`, every row PASS |
 | 2 | `node dist/bin.js issue <issue-url> --repo <fixture-clone>` | 0 | `0` | `0` |
 | 3 | `node dist/bin.js inspect <fixture-clone>` | 0 | `0` | `0`, and a run id |
-| 4 | `node dist/bin.js contract <run-id>` | 0 | `0` | `0`, both criterion families in one record |
-| 5 | `node dist/bin.js plan <run-id>` | at most 2 | `78` | `0` |
+| 4 | `node dist/bin.js contract <run-id from step 3>` | 0 | `0` | `0`, both criterion families in one record |
+| 5 | `node dist/bin.js plan <run-id from step 4>` | at most 2 | `78` | `0` |
 | 6 | `node dist/bin.js implement <run-id> --repo <fixture-clone> --max-steps 8 --max-writes 4 --max-commands 3` | at most 8 | not walked — it needs the key | `3` (a model's claim is read, not saluted) or `4` |
 | 7 | `node dist/bin.js verify <run-id> --repo <fixture-clone> --allow <gate-id>` | 0 | `1` | `0` if the gates pass, `1` if they do not |
 | 8 | `node dist/bin.js review <run-id> --repo <fixture-clone> --max-review-cycles 1 --max-repair-cycles 1` | at most 2 | not walked | `3` |
@@ -117,10 +123,15 @@ environment into a log (`env >`, `set >`, `printenv >>`): that is how a key gets
 | 11 | `node dist/bin.js pr <run-id> --repo <fixture-clone>` | 0 | `4` | `3` with a page digest, or `4` |
 
 Measured column: the credential-free walk recorded in `docs/SECURITY_GAP_REGISTER.md` under the
-Stage 14 status block, taken on the tree at `0802817` with `BHARATCODE_API_KEY` unset and that
-absence printed in the log. Step 2 read the real issue through the `gh` CLI; step 11's `4` was
-`PR_PUBLICATION_BLOCKED` for want of a patch, which is the correct answer to a request to publish
-nothing.
+Stage 14 status block, re-taken on the tree at `5f31a8c` with `BHARATCODE_API_KEY`,
+`BHARATCODE_MODEL`, `GH_TOKEN` and `GITHUB_TOKEN` all printed as UNSET before the first command. The
+chain there is exactly this table's id threading: `doctor` 1, `issue` 0, `inspect` 0, `contract` 0,
+`plan` 78, `verify` 1, `report` 0, `status` 0, bare `pr` 1, `pr <run-id from step 4>` 4, and a
+read-only `resume` preview (no `--execute`) at 0. Step 2 read the real issue through the `gh` CLI;
+step 11's `4` was `PR_PUBLICATION_BLOCKED` for want of a patch, which is the correct answer to a
+request to publish nothing; the fixture's five tracked files hashed byte-identical before and after,
+and its `git status --porcelain` still named only the file it named before. Steps 6 and 8 were not
+walked, because both need the key this machine does not hold.
 
 `contract` needs no flags here: every acceptance criterion is stated in the issue, and
 `--criterion`/`--by`/`--check` exist for requirements that no file carries. Adding one for a
@@ -184,6 +195,11 @@ raise one above the printed ceiling.
 
 ## 7. If a step fails
 
+- Exit `1` naming a missing family — "has no Acceptance Contract", or an earlier stage's record being
+  described back at you: a threading mistake, not a product failure. You handed that stage a record
+  from before the family was filed (§3). `status` prints what the record you named actually holds;
+  re-type the command with the id the previous step's `Run record:` line printed. Nothing has been
+  spent, and no run needs to be started again.
 - Exit `78`: configuration. Check `BHARATCODE_MODEL` first — it is the one name §1 says has no
   flag — then `doctor --connect`. No budget has been spent yet.
 - Exit `4` (`*_BLOCKED`): a required input could not be obtained. Read the screen; it names the
@@ -257,5 +273,7 @@ about what a live run "should show" remains a prediction.
   currently preventing; the failure signature is recorded in the register.
 - `tests/docs/real-model-procedure.test.ts` checks that the commands and variables named here
   exist and that the budgets typed here are accepted. It cannot check whether a correctly spelled
-  command is a safe instruction, and it cannot see whether the exit codes above were measured or
-  copied forward. That is why §1 exists, and why §9 belongs to a person.
+  command is a safe instruction, it cannot see whether the exit codes above were measured or
+  copied forward, and it has no idea which run id each step should be handed — the threading rule in
+  §3 was found by executing the chain against the real fixture and watching step 5 refuse, not by a
+  test. That is why §1 exists, and why §9 belongs to a person.

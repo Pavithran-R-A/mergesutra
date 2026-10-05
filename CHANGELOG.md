@@ -47,7 +47,26 @@ place that does not have what they need.
 
 Discovery links added in `README.md` (the `BHARATCODE_MODEL` bullet and the Benchmark section), and
 the procedure is now scanned by the cited-path guard in `tests/docs/contributor-commands.test.ts`.
-The live run is still unexecuted; nothing in this slice is presented as a real-model result.
+
+Then the chain was run the way the document types it, which found the document's own first real bug.
+It had said `<run-id>` is "the id the `inspect` screen prints" — a screen that shows three ids — while
+in fact `issue`, `inspect` and `contract` each file a *new* record, and only later stages write into the
+one they are handed. A reader following the sentence gives `plan` the intake's record and gets
+`error: Run … has no Acceptance Contract, so there is nothing to plan against` at exit `1`: a
+documentation fault wearing the clothes of a broken product, and among the first refusals a new
+operator would meet. §3 now states the threading rule, §4's rows say whose id each step takes, §7
+routes that refusal by the text that prints it, and §10 records that no test in this repository can
+see the class — the guard checks verbs, flags, budgets and variable names, not which record a step is
+pointed at. Re-walking the chain at `5f31a8c` with the corrected threading gave `doctor` 1, `issue` 0,
+`inspect` 0, `contract` 0, `plan` 78, `verify` 1, `report` 0, `status` 0, bare `pr` 1, `pr <run-id>` 4
+and a read-only `resume` preview at 0, with `BHARATCODE_API_KEY`, `BHARATCODE_MODEL`, `GH_TOKEN` and
+`GITHUB_TOKEN` all reported absent before the first command and the fixture's five tracked files
+byte-identical afterwards — not one code moved from the pass at `0802817`, which is what a
+documentation-only slice should produce. The hosted runner check was re-taken too: run `37265382086`,
+four check-runs, every one `runner_id: 0` with no steps, annotated as a spending-limit failure while
+`actions/permissions` reports the workflow itself is permitted.
+
+The live run is still unexecuted, and nothing in this slice is presented as a real-model result.
 
 ### Fixed — Stage 14: the manual advertised a switch that no code reads
 

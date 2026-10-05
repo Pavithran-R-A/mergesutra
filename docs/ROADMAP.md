@@ -985,9 +985,11 @@ purpose is to be refused.
 - [ ] The credential-free walk of the remaining stages against a real fixture repository —
       `verify`, `status`, `report` and the recovery paths, each with its raw exit code recorded,
       and proof that the fixture's untouched files are byte-identical afterwards. Walked on this
-      host against `Pavithran-R-A/mergesutra-e2e-fixture#1` on the fixed tree, ten verbs, every exit
-      code captured beside its command, and the fixture's six files hashed identical before and after;
-      it stays open because that is one host — every number is a Windows reading, and the second
+      host against `Pavithran-R-A/mergesutra-e2e-fixture#1` on the fixed tree, every exit code
+      captured beside its command, and the fixture's files hashed identical before and after; the
+      pass at `5f31a8c` threads the run ids the way the procedure now documents them and adds a
+      read-only `resume` preview, eleven codes, none of which moved from the pass at `0802817`. It
+      stays open because that is one host — every number is a Windows reading, and the second
       reading has not been taken.
 - [x] That the live harness cannot print, commit, argument-pass or artifact-write a credential —
       measured, not asserted: a command a run starts no longer receives the model key in its
@@ -1010,7 +1012,10 @@ purpose is to be refused.
       bounding what the run can spend. Every command and flag in it is compared against the
       `--help` this build prints, and every budget against the range that help advertises, so a
       switch no code reads cannot be reintroduced in prose; five mutations named which assertion
-      each rule is load-bearing for. `tests/docs/real-model-procedure.test.ts`; S14-7.
+      each rule is load-bearing for. The chain itself was then walked against the real fixture on
+      this tree, run id threaded as the document says, eleven exit codes recorded, and the fixture's
+      five tracked files hashed identical before and after — the walk that found the document's own
+      run-id bug. `tests/docs/real-model-procedure.test.ts`; S14-7.
 - [ ] The real-model run itself, which is the boundary this stage stops at: a named model, and the
       evidence that procedure is written to produce. The procedure and its ceiling exist; the run
       needs a key this machine does not hold. Do not fabricate, substitute or simulate this
