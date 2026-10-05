@@ -212,9 +212,7 @@ async function main() {
     { env: childEnv({ publicGit: true }), timeoutMs: 60_000 },
   );
   if (publicProbe.exitCode !== 0) {
-    fail(
-      'the public main branch is not anonymously readable; hosted validation cannot continue',
-    );
+    fail('the public main branch is not anonymously readable; hosted validation cannot continue');
   }
 
   const advertisedFixtureSha = publicProbe.stdout.trim().split(/\s+/)[0] ?? '';
