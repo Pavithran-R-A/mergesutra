@@ -1,0 +1,121 @@
+name: Controlled live validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: Run the credential-bound BharatCode validation after the no-key matrix
+        required: true
+        default: false
+        type: boolean
+  push:
+    branches:
+      - release/live-validation-run
+
+# This workflow never runs on pull requests. Ordinary CI owns untrusted code.
+# The no-key job proves the public fixture can be read from both hosted platforms.
+# The live job runs only when a human dispatches it with run_live=true or when a
+# deliberate commit on release/live-validation-run contains [live-model].
+permissions:
+  contents: read
+
+jobs:
+  no-key-chain:
+    name: no-key chain (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NO_COLOR: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.x'
+          package-manager-cache: false
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Walk the credential-free fixture chain
+        run: node scripts/e2e-validation.mjs no-key
+
+      - name: Upload sanitized no-key evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: no-key-${{ matrix.os }}-${{ github.run_id }}
+          path: .mergesutra/live-validation-export/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  live-model:
+    name: real BharatCode E2E
+    needs: no-key-chain
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.run_live == true) ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-model]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
+      BHARATCODE_MODEL: deepseek-v4.1-flash
+      NO_COLOR: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.x'
+          package-manager-cache: false
+
+      - name: Refuse an unconfigured secret without printing it
+        shell: bash
+        run: |
+          if [ -z "${BHARATCODE_API_KEY:-}" ]; then
+            echo "BHARATCODE_API_KEY repository secret is not configured." >&2
+            exit 78
+          fi
+
+      - name: Install
+        run: npm ci
+
+      - name: Audit shipped dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Re-run deterministic release gates
+        run: npm run check
+
+      - name: Run the bounded real-model chain
+        run: node scripts/e2e-validation.mjs live
+
+      - name: Upload sanitized live evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: live-model-${{ github.run_id }}
+          path: .mergesutra/live-validation-export/
+          if-no-files-found: ignore
+          retention-days: 14
