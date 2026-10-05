@@ -8,6 +8,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.0] - 2026-10-05
 
+### Fixed — Stage 13 qualification: Windows 8.3 home aliases
+
+The hosted path-shape qualification now exercises real temp directories and repositories whose names
+contain spaces, Windows drive-letter paths supplied with forward slashes, HOME/USERPROFILE shortening,
+and real Git/gh discovery on Ubuntu/Windows × Node 22/24. Its first Windows run found a real defect:
+the runner exposed the temp root through HOME as an 8.3 short-name alias while Git returned the same
+directory by its long name, so the CLI printed the concrete home path instead of `~/...`.
+`abbreviateHomePath` now canonicalizes existing Windows paths with `realpathSync.native` before
+comparison. The four hosted contexts are green with the qualification enabled. S13-7.
+
 ### Added — Stage 15 consumer release infrastructure
 
 - Public GitHub-hosted CI now runs the authoritative gates on Ubuntu and Windows,
