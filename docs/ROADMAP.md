@@ -987,18 +987,17 @@ purpose is to be refused.
       inspection now carries that identity too, only into an absence, and only when the intake record
       agrees with itself about which repository it describes. `tests/discovery/carried-issue.test.ts`;
       S14-2.
-- [ ] The credential-free walk of the remaining stages against a real fixture repository —
+- [x] The credential-free walk of the remaining stages against a real fixture repository —
       `verify`, `status`, `report` and the recovery paths, each with its raw exit code recorded,
-      and proof that the fixture's untouched files are byte-identical afterwards. Walked on this
-      host against `Pavithran-R-A/mergesutra-e2e-fixture#1` on the fixed tree, every exit code
-      captured beside its command, and the fixture's files hashed identical before and after; the
-      pass at `5f31a8c` threads the run ids the way the procedure now documents them and adds a
-      read-only `resume` preview, eleven codes, none of which moved from the pass at `0802817`. It
-      stays open because that is one host — every number is a Windows reading, and the second
-      reading has not been taken. S14-8 narrows what that costs: the *gates* now have a Linux
-      reading, and the chain's blocker on that host is named rather than assumed — `gh`, the
-      transport `issue` uses, is not installed there, so step 2 cannot run and nothing downstream
-      of it threads.
+      plus proof that the fixture's untouched files are byte-identical afterwards. The original
+      Windows-only reading is now superseded by hosted evidence from controlled workflow run
+      `37306482235`: Ubuntu and Windows both reached
+      `issue → inspect → contract → plan(no-key refusal) → verify → status → report → pr refusal → resume preview`
+      with the expected exit semantics, no tracked-byte/status drift, no credential-shaped output,
+      and no credential-shaped artifact findings. After PR #7 merged, both hosted jobs were rerun
+      against `main` at `61cbaf8d2980c81705eaa50a31e152f407e5935a` and repeated the clean result.
+      The merged release matrix itself is green in run `37307725698` on Ubuntu/Windows × Node
+      22/24. S14-8.
 - [x] The quality sequence read on a second host, taken locally because the hosted one is blocked —
       `npm run check` green on Linux (WSL2, node 22, ext4) at the commit that ships the procedure,
       exit `0`, `148 passed | 3 skipped` files. Its test count differs from Windows by three, and the
