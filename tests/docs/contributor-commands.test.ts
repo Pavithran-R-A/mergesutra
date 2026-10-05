@@ -51,6 +51,7 @@ const TEMPLATE = path.join(ROOT, '.github', 'ISSUE_TEMPLATE', 'bug_report.yml');
 const WORKFLOW = path.join(ROOT, '.github', 'workflows', 'ci.yml');
 const PROGRAM = path.join(ROOT, 'src', 'cli', 'program.ts');
 const MANIFEST = path.join(ROOT, 'package.json');
+const PROCEDURE = path.join(ROOT, 'docs', 'REAL_MODEL_E2E_PROCEDURE.md');
 
 interface Manifest {
   scripts?: Record<string, string>;
@@ -261,6 +262,7 @@ describe('paths the repository documents cite', () => {
     const documents: ReadonlyArray<readonly [string, string]> = [
       ['SECURITY.md', readFileSync(SECURITY, 'utf8')],
       ['CONTRIBUTING.md', readFileSync(CONTRIBUTING, 'utf8')],
+      ['docs/REAL_MODEL_E2E_PROCEDURE.md', readFileSync(PROCEDURE, 'utf8')],
     ];
     const broken: string[] = [];
     for (const [name, text] of documents) {
@@ -274,7 +276,7 @@ describe('paths the repository documents cite', () => {
   });
 
   it('is a scan that found something to scan', () => {
-    const cited = [SECURITY, CONTRIBUTING].flatMap((file) =>
+    const cited = [SECURITY, CONTRIBUTING, PROCEDURE].flatMap((file) =>
       citedSourcePaths(readFileSync(file, 'utf8')),
     );
     expect(

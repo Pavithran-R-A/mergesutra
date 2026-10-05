@@ -1660,7 +1660,10 @@ source.
   `review` and `repair` have no model flag, so for those three this variable is
   what makes them runnable. `implement` additionally accepts `--model <id>` for a
   single run. Which models the endpoint offers is what `mergesutra doctor
-  --connect` reports; it needs the key and asks for nothing else.
+  --connect` reports; it needs the key and asks for nothing else. The ordered run
+  that spends both variables — every command, flag, budget and exit code in one
+  page — is
+  [docs/REAL_MODEL_E2E_PROCEDURE.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/REAL_MODEL_E2E_PROCEDURE.md).
 - **`BHARATCODE_TIMEOUT_MS`** — the per-request timeout, default `60000`.
 - **`BHARATCODE_MAX_RETRIES`** — the adapter's own bounded retries, default `3`.
 - **`BHARATCODE_RETRY_BASE_MS`** — the backoff floor, default `500`.
@@ -1937,7 +1940,11 @@ promises.
 
 A ~10-task, honest evaluation harness ships at [Stage 14](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md). It
 will publish failures — e.g. `7 PASS / 2 NEEDS_HUMAN_REVIEW / 1 FAIL` — rather
-than a fake 100%. No magic quality score.
+than a fake 100%. No magic quality score. The single-task run that has to happen
+before any of that is real is written down, with its budgets and its failure
+routing, in
+[docs/REAL_MODEL_E2E_PROCEDURE.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/REAL_MODEL_E2E_PROCEDURE.md);
+it has not been executed, and nothing in this repository pretends it has.
 
 ## Roadmap
 

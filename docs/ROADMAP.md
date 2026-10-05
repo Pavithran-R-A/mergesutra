@@ -1003,9 +1003,18 @@ purpose is to be refused.
       machine's `GH_TOKEN`, because `gh` is the read transport and MergeSutra holds no GitHub token of
       its own. Closing it means either a reader that does not shell out with ambient credentials or a
       per-run scoped one, which is a human decision about the live run and not a flag to add.
-- [ ] The real-model run itself, which is the boundary this stage stops at: a named model, a
-      budget ceiling, and a controlled E2E procedure. Do not fabricate, substitute or simulate
-      this evidence.
+- [x] The controlled E2E procedure and its budget ceiling, written down and held to the shipped
+      command line — `docs/REAL_MODEL_E2E_PROCEDURE.md` gives the eleven commands a live run types,
+      the variables it exports, the digests it approves, the routing each exit code sends the
+      operator to, the artifact screening that follows, and the 20-completion / 10-minute hard stop
+      bounding what the run can spend. Every command and flag in it is compared against the
+      `--help` this build prints, and every budget against the range that help advertises, so a
+      switch no code reads cannot be reintroduced in prose; five mutations named which assertion
+      each rule is load-bearing for. `tests/docs/real-model-procedure.test.ts`; S14-7.
+- [ ] The real-model run itself, which is the boundary this stage stops at: a named model, and the
+      evidence that procedure is written to produce. The procedure and its ceiling exist; the run
+      needs a key this machine does not hold. Do not fabricate, substitute or simulate this
+      evidence.
 - [ ] ~10 real tasks across classes; publish honest metrics **and failures**
 
 ## Stage 15 — Demo + README + release readiness

@@ -6,6 +6,49 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Stage 14: the real-model runbook, and a guard that reads it against the shipped CLI
+
+Stage 14's roadmap line asked for "a named model, a budget ceiling, and a controlled E2E procedure"
+before the credential boundary. Two of those three could be built without spending anything, and
+neither existed: the budget was scattered across four limit modules, and the procedure lived as
+exit codes inside this project's gap register — which is a record, not something an operator can
+execute. So the boundary this stage stops at was a paragraph nobody could pick up (register S14-7).
+
+`docs/REAL_MODEL_E2E_PROCEDURE.md` is the handover, for one controlled run against
+`Pavithran-R-A/mergesutra-e2e-fixture#1` on its pinned tree. It starts by refusing to be read as a
+result — "no run described here has happened" — and keeps the measured column (the no-key chain,
+cited to the commit it was walked at) separate from the predicted one. §1 gives the names only a
+human can supply with the line each is read at, and a key-entry route (`read -rs`) that keeps the
+value out of history, arguments and process listings; it says plainly that this build cannot name the
+models for you, because `doctor --connect` counts them (`src/cli/doctor.ts:122`). §2 lists what the
+run may touch and, because a permitted command's child inherits the machine's `gh` login, tells the
+operator to bring a throwaway single-repository-scoped credential instead of their own. §4 is the
+eleven-command chain with a per-step model cost; §5 the ceiling read out of source rather than
+estimated: **at most 20 completions** as typed, 26 at the shipped defaults, with the two things this
+build cannot bound named — no call site sets `max_tokens`, so the enforceable bound is request count,
+not tokens, and money is the provider's price times that count. §7 routes each exit code, including a
+refusal to let anyone "tidy" a failed run with a reset or a clean; §8 screens artifacts by *shape*,
+never with `grep -F "$BHARATCODE_API_KEY"`, which would itself put the credential in an argument.
+
+The guard is `tests/docs/real-model-procedure.test.ts`, and it exists because S14-6 proved this
+repository's prose can invent a command surface. Its rules are mechanical: every command line typed
+in the procedure must be a registered verb, every flag on it must appear on an option-declaration
+line of that verb's own `node dist/bin.js <verb> --help` (available because `check` builds before it
+tests), every budget must sit inside the range that help prints, and every environment name must be
+one code actually looks up. RED `8 failed | 1 passed (9)` — the surviving case being the
+anti-vacuity control; GREEN `9 passed (9)`, documentation guards `6 files / 67 passed`, doc-security
+`5 files / 97 passed`. Five mutations, each restored byte-for-byte: a phantom `plan --model`, the same
+phantom with the flag comparison neutered (which fails loudly with seventeen offenders rather than
+quietly — the non-vacuity proof is the control case, not the mutation), `--max-steps 100` above the
+printed `(1-40)`, an invented `BHARATCODE_LIVE_MODE=1`, and a `publish` verb this CLI has never
+registered. Writing the document also caught one fault in itself: §10 pointed at §1 for an instruction
+that was not there, which is the same class of defect as a wrong flag, since both send a person to a
+place that does not have what they need.
+
+Discovery links added in `README.md` (the `BHARATCODE_MODEL` bullet and the Benchmark section), and
+the procedure is now scanned by the cited-path guard in `tests/docs/contributor-commands.test.ts`.
+The live run is still unexecuted; nothing in this slice is presented as a real-model result.
+
 ### Fixed — Stage 14: the manual advertised a switch that no code reads
 
 Writing the real-model procedure meant answering, in advance, what a person could set to let the run

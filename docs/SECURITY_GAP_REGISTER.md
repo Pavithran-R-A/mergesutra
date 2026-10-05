@@ -4630,6 +4630,120 @@ this entry is the note that the history turned out to describe something the cod
    documentation guards (`tests/docs/`) cover command surfaces and cleanup wording, not variable existence.
 4. Existence is not correctness: the case cannot tell whether `BHARATCODE_TIMEOUT_MS`'s documented default
    is the default the code uses. That is asserted value-by-value in `tests/config/load-config.test.ts`.
+   (Its third limitation — that no guard under `tests/docs/` checked a document for variable existence —
+   is narrowed by S14-7, which does exactly that for one handover document.)
+
+## S14-7 — Stage 14 required a controlled E2E procedure, and the repository had none — CLOSED (TEST + DOCUMENT)
+
+**The gap.** This stage's own roadmap line asks for three things before the credential boundary: "a
+named model, a budget ceiling, and a controlled E2E procedure". The first belongs to the operator's
+account, and the second could not be stated honestly until someone read the ceilings out of the
+source instead of estimating them. The third simply did not exist: Stage 14 had measured the
+credential-free chain across ten verbs and recorded the exit codes in this register, but the reading
+lived in a register entry, and a register is not something a person can execute. So the boundary this
+stage stops at was a paragraph. Nobody could pick it up, follow it, and report what happened.
+
+Writing that document also reopened the S14-6 defect class. S14-6 was found because a README sentence
+described a command surface that no code has; the guards that exist for prose check *README variable
+names* (`tests/config/config-docs.test.ts`) and *CONTRIBUTING's npm scripts, the manifest's `check`
+composition, the issue template's command list and cited source paths*
+(`tests/docs/contributor-commands.test.ts`). Neither could have read a procedure document: no such
+file existed to read, and a run that has never happened has no captured output to diff against. A
+handover document is the most drift-prone kind of prose this repository has — its whole content is
+command lines, flags, budgets, variable names and exit codes, and every one of them is a claim about
+a binary that changes.
+
+**The document.** `docs/REAL_MODEL_E2E_PROCEDURE.md`, ten sections, one controlled run against one
+fixture repository. It opens by refusing to be read as a result: "**Read this first: no run described
+here has happened.**" §1 lists the names only a human can supply with the exact line each is read at
+(`src/config/load-config.ts:74`, `:91`, `:38`, `:70-71`, `:95-100`), how to get the key into the
+environment without it ever touching a command line (`read -rs`, then `export`), and the fact that
+this build cannot name the models for you — `doctor --connect` counts them (`src/cli/doctor.ts:122`),
+so a wrong `BHARATCODE_MODEL` surfaces at `plan`, not at `doctor`. §2 is the table of what the run may
+touch, plus the operational instruction the blast-radius limitation forces: bring a throwaway
+credential scoped to the fixture alone, because a permitted command's child process inherits the
+ambient `gh` login. §3 pins the fixture at `6f3a0adb17389b93fd76b95c21a1c9eb7b161998` and forbids
+redirecting an environment dump into a log. §4 is the eleven-step chain, each row carrying its model
+cost, the code it produced with no key (cited to this register's walk at `0802817`, not restated as
+numbers invented here), and what a live run *should* show — labelled as a prediction. §5 is the budget
+ceiling: at most 20 completions for the chain as typed, 26 at the shipped defaults, taken verb by verb
+from `src/plan/plan.ts:67`/`:239`, `src/implement/limits.ts:50`/`:69`, `src/review/engine.ts:40`,
+`src/repair/limits.ts:34`/`:51`, with the two things this build cannot bound said plainly — no call
+site sets `max_tokens` (`src/bharatcode/types.ts:55` declares it and nothing passes it), so the bound
+MergeSutra can enforce is request count, not tokens, and money is the provider's price times that
+count, invisible from here. §6 the two typed digests, §7 failure routing by exit code including the
+prohibition on "tidying" a failed run with a reset or a clean, §8 artifact screening by *shape* rather
+than by the key's value (`grep -F "$BHARATCODE_API_KEY" …` would itself put the credential in a
+process argument), §9 what the operator reports back, §10 what the procedure does not prove.
+
+**The guard.** `tests/docs/real-model-procedure.test.ts`, four mechanical rules over the shipped
+surface rather than over another document:
+
+1. the procedure exists, and holds more than five commands across more than six distinct verbs, and
+   names both `BHARATCODE_API_KEY` and `BHARATCODE_MODEL` — a scan with nothing to scan is not a pass;
+2. every command line it types is a verb this CLI registers, and every flag on that line appears on
+   the **option-declaration lines** of that verb's own `--help` output (plus the root globals), read
+   from `node dist/bin.js <verb> --help` at test time — legal because `npm run check` is
+   `format:check && lint && typecheck && build && test`, so `dist/` exists before vitest runs, and
+   the declaration-line restriction is what stops the rule matching a flag mentioned in help *prose*;
+3. every budget it types — `--max-steps 8`, `--max-writes 4`, `--max-commands 3`, each cycle cap —
+   sits inside the range that same help prints (`(1-40)`, `(1-20)`, `(1-15)`, `(1-3)`);
+4. every environment name in the documented families is one something looks up on an `env` object or
+   emits as a quoted constant in `src/`, counted from code, not from a mention.
+
+**RED.** The first attempt was not a failing test, it was a broken one: the file read the document at
+import time, so without the document vitest reported `ENOENT … :183` and `Tests no tests`. A guard
+whose absence-of-target crash looks like a harness fault cannot tell an operator what is missing, so
+the read became lazy and its error names the handover document as the thing absent. Re-run:
+`8 failed | 1 passed (9)`, `VITEST_EXIT=1` (`C:\tmp\s147-red2.log`), each failure reading
+`docs/REAL_MODEL_E2E_PROCEDURE.md is not here, and every rule in this file is a rule about it` — and
+the single passing case is the anti-vacuity control, which needs no document.
+
+**GREEN.** `9 passed (9)` (`C:\tmp\s147-green.log`); the documentation-guard set `6 files / 67 passed`,
+exit `0` (`C:\tmp\s147-guards.log`); the security-and-documents set `5 files / 97 passed`, exit `0`
+(`C:\tmp\s147-secdocs.log`); `npm run typecheck` exit `0` (`C:\tmp\s147-typecheck.log`).
+
+**Mutations.** Five, planted in the real files and each restored byte-for-byte
+(`RESTORE_MATCH=yes`; base hashes `docs/REAL_MODEL_E2E_PROCEDURE.md
+af9ce055290a61d7acf3f705c153a643f991fdfc2b25e0dee1ebd048b309acdf`,
+`tests/docs/real-model-procedure.test.ts 80beaf2625a1e551285e102f980814d7444d5fb3f753d3cd0d3ca94496359f1f`,
+both re-measured after the run):
+
+| id | mutation | result |
+|----|----------|--------|
+| MA | tell `plan` to take `--model <id>`, the exact S14-6-shaped error, on a verb whose screen prints no such flag | `1 failed \| 8 passed (9)`, exit `1` (`C:\tmp\s147-ma.log`): `the procedure uses a flag the screen it names never printed: plan --model` |
+| MA2 | the same plant, with the verb's flag comparison replaced by `.filter(() => true)` | exit `1` (`C:\tmp\s147-ma2.log`) but *loudly*: `1 failed` listing `doctor --connect, issue --repo, plan --model, implement --repo, …` — seventeen offenders. The comparison is load-bearing for the whole rule, and removing it does not create a quiet path, which is why the non-vacuity proof is the second rule's control case (implement must offer `--repo`/`--model`/`--max-steps`/`--max-writes`/`--max-commands`, plan must **not** offer `--model`) rather than this mutation |
+| MB | type `--max-steps 100`, above the `(1-40)` the CLI advertises | exit `1` (`C:\tmp\s147-mb.log`): `the procedure types a budget this CLI would refuse: implement --max-steps 100 is outside (1-40)` |
+| MC | append "Set `BHARATCODE_LIVE_MODE=1` before step 5" — a switch that reads like a plausible capability flag | exit `1` (`C:\tmp\s147-mc.log`): `the procedure tells a person to set a variable no code reads: BHARATCODE_LIVE_MODE` |
+| MD | change a step's verb to `publish`, which this CLI has never registered | exit `1` (`C:\tmp\s147-md.log`): `the procedure types a command this CLI does not register: publish (registered: doctor, issue, inspect, … resume)` |
+| — | unmutated | `9 passed (9)`, exit `0` (`C:\tmp\s147-final.log`) |
+
+**A defect the writing caught in itself.** §10 originally pointed the operator at "§1" for the
+throwaway-credential instruction, and §1 was about the model key — a wrong cross-reference in a
+procedure is the same class of fault as a wrong flag, because it sends a person somewhere that does
+not have what they need. The recommendation now lives in §2, beside the table of what the run is
+allowed to touch, and §10 points there. No test could have seen this; it was found by reading the
+document once as a runbook. The corrected file hashes
+`faaf1fb3e467806b62681c02bd9c48944ad8cf7b0bbbfd3e9064d7ae720ca63e`, and the guard plus the
+cited-path guard re-ran against it: `2 files / 20 passed`, exit `0` (`C:\tmp\s147-green2.log`).
+
+**Limitations.**
+1. The guard checks that each flag appears on the help screen of the verb it is typed with. It cannot
+   check that the *sequence* is right, that a run would be given the same run id at every step, or
+   that a command is safe to run — a correctly spelled `git push` would pass every rule in the file.
+2. The "measured with no key" column is copied from this register's walk at `0802817`, and the guard
+   cannot see whether a copied number was ever measured. That is why §4 names the commit and §9 makes
+   the readings a person's responsibility.
+3. It reads `dist/bin.js`, so it validates the procedure against the *built* CLI. A flag that exists
+   in `src/` but is lost by the build would still pass; the release-boundary verifiers
+   `tests/security/publish-contents.test.ts` and `tests/security/shipped-pointer-boundary.test.ts`
+   are what cover that gap.
+4. One document. The rules are cheap to point at another file and are currently pointed at this one,
+   because it is the only procedure whose accuracy is load-bearing for a decision this repository has
+   to hand to a human.
+5. Nothing here closes the live run. The document's own §10 is the statement of that: no real-model
+   evidence exists, the second host has not read the chain, and the blast-radius half of the harness
+   question is still open below.
 
 ## Register status, Stage 14 (in progress)
 
@@ -4640,7 +4754,10 @@ repository identity behind), `S14-3` (every command a run started was handed the
 `S14-4` (one unlisted interpreter flag dissolved every command refusal the policy made) and `S14-5`
 (the masks knew the credential's shape but were never told its value) are closed CODE + TEST + DOCUMENT
 above; `S14-6` (the README described an environment variable that no code reads, on the one boundary
-whose safety claim is that no such switch exists) is closed DOCUMENT + TEST. What Stage 14 still has to
+whose safety claim is that no such switch exists) is closed DOCUMENT + TEST; `S14-7` (Stage 14 required
+a controlled E2E procedure and a budget ceiling, and had neither outside a roadmap sentence, so the
+credential boundary was a paragraph rather than something an operator could run) is closed TEST +
+DOCUMENT. What Stage 14 still has to
 measure, and what it will not claim before it does:
 
 - The credential-free pipeline walk has one host left to prove it on. Re-taken on this machine at
@@ -4667,10 +4784,21 @@ measure, and what it will not claim before it does:
   run is given, S14-5 keeps it out of what a run writes back, and the two are tested against a sentinel
   through the production `execFile` and a loopback HTTP server. What is *not* closed is the fixture-scoping
   half. S14-4 removed the route that reached it invisible; S14-4's limitation 3 names the route that
-  remains — a permitted `node workspace.js` still holds this machine's `GH_TOKEN`, because `gh` is the read
-  transport. The stage will not record "cannot modify unrelated repositories" as proved. The mitigation
-  carried to the credential boundary instead is operational: the live run should use a throwaway,
-  single-repository-scoped GitHub credential rather than this person's own login.
-- The real-model run is the boundary of this machine's proof. Nothing in this stage may be presented
-  as a live-model result until it has happened, and the register will record the commands, the cost
-  ceiling and the outcome rather than a summary.
+  remains — a permitted `node workspace.js` still holds whatever GitHub credential this machine is
+  signed in with, because `gh` is the read transport. Measured on the host that will run the live
+  chain: `GH_TOKEN` and `GITHUB_TOKEN` are both unset here (`printenv` name test, no values
+  printed), and `gh auth status` resolves the credential through the Windows credential helper as
+  the account that owns the fixture — which makes the exposure *this person's whole login*, not a
+  stray environment variable, and is the sharper form of the same risk. The stage will not record
+  "cannot modify unrelated repositories" as proved. The mitigation carried to the credential boundary
+  instead is operational, and now sits in the procedure the operator will actually read
+  (`docs/REAL_MODEL_E2E_PROCEDURE.md` §2): use a throwaway, single-repository-scoped GitHub
+  credential rather than this person's own login.
+- The real-model run is the boundary of this machine's proof, and the half of it that can be built
+  without a credential now exists: `docs/REAL_MODEL_E2E_PROCEDURE.md` is the runbook, its §4 chain is
+  the eleven commands with their no-key exit codes cited to the walk above, and its §5 ceiling is
+  **at most 20 completions** for that chain as typed, 26 at the shipped defaults, read verb by verb
+  out of the source rather than estimated. What is left is what only a human can supply: a key, and a
+  model name this build cannot list for them. Nothing in this stage may be presented as a live-model
+  result until it has happened, and the register will record the commands, the cost and the outcome
+  rather than a summary.
