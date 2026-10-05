@@ -6,6 +6,52 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — Stage 14: three ways the harness could spend a credential that was not its own
+
+Stage 14's credential-free list asks for two proofs before a live key is in scope: that the harness cannot
+leak it, and that a run cannot reach anything beyond the repository it was pointed at. Measuring the first
+two found defects rather than confirmations.
+
+- **Every command a run started was handed `BHARATCODE_API_KEY`** (register S14-3). `src/core/runner.ts` is
+  the only module that starts a process, and it passed the parent environment straight through — the parent
+  that holds the model key. A repository gate that prints its own configuration is ordinary `EXECUTE` here,
+  and a permitted check's stdout is stored: measured with a sentinel, the value reached the implementation
+  document and from it the run record, which is the file `mergesutra report` renders and a consumer sends.
+  A child now receives the offered environment minus this module's own name list, matched case-insensitively
+  because Windows matches `process.env` keys without case. `GH_TOKEN`, `PATH` and ordinary build variables
+  are pinned as *still passing* — an exception nobody tests is an exception nobody maintains.
+- **One unlisted flag dissolved every command refusal** (S14-4). `INLINE_CODE_FLAGS` is what makes
+  "an interpreter handed a command string" `DESTRUCTIVE`, the one class no approval enables; it listed
+  `-c -e --eval -command -encodedcommand -enc /c /k` and not `-p`, `--print`, `-r` or `--run`. So
+  `node -p "require('child_process').execSync('gh …')"` classified as `EXECUTE` and was granted with no
+  approval, on a working-directory check, reaching every repository this machine's GitHub login can write —
+  while `gh`, `git push` and `curl` each have their own refusal. `node scripts/check.mjs` is still
+  `EXECUTE`: the fix closes a route, not the ability to run a repository's tooling.
+- **The redaction masks knew the credential's shape but had never been told its value** (S14-5). Every
+  pattern in `Redactor` is a shape (`sk-…`, `gh[pousr]_…`, PEM, `NAME=value` with a secret-ish name), so a
+  gateway that echoes the key back inside its own completion produced prose no mask recognises — and it got
+  filed verbatim in the run record. Reading the key is now also registering it: one line in
+  `loadBharatCodeConfig`, the only place in `src/` that turns an environment into a BharatCode config.
+
+The three are proved the same way, against a sentinel rather than a live key, on real machinery: real
+`execFile` children, a real Stage 1-to-4 run with a real Stage 6 check, and a real `node:http` loopback
+gateway driven through real `fetch` by the production `runPlanStage` with no client injected. The sentinel
+`bharatcode-loopback-7f3a9c2e1d` matches none of the mask patterns, so every absence in
+`tests/bharatcode/loopback-leak.test.ts` is evidence about value registration and cannot be accidental
+shape-matching. Seven mutations, each applied and restored byte-for-byte with the hash re-measured, say what
+each test is load-bearing for: reverting the environment scrub fails 5 of 19, dropping the four flags fails
+1 of 53, deleting the registration line fails the record case, and a `summarizeConfig` that returns the key
+fails in two independent suites (`tests/core/runner.test.ts`, `tests/core/spawn-boundary.test.ts`,
+`tests/implement/credential-env.test.ts`, `tests/process/tool-policy-argv.test.ts`,
+`tests/bharatcode/loopback-leak.test.ts`).
+
+What this does **not** claim: that a run cannot modify an unrelated repository. The route that reached it
+with no trace is closed, and the model credential is out of every child's environment, but a permitted
+`node workspace.js` still inherits this machine's `GH_TOKEN` — deliberately, because `gh` is the read
+transport and MergeSutra holds no GitHub token of its own. The remaining protection for the live run is
+operational and belongs to the human decision: use a throwaway, single-repository-scoped credential for it.
+Full `npm run check` on this tree: exit `0`, 147 files, 2265 tests passed, 3 skipped.
+
 ### Fixed — Stage 14: the repaired pipeline still could not name a branch to merge into
 
 Carrying the issue forward was the first half of the handoff. Walking the rest of the documented

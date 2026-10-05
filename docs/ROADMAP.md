@@ -985,10 +985,24 @@ purpose is to be refused.
 - [ ] The credential-free walk of the remaining stages against a real fixture repository —
       `verify`, `status`, `report` and the recovery paths, each with its raw exit code recorded,
       and proof that the fixture's untouched files are byte-identical afterwards. Walked on this
-      host; the recorded readings still have to be re-taken on the fixed tree and on a second one.
-- [ ] The credential-boundary proofs: that the live harness cannot print, commit, argument-pass
-      or artifact-write a credential, and that its blast radius is the one fixture repository it
-      is pointed at. A guard where a claim is not yet enforced, not a claim.
+      host against `Pavithran-R-A/mergesutra-e2e-fixture#1` on the fixed tree, ten verbs, every exit
+      code captured beside its command, and the fixture's six files hashed identical before and after;
+      it stays open because that is one host — every number is a Windows reading, and the second
+      reading has not been taken.
+- [x] That the live harness cannot print, commit, argument-pass or artifact-write a credential —
+      measured, not asserted: a command a run starts no longer receives the model key in its
+      environment, and the value a configuration reads is registered with the masks that write
+      anything down, so a gateway that echoes the key back inside its answer is masked rather than
+      filed. Both proved against a sentinel through the real `execFile` and a loopback HTTP gateway,
+      with seven mutations showing what each assertion is load-bearing for. S14-3, S14-5.
+- [ ] That a run's blast radius is the one fixture repository it is pointed at. Not closed, and this
+      line is the guard standing where the claim is not yet enforced. One token, `node -p`, used to
+      classify arbitrary code as ordinary workspace execution and grant it with no approval at all;
+      that route is shut (S14-4), and with it the version of the risk that left no trace. What
+      remains is named rather than argued away: a permitted `node workspace.js` still inherits this
+      machine's `GH_TOKEN`, because `gh` is the read transport and MergeSutra holds no GitHub token of
+      its own. Closing it means either a reader that does not shell out with ambient credentials or a
+      per-run scoped one, which is a human decision about the live run and not a flag to add.
 - [ ] The real-model run itself, which is the boundary this stage stops at: a named model, a
       budget ceiling, and a controlled E2E procedure. Do not fabricate, substitute or simulate
       this evidence.

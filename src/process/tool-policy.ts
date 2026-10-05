@@ -308,6 +308,14 @@ const INLINE_CODE_FLAGS = new Set([
   '-enc',
   '/c',
   '/k',
+  // The second spelling of the same permission. `-p`/`--print` evaluate and print
+  // an expression in node, perl and ruby exactly as `-e` does, and `php -r` does
+  // it outright; leaving them out meant a run could reach arbitrary code — and so
+  // any remote this machine's `gh` can write to — by changing one token.
+  '-p',
+  '--print',
+  '-r',
+  '--run',
 ]);
 
 /**

@@ -4268,15 +4268,295 @@ pull request was opened, and the `pr` screen quoted above is the refusing one.
    record by the time a reader looks for it; the captured screens are the evidence, and the records are
    the state a later verb left behind.
 
+## S14-3 — every command a run started was handed the model credential — CLOSED (CODE + TEST + DOCUMENT)
+
+**Found by.** Stage 14's credential-free list asks for proof that the live harness and its logging cannot
+leak the key, and that proof has to come off the code path rather than off the prose that promises it.
+`src/core/runner.ts` is the only module under `src/` that imports `node:child_process` — a fact this slice
+made checked instead of recollected (`tests/core/spawn-boundary.test.ts:35` walks every file under `src/`
+with comments stripped and fails unless that importer set is exactly `['core/runner.ts']`) — and its one
+`execFileAsync` call site passed `options.env ?? process.env` straight through. The parent environment
+legitimately holds `BHARATCODE_API_KEY`, because the model adapter needs it. So every repository gate,
+every check a model proposed, and every git measurement a run made started with the credential in its
+pocket.
+
+That is a leak and not a detail because of what the policy allows. `node scripts/check.mjs` is ordinary
+`EXECUTE` by design — this project's own words are that "repository tooling is what a verification stage
+exists to run" — and the stdout of a permitted check is stored and rendered. A build step that prints its
+own configuration is an unremarkable thing to run.
+
+Measured before the change, against a sentinel rather than a live key: this project forbids putting a real
+credential into a fixture, a log or a command argument, and a sentinel is the stronger instrument anyway,
+because nobody can dismiss it as a placeholder someone forgot to fill in. `tests/core/runner.test.ts:145`,
+captured at `C:\tmp\s143-red-a.log`:
+
+```
+ FAIL  tests/core/runner.test.ts > the environment a started command receives > keeps the credential out of the environment a bare default runner hands on
+AssertionError: expected 'MERGESUTRA-TEST-CREDENTIAL-4f9c1a7b' to be 'ABSENT' // Object.is equality
+ Test Files  1 failed (1)
+      Tests  3 failed | 3 passed | 11 skipped (17)
+```
+
+The same sentinel one level up the stack — a real Stage 6 loop over a real Stage 1-to-4 run, the check
+executed by the runner the production loop builds, and the real pack renderer
+(`tests/implement/credential-env.test.ts`, `C:\tmp\s145-m1.log`):
+
+```
+ → expected '{"schemaVersion":1,"runId":"run-20260…' to contain 'ABSENT'
+ → expected '{"schemaVersion":9,"runId":"run-20260…' not to contain 'MERGESUTRA-TEST-CREDENTIAL-4f9c1a7b'
+```
+
+Two lines, and they are the whole route: the check printed the value, the value became the check's stdout,
+the stdout became part of the implementation document the run keeps, and the run record carried it into the
+evidence pack a reviewer opens — the artifact this product exists to hand to somebody else.
+
+**The defect.** The boundary had been drawn around what MergeSutra *writes* and never around what a run is
+*given*. `README.md` said the credential appears in "never arguments, fixtures, logs, reports, or
+screenshots", and `docs/SECURITY_MODEL.md` §6 said "Subprocesses get controlled environments." Both
+sentences described an intention; neither described the code, and the second one was the most dangerous
+kind of wrong — a claim of a control that was a plain pass-through, sitting in the document a reviewer
+would consult to check it.
+
+**The change.** The environment a child receives is now the offered one minus this module's own name list,
+computed once at the single door.
+
+- `src/core/runner.ts:61` `CREDENTIAL_ENV_NAMES = ['bharatcode_api_key', 'bharatcode_key']`, `:64`
+  `isCredentialEnvName()`, `:77` `withoutCredentialEnv()`, and `:107` `const env =
+  withoutCredentialEnv(options.env ?? process.env);` feeding the one `execFileAsync`.
+- The comparison is on the lower-cased name, because on Windows `process.env` keys are matched without case
+  while the object a caller hands in is an ordinary map — so `BHARATCODE_API_KEY`, `Bharatcode_Api_Key` and
+  a caller-supplied `bharatcode_api_key` are all one name here. `tests/core/spawn-boundary.test.ts:50`
+  asserts that for three spellings of each of the two names, and asserts the near-misses
+  (`BHARATCODE_MODEL`, `BHARATCODE_API_BASE`, `PATH`) stay.
+- What is deliberately *not* removed is pinned, not left to memory: `tests/core/runner.test.ts:179` holds
+  `GH_TOKEN` up as still passing (the `gh` read transport authenticates from it and `mergesutra issue`
+  would stop working), and `:191` and `:201` hold `PATH` and an ordinary build variable passing. Without
+  those three, "we scrub the environment" could be satisfied by handing children almost nothing, which
+  would break the product and prove nothing.
+- The parent's own environment is untouched — `withoutCredentialEnv` builds a new object by filter, and the
+  suite asserts after each run that `process.env.BHARATCODE_API_KEY` still equals the sentinel. Mutation M4
+  below is what shows that assertion is load-bearing rather than decorative.
+
+**Measured after.** `tests/core/runner.test.ts` on the fixed tree: `Tests 17 passed (17)`
+(`C:\tmp\s143-green-a.log`); `tests/implement/credential-env.test.ts`: `Tests 2 passed (2)`
+(`C:\tmp\s143-int2.log`), its first case carrying the non-vacuity line `expect(kept).toContain('ABSENT')`
+immediately before the absence assertion, so the second one cannot be a scan of a document that never held
+anything. `npm run check` on the whole tree afterwards: exit `0`, `Test Files 147 passed | 3 skipped (150)`,
+`Tests 2265 passed | 3 skipped (2268)`.
+
+**Mutations.** All three re-run on this tree through one self-describing driver, each log opening with the
+file's base SHA-256, the exact old/new strings and the diff, and closing with the restored hash plus
+`RESTORE_MATCH=yes`:
+
+| id | mutation | focused suite | result |
+|----|----------|---------------|--------|
+| M1 | `Object.entries(env).filter(([name]) => !isCredentialEnvName(name))` → `Object.entries(env)`, i.e. the pre-fix pass-through | `tests/core/runner.test.ts tests/implement/credential-env.test.ts` | `5 failed \| 14 passed (19)`, `VITEST_EXIT=1` (`C:\tmp\s145-m1.log`) |
+| M3b | `.includes(name.toLowerCase())` → `.includes(name)` | `tests/core/runner.test.ts tests/core/spawn-boundary.test.ts` | `4 failed \| 15 passed (19)` (`C:\tmp\s145-m3b.log`) — three case spellings plus the Windows-shaped child |
+| M4 | the name list gains `'gh_token', 'github_token'` | `tests/core/runner.test.ts` | `1 failed \| 16 passed (17)` (`C:\tmp\s145-m4.log`), `expected 'ABSENT' to be 'MERGESUTRA-TEST-CREDENTIAL-4f9c1a7b'` — the exception is enforced as hard as the rule |
+
+`src/core/runner.ts` stands at `97c9ee5c78600bb4f82f3aefaf417f49f96aeab12bff78643a0155ce4e226fc2` after all
+three, which is the hash the driver recorded as its base.
+
+**Documents corrected.** `docs/SECURITY_MODEL.md` §5 gained the scrub itself — the name list, the
+case-insensitivity, the `GH_TOKEN`/`GITHUB_TOKEN` exception with the reason and the file that pins it, and
+the boundary guard; §6's false sentence "Subprocesses get controlled environments." was replaced by a
+pointer to §5. `README.md`'s `BHARATCODE_API_KEY` bullet now states both mechanical properties and names
+the three files that measure them, and the "How BharatCode powers it" sentence points at the same section
+instead of resting on the assertion.
+
+**Limitations.**
+1. The list is two names, and they are the names this project's configuration reads. A wrapper that
+   re-exports the same value under something else is not caught here; S14-5's value registration is what
+   catches that one on the way out, and only for bytes that pass through a mask.
+2. This slice removes a credential from a child's environment. It does not make that environment safe to
+   hand to arbitrary code, and no name list can: the GitHub tokens are still there on purpose, so the
+   blast-radius half of the stage's question is not closed by this entry — see S14-4's limitations for what
+   is still open about a permitted program's own actions.
+3. Every number above is a Windows/Git Bash reading, including the case-insensitivity motivation. The
+   same driver run on the Linux host is the same command; it has not been run here.
+4. The sentinel is not a live key, so nothing in this entry is evidence about BharatCode's gateway. It is
+   evidence about this machine's `execFile`, which is the thing that was wrong.
+
+## S14-4 — one token, `node -p`, dissolved every command refusal the policy made — CLOSED (CODE + TEST + DOCUMENT)
+
+**Found by.** The other half of the same Stage 14 item: "make sure the live test cannot accidentally modify
+unrelated repositories". The answer to that question lives in `INLINE_CODE_FLAGS`
+(`src/process/tool-policy.ts:302-319`), compared against every lower-cased token of an argv at `:453`,
+because that set is what turns "an interpreter was handed code" into `DESTRUCTIVE` — the one risk class in
+this module with no approval path (`decideTool` returns `requiresApproval: false` for it, deliberately). The
+set read `-c -e --eval -command -encodedcommand -enc /c /k`: node/python's spelling and cmd/PowerShell's,
+and nothing else. `-p`/`--print` (node evaluates and prints an expression; perl and ruby take the same
+flag), and `-r`/`--run` (php's eval flag, ruby's) were not in it.
+
+The consequence is not a missing nicety, it is that the whole table below the flag rule is decided by
+reading argv, and one unlisted token moves the reading somewhere else entirely. `node -p
+"require('child_process').execSync('gh repo edit …')"` has `node` as its program, so `GITHUB_CLI` never
+matches; it contains no `push`, so `risksOfGitArgv` never runs; it names no network client. It classified
+`EXECUTE`, and `decideExecute` grants `EXECUTE` — `allowed: true, requiresApproval: false` — on three
+checks: argv-shaped, a bare program, and a working directory inside the workspace. So the code after `-p`
+ran with this machine's own credentials, in a run that had asked for nothing a reviewer could see refused,
+and reached every repository the person's `gh` login can write — not the fixture, and not the workspace.
+
+Measured before the change, on the new matrix case at `tests/process/tool-policy-argv.test.ts:186`
+(`C:\tmp\s143-red-c.log`; the 21 skips are that file's other cases, narrowed out of the RED capture):
+
+```
+ → node -p process.env.BHARATCODE_API_KEY: expected 'EXECUTE' to be 'DESTRUCTIVE' // Object.is equality
+ Test Files  1 failed (1)
+      Tests  1 failed | 21 skipped (22)                                        → VITEST_EXIT=1
+```
+
+**The defect.** A vocabulary, not a logic error. The rule "an interpreter handed a command string re-opens
+exactly the shell path the argv rule just closed" was right, and was implemented as a list of the spellings
+someone thought of — so the boundary was one token wide in a way no reader of `SECURITY_MODEL.md`, which
+describes the rule in prose, could tell.
+
+**The change.** `'-p', '--print', '-r', '--run'` joined the set at `:315-318`, with the reason recorded at
+`:311-314` so the next person who wants to trim the list meets the argument first. No comparison changed —
+`INLINE_CODE_FLAGS.has(token.toLowerCase())` at `:453` already lower-cases, which is why `NODE -P x` is the
+same command and is tested as one. The rule stays a *class* rule on purpose: this module does not have, and
+will not grow, a per-interpreter parser that decides which expressions are innocent.
+
+The matrix case covers five interpreters and both spellings of each new permission
+(`['node','-p',…]`, `['node','--print',"require('child_process')"]`, `['NODE','-P','x']`,
+`['php','-r','system("id");']`, `['perl','-p',…]`, `['ruby','-p',…]`), and it sits in the file that already
+holds the other side of the line: `node scripts/check.mjs` remains `EXECUTE`, because a repository's own
+tooling is what a verification stage exists to run.
+
+**Measured after.** `npx vitest run tests/process` → `Test Files 2 passed (2)`,
+`Tests 53 passed (53)`, `VITEST_EXIT=0` (`C:\tmp\s143-green-c.log`).
+
+**Mutations.** M2 — delete the four added lines, which is byte-for-byte the pre-fix set — over
+`tests/process`: `1 failed | 52 passed (53)`, `VITEST_EXIT=1`, with the same
+`expected 'EXECUTE' to be 'DESTRUCTIVE'` and no other test moving (`C:\tmp\s145-m2.log`). The mutation is
+the defect, and exactly one assertion stood between them. `src/process/tool-policy.ts` restored to
+`0ceb99185eca0f77f2da832f4835a81b2297e7d20008cca6a15c2d8880f38129`, `RESTORE_MATCH=yes`.
+
+**Documents corrected.** `docs/SECURITY_MODEL.md` §3's `DESTRUCTIVE` bullet now enumerates the whole flag
+set rather than the two examples it quoted, and names the concrete consequence: `gh pr merge` *inside* an
+interpreter is a remote mutation this module never sees an argv for.
+
+**Limitations.**
+1. This remains a vocabulary. It covers the spellings written down; a program or flag nobody listed is not
+   covered, and no reading of this file can prove otherwise. That is why the test is a matrix over
+   interpreters and not a spot check on node, and why adding a flag to the set is cheap enough to be the
+   default answer when one is found missing.
+2. Closing the inline route does not close the class. A run can still write a file inside its workspace and
+   then name it — `node evil.js` is `EXECUTE`, and the classification cannot see inside a script. What
+   changed is where that route costs something: it must now appear as a file in the patch a reviewer reads
+   and as a named command in the run's receipts, where inline code appeared as neither. It is detectable
+   and attributable instead of invisible.
+3. The residual is credential-shaped, and this slice does not remove it. `GH_TOKEN`/`GITHUB_TOKEN` are still
+   handed to every child on purpose, because `gh` is the read transport and MergeSutra never holds a GitHub
+   token itself (`src/github/gh-client.ts:12-16`). So limitation 2's route reaches other repositories
+   through the ambient GitHub credential, not through any credential MergeSutra passes. Narrowing it means
+   either the read transport stops shelling out to `gh`, or MergeSutra starts assembling `gh`'s environment
+   per host — a real design change with a regression risk on machines this slice cannot test, not a flag to
+   add. It is therefore recorded as an open item and carried into the credential-boundary report, where the
+   cheap version of the same protection belongs: run the real-model validation with a throwaway,
+   single-repository-scoped GitHub credential rather than this person's own login.
+4. Windows/Git Bash readings only, and the program-name suffix folding (`.exe`, `.cmd`, `.bat`, `.com`) that
+   makes `rm.exe` match `rm` here is pre-existing and applies to the program token only.
+
+## S14-5 — the masks knew the credential's shape, not its value — CLOSED (CODE + TEST + DOCUMENT)
+
+**Found by.** The same list item asks whether the harness can leak the key into logs, run records or the
+evidence pack, and the honest way to answer that is to stop assuming the gateway behaves. `Redactor`'s
+patterns cover `sk-…`, `gh[pousr]_…`, `xox…`, `AKIA…`, PEM blocks, and `NAME=value` where the name contains
+`secret`/`token`/`password`/`passwd`/`apikey`/`api_key`. Every stage masks on the way in and every sink masks
+a copy on the way out — so the architecture's whole claim about the credential rested on the credential
+happening to look like one of six shapes. A key that does not, or a completion whose prose quotes one
+without a `NAME=` in front of it, passes through untouched and gets filed.
+
+Measured with the real transport rather than a double: `tests/bharatcode/loopback-leak.test.ts` starts a
+real `node:http` gateway on `127.0.0.1:0`, sends through real `fetch`, and drives the production
+`runPlanStage` with `loadBharatCodeConfig` reading an environment it is given — the client is deliberately
+*not* injected, because injecting it would have tested the seam instead of the path. The sentinel is
+`bharatcode-loopback-7f3a9c2e1d`, chosen so that none of the six patterns matches it; every absence
+assertion in the file is therefore evidence about value-registration and cannot be accidental
+shape-matching. Before the change (`C:\tmp\s144-red-d.log`), with the gateway answering a schema-valid plan
+whose `summary` was `Confirmed against the key bharatcode-loopback-7f3a9c2e1d.`:
+
+```
+ FAIL  tests/bharatcode/loopback-leak.test.ts > a gateway that puts the credential in the completion > keeps it out of the run record the stage files
+AssertionError: expected '{"schemaVersion":9,"runId":"run-20260…' not to contain 'bharatcode-loopback-7f3a9c2e1d'
+ Test Files  1 failed (1)                                                              → VITEST_EXIT=1
+```
+
+which is the model's sentence, verbatim, in the record — the record that `mergesutra report` renders and a
+consumer attaches to a PR.
+
+**The defect.** Registration, not masking. The masks were correct given a value they had never been told;
+nothing in the codebase ever told them. `defaultRedactor` is a shared instance, so the one function that
+turns an environment into a configuration was the one place that could hand it the actual bytes — and had no
+reason to, until a test asked what happens when the gateway misbehaves.
+
+**The change.** `src/config/load-config.ts:86`, `if (apiKey) defaultRedactor.add(apiKey);`, immediately
+after the value is read and trimmed, with the comment at `:75-85` stating why: a pattern cannot know a value
+in advance; this function is the only place in `src/` that turns an environment into a BharatCode config;
+and it prints nothing, because `summarizeConfig` reports *that* a key was read, never what it says. One line
+at the single load site, so no stage has to remember to register anything, and a stage that never loads a
+config never holds a key either.
+
+The file's own controls are what make the fix mean something, and each is aimed at a different way the
+result could be hollow:
+- `:110` asserts `authorization === 'Bearer bharatcode-loopback-7f3a9c2e1d'` on a header the *server*
+  recorded — so every absence asserted later is an absence of a value that demonstrably went out.
+- `:129` masks a misbehaving 500 whose body echoes the request header, and asserts the control case first:
+  the same text through a fresh `new Redactor()` still *contains* the sentinel. Only the configured value
+  can flip that, so the test cannot pass for the wrong reason.
+- `:198` is labelled in-file as a pin, not a proof: the evidence pack today renders receipts, gate rows,
+  caveats and model *claims* and prints no plan prose, so it passes while nothing in it is masked. It exists
+  to fail on the day a renderer starts quoting the plan, and saying so is the difference between a guard and
+  a decoration.
+
+**Measured after.** `npx vitest run tests/bharatcode/loopback-leak.test.ts` → `Test Files 1 passed (1)`,
+`Tests 5 passed (5)`, `VITEST_EXIT=0` (`C:\tmp\s144-green-d.log`). `npm run check` on the whole tree:
+exit `0`, `Tests 2265 passed | 3 skipped (2268)`.
+
+**Mutations.** Three, same driver, each restored byte-for-byte with the hash re-measured:
+
+| id | mutation | focused suite | result |
+|----|----------|---------------|--------|
+| MB | delete `if (apiKey) defaultRedactor.add(apiKey);` — i.e. the pre-fix loader | `tests/bharatcode/loopback-leak.test.ts` | `1 failed \| 4 passed (5)` (`C:\tmp\s145-mb.log`): the record test fails again with the original message, so the one line is the fix and the other four do not depend on it |
+| MC | `apiKeySource: config.apiKey ? 'environment' : 'none'` → `config.apiKey ?? 'none'` | loopback + `tests/config/load-config.test.ts` | `2 failed \| 10 passed (12)` (`C:\tmp\s145-mc.log`), one naming the `sk-`-shaped placeholder key from `tests/bharatcode/loopback-leak.test.ts` (not quoted here, on purpose) and one naming the sentinel — the summary that screens are allowed to print is checked in two independent suites |
+| MD | `authorization: \`Bearer ${auth}\`` → `'Bearer withheld'` | `tests/bharatcode/loopback-leak.test.ts` | `4 failed \| 1 passed (5)` (`C:\tmp\s145-mut-d.log` / `C:\tmp\s145-md.log`) |
+
+`src/config/load-config.ts` stands at `2d79cdde5a1a807cdcc357eb5104b19484aad138f853c3cf7e15877005606d23`
+and `src/bharatcode/client.ts`, which only ever stood in for a mutated gateway, at
+`7fff32be803976d9fc5ac525aa3d445ac6642a93686c49ef92790a90f1b447b6`.
+
+**Documents corrected.** `docs/SECURITY_MODEL.md` §6 gained the bullet "A value the masks know, not only a
+shape they recognise.", naming the loader line and the loopback file. `README.md`'s
+`BHARATCODE_API_KEY` bullet states the property in consumer terms — a gateway that echoes the credential
+back inside its answer is masked on the way into the record rather than filed there — and notes that none of
+the three measuring files needs a live key to run.
+
+**Limitations.**
+1. Registration happens when a config is loaded. A process that writes a run record without ever loading
+   BharatCode configuration has registered nothing — and also, on this code path, holds no key to write.
+   The property is "the value is known to the masks in any process that read it", not "the masks always know
+   the value".
+2. This is a memory-resident value held by the redactor for the life of the process, so the slice reduces
+   where the credential goes and never claims it cannot be read from a heap snapshot of a running MergeSutra
+   by somebody who can already read this machine's memory.
+3. The gateway in these tests is loopback and honest about being hostile; nothing here is evidence about
+   BharatCode's real endpoint, which is Stage 14's credential-boundary question and stays unanswered until
+   the live run happens.
+4. The evidence-pack case is a pin (see above), so this entry's claim about the pack is "the pack has no
+   plan prose to leak through, and the day it does a test says so" — not "the pack masks the credential".
+
 ## Register status, Stage 14 (in progress)
 
 `S14-1` (the documented `issue → inspect → contract` chain could not put both families of criteria
-in the one record every later stage reads) and `S14-2` (the repaired chain still reached `mergesutra
+in the one record every later stage reads), `S14-2` (the repaired chain still reached `mergesutra
 pr` and refused for want of a default branch, because the carry copied the issue and left the
-repository identity behind) are closed as CODE + TEST + DOCUMENT above. What Stage 14
-still has to measure, and what it will not claim before it does:
+repository identity behind), `S14-3` (every command a run started was handed the model credential),
+`S14-4` (one unlisted interpreter flag dissolved every command refusal the policy made) and `S14-5`
+(the masks knew the credential's shape but were never told its value) are closed as
+CODE + TEST + DOCUMENT above. What Stage 14 still has to measure, and what it will not claim before it does:
 
-- The credential-free half has one host left to prove it on. Walked on this machine at `ed0f6ed`
+- The credential-free pipeline walk has one host left to prove it on. Walked on this machine at `ed0f6ed`
   with no key in the environment (`BHARATCODE_API_KEY` unset, recorded in the log), from one working
   directory, the verbs answer `doctor` 1, `issue` 0, `inspect` 0, `contract` 0, `plan` 78,
   `verify` 1, `report` 0, `status` 0, bare `pr` 1, `pr <run-id>` 4 — each refusal naming the thing that
@@ -4284,10 +4564,19 @@ still has to measure, and what it will not claim before it does:
   default-branch refusal S14-2 removed. The six files of the fixture working tree hashed byte-identical
   before and after, and `git status --porcelain` inside it still says exactly `?? pnpm-lock.yaml`, which
   is what it said before. What is left is the same chain read on a second host, since every number above
-  is Windows.
-- The live harness has to be *proved* incapable of leaking the key into logs, run records or the
-  evidence pack, and its blast radius proved to be the fixture repository and nothing else, before
-  any credential is in scope.
+  is Windows; the WSL rig for the same chain exists, and the hosted Linux reading of the same suite is the
+  one this account's Actions spending limit currently prevents — the failure signature, captured from the
+  API rather than from a UI, is in `C:\tmp\s142-ci-blocked.txt` (`runner_id: 0`, `steps: []`, a job that
+  "completed" in about three seconds), and it is an external billing condition rather than a defect in this
+  tree.
+- The leak half of the harness question is now measured: S14-3 keeps the value out of the environment a
+  run is given, S14-5 keeps it out of what a run writes back, and the two are tested against a sentinel
+  through the production `execFile` and a loopback HTTP server. What is *not* closed is the fixture-scoping
+  half. S14-4 removed the route that reached it invisible; S14-4's limitation 3 names the route that
+  remains — a permitted `node workspace.js` still holds this machine's `GH_TOKEN`, because `gh` is the read
+  transport. The stage will not record "cannot modify unrelated repositories" as proved. The mitigation
+  carried to the credential boundary instead is operational: the live run should use a throwaway,
+  single-repository-scoped GitHub credential rather than this person's own login.
 - The real-model run is the boundary of this machine's proof. Nothing in this stage may be presented
   as a live-model result until it has happened, and the register will record the commands, the cost
   ceiling and the outcome rather than a summary.

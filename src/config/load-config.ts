@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
+import { defaultRedactor } from '../security/redaction.js';
 import {
   DEFAULT_BASE_URL,
   DEFAULT_MAX_RETRIES,
@@ -15,6 +16,10 @@ import {
  * Loading a config must never require a real key; a missing key is a valid,
  * reportable state (used by `doctor`), and only becomes a hard error when an
  * operation actually needs credentials.
+ *
+ * Reading a key also tells the central redactor what it is, so a credential that
+ * comes back inside a model's answer is masked rather than filed. See the note on
+ * `apiKey` below.
  */
 
 export type Env = Readonly<Record<string, string | undefined>>;
@@ -67,6 +72,18 @@ export function loadBharatCodeConfig(env: Env = process.env): BharatCodeClientCo
     });
 
   const apiKey = env.BHARATCODE_API_KEY?.trim() || undefined;
+  // Registering the value, because a pattern cannot know it in advance.
+  //
+  // Two masks guard what a run keeps and what it prints, and both are the same
+  // process-wide `defaultRedactor`: the one a stage calls as it files its document,
+  // and the one a sink calls over the stored bytes. Each knows the credential formats
+  // this build has seen. Neither knows what a gateway answers with — a debug proxy or a
+  // model quoting its own headers can put the key inside the completion, which then
+  // arrives as the stage's own text and gets filed, and packed, and sent to a reviewer.
+  // This function is the only place in `src` that turns an environment into a config, so
+  // it is the one place that can hand the masks the actual value. It prints nothing:
+  // `summarizeConfig` reports that a key was read, never what it says.
+  if (apiKey) defaultRedactor.add(apiKey);
 
   return {
     apiKey,

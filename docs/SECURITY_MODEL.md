@@ -781,7 +781,16 @@ is refused outright rather than escalated (§2.1). Four things about it are wort
   remove`/`prune`/`rebase`/`apply`/`am`, `git push --force`, `git config
   --global`, and an interpreter handed a command string (`bash -c`, `node -e`,
   `cmd /c`, `powershell -Command`) — the last because a string re-parsed by an
-  interpreter re-opens exactly the shell path the argv rule just closed.
+  interpreter re-opens exactly the shell path the argv rule just closed. The flag
+  set behind that clause is every spelling of "evaluate this text", compared
+  lower-case, and it includes `node`/`perl`/`ruby` `-p` and `--print` and `php`
+  `-r` and `--run` alongside the `-c`/`-e` forms: an interpreter that runs an
+  expression from argv has the same permission under whichever token it prefers,
+  so a list that names two of four spellings merely relocates the route to the
+  third (S14-4). The refusal matters more here than anywhere else in the table,
+  because arbitrary code is the one thing that does not have to pass this policy to
+  reach a remote: a check that runs `gh pr merge` *inside* an interpreter is a
+  remote mutation this module never sees an argv for.
   Running `node scripts/check.mjs` is ordinary EXECUTE; repository tooling is
   what a verification stage exists to run.
 - **A network *command* is refused; a network *request* is granted, and nothing
@@ -1132,6 +1141,18 @@ current Node binary with hostile arguments and assert both that they arrive
 unchanged and that no file was created. A command that could not start reports
 its reason instead of a blank failure.
 
+It also decides what that process can see. Every command starts from an
+environment with `BHARATCODE_API_KEY` and `BHARATCODE_KEY` removed, whatever the
+caller supplied and whatever this process inherited, because a run may name
+`printenv`, `env` or a repository script that reads its own configuration and all
+of those are legitimate checks (S14-3). `GH_TOKEN`/`GITHUB_TOKEN` are *not*
+removed: `gh` is this build's read transport (`src/github/gh-client.ts` asks it for
+one `GET` per issue) and authenticates from those names, so stripping them would
+break `mergesutra issue` — the disclosure that matters here is the model
+credential, which nothing downstream has any use for. `tests/core/spawn-boundary.test.ts` reads the import
+closure to keep "the single place" true, since the scrub is worth one boundary
+only while that boundary is the only door.
+
 The classify/apply-policy half of that list is `src/process/tool-policy.ts`
 (§3), and the shape rules it uses — non-empty argv, no shell syntax in any
 token, a program named bare rather than by path — live in
@@ -1161,7 +1182,20 @@ private keys). It redacts text, header records, and nested structures, and can
 be given exact runtime secret values for literal masking.
 
 - Full process environments are never logged.
-- Subprocesses get controlled environments.
+- Subprocesses get a credential-free environment: see §5. Removing the value beats
+  refusing the commands that would print it, because a repository's own build is
+  allowed to inspect its configuration and MergeSutra has no business breaking it.
+- **A value the masks know, not only a shape they recognise.** Every pattern in this
+  section matches credential *formats* (`sk-…`, `ghp_…`). `loadBharatCodeConfig` also
+  registers the key it reads with the process-wide redactor, so an exact match masks
+  wherever that redactor stands — the stage filing its document and the sink rendering
+  a stored one (S14-5). Without it, the one path no pattern can cover stays open: a
+  gateway that echoes the request's own header inside the completion, which then
+  arrives as the model's answer and is filed in the run record.
+  `tests/bharatcode/loopback-leak.test.ts` runs the real adapter, real `fetch` and the
+  real Stage 4 against a gateway on `127.0.0.1` that answers that way, with a sentinel
+  chosen so no pattern matches it, and asserts both that the header really went out
+  and that the value never came back as content.
 - Redaction applies to error `details`, on construction: `new AppError({ details })` stores a
   deeply masked copy, because `details` is where a caller puts the bytes it did not write — a
   child process's stderr, a parse failure over a file a human edited, a flag value read off disk.

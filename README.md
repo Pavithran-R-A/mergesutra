@@ -1608,7 +1608,9 @@ harness above it. All model access goes through a single adapter
 (`https://bharatcode.ai/api/model/v1`), with model discovery, typed requests,
 bounded retries honouring `Retry-After`, timeouts and cancellation.
 Credentials come **only** from `BHARATCODE_API_KEY` (environment) — never
-arguments, fixtures, logs, reports, or screenshots. `mergesutra plan` was the
+arguments, fixtures, logs, reports, or screenshots. Two mechanical properties,
+recorded under that variable in [Configuration](#configuration), are what keeps
+that promise checked rather than merely made. `mergesutra plan` was the
 first command to use that adapter, `mergesutra implement` the second,
 `mergesutra review` the third and `mergesutra repair` the fourth: each
 answer is treated as data, parsed under a `strict()` schema, refused if it drops
@@ -1637,7 +1639,16 @@ source.
   command that asks the gateway refuses before a request leaves, at exit `78`;
   `doctor` prints `FAIL BharatCode key` and names the variable without printing a
   value. `inspect`, `contract`, `verify`, `report`, `status`, `resume` (preview)
-  and `pr` need nothing of BharatCode and run without it.
+  and `pr` need nothing of BharatCode and run without it. Two mechanical
+  properties hold it in place: a command a run starts — a repository gate, a
+  check a model proposed — is given an environment with this name removed, so a
+  build step that prints its own configuration sees its absence rather than the
+  value; and the value the loader reads is registered with the central redactor,
+  so a gateway that echoes the credential back inside its answer is masked on the
+  way into the run record instead of being filed there. Both are measured against
+  a loopback gateway standing in for a misbehaving one
+  (`tests/core/runner.test.ts`, `tests/implement/credential-env.test.ts`,
+  `tests/bharatcode/loopback-leak.test.ts`); neither needs a live key to run.
 - **`BHARATCODE_API_BASE`** — defaults to `https://bharatcode.ai/api/model/v1`. It
   must parse as a URL and use `https:`, with `http:` accepted only so a local stub
   can be pointed at; anything else is a configuration refusal at exit `78`.

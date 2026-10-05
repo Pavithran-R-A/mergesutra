@@ -8,6 +8,11 @@ import { promisify } from 'node:util';
  * is never enabled, so nothing here interprets a command string: a value that
  * contains `;`, `&&` or a redirect stays a single literal argument. Repository,
  * issue and model text therefore cannot become shell syntax.
+ *
+ * The second property lives here because this is the only place a process is
+ * actually started: a command MergeSutra runs never receives the model
+ * credential, whatever the caller put in the environment. See
+ * `CREDENTIAL_ENV_NAMES`.
  */
 
 export interface RunResult {
@@ -36,6 +41,45 @@ export interface RunnerOptions {
   readonly env?: NodeJS.ProcessEnv;
 }
 
+/**
+ * Environment names whose value is never handed to a command MergeSutra starts.
+ *
+ * The model credential is read by this process and spoken only to the BharatCode
+ * endpoint, in a request header, by `src/bharatcode/client.ts`. No command a run
+ * can name has any use for it — and a run *can* name `printenv`, `env`, or a
+ * script that dumps its own environment, because those are ordinary programs and
+ * the workspace is a legitimate place to run them. Refusing them would break the
+ * repository's own build for a mistake MergeSutra makes by inheritance, so the
+ * value is simply not there to print.
+ *
+ * `GH_TOKEN` and `GITHUB_TOKEN` are deliberately absent: `gh` is the read
+ * transport and authenticates from them, so stripping them would break
+ * `mergesutra issue` for every user who does not keep credentials in its
+ * keyring. That is a different trust domain, and it is named in the docs rather
+ * than quietly widened here.
+ */
+const CREDENTIAL_ENV_NAMES = ['bharatcode_api_key', 'bharatcode_key'];
+
+/** The environment names this module refuses to pass on, in their lower-case spelling. */
+export function isCredentialEnvName(name: string): boolean {
+  return CREDENTIAL_ENV_NAMES.includes(name.toLowerCase());
+}
+
+/**
+ * The environment a child gets: the one offered, minus every credential name.
+ *
+ * Case-insensitive on purpose. On Windows `process.env` keys are matched without
+ * regard to case while the object itself keeps whatever spelling the parent set,
+ * so a filter that compared exact strings would leave `bharatcode_api_key` — or
+ * `Bharatcode_Api_Key` — sitting in the child's environment on the one platform
+ * where that spelling is normal.
+ */
+export function withoutCredentialEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(env).filter(([name]) => !isCredentialEnvName(name)),
+  ) as NodeJS.ProcessEnv;
+}
+
 export const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 export const DEFAULT_MAX_OUTPUT_BYTES = 1_048_576;
 
@@ -55,10 +99,16 @@ export function createRunner(options: RunnerOptions = {}): Runner {
   const maxBuffer = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
 
   return async (file, args) => {
+    // The inheritance is what makes this the one right place for the rule: every
+    // spawn in the product comes through here, `defaultRunner` and the bounded
+    // runners the Stage 6 loop and the Stage 7 gate engine build, so a command a
+    // model named and a command a repository named are covered by the same three
+    // lines and there is no second door to remember to close.
+    const env = withoutCredentialEnv(options.env ?? process.env);
     try {
       const { stdout, stderr } = await execFileAsync(file, [...args], {
         cwd: options.cwd,
-        env: options.env,
+        env,
         encoding: 'utf8',
         windowsHide: true,
         shell: false,

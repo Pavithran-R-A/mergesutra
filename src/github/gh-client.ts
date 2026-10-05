@@ -11,7 +11,11 @@ import type { CommitRef, IssueDocument, RepositoryIdentity } from './types.js';
  *
  * `gh` is used rather than a hand-rolled REST client because it already owns
  * the credential problem: the user runs `gh auth login` once, and MergeSutra
- * never sees, stores, passes or prints a token. Commands are argv arrays with
+ * never sees, stores, passes or prints a token. What it does is inherit the
+ * environment `gh` resolves its credential from — which is also why a command
+ * a run starts still carries `GH_TOKEN`, the one exception to the child
+ * environment this module cannot remove without stopping reading issues
+ * (docs/SECURITY_MODEL.md §5, register S14-4). Commands are argv arrays with
  * `--hostname`, so a GitHub Enterprise host is a value, never part of a shell
  * string, and every path segment is re-validated before it is interpolated.
  *

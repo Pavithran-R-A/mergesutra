@@ -183,6 +183,27 @@ describe('an interpreter flag is not case-sensitive, because the OS is not', () 
     }
   });
 
+  it('refuses the other spelling of "run this code", because one token is not a boundary', () => {
+    // Every interpreter above has more than the `-e` spelling, and the class is
+    // supposed to come from what the argv does, not from which flag the author
+    // thought of. `node -p "require('child_process').execSync('gh api -X POST …')"`
+    // is the same arbitrary code as `node -e`, run by a process that holds this
+    // human's `gh` authentication — which is how a Stage 6 check reaches a
+    // repository nobody pointed it at. Refusing `-e` while classifying `-p` as
+    // ordinary workspace execution is a rule that only stops the first variant.
+    for (const argv of [
+      ['node', '-p', 'process.env.BHARATCODE_API_KEY'],
+      ['node', '--print', "require('child_process')"],
+      ['NODE', '-P', 'x'],
+      ['php', '-r', 'system("id");'],
+      ['perl', '-p', 'unlink "x"'],
+      ['ruby', '-p', 'File.delete("x")'],
+    ]) {
+      expect(risk(argv), argv.join(' ')).toBe('DESTRUCTIVE');
+      expect(decide(argv).allowed, argv.join(' ')).toBe(false);
+    }
+  });
+
   it('does not refuse an interpreter pointed at a script file', () => {
     expect(risk(['node', 'scripts/build.js'])).toBe('EXECUTE');
     expect(risk(['python3', 'tools/check.py'])).toBe('EXECUTE');

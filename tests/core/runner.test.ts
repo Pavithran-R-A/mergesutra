@@ -14,6 +14,29 @@ import { createRunner, defaultRunner, safeRun, type Runner } from '../../src/cor
 const NODE = process.execPath;
 const ECHO_ARGV = 'process.stdout.write(process.argv.slice(1).join("|"))';
 
+/**
+ * Set an environment variable for one test, then put it back exactly.
+ *
+ * The point is to have a genuinely live variable in `process.env` while a real
+ * child is started, because the claim under test is about *inheritance* — and an
+ * injected fake env would test the option, not the default.
+ */
+async function withEnv<T>(name: string, value: string, body: () => Promise<T>): Promise<T> {
+  const previous = process.env[name];
+  process.env[name] = value;
+  try {
+    return await body();
+  } finally {
+    if (previous === undefined) delete process.env[name];
+    else process.env[name] = previous;
+  }
+}
+
+/** Reads one variable out of the child's own environment, or says it wasn't there. */
+const readEnv = (name: string): string => `process.stdout.write(process.env.${name} ?? "ABSENT")`;
+
+const SENTINEL = 'MERGESUTRA-TEST-CREDENTIAL-4f9c1a7b';
+
 const createdDirs: string[] = [];
 
 async function emptyDir(): Promise<string> {
@@ -116,6 +139,71 @@ describe('createRunner', () => {
   it('keeps the default runner inside the documented limits', async () => {
     const result = await defaultRunner(NODE, ['-e', ECHO_ARGV, 'plain']);
     expect(result.stdout).toBe('plain');
+  });
+});
+
+describe('the environment a started command receives', () => {
+  it('does not hand the model credential to a command that prints its own environment', async () => {
+    await withEnv('BHARATCODE_API_KEY', SENTINEL, async () => {
+      const result = await createRunner()(NODE, ['-e', readEnv('BHARATCODE_API_KEY')]);
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toBe('ABSENT');
+      expect(result.stdout).not.toContain(SENTINEL);
+      // The scrub is of the copy handed to the child, never of this process: a
+      // version that deleted the key from `process.env` would stop the adapter
+      // from being able to speak to the model at all.
+      expect(process.env.BHARATCODE_API_KEY).toBe(SENTINEL);
+    });
+  });
+
+  it('scrubs the credential from an environment a caller supplied, not only the inherited one', async () => {
+    // The invariant has to hold of the object this function is *given*, because a
+    // stage that assembles its own env would otherwise be a second door.
+    const result = await createRunner({
+      env: { BHARATCODE_API_KEY: SENTINEL, bharatcode_api_key: SENTINEL },
+    })(NODE, ['-e', readEnv('BHARATCODE_API_KEY')]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe('ABSENT');
+  });
+
+  it('keeps the credential out of the environment a bare default runner hands on', async () => {
+    await withEnv('BHARATCODE_API_KEY', SENTINEL, async () => {
+      const result = await defaultRunner(NODE, ['-e', readEnv('BHARATCODE_API_KEY')]);
+
+      expect(result.stdout).toBe('ABSENT');
+    });
+  });
+
+  it('still passes the token the GitHub read transport authenticates from', async () => {
+    // Deliberate scope, pinned so a later over-broad scrub cannot quietly break
+    // `mergesutra issue` for everyone who authenticates through the environment:
+    // `gh` is MergeSutra's read transport and it reads its own credential from
+    // here, so stripping it would refuse the product's first command.
+    await withEnv('GH_TOKEN', SENTINEL, async () => {
+      const result = await createRunner()(NODE, ['-e', readEnv('GH_TOKEN')]);
+
+      expect(result.stdout).toBe(SENTINEL);
+    });
+  });
+
+  it('still passes PATH, so a program named without a path is still found', async () => {
+    const result = await createRunner()(NODE, [
+      '-e',
+      'process.stdout.write(String(process.env.PATH ?? process.env.Path ?? ""))',
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout.length).toBeGreaterThan(0);
+  });
+
+  it('still passes the ordinary variables a repository build depends on', async () => {
+    await withEnv('MERGESUTRA_ORDINARY_BUILD_VAR', 'keep-me', async () => {
+      const result = await createRunner()(NODE, ['-e', readEnv('MERGESUTRA_ORDINARY_BUILD_VAR')]);
+
+      expect(result.stdout).toBe('keep-me');
+    });
   });
 });
 
