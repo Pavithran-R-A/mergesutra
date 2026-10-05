@@ -195,6 +195,7 @@ function describeFindings(findings: readonly CredentialFinding[]): string {
 
 /** Values planted by this file. They are fake, and they are also the leak check. */
 const PLANTED = {
+  bharatCurrent: 'bc_live_Plant1234567890abcdef',
   bearer: 'sk-Plant1234567890abcdef',
   githubClassic: 'ghp_Plant1234567890abcdefgh',
   githubFineGrained: 'github_pat_Plant1234567890ab',
@@ -219,7 +220,14 @@ function families(findings: readonly CredentialFinding[]): CredentialFamily[] {
 }
 
 describe('the boundary detector reports every family it claims to (S12-24)', () => {
-  it('reports a BharatCode/OpenAI-style bearer value', () => {
+  it('reports the current BharatCode bc_live_ key family', () => {
+    const findings = scanForCredentials('planted.ts', `const auth = '${PLANTED.bharatCurrent}';`);
+    expect(families(findings)).toEqual(['bearer-key']);
+    expect(findings[0]?.excerpt).toContain('bc_live_');
+    expect(findings[0]?.excerpt).not.toContain(PLANTED.bharatCurrent);
+  });
+
+  it('reports the legacy/OpenAI-style sk- bearer value', () => {
     const findings = scanForCredentials('planted.ts', `const auth = '${PLANTED.bearer}';`);
     expect(families(findings)).toEqual(['bearer-key']);
   });
@@ -410,7 +418,17 @@ describe('the scan covers what the shipped redactor claims to cover', () => {
     const model = readFileSync(path.join(ROOT, 'docs', 'SECURITY_MODEL.md'), 'utf8');
     const claim = /(^|\n)## 6\. Secret protection[^\n]*\n+([\s\S]*?)\n\n/.exec(model)?.[2] ?? '';
     expect(claim, 'SECURITY_MODEL.md no longer has a §6 claim to check').not.toBe('');
-    for (const needle of ['sk-', 'ghp_', 'gho_', 'ghs_', 'github_pat_', 'xox', 'AKIA', 'PEM']) {
+    for (const needle of [
+      'bc_live_',
+      'sk-',
+      'ghp_',
+      'gho_',
+      'ghs_',
+      'github_pat_',
+      'xox',
+      'AKIA',
+      'PEM',
+    ]) {
       expect(claim, `the doc claim no longer lists ${needle}`).toContain(needle);
     }
     // Every all-caps name the claim paragraph carries must be a name this scan

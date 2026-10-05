@@ -11,7 +11,12 @@ describe('Redactor', () => {
     expect(out).toContain('[REDACTED]');
   });
 
-  it('masks sk- shaped tokens even when not pre-registered', () => {
+  it('masks current BharatCode bc_live_ tokens even when not pre-registered', () => {
+    const r = new Redactor();
+    expect(r.text('key is bc_live_abcdef123456')).not.toContain('bc_live_abcdef123456');
+  });
+
+  it('masks legacy/OpenAI-style sk- tokens even when not pre-registered', () => {
     const r = new Redactor();
     expect(r.text('key is sk-abcdef123456')).not.toContain('sk-abcdef123456');
   });

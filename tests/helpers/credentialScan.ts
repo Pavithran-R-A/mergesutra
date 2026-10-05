@@ -54,7 +54,7 @@ export interface CredentialFinding {
   readonly line: number;
   /**
    * A preview with the secret removed. The prefix-bearing families keep their
-   * public format marker (`sk-`, `ghp_`, `xoxb`, `AKIA`, `----`), which names the
+   * public format marker (`bc_live_`, `sk-`, `ghp_`, `xoxb`, `AKIA`, `----`), which names the
    * kind of credential without carrying any of it; the syntactic families keep
    * only the name that made them fire.
    */
@@ -196,7 +196,7 @@ function lineOf(starts: readonly number[], index: number): number {
 
 /** Prefix-bearing shapes that a single line can carry, from the product's own list. */
 const LINE_SHAPES: readonly (readonly [CredentialFamily, RegExp])[] = [
-  ['bearer-key', /\bsk-[A-Za-z0-9_-]{8,}/g],
+  ['bearer-key', /\b(?:bc_live_|sk-)[A-Za-z0-9_-]{8,}/g],
   ['github-token', /\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{10,}/g],
   ['slack-token', /\bxox[abprs]-[A-Za-z0-9-]{8,}/g],
   ['aws-access-key-id', /\bAKIA[0-9A-Z]{16}\b/g],
@@ -240,7 +240,12 @@ export function scanForCredentials(
           family,
           file,
           line: index + 1,
-          excerpt: preview(line, match.index, match[0].length, match[0].slice(0, 4)),
+          excerpt: preview(
+            line,
+            match.index,
+            match[0].length,
+            match[0].startsWith('bc_live_') ? 'bc_live_' : match[0].slice(0, 4),
+          ),
         });
         if (match.index === re.lastIndex) re.lastIndex += 1;
       }

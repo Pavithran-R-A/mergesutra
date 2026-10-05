@@ -64,7 +64,8 @@ export BHARATCODE_MODEL='<the model your account offers>'
 
 | Target | What the run does to it |
 | --- | --- |
-| `Pavithran-R-A/mergesutra-e2e-fixture`, issue #1 | reads it. Nothing here comments on it, closes it, or edits it. |
+| `Pavithran-R-A/mergesutra`, issue #8 | reads it. Nothing here comments on it, closes it, or edits it. |
+| public branch `e2e-fixture` of that repository | cloned anonymously and pinned to the fixture SHA; the production `main` tree is not used as the task repository |
 | the fixture clone (called `<fixture-clone>` below) | reads it, then writes only inside a worktree the run creates for its own patch |
 | `<mergesutra-checkout>/.mergesutra/` | writes the run record and the evidence pack |
 | anything else | nothing. Not this repository's own files, not another repository on the account, not your shell configuration. |
@@ -80,10 +81,10 @@ It still does not turn a worktree into an OS sandbox. A repository program may u
 credential source available to the operating-system account (for example an independently
 configured credential helper or keyring), or make unauthenticated network calls of its own. For
 the controlled Stage 14 run, use an isolated account/session or a throwaway credential scoped to
-`Pavithran-R-A/mergesutra-e2e-fixture` only. A run that cannot read is honest; a run that can
+`Pavithran-R-A/mergesutra` only. A run that cannot read is honest; a run that can
 write more than the experiment intends is not.
 
-The fixture clone is pinned at `6f3a0adb17389b93fd76b95c21a1c9eb7b161998` on `main`, and its issue
+The fixture clone is pinned at `153b330c08a7780e38390a7af8b53fa25b5e5760` on the public `e2e-fixture` branch, and its issue
 asks for one deterministic change: `slugify` must trim separator characters from both ends, with
 five acceptance criteria that each resolve to a command exit code. Issue #1 is the task; the
 criteria are the contract; nothing about the run depends on anyone's opinion.
@@ -102,7 +103,7 @@ cd <mergesutra-checkout>
 npm ci
 npm run build
 node dist/bin.js --version
-git -C <fixture-clone> rev-parse HEAD   # must print 6f3a0adb17389b93fd76b95c21a1c9eb7b161998
+git -C <fixture-clone> rev-parse HEAD   # must print 153b330c08a7780e38390a7af8b53fa25b5e5760
 git -C <fixture-clone> status --porcelain   # must print only what it printed before you started
 ```
 
@@ -239,15 +240,16 @@ run was worth doing.
 
 ```sh
 node dist/bin.js --json report <run-id> > /dev/null   # the pack is on disk; this only proves it parses
-grep -REno 'sk-[A-Za-z0-9_-]{12,}' .mergesutra | wc -l   # expect 0
+grep -REno 'bc_live_[A-Za-z0-9_-]{8,}' .mergesutra | wc -l   # expect 0
+grep -REno 'bc_live_[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{12,}' .mergesutra | wc -l   # expect 0
 grep -REno 'gh[pousr]_[A-Za-z0-9]{12,}' .mergesutra | wc -l   # expect 0
 git status --short   # expect only what it showed in §3
 unset BHARATCODE_API_KEY
 ```
 
 Screen the artifacts by shape, never by the key's value: `grep -F "$BHARATCODE_API_KEY" …` puts
-the credential in a command argument, which is the thing §1 forbids. The two patterns above are
-the families this build's release boundary already refuses to pack
+the credential in a command argument, which is the thing §1 forbids. The three patterns above are
+credential families this build's release boundary refuses to pack
 (`tests/security/credential-boundary.test.ts`).
 
 Then, and only then, clean the fixture: `git -C <fixture-clone> worktree list` names the worktree
@@ -277,20 +279,22 @@ about what a live run "should show" remains a prediction.
 
 - It is not a real-model result. The run it describes has not happened, and nothing here may be
   presented as one.
-- Its measured column is one host: Windows 10 with Git Bash. The gates have a second reading now —
-  the full quality sequence ran green on Linux (WSL2) at the same commit, recorded as S14-8 in
-  `docs/SECURITY_GAP_REGISTER.md` — but §4's chain does not, and the reason is a dependency this file
-  states only here: `gh`, which is how `issue` reads an issue URL (`src/core/runner.ts:55`), is not
-  installed on that Linux host, so step 2 cannot run there and nothing downstream of it can be
-  threaded. A second reading of this chain needs a Linux host with an authenticated `gh`, or a second
-  Windows machine.
-- It does not make a run's blast radius provably the fixture. A process a permitted command starts
-  still inherits the ambient `gh` login, because `gh` is this build's read transport
-  (`src/core/runner.ts:55`, and S14-4's limitation 3). That is why §2 tells whoever runs this to
-  bring a throwaway credential scoped to the fixture repository alone, instead of a login that can
-  write anything they own.
-- It does not verify the hosted CI reading of the same suite, which an account billing limit is
-  currently preventing; the failure signature is recorded in the register.
+- The credential-free §4 chain still has one host reading. The ordinary quality sequence and the
+  dedicated path-shape qualification now run green on GitHub-hosted Ubuntu and Windows with Node 22
+  and 24, and those hosted runners discover both real `git` and real `gh`. That does **not** turn
+  those matrix jobs into a second reading of this chain: the fixture is now a deliberately tiny public branch of this same public repository, so hosted
+  runners can clone it anonymously and use the workflow's read-only ephemeral token to read issue #8.
+- It does not make a run's blast radius provably the fixture. Since S14-9, ordinary
+  repository/workspace child processes receive neither the BharatCode credential nor
+  `GH_TOKEN`/`GITHUB_TOKEN`/`GITHUB_PAT`; GitHub authentication is preserved only for
+  MergeSutra-owned read operations. That closes the direct ambient-environment leak, but it is still
+  not an OS sandbox: repository code can use some other credential source available to the account
+  or make its own network calls. That is why §2 still requires an isolated session or credential
+  scoped to the fixture.
+- Hosted CI is no longer blocked by the private-repository minutes limit: after the canonical
+  repository became public, the full Ubuntu/Windows × Node 22/24 release matrix resumed and is
+  green. The live-model job remains intentionally separate from ordinary CI so untrusted pull
+  requests never receive a BharatCode credential and routine checks never spend provider capacity.
 - `tests/docs/real-model-procedure.test.ts` checks that the commands and variables named here
   exist and that the budgets typed here are accepted. It cannot check whether a correctly spelled
   command is a safe instruction, it cannot see whether the exit codes above were measured or

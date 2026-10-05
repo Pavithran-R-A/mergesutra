@@ -39,7 +39,8 @@ const SECRET_ENV_NAMES = [
 
 /** Token-shaped patterns for well-known credential formats. */
 const SECRET_PATTERNS: readonly RegExp[] = [
-  // BharatCode / OpenAI-style keys: sk-..., sk-proj-...
+  // BharatCode keys: current bc_live_... plus legacy/OpenAI-style sk-...
+  /\bbc_live_[A-Za-z0-9_-]{8,}/g,
   /\bsk-[A-Za-z0-9_-]{8,}/g,
   // GitHub tokens: ghp_, gho_, ghs_, github_pat_
   /\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{10,}/g,

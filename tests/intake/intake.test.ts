@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AppError } from '../../src/core/errors.js';
+import type { Runner } from '../../src/core/runner.js';
 import { runIntake } from '../../src/intake/intake.js';
 import { toIssueDocument } from '../../src/github/schemas.js';
 import { RUN_SCHEMA_VERSION } from '../../src/state/run-record.js';
@@ -12,7 +13,12 @@ import {
   memoryRunStore,
   scriptedRunner,
 } from '../helpers/github.js';
-import { adversarialIssuePayload } from '../fixtures/github-payloads.js';
+import {
+  adversarialIssuePayload,
+  commitPayload,
+  issuePayload,
+  repositoryPayload,
+} from '../fixtures/github-payloads.js';
 
 /**
  * Intake is the stage that decides what the rest of the run believes, so these
@@ -113,6 +119,40 @@ describe('runIntake — issue URL only', () => {
       { github: fakeGitHub(), run: scripted.run, store: memoryRunStore() },
     );
     expect(scripted.calls).toEqual([]);
+  });
+
+  it('keeps GitHub reads on the dedicated runner when local process reads use another runner', async () => {
+    const ordinary = scriptedRunner({});
+    const githubCalls: { file: string; args: readonly string[] }[] = [];
+    const githubRun: Runner = async (file, args) => {
+      githubCalls.push({ file, args: [...args] });
+      const endpoint = args.at(-1);
+      if (endpoint === 'repos/projectbharat/datekit/issues/123') {
+        return { code: 0, stdout: JSON.stringify(issuePayload), stderr: '' };
+      }
+      if (endpoint === 'repos/projectbharat/datekit') {
+        return { code: 0, stdout: JSON.stringify(repositoryPayload), stderr: '' };
+      }
+      if (endpoint === 'repos/projectbharat/datekit/commits/main') {
+        return { code: 0, stdout: JSON.stringify(commitPayload), stderr: '' };
+      }
+      return { code: 1, stdout: '', stderr: `unexpected endpoint: ${String(endpoint)}` };
+    };
+
+    const result = await runIntake(
+      { issueUrl: ISSUE_URL },
+      { run: ordinary.run, githubRun, store: memoryRunStore() },
+    );
+
+    expect(result.record.outcome).toBe('INTAKE_COMPLETE');
+    expect(ordinary.calls).toEqual([]);
+    expect(githubCalls).toHaveLength(3);
+    expect(githubCalls.every((call) => call.file === 'gh')).toBe(true);
+    expect(githubCalls.map((call) => call.args.at(-1))).toEqual([
+      'repos/projectbharat/datekit/issues/123',
+      'repos/projectbharat/datekit',
+      'repos/projectbharat/datekit/commits/main',
+    ]);
   });
 
   it('records the import as untrusted data, never as instructions', async () => {
