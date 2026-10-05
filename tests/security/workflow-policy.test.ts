@@ -329,7 +329,7 @@ describe('the policy fires on the mutations it exists for', () => {
   });
 
   it('rejects a pinned SHA that does not say which tag it is', () => {
-    expect(workflowViolations(skeleton('      - run: npm ci').replace(' # v4', ''))).toEqual([
+    expect(workflowViolations(skeleton('      - run: npm ci').replace(' # v6', ''))).toEqual([
       '`actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803` does not name the tag its SHA came from',
     ]);
   });
