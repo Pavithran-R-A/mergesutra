@@ -7,7 +7,9 @@ const expectedTag = `v${pkg.version}`;
 const releaseTag = process.env.RELEASE_TAG?.trim();
 
 if (!releaseTag) {
-  process.stderr.write('RELEASE_TAG is missing; this workflow must run from a published GitHub Release.\n');
+  process.stderr.write(
+    'RELEASE_TAG is missing; this workflow must run from a published GitHub Release.\n',
+  );
   process.exit(1);
 }
 if (releaseTag !== expectedTag) {
