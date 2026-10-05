@@ -6,6 +6,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-05
+
+### Added — Stage 15 consumer release infrastructure
+
+- Public GitHub-hosted CI now runs the authoritative gates on Ubuntu and Windows,
+  across Node 22 and Node 24, without depending on the exhausted private-repository
+  Actions allowance.
+- CI includes a production-dependency audit (`npm audit --omit=dev --audit-level=high`);
+  the release-candidate matrix reports zero runtime vulnerabilities.
+- `.github/workflows/publish.yml` is release-only and prepared for npm Trusted
+  Publishing with GitHub OIDC: no long-lived npm token is stored in the workflow,
+  external actions are pinned to immutable v6 commits, and the package/tag/commit
+  identity is checked before publication.
+- The npm publish helper is idempotent: an already-published exact version is
+  verified instead of republished.
+- The package and CLI version advance to `0.1.0`, with public-package metadata
+  and consumer-facing installation guidance.
+
+### Release-validation limits
+
+This version does **not** convert missing evidence into a pass. The controlled
+BharatCode real-endpoint Stage-14 run and the approximately ten-task benchmark
+still require a real provider credential. The first npm namespace publication
+also requires an npm maintainer to authenticate interactively before the package
+can be linked to Trusted Publishing. Those are external credential boundaries,
+not skipped gates.
+
 ### Fixed — Stage 14: workspace commands no longer inherit GitHub environment credentials
 
 The process boundary now strips `GH_TOKEN`, `GITHUB_TOKEN` and `GITHUB_PAT` from every ordinary
