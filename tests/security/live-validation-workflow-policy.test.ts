@@ -21,10 +21,12 @@ function job(name: string, next?: string): string {
 }
 
 describe('the controlled live-validation workflow', () => {
-  it('has no pull-request trigger and no path to main pushes', () => {
-    expect(WORKFLOW).toMatch(/^on:\n {2}workflow_dispatch:/m);
+  it('permits only the temporary harness-branch push and never a pull-request or main push', () => {
+    expect(WORKFLOW).toMatch(
+      /^on:\n {2}push:\n {4}branches: \[release\/live-validation-harness\]\n {2}workflow_dispatch:/m,
+    );
     expect(WORKFLOW).not.toMatch(/pull_request(?:_target)?:/);
-    expect(WORKFLOW).not.toMatch(/^\s*push:/m);
+    expect(WORKFLOW).not.toMatch(/branches:\s*\[main\]/);
   });
 
   it('keeps the workflow and both jobs read-only on GitHub', () => {
@@ -55,6 +57,7 @@ describe('the controlled live-validation workflow', () => {
   it('requires a deliberate live trigger and pins the only model this run is allowed to use', () => {
     const live = job('live-model');
     expect(live).toContain("if: github.ref == 'refs/heads/main' && inputs.run_live == true");
+    expect(live).toContain('needs: no-key-chain');
     expect(live).toContain('BHARATCODE_MODEL: deepseek-v4.1-flash');
     expect(live).toContain('needs: no-key-chain');
     expect(live).toContain('timeout-minutes: 15');
