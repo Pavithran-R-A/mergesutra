@@ -22,12 +22,10 @@ function job(name: string, next?: string): string {
 }
 
 describe('the controlled live-validation workflow', () => {
-  it('permits only the temporary harness-branch push and never a pull-request or main push', () => {
-    expect(WORKFLOW).toMatch(
-      /^on:\n {2}push:\n {4}branches: \[release\/live-validation-harness\]\n {2}workflow_dispatch:/m,
-    );
+  it('is manual-only and never runs from push or pull-request events', () => {
+    expect(WORKFLOW).toMatch(/^on:\n {2}workflow_dispatch:/m);
     expect(WORKFLOW).not.toMatch(/pull_request(?:_target)?:/);
-    expect(WORKFLOW).not.toMatch(/branches:\s*\[main\]/);
+    expect(WORKFLOW).not.toMatch(/^\s*push:/m);
   });
 
   it('keeps the workflow and both jobs read-only on GitHub', () => {
