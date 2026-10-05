@@ -3,7 +3,7 @@ import type { BharatCodeClient } from '../bharatcode/client.js';
 import type { RenderOptions, Renderer, Status } from './render.js';
 import { terminalSafeDocument } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor } from './render.js';
-import { defaultRunner, safeRun, type Runner, type RunResult } from '../core/runner.js';
+import { defaultRunner, githubReadRunner, safeRun, type Runner, type RunResult } from '../core/runner.js';
 
 /**
  * `mergesutra doctor` — environment diagnosis that never prints the API key value.
@@ -34,6 +34,7 @@ const MIN_NODE_MAJOR = 22;
 export async function runDoctor(deps: DoctorDeps): Promise<DoctorCheck[]> {
   const env = deps.env;
   const run = deps.run ?? defaultRunner;
+  const ghRun = deps.run ?? githubReadRunner;
   const nodeVersion = deps.nodeVersion ?? process.versions.node;
   const checks: DoctorCheck[] = [];
 
@@ -61,14 +62,14 @@ export async function runDoctor(deps: DoctorDeps): Promise<DoctorCheck[]> {
   }
 
   // GitHub CLI + auth
-  const gh = await safeRun(run, 'gh', ['--version']);
+  const gh = await safeRun(ghRun, 'gh', ['--version']);
   if (gh && gh.code === 0) {
     checks.push({
       name: 'GitHub CLI',
       status: 'PASS',
       detail: firstLine(gh.stdout) || 'available',
     });
-    const auth = await safeRun(run, 'gh', ['auth', 'status']);
+    const auth = await safeRun(ghRun, 'gh', ['auth', 'status']);
     checks.push(
       auth && auth.code === 0
         ? { name: 'GitHub auth', status: 'PASS', detail: 'signed in' }
