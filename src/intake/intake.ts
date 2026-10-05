@@ -99,7 +99,7 @@ export async function runIntake(
       checks.push({
         name: 'Local repository',
         status: 'PASS',
-        detail: `${shortPath(local.toplevel)} @ ${local.head.shortSha} on ${local.branch}`,
+        detail: `${abbreviateHomePath(local.toplevel)} @ ${local.head.shortSha} on ${local.branch}`,
       });
     } catch (error) {
       checks.push({ name: 'Local repository', status: 'FAIL', detail: errorMessage(error) });
@@ -194,7 +194,7 @@ export async function runIntake(
       checks.push({
         name: 'Repository match',
         status: 'FAIL',
-        detail: `issue is for ${issueRef.owner}/${issueRef.repo} but ${shortPath(local.toplevel)} is ${found}`,
+        detail: `issue is for ${issueRef.owner}/${issueRef.repo} but ${abbreviateHomePath(local.toplevel)} is ${found}`,
       });
       limitations.push(
         'The supplied --repo is not the issue repository. MergeSutra will not use it as the base.',
@@ -365,10 +365,31 @@ function remediationOf(error: unknown): string | undefined {
     : undefined;
 }
 
-function shortPath(value: string): string {
-  const home = process.env['HOME'] ?? process.env['USERPROFILE'] ?? '';
-  if (home && value.toLowerCase().startsWith(home.toLowerCase())) {
-    return '~' + value.slice(home.length);
+export function abbreviateHomePath(
+  value: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const normalize = (input: string): string => {
+    const separators = platform === 'win32' ? input.replaceAll('\\', '/') : input;
+    return separators.length > 1 ? separators.replace(/\/+$/, '') : separators;
+  };
+  const candidate = normalize(value);
+  const comparable = (input: string): string =>
+    platform === 'win32' ? input.toLowerCase() : input;
+
+  for (const rawHome of [env['HOME'], env['USERPROFILE']]) {
+    if (!rawHome) continue;
+    const home = normalize(rawHome);
+    if (home.length === 0) continue;
+
+    const candidateKey = comparable(candidate);
+    const homeKey = comparable(home);
+    if (candidateKey === homeKey) return '~';
+    if (candidateKey.startsWith(homeKey + '/')) {
+      return '~' + candidate.slice(home.length);
+    }
   }
+
   return value;
 }
