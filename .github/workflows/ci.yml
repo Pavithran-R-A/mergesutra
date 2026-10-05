@@ -51,11 +51,8 @@ jobs:
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Run release helper format probe
-        run: |
-          npx prettier --write scripts/verify-release-tag.mjs
-          git diff -- scripts/verify-release-tag.mjs
-          exit 1
+      - name: Run all deterministic gates
+        run: npm run check
 
       - name: Verify the shipping artifact's boundaries
         run: npm run verify:package
