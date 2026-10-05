@@ -34,6 +34,7 @@ const SHA = /^[0-9a-f]{40}$/;
 /** The gates the runner must execute, in the order it must execute them in. */
 const REQUIRED_STEPS = [
   'npm ci',
+  'npm audit --omit=dev --audit-level=high',
   'npm run check',
   'npm run verify:package',
   'npm run test:artifact',
@@ -264,7 +265,7 @@ describe('the hosted workflow obeys the Actions security policy', () => {
 
 describe('the policy fires on the mutations it exists for', () => {
   const CHECKOUT = [
-    '      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4',
+    '      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6',
     '        with:',
     '          fetch-depth: 0',
   ].join('\n');
@@ -319,7 +320,7 @@ describe('the policy fires on the mutations it exists for', () => {
 
   it('rejects a floating version reference', () => {
     const floating = skeleton('      - run: npm ci').replace(
-      '@11d5960a326750d5838078e36cf38b85af677262 # v4',
+      '@d23441a48e516b6c34aea4fa41551a30e30af803 # v6',
       '@v4 # v4',
     );
     expect(workflowViolations(floating)).toEqual([
@@ -329,7 +330,7 @@ describe('the policy fires on the mutations it exists for', () => {
 
   it('rejects a pinned SHA that does not say which tag it is', () => {
     expect(workflowViolations(skeleton('      - run: npm ci').replace(' # v4', ''))).toEqual([
-      '`actions/checkout@11d5960a326750d5838078e36cf38b85af677262` does not name the tag its SHA came from',
+      '`actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803` does not name the tag its SHA came from',
     ]);
   });
 
@@ -403,7 +404,7 @@ describe('the gate set is complete, not merely valid', () => {
     }
   });
 
-  it('orders them install, then source gates, then artifact gates', () => {
+  it('orders them install, runtime audit, source gates, then artifact gates', () => {
     expect(runs.map((r) => r.raw.replace(/^\s*run:\s*/, '').trim())).toEqual(REQUIRED_STEPS);
   });
 });
