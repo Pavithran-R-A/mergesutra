@@ -18,16 +18,16 @@ function runCommands(text: string): string[] {
 
 describe('the npm publish workflow is release-only and least-privilege', () => {
   it('runs only for a published GitHub Release', () => {
-    expect(WORKFLOW).toMatch(/^on:\n  release:\n    types: \[published\]/m);
+    expect(WORKFLOW).toMatch(/^on:\n {2}release:\n {4}types: \[published\]/m);
     expect(WORKFLOW).not.toMatch(
       /pull_request_target|pull_request:|\bpush:|workflow_dispatch|schedule:/,
     );
   });
 
   it('keeps top-level permissions read-only and grants OIDC only to the publish job', () => {
-    expect(WORKFLOW).toMatch(/^permissions:\n  contents: read\n/m);
+    expect(WORKFLOW).toMatch(/^permissions:\n {2}contents: read\n/m);
     expect(WORKFLOW).toMatch(
-      /jobs:\n  publish:[\s\S]*?    permissions:\n      contents: read\n      id-token: write\n/,
+      /jobs:\n {2}publish:[\s\S]*? {4}permissions:\n {6}contents: read\n {6}id-token: write\n/,
     );
     expect(WORKFLOW.match(/id-token:\s*write/g) ?? []).toHaveLength(1);
     expect(WORKFLOW).not.toMatch(/contents:\s*write/);
