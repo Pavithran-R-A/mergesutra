@@ -1,0 +1,8 @@
+{
+  "name": "mergesutra-stage14-e2e-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node check.mjs"
+  }
+}
