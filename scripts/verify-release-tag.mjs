@@ -10,14 +10,18 @@ if (!releaseTag) {
   process.exit(1);
 }
 if (releaseTag !== expectedTag) {
-  console.error(`Release tag ${releaseTag} does not match package version ${pkg.version} (expected ${expectedTag}).`);
+  console.error(
+    `Release tag ${releaseTag} does not match package version ${pkg.version} (expected ${expectedTag}).`,
+  );
   process.exit(1);
 }
 
 const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const workflowSha = process.env.GITHUB_SHA?.trim();
 if (!workflowSha || head !== workflowSha) {
-  console.error(`Checked-out HEAD ${head} does not match workflow SHA ${workflowSha ?? '<missing>'}.`);
+  console.error(
+    `Checked-out HEAD ${head} does not match workflow SHA ${workflowSha ?? '<missing>'}.`,
+  );
   process.exit(1);
 }
 
