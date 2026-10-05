@@ -212,10 +212,15 @@ async function main() {
     );
   }
 
-  const clone = git('fixture-clone', ['clone', '--no-tags', '--single-branch', '--branch', 'e2e-fixture', FIXTURE_URL, fixture], ROOT, {
-    env: childEnv({ publicGit: true }),
-    timeoutMs: 120_000,
-  });
+  const clone = git(
+    'fixture-clone',
+    ['clone', '--no-tags', '--single-branch', '--branch', 'e2e-fixture', FIXTURE_URL, fixture],
+    ROOT,
+    {
+      env: childEnv({ publicGit: true }),
+      timeoutMs: 120_000,
+    },
+  );
   assertExit(clone, [0]);
   const checkout = git('fixture-checkout', ['checkout', '--detach', FIXTURE_SHA], fixture, {
     env: childEnv({ publicGit: true }),
