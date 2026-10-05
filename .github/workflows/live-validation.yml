@@ -8,14 +8,9 @@ on:
         required: true
         default: false
         type: boolean
-  push:
-    branches:
-      - release/live-validation-run
-
-# This workflow never runs on pull requests. Ordinary CI owns untrusted code.
-# The no-key job proves the public fixture can be read from both hosted platforms.
-# The live job runs only when a human dispatches it with run_live=true or when a
-# deliberate commit on release/live-validation-run contains [live-model].
+# This workflow never runs on pull requests or pushes. Ordinary CI owns untrusted
+# code. A person must dispatch it deliberately. The live job additionally refuses
+# to run unless the selected ref is main.
 permissions:
   contents: read
 
@@ -66,9 +61,7 @@ jobs:
   live-model:
     name: real BharatCode E2E
     needs: no-key-chain
-    if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.run_live == true) ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-model]'))
+    if: github.ref == 'refs/heads/main' && inputs.run_live == true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
