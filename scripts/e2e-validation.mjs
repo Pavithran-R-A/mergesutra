@@ -10,7 +10,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'dist', 'bin.js');
 const FIXTURE_URL = 'https://github.com/Pavithran-R-A/mergesutra.git';
 const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra/issues/8';
-const FIXTURE_SHA = '153b330c08a7780e38390a7af8b53fa25b5e5760';
+const FIXTURE_BRANCH = 'main';
 const MODEL = 'deepseek-v4.1-flash';
 const LIVE_DEADLINE_MS = 10 * 60_000;
 
@@ -207,19 +207,24 @@ function fail(message) {
 async function main() {
   const publicProbe = git(
     'fixture-public-probe',
-    ['ls-remote', '--exit-code', FIXTURE_URL, 'refs/heads/e2e-fixture'],
+    ['ls-remote', '--exit-code', FIXTURE_URL, `refs/heads/${FIXTURE_BRANCH}`],
     ROOT,
     { env: childEnv({ publicGit: true }), timeoutMs: 60_000 },
   );
   if (publicProbe.exitCode !== 0) {
     fail(
-      'the public e2e-fixture branch is not anonymously readable; hosted validation cannot continue',
+      'the public main branch is not anonymously readable; hosted validation cannot continue',
     );
+  }
+
+  const advertisedFixtureSha = publicProbe.stdout.trim().split(/\s+/)[0] ?? '';
+  if (!/^[0-9a-f]{40}$/.test(advertisedFixtureSha)) {
+    fail('the public main branch did not advertise a full commit SHA');
   }
 
   const clone = git(
     'fixture-clone',
-    ['clone', '--no-tags', '--single-branch', '--branch', 'e2e-fixture', FIXTURE_URL, fixture],
+    ['clone', '--no-tags', '--single-branch', '--branch', FIXTURE_BRANCH, FIXTURE_URL, fixture],
     ROOT,
     {
       env: childEnv({ publicGit: true }),
@@ -227,14 +232,17 @@ async function main() {
     },
   );
   assertExit(clone, [0]);
-  const checkout = git('fixture-checkout', ['checkout', '--detach', FIXTURE_SHA], fixture, {
-    env: childEnv({ publicGit: true }),
-  });
-  assertExit(checkout, [0]);
   const head = git('fixture-head', ['rev-parse', 'HEAD'], fixture);
   assertExit(head, [0]);
-  if (head.stdout.trim() !== FIXTURE_SHA)
-    fail('fixture HEAD does not match the pinned validation SHA');
+  const fixtureSha = head.stdout.trim();
+  if (fixtureSha !== advertisedFixtureSha) {
+    fail('fixture main moved while validation was cloning it; retry against one stable head');
+  }
+  const branch = git('fixture-branch', ['branch', '--show-current'], fixture);
+  assertExit(branch, [0]);
+  if (branch.stdout.trim() !== FIXTURE_BRANCH) {
+    fail('fixture clone is not on the repository default main branch');
+  }
 
   const before = await trackedSnapshot(fixture);
   const beforeStatus = git('fixture-status-before', ['status', '--porcelain'], fixture);
@@ -403,7 +411,7 @@ async function main() {
       repository: 'Pavithran-R-A/mergesutra',
       branch: 'e2e-fixture',
       issue: 8,
-      sha: FIXTURE_SHA,
+      sha: fixtureSha,
       trackedBytesUnchanged: fixtureUnchanged,
       statusUnchanged,
       worktrees: worktrees.stdout.trim().split(/\r?\n/),
