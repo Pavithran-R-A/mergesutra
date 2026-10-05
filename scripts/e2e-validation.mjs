@@ -407,7 +407,7 @@ async function main() {
     mergeSutraVersion: version.stdout.trim(),
     fixture: {
       repository: 'Pavithran-R-A/mergesutra',
-      branch: 'e2e-fixture',
+      branch: FIXTURE_BRANCH,
       issue: 8,
       sha: fixtureSha,
       trackedBytesUnchanged: fixtureUnchanged,
