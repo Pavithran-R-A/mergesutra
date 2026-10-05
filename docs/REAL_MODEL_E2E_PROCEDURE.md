@@ -277,20 +277,23 @@ about what a live run "should show" remains a prediction.
 
 - It is not a real-model result. The run it describes has not happened, and nothing here may be
   presented as one.
-- Its measured column is one host: Windows 10 with Git Bash. The gates have a second reading now —
-  the full quality sequence ran green on Linux (WSL2) at the same commit, recorded as S14-8 in
-  `docs/SECURITY_GAP_REGISTER.md` — but §4's chain does not, and the reason is a dependency this file
-  states only here: `gh`, which is how `issue` reads an issue URL (`src/core/runner.ts:55`), is not
-  installed on that Linux host, so step 2 cannot run there and nothing downstream of it can be
-  threaded. A second reading of this chain needs a Linux host with an authenticated `gh`, or a second
-  Windows machine.
-- It does not make a run's blast radius provably the fixture. A process a permitted command starts
-  still inherits the ambient `gh` login, because `gh` is this build's read transport
-  (`src/core/runner.ts:55`, and S14-4's limitation 3). That is why §2 tells whoever runs this to
-  bring a throwaway credential scoped to the fixture repository alone, instead of a login that can
-  write anything they own.
-- It does not verify the hosted CI reading of the same suite, which an account billing limit is
-  currently preventing; the failure signature is recorded in the register.
+- The credential-free §4 chain still has one host reading. The ordinary quality sequence and the
+  dedicated path-shape qualification now run green on GitHub-hosted Ubuntu and Windows with Node 22
+  and 24, and those hosted runners discover both real `git` and real `gh`. That does **not** turn
+  those matrix jobs into a second reading of this chain: the dedicated fixture repository is still
+  private, so a hosted runner has no authority to read its issue or clone it unless the fixture is
+  made public or a deliberately scoped read credential is supplied.
+- It does not make a run's blast radius provably the fixture. Since S14-9, ordinary
+  repository/workspace child processes receive neither the BharatCode credential nor
+  `GH_TOKEN`/`GITHUB_TOKEN`/`GITHUB_PAT`; GitHub authentication is preserved only for
+  MergeSutra-owned read operations. That closes the direct ambient-environment leak, but it is still
+  not an OS sandbox: repository code can use some other credential source available to the account
+  or make its own network calls. That is why §2 still requires an isolated session or credential
+  scoped to the fixture.
+- Hosted CI is no longer blocked by the private-repository minutes limit: after the canonical
+  repository became public, the full Ubuntu/Windows × Node 22/24 release matrix resumed and is
+  green. The live-model job remains intentionally separate from ordinary CI so untrusted pull
+  requests never receive a BharatCode credential and routine checks never spend provider capacity.
 - `tests/docs/real-model-procedure.test.ts` checks that the commands and variables named here
   exist and that the budgets typed here are accepted. It cannot check whether a correctly spelled
   command is a safe instruction, it cannot see whether the exit codes above were measured or
