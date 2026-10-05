@@ -1,9 +1,12 @@
 {
   "name": "mergesutra",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Issue in, evidence-backed PR draft out. A BharatCode-powered CLI agent that turns a GitHub issue into a reviewable pull-request draft with traceable evidence for each acceptance criterion the run's gates could check.",
   "type": "module",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "author": "MergeSutra contributors",
   "homepage": "https://github.com/Pavithran-R-A/mergesutra#readme",
   "repository": {
