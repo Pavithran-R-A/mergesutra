@@ -1,14 +1,5 @@
 import { createHash } from 'node:crypto';
-import {
-  cp,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -232,7 +223,8 @@ async function main() {
   assertExit(checkout, [0]);
   const head = git('fixture-head', ['rev-parse', 'HEAD'], fixture);
   assertExit(head, [0]);
-  if (head.stdout.trim() !== FIXTURE_SHA) fail('fixture HEAD does not match the pinned validation SHA');
+  if (head.stdout.trim() !== FIXTURE_SHA)
+    fail('fixture HEAD does not match the pinned validation SHA');
 
   const before = await trackedSnapshot(fixture);
   const beforeStatus = git('fixture-status-before', ['status', '--porcelain'], fixture);
@@ -258,11 +250,14 @@ async function main() {
     const plan = exec('plan-no-key', process.execPath, [BIN, '--json', 'plan', runId]);
     assertExit(plan, [78]);
 
-    const verify = exec(
-      'verify-no-key',
-      process.execPath,
-      [BIN, '--json', 'verify', runId, '--repo', fixture],
-    );
+    const verify = exec('verify-no-key', process.execPath, [
+      BIN,
+      '--json',
+      'verify',
+      runId,
+      '--repo',
+      fixture,
+    ]);
     assertExit(verify, [1, 4]);
 
     const status = cli('status', ['status', runId, '--repo', fixture], [0]);
@@ -314,33 +309,24 @@ async function main() {
     finalRecord = consentProbe.json.record;
     const gates = consentProbe.json.record.verificationPlan?.gates ?? [];
     const npmTest = gates.filter(
-      (gate) => Array.isArray(gate.argv) && gate.argv.length === 2 && gate.argv[0] === 'npm' && gate.argv[1] === 'test',
+      (gate) =>
+        Array.isArray(gate.argv) &&
+        gate.argv.length === 2 &&
+        gate.argv[0] === 'npm' &&
+        gate.argv[1] === 'test',
     );
     if (npmTest.length !== 1) {
       fail(`expected exactly one npm test gate; observed ${String(npmTest.length)}`);
     }
     const gateId = npmTest[0].id;
 
-    const verify = cli(
-      'verify',
-      ['verify', runId, '--repo', fixture, '--allow', gateId],
-      [0, 1],
-    );
+    const verify = cli('verify', ['verify', runId, '--repo', fixture, '--allow', gateId], [0, 1]);
     verifyExit = verify.record.exitCode;
     finalRecord = verify.json.record;
 
     const review = cli(
       'review',
-      [
-        'review',
-        runId,
-        '--repo',
-        fixture,
-        '--max-review-cycles',
-        '1',
-        '--max-repair-cycles',
-        '1',
-      ],
+      ['review', runId, '--repo', fixture, '--max-review-cycles', '1', '--max-repair-cycles', '1'],
       [3, 4],
     );
     finalRecord = review.json.record;
@@ -469,7 +455,11 @@ async function main() {
           published: prJson.published,
         }
       : null,
-    steps: steps.map((step) => ({ label: step.label, exitCode: step.exitCode, signal: step.signal })),
+    steps: steps.map((step) => ({
+      label: step.label,
+      exitCode: step.exitCode,
+      signal: step.signal,
+    })),
     security: {
       outputLeakDetected: rawLeak,
       artifactFindings: rawArtifactFindings,
@@ -477,13 +467,17 @@ async function main() {
     elapsedMs: Date.now() - startedAt,
   };
 
-  await writeFile(path.join(exportRoot, `${mode}-summary.json`), JSON.stringify(summary, null, 2) + '\n');
+  await writeFile(
+    path.join(exportRoot, `${mode}-summary.json`),
+    JSON.stringify(summary, null, 2) + '\n',
+  );
   process.stdout.write('MERGESUTRA_VALIDATION_SUMMARY\n');
   process.stdout.write(JSON.stringify(summary, null, 2) + '\n');
 
   if (mode === 'live') {
     if (completionCount > 12) fail('observed model requests exceeded the chain ceiling');
-    if (Date.now() - startedAt > LIVE_DEADLINE_MS) fail('live chain exceeded the 10-minute wall-clock ceiling');
+    if (Date.now() - startedAt > LIVE_DEADLINE_MS)
+      fail('live chain exceeded the 10-minute wall-clock ceiling');
     if (verifyExit !== 0) fail('deterministic verification did not pass');
     if (finalRecord?.repairPlan) {
       fail('review produced a repair plan; human digest approval is required before any repair');
