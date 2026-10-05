@@ -493,6 +493,30 @@ async function main() {
 
 try {
   await main();
+} catch (error) {
+  for (let index = 0; index < steps.length; index += 1) {
+    await writeStep(steps[index], index).catch(() => undefined);
+  }
+  await writeFile(
+    path.join(exportRoot, `${mode}-failure.json`),
+    JSON.stringify(
+      {
+        mode,
+        sourceSha: process.env.GITHUB_SHA ?? null,
+        error: sanitized(error instanceof Error ? error.message : String(error)),
+        steps: steps.map((step) => ({
+          label: step.label,
+          exitCode: step.exitCode,
+          signal: step.signal,
+        })),
+        outputLeakDetected: rawLeak,
+      },
+      null,
+      2,
+    ) + '\n',
+    'utf8',
+  ).catch(() => undefined);
+  throw error;
 } finally {
   await rm(scratch, { recursive: true, force: true }).catch(() => undefined);
 }
