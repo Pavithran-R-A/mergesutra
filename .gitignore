@@ -1,26 +1,2 @@
-# Dependencies
 node_modules/
-
-# Build output
-dist/
-
-# Coverage
-coverage/
-
-# MergeSutra local run state / evidence packs (never committed)
 .mergesutra/
-
-# Environment & secrets — never commit credentials
-.env
-.env.*
-*.local
-
-# Editor / OS noise
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-npm-debug.log*

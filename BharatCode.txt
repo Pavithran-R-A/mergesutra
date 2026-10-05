@@ -1,8 +1,0 @@
-Project: MergeSutra
-Track: CLI Agent
-Theme: Build the tools India will code with.
-Runtime: BharatCode
-Tagline: Issue in. Evidence-backed PR out.
-Purpose: Turn GitHub issues into evidence-backed pull-request drafts, with
-traceable evidence for each acceptance criterion the run's gates could check.
-Status: Built for BharatCode Build League — Round 1 (CLI Agent track).

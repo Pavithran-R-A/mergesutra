@@ -1,80 +1,11 @@
 {
-  "name": "mergesutra",
+  "name": "mergesutra-e2e-fixture",
   "version": "0.1.0",
-  "description": "Issue in, evidence-backed PR draft out. A BharatCode-powered CLI agent that turns a GitHub issue into a reviewable pull-request draft with traceable evidence for each acceptance criterion the run's gates could check.",
+  "description": "A deliberately tiny package used to exercise MergeSutra's issue to pull-request flow end to end.",
   "type": "module",
-  "license": "MIT",
-  "publishConfig": {
-    "access": "public"
-  },
-  "author": "MergeSutra contributors",
-  "homepage": "https://github.com/Pavithran-R-A/mergesutra#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Pavithran-R-A/mergesutra.git"
-  },
-  "bugs": {
-    "url": "https://github.com/Pavithran-R-A/mergesutra/issues"
-  },
-  "keywords": [
-    "bharatcode",
-    "github",
-    "pull-request",
-    "cli",
-    "agent",
-    "verification",
-    "evidence"
-  ],
-  "bin": {
-    "mergesutra": "./dist/bin.js"
-  },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
-  "engines": {
-    "node": ">=22"
-  },
-  "files": [
-    "dist",
-    "BharatCode.txt",
-    "README.md",
-    "LICENSE"
-  ],
+  "main": "src/slugify.js",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "dev": "tsx src/bin.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:live": "MERGESUTRA_LIVE_BHARATCODE=1 vitest run --all",
-    "test:artifact": "vitest run --config vitest.release.config.ts",
-    "qualify:path-shapes": "node scripts/path-shape-qualification.mjs",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test",
-    "verify:package": "npm run build && vitest run tests/security/publish-contents.test.ts tests/security/credential-boundary.test.ts tests/security/home-path-boundary.test.ts tests/security/public-link-boundary.test.ts tests/security/shipped-pointer-boundary.test.ts",
-    "prepack": "npm run verify:package",
-    "prepublishOnly": "npm run check"
+    "test": "node --test"
   },
-  "dependencies": {
-    "commander": "^12.1.0",
-    "zod": "^3.23.8"
-  },
-  "devDependencies": {
-    "@eslint/js": "^9.9.0",
-    "@types/node": "^24.0.0",
-    "eslint": "^9.9.0",
-    "prettier": "^3.3.3",
-    "tsx": "^4.19.0",
-    "typescript": "^5.5.4",
-    "typescript-eslint": "^8.1.0",
-    "vitest": "^2.1.0"
-  }
+  "license": "MIT"
 }
