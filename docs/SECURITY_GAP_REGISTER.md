@@ -4546,6 +4546,91 @@ the three measuring files needs a live key to run.
 4. The evidence-pack case is a pin (see above), so this entry's claim about the pack is "the pack has no
    plan prose to leak through, and the day it does a test says so" — not "the pack masks the credential".
 
+## S14-6 — the README told readers about a switch no code reads — CLOSED (DOCUMENT + TEST)
+
+**Found by.** Writing the Stage 14 real-model procedure, which has to answer one operational
+question before a credential is in scope: *is there anything a person can set that would let the run
+push a branch or open a pull request?* `README.md:1675-1678` (at `0802817`) answered it in the
+affirmative shape —
+"`NO_COLOR` turns colour off, and `MERGESUTRA_ALLOW_REMOTE_PUBLICATION` is a capability this build
+leaves unset, so nothing on the other side of an approval acts on it" — and `README.md:1462-1463` said
+the same thing about a captured run ("`MERGESUTRA_ALLOW_REMOTE_PUBLICATION` is still unset"). Both
+describe an environment variable. `git grep -n "ALLOW_REMOTE_PUBLICATION" 0802817` over the whole tracked
+tree returns three lines and no code among them — `README.md:1463`, `README.md:1676`, and this register's
+own `S12-31` closure note (`docs/SECURITY_GAP_REGISTER.md:2753`, recording what was changed *then*). What
+actually ships is
+`unavailableRemote()` (`src/pr/publisher.ts:98`), whose `pushBranch` and `createPullRequest` both refuse
+unconditionally; `resolveColor` (`src/cli/render.ts:39-44`) reads `NO_COLOR` and `FORCE_COLOR`, and no
+`env` lookup in `src/` or `tests/` carries the publication name.
+
+The defect is not a missing feature. It is a document teaching a customer that a permission exists and
+awaits a value, on the exact boundary where this build's safety claim is "there is no switch, so no
+approval can be mistaken for one". A person following the Stage 14 procedure could have set the variable
+believing they had authorised the push, and the run would have behaved identically — which is the worst
+kind of configuration misunderstanding, because it looks like success. It also broke the promise the
+README makes about itself elsewhere: that the manual describes this build.
+
+**The change.** Two, in the order the method requires.
+
+- The test came first, and it had to fail for this reason. `tests/config/config-docs.test.ts` already
+  checked one direction — every `BHARATCODE_*` the code reads must be printed in the README (`:22-44`,
+  S12-era). That shape cannot see a name printed in the README that the code never reads, which is
+  precisely how the phantom survived every gate. A second block (`:99-116`) now collects the family of
+  environment-shaped names the README uses (`BHARATCODE_`, `MERGESUTRA_`, `GH_`, `GITHUB_`, `NO_COLOR`,
+  `FORCE_COLOR`) and requires each to be *spoken* by code: read through `env.<NAME>` / `env['<NAME>']`
+  in `src/` or `tests/`, or carried as a quoted constant in `src/` because it is a state word the program
+  emits rather than an input it consumes. A prose mention counts for nothing — including this file's own
+  mention, which is what the first draft of this case wrongly accepted until the predicate was tightened.
+- `README.md:1458-1464` now states that no flag or environment value changes `publication.remote`,
+  pointing at the publisher that refuses both methods, and `README.md:1676-1682` names what the screens
+  actually read (`NO_COLOR`, `FORCE_COLOR=0`, with the line range) and says plainly that there is **no**
+  variable that turns remote publication on.
+
+**Measured after.** RED, before the README was corrected
+(`C:\tmp\s146-red.log`, captured from `npx vitest run tests/config/config-docs.test.ts`):
+
+```
++ Array [
++   "MERGESUTRA_ALLOW_REMOTE_PUBLICATION",
++ ]
+ Test Files  1 failed (1)                                        → VITEST_EXIT=1
+      Tests  1 failed | 3 passed (4)
+```
+
+GREEN on the corrected tree, after `npx prettier --write` had re-wrapped the new block:
+`Test Files 1 passed (1)`, `Tests 4 passed (4)`, exit `0` (`C:\tmp\s146-green.log`). The case list is
+four — the two S12-era directions, the inventory non-vacuity case, and this one.
+
+**Mutations.** Two, both on `README.md` + `tests/config/config-docs.test.ts`, each restored byte-for-byte
+(`RESTORE_MATCH=yes` for both; base hashes `README.md 6e138842fb3fba7d6e42076da82cfb8bd47d4a28614ff5ef46ef6d7bfa769417`,
+`tests/config/config-docs.test.ts f5bbc5e7630e7c3b9507ca1c309b287a9e90c85d3ce299cecc41a338c22b1a4e`):
+
+| id | mutation | result |
+|----|----------|--------|
+| ME | plant a second phantom (`MERGESUTRA_ENABLE_PUSH_SEAM`, described as settable) in the Configuration list | `1 failed \| 3 passed (4)`, `VITEST_EXIT=1` (`C:\tmp\s146-me.log`), failing with `the README describes an environment variable no code reads: MERGESUTRA_ENABLE_PUSH_SEAM` — the guard bites on a name it has never seen |
+| MF | keep the same plant and narrow the scanned family back to `BHARATCODE_` names only | `4 passed (4)`, `VITEST_EXIT=0` (`C:\tmp\s146-mf.log`) — the defect walks straight through, which is what the widened family is load-bearing for |
+
+Formatting afterwards (`npx prettier --write` on exactly those two paths) left the README untouched and
+re-wrapped the new case block, whose hash is now
+`39ea74e04c20f6cb81b7f5c19342580cf45393c71919b9056fb0f3cff3c16c10`; the case re-ran green after that.
+
+**Documents corrected.** `README.md` in the two places above. This register's `S12`-era closure note at
+`:2753`, which records that the paragraph named both variables, is left as history rather than rewritten;
+this entry is the note that the history turned out to describe something the code never had.
+
+**Limitations.**
+1. The predicate is textual, so a variable read through a computed key (`env[nameFromAnotherValue]`) would
+   look unread. No such lookup exists in `src/`, and `spawn-boundary`/`runner` keep the environment handling
+   under review; a future dynamic reader must be added to the accepted forms rather than exempted.
+2. The family is prefix-bounded (`BHARATCODE_`, `MERGESUTRA_`, `GH_`, `GITHUB_`, `NO_COLOR`, `FORCE_COLOR`),
+   because a whole-document scan of uppercase tokens would flag state words like `NOT_ATTEMPTED_BY_THIS_BUILD`
+   as configuration and teach the reader nothing. A differently-named future variable is outside its reach;
+   widening the family is a one-line change this case's MF mutation shows the cost of.
+3. It guards `README.md`, the consumer-facing document, not every file under `docs/`. The existing
+   documentation guards (`tests/docs/`) cover command surfaces and cleanup wording, not variable existence.
+4. Existence is not correctness: the case cannot tell whether `BHARATCODE_TIMEOUT_MS`'s documented default
+   is the default the code uses. That is asserted value-by-value in `tests/config/load-config.test.ts`.
+
 ## Register status, Stage 14 (in progress)
 
 `S14-1` (the documented `issue → inspect → contract` chain could not put both families of criteria
@@ -4553,18 +4638,27 @@ in the one record every later stage reads), `S14-2` (the repaired chain still re
 pr` and refused for want of a default branch, because the carry copied the issue and left the
 repository identity behind), `S14-3` (every command a run started was handed the model credential),
 `S14-4` (one unlisted interpreter flag dissolved every command refusal the policy made) and `S14-5`
-(the masks knew the credential's shape but were never told its value) are closed as
-CODE + TEST + DOCUMENT above. What Stage 14 still has to measure, and what it will not claim before it does:
+(the masks knew the credential's shape but were never told its value) are closed CODE + TEST + DOCUMENT
+above; `S14-6` (the README described an environment variable that no code reads, on the one boundary
+whose safety claim is that no such switch exists) is closed DOCUMENT + TEST. What Stage 14 still has to
+measure, and what it will not claim before it does:
 
-- The credential-free pipeline walk has one host left to prove it on. Walked on this machine at `ed0f6ed`
-  with no key in the environment (`BHARATCODE_API_KEY` unset, recorded in the log), from one working
-  directory, the verbs answer `doctor` 1, `issue` 0, `inspect` 0, `contract` 0, `plan` 78,
-  `verify` 1, `report` 0, `status` 0, bare `pr` 1, `pr <run-id>` 4 — each refusal naming the thing that
-  is genuinely missing (a key, an implementation) and no screen anywhere in the walk containing the
-  default-branch refusal S14-2 removed. The six files of the fixture working tree hashed byte-identical
-  before and after, and `git status --porcelain` inside it still says exactly `?? pnpm-lock.yaml`, which
-  is what it said before. What is left is the same chain read on a second host, since every number above
-  is Windows; the WSL rig for the same chain exists, and the hosted Linux reading of the same suite is the
+- The credential-free pipeline walk has one host left to prove it on. Re-taken on this machine at
+  `0802817`, the commit that carries S14-3/4/5, with no key in the environment
+  (`UNSET_CREDENTIAL_PROOF BHARATCODE_API_KEY_SET=no`, `C:\tmp\s14w3-walk.log`, `03:55:10Z`→`03:55:55Z`
+  on 2026-10-05) from one working directory: `doctor` 1, `issue` 0, `inspect` 0, `contract` 0, `plan` 78,
+  `verify` 1, `report` 0, `status` 0, bare `pr` 1, `pr run-20261005T035524Z-e87e5f` 4. Every refusal names
+  the thing genuinely missing (a key, an implementation). The sentence S14-2 removed — `no earlier stage
+  recorded a default branch` — appears zero times in all eleven logs of the pass, while the branch itself
+  now appears as a carried fact on the `pr` screen ("default branch `main` a pull request would merge into,
+  was carried from" the intake run), which is the repair sighted rather than assumed; the run then stops at
+  `PR_PUBLICATION_BLOCKED` because no patch identity exists for bytes nobody has implemented, and the screen
+  closes with "No branch was pushed and no pull request was opened: this build has no publication remote".
+  The readings are identical to the earlier pass at `ed0f6ed`, which
+  is what a repaired chain should *not* change. The fixture's six working-tree files hashed byte-identical
+  before and after, and `git status --porcelain` inside it still says exactly `?? pnpm-lock.yaml`, which is
+  what it said before. What is left is the same chain read on a second host, since every number above is
+  Windows; the WSL rig for the same chain exists, and the hosted Linux reading of the same suite is the
   one this account's Actions spending limit currently prevents — the failure signature, captured from the
   API rather than from a UI, is in `C:\tmp\s142-ci-blocked.txt` (`runner_id: 0`, `steps: []`, a job that
   "completed" in about three seconds), and it is an external billing condition rather than a defect in this

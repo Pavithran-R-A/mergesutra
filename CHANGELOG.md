@@ -6,6 +6,37 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — Stage 14: the manual advertised a switch that no code reads
+
+Writing the real-model procedure meant answering, in advance, what a person could set to let the run
+reach a remote. `README.md` said the answer was `MERGESUTRA_ALLOW_REMOTE_PUBLICATION`, "a capability this
+build leaves unset", and repeated it in the recap of a captured run. Nothing reads that name: over the
+whole tracked tree at `0802817` it occurs three times, twice in the README and once in this project's own
+gap register, and `git grep` finds no `env` lookup for it in `src/` or `tests/`. What ships is
+`unavailableRemote()` (`src/pr/publisher.ts:98`), whose push and open methods refuse unconditionally, so
+setting the variable would have changed nothing — on the one boundary where the product's claim is that
+*no* value reaches it. A consumer following the documented procedure could have believed they had
+authorised a push (register S14-6).
+
+The README now says what is true: no flag or environment value changes `publication.remote`, and the two
+names that do shape the screens are `NO_COLOR` and `FORCE_COLOR=0`, with the line range that reads them.
+The guard got the other half. `tests/config/config-docs.test.ts` had always checked that a variable the
+code reads is printed in the manual; that direction cannot see a name printed in the manual that no code
+reads, which is exactly how this one survived every gate. It now also checks the reverse, across the
+`BHARATCODE_`, `MERGESUTRA_`, `GH_`, `GITHUB_`, `NO_COLOR` and `FORCE_COLOR` families, and a name passes
+only if something looks it up on an `env` object or emits it as a quoted constant in `src/` — a prose
+mention, including the guard's own, counts for nothing. RED before the fix named the phantom; two
+mutations follow: planting a *different* invented switch fails the case with that new name
+(`1 failed | 3 passed`), and narrowing the scanned family back to `BHARATCODE_` lets the same plant pass
+(`4 passed`), so the widening is what catches this class. Both restored byte-for-byte.
+
+Also in this slice, the credential-free chain walk was re-taken at `0802817` — the commit carrying S14-3,
+S14-4 and S14-5 — with no key in the environment: the same ten exit codes as the earlier pass, the
+`no earlier stage recorded a default branch` sentence now appearing zero times across all eleven logs
+while the branch appears as a carried fact on the `pr` screen, and the fixture's six files byte-identical
+before and after. One host still, so the roadmap line stays open. Documentation guards: 8 files, 116
+tests, exit `0`.
+
 ### Fixed — Stage 14: three ways the harness could spend a credential that was not its own
 
 Stage 14's credential-free list asks for two proofs before a live key is in scope: that the harness cannot

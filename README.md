@@ -1459,8 +1459,9 @@ What those screens are and are not:
   starts no push, fetch, `gh`, publish or deploy process — read from the fixture's own gate
   log. That claim is about what these commands can do, not about what the checkout happens to
   have: `origin` is now configured for this repository, and no command in this build reaches
-  it. `publication.remote` stays `NOT_ATTEMPTED_BY_THIS_BUILD` and
-  `MERGESUTRA_ALLOW_REMOTE_PUBLICATION` is still unset.
+  it. `publication.remote` stays `NOT_ATTEMPTED_BY_THIS_BUILD`, and no flag or
+  environment value changes that: the publisher this build ships refuses both of its
+  methods (`src/pr/publisher.ts`).
 - **Exit codes.** A preview exits `0` for having described a plan, and that `0` is about
   the command, not the run. An executed resume returns the outcome the stage filed — `0`
   only for `VERIFICATION_PASS`, `3` for a review, pack or candidate that was recorded, `4`
@@ -1672,10 +1673,13 @@ is honoured, which is how a person turns retrying off
 variables — `--max-steps`, `--max-writes` and `--max-commands` on `implement`,
 each capped, and `mergesutra implement --help` prints the caps.
 
-Two other names appear in this repository and are not BharatCode configuration:
-`NO_COLOR` turns colour off, and `MERGESUTRA_ALLOW_REMOTE_PUBLICATION` is a
-capability this build leaves unset, so nothing on the other side of an approval
-acts on it.
+Two other names shape the screens and are not BharatCode configuration: `NO_COLOR`
+turns colour off when it is set to anything non-empty, and `FORCE_COLOR=0` turns it
+off for a run inside a harness that claims a terminal anyway
+(`src/cli/render.ts:39-44`). There is **no** variable that turns remote publication
+on. The transport this build ships is `unavailableRemote()`
+(`src/pr/publisher.ts`), whose push and open methods both refuse whatever precedes
+them, so no environment value, flag or approval reaches a remote.
 
 ## Verification model
 
