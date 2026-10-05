@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'dist', 'bin.js');
-const FIXTURE_URL = 'https://github.com/Pavithran-R-A/mergesutra-e2e-fixture.git';
-const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra-e2e-fixture/issues/1';
-const FIXTURE_SHA = '6f3a0adb17389b93fd76b95c21a1c9eb7b161998';
+const FIXTURE_URL = 'https://github.com/Pavithran-R-A/mergesutra.git';
+const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra/issues/8';
+const FIXTURE_SHA = '153b330c08a7780e38390a7af8b53fa25b5e5760';
 const MODEL = 'deepseek-v4.1-flash';
 const LIVE_DEADLINE_MS = 10 * 60_000;
 
@@ -202,17 +202,17 @@ function fail(message) {
 async function main() {
   const publicProbe = git(
     'fixture-public-probe',
-    ['ls-remote', '--exit-code', FIXTURE_URL, 'refs/heads/main'],
+    ['ls-remote', '--exit-code', FIXTURE_URL, 'refs/heads/e2e-fixture'],
     ROOT,
     { env: childEnv({ publicGit: true }), timeoutMs: 60_000 },
   );
   if (publicProbe.exitCode !== 0) {
     fail(
-      'the dedicated fixture is not anonymously readable; make mergesutra-e2e-fixture public before running hosted validation',
+      'the public e2e-fixture branch is not anonymously readable; hosted validation cannot continue',
     );
   }
 
-  const clone = git('fixture-clone', ['clone', '--no-tags', FIXTURE_URL, fixture], ROOT, {
+  const clone = git('fixture-clone', ['clone', '--no-tags', '--single-branch', '--branch', 'e2e-fixture', FIXTURE_URL, fixture], ROOT, {
     env: childEnv({ publicGit: true }),
     timeoutMs: 120_000,
   });
@@ -390,8 +390,9 @@ async function main() {
     sourceSha: process.env.GITHUB_SHA ?? null,
     mergeSutraVersion: version.stdout.trim(),
     fixture: {
-      repository: 'Pavithran-R-A/mergesutra-e2e-fixture',
-      issue: 1,
+      repository: 'Pavithran-R-A/mergesutra',
+      branch: 'e2e-fixture',
+      issue: 8,
       sha: FIXTURE_SHA,
       trackedBytesUnchanged: fixtureUnchanged,
       statusUnchanged,
