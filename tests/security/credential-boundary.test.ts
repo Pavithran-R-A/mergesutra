@@ -221,10 +221,7 @@ function families(findings: readonly CredentialFinding[]): CredentialFamily[] {
 
 describe('the boundary detector reports every family it claims to (S12-24)', () => {
   it('reports the current BharatCode bc_live_ key family', () => {
-    const findings = scanForCredentials(
-      'planted.ts',
-      `const auth = '${PLANTED.bharatCurrent}';`,
-    );
+    const findings = scanForCredentials('planted.ts', `const auth = '${PLANTED.bharatCurrent}';`);
     expect(families(findings)).toEqual(['bearer-key']);
     expect(findings[0]?.excerpt).toContain('bc_live_');
     expect(findings[0]?.excerpt).not.toContain(PLANTED.bharatCurrent);
