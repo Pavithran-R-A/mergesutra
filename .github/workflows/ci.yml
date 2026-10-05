@@ -53,8 +53,11 @@ jobs:
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Run all deterministic gates
-        run: npm run check
+      - name: Run E2E driver format probe
+        run: |
+          npx prettier --write scripts/e2e-validation.mjs
+          git diff -- scripts/e2e-validation.mjs
+          exit 1
 
       - name: Qualify customer path shapes and real Git/gh discovery
         run: npm run qualify:path-shapes
