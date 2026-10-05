@@ -53,11 +53,7 @@ export interface RunnerOptions {
  * safer boundary is to omit the credentials from the child environment.
  */
 const MODEL_CREDENTIAL_ENV_NAMES = ['bharatcode_api_key', 'bharatcode_key'];
-const GITHUB_CREDENTIAL_ENV_NAMES = [
-  'gh_token',
-  'github_token',
-  'github_pat',
-];
+const GITHUB_CREDENTIAL_ENV_NAMES = ['gh_token', 'github_token', 'github_pat'];
 const COMMAND_CREDENTIAL_ENV_NAMES = [
   ...MODEL_CREDENTIAL_ENV_NAMES,
   ...GITHUB_CREDENTIAL_ENV_NAMES,
