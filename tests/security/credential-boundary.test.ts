@@ -421,7 +421,17 @@ describe('the scan covers what the shipped redactor claims to cover', () => {
     const model = readFileSync(path.join(ROOT, 'docs', 'SECURITY_MODEL.md'), 'utf8');
     const claim = /(^|\n)## 6\. Secret protection[^\n]*\n+([\s\S]*?)\n\n/.exec(model)?.[2] ?? '';
     expect(claim, 'SECURITY_MODEL.md no longer has a §6 claim to check').not.toBe('');
-    for (const needle of ['sk-', 'ghp_', 'gho_', 'ghs_', 'github_pat_', 'xox', 'AKIA', 'PEM']) {
+    for (const needle of [
+      'bc_live_',
+      'sk-',
+      'ghp_',
+      'gho_',
+      'ghs_',
+      'github_pat_',
+      'xox',
+      'AKIA',
+      'PEM',
+    ]) {
       expect(claim, `the doc claim no longer lists ${needle}`).toContain(needle);
     }
     // Every all-caps name the claim paragraph carries must be a name this scan
