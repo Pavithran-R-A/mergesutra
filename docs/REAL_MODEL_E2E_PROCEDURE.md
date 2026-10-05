@@ -65,8 +65,8 @@ export BHARATCODE_MODEL='<the model your account offers>'
 | Target | What the run does to it |
 | --- | --- |
 | `Pavithran-R-A/mergesutra`, issue #8 | reads it. Nothing here comments on it, closes it, or edits it. |
-| public branch `e2e-fixture` of that repository | cloned anonymously and pinned to the fixture SHA; the production `main` tree is not used as the task repository |
-| the fixture clone (called `<fixture-clone>` below) | reads it, then writes only inside a worktree the run creates for its own patch |
+| a disposable anonymous clone of public `main` (called `<fixture-clone>` below) | reads the repository at one stable advertised SHA; implementation writes only inside a worktree created under that disposable clone |
+| `fixtures/stage14-e2e/` inside that clone | the deterministic task target named by issue #8; the canonical GitHub repository is never mutated by the harness |
 | `<mergesutra-checkout>/.mergesutra/` | writes the run record and the evidence pack |
 | anything else | nothing. Not this repository's own files, not another repository on the account, not your shell configuration. |
 
@@ -84,10 +84,11 @@ the controlled Stage 14 run, use an isolated account/session or a throwaway cred
 `Pavithran-R-A/mergesutra` only. A run that cannot read is honest; a run that can
 write more than the experiment intends is not.
 
-The fixture clone is pinned at `153b330c08a7780e38390a7af8b53fa25b5e5760` on the public `e2e-fixture` branch, and its issue
-asks for one deterministic change: `slugify` must trim separator characters from both ends, with
-five acceptance criteria that each resolve to a command exit code. Issue #1 is the task; the
-criteria are the contract; nothing about the run depends on anyone's opinion.
+The hosted harness clones public `main` anonymously, records the SHA advertised immediately before
+the clone, and refuses to continue if the checked-out SHA differs. Issue #8 narrows the actual task
+to `fixtures/stage14-e2e/`: `slugify` must trim separator characters from both ends, with five
+deterministic acceptance criteria. The clone is disposable and the production remote is read-only;
+the primary clone's tracked bytes and status are compared before and after every validation run.
 
 **The end of this chain is a page, not a pull request.** `src/pr/publisher.ts:98`
 (`unavailableRemote()`) is the publication transport this build ships, and both of its methods —
@@ -103,7 +104,7 @@ cd <mergesutra-checkout>
 npm ci
 npm run build
 node dist/bin.js --version
-git -C <fixture-clone> rev-parse HEAD   # must print 153b330c08a7780e38390a7af8b53fa25b5e5760
+git -C <fixture-clone> rev-parse HEAD   # must equal the public main SHA captured immediately before cloning
 git -C <fixture-clone> status --porcelain   # must print only what it printed before you started
 ```
 
@@ -138,16 +139,14 @@ environment into a log (`env >`, `set >`, `printenv >>`): that is how a key gets
 | 10 | `node dist/bin.js report <run-id>` | 0 | `0` | `0` |
 | 11 | `node dist/bin.js pr <run-id> --repo <fixture-clone>` | 0 | `4` | `3` with a page digest, or `4` |
 
-Measured column: the credential-free walk recorded in `docs/SECURITY_GAP_REGISTER.md` under the
-Stage 14 status block, re-taken on the tree at `5f31a8c` with `BHARATCODE_API_KEY`,
-`BHARATCODE_MODEL`, `GH_TOKEN` and `GITHUB_TOKEN` all printed as UNSET before the first command. The
-chain there is exactly this table's id threading: `doctor` 1, `issue` 0, `inspect` 0, `contract` 0,
-`plan` 78, `verify` 1, `report` 0, `status` 0, bare `pr` 1, `pr <run-id from step 4>` 4, and a
-read-only `resume` preview (no `--execute`) at 0. Step 2 read the real issue through the `gh` CLI;
-step 11's `4` was `PR_PUBLICATION_BLOCKED` for want of a patch, which is the correct answer to a
-request to publish nothing; the fixture's five tracked files hashed byte-identical before and after,
-and its `git status --porcelain` still named only the file it named before. Steps 6 and 8 were not
-walked, because both need the key this machine does not hold.
+Measured column: the original local credential-free walk is now backed by hosted evidence.
+Controlled workflow run `37306482235` completed the no-key chain on both Ubuntu and Windows with
+the live-model job skipped. The expected sequence was observed: `doctor` 1, `issue` 0, `inspect`
+0, `contract` 0, `plan` 78, `verify` 1, `status` 0, `report` 0, `pr` 4, and read-only
+`resume` 0. Both runs reported unchanged primary-clone tracked bytes/status and zero
+credential-shaped output or artifact findings. After PR #7 merged, a Windows rerun cloned public
+`main` at `61cbaf8d2980c81705eaa50a31e152f407e5935a` and repeated the same clean result.
+Steps 6 and 8 still require a real BharatCode key and therefore remain unmeasured.
 
 `contract` needs no flags here: every acceptance criterion is stated in the issue, and
 `--criterion`/`--by`/`--check` exist for requirements that no file carries. Adding one for a
@@ -240,7 +239,6 @@ run was worth doing.
 
 ```sh
 node dist/bin.js --json report <run-id> > /dev/null   # the pack is on disk; this only proves it parses
-grep -REno 'bc_live_[A-Za-z0-9_-]{8,}' .mergesutra | wc -l   # expect 0
 grep -REno 'bc_live_[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{12,}' .mergesutra | wc -l   # expect 0
 grep -REno 'gh[pousr]_[A-Za-z0-9]{12,}' .mergesutra | wc -l   # expect 0
 git status --short   # expect only what it showed in §3
@@ -279,11 +277,9 @@ about what a live run "should show" remains a prediction.
 
 - It is not a real-model result. The run it describes has not happened, and nothing here may be
   presented as one.
-- The credential-free §4 chain still has one host reading. The ordinary quality sequence and the
-  dedicated path-shape qualification now run green on GitHub-hosted Ubuntu and Windows with Node 22
-  and 24, and those hosted runners discover both real `git` and real `gh`. That does **not** turn
-  those matrix jobs into a second reading of this chain: the fixture is now a deliberately tiny public branch of this same public repository, so hosted
-  runners can clone it anonymously and use the workflow's read-only ephemeral token to read issue #8.
+- The credential-free §4 chain now has hosted Ubuntu and Windows readings. That closes the
+  cross-host *no-key* evidence gap only; it is not a real-model result and says nothing about
+  provider behavior, implementation quality, review quality, or repair quality.
 - It does not make a run's blast radius provably the fixture. Since S14-9, ordinary
   repository/workspace child processes receive neither the BharatCode credential nor
   `GH_TOKEN`/`GITHUB_TOKEN`/`GITHUB_PAT`; GitHub authentication is preserved only for
