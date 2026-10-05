@@ -1181,9 +1181,9 @@ reported with its file and line (§2.2).
 ## 6. Secret protection (implemented)
 
 Central `Redactor` masks at minimum: `BHARATCODE_API_KEY`, `GITHUB_TOKEN`,
-`GH_TOKEN`, `Authorization` headers, and common token formats (OpenAI-style
-`sk-`, GitHub `ghp_/gho_/ghs_/github_pat_`, Slack `xox`, AWS `AKIA`, PEM
-private keys). It redacts text, header records, and nested structures, and can
+`GH_TOKEN`, `Authorization` headers, and common token formats (current BharatCode
+`bc_live_`, legacy/OpenAI-style `sk-`, GitHub `ghp_/gho_/ghs_/github_pat_`,
+Slack `xox`, AWS `AKIA`, PEM private keys). It redacts text, header records, and nested structures, and can
 be given exact runtime secret values for literal masking.
 
 - Full process environments are never logged.
