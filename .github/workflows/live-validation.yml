@@ -68,8 +68,6 @@ jobs:
       contents: read
     env:
       GH_TOKEN: ${{ github.token }}
-      BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
-      BHARATCODE_MODEL: deepseek-v4.1-flash
       NO_COLOR: '1'
     steps:
       - name: Checkout
@@ -86,6 +84,8 @@ jobs:
 
       - name: Refuse an unconfigured secret without printing it
         shell: bash
+        env:
+          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
         run: |
           if [ -z "${BHARATCODE_API_KEY:-}" ]; then
             echo "BHARATCODE_API_KEY repository secret is not configured." >&2
@@ -102,6 +102,9 @@ jobs:
         run: npm run check
 
       - name: Run the bounded real-model chain
+        env:
+          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
+          BHARATCODE_MODEL: deepseek-v4.1-flash
         run: node scripts/e2e-validation.mjs live
 
       - name: Upload sanitized live evidence
