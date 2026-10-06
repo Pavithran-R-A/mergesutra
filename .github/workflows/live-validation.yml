@@ -43,22 +43,6 @@ jobs:
           node-version: '24.x'
           package-manager-cache: false
 
-      - name: Preflight BharatCode catalog without printing the secret
-        shell: bash
-        env:
-          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
-        run: |
-          status="$(curl --silent --show-error --output /tmp/bharatcode-models.json --write-out '%{http_code}' \
-            https://bharatcode.ai/api/model/v1/models \
-            -H "Authorization: Bearer ${BHARATCODE_API_KEY}")"
-          echo "BharatCode /models HTTP ${status}"
-          if [ "${status}" != "200" ]; then
-            rm -f /tmp/bharatcode-models.json
-            exit 78
-          fi
-          node -e "const fs=require('fs'); const body=JSON.parse(fs.readFileSync('/tmp/bharatcode-models.json','utf8')); const ids=(body.data||[]).map(x=>x.id); console.log('Catalog models:', ids.join(', ')||'<none>'); if(!ids.includes('deepseek-v4.1-flash')) process.exit(79)"
-          rm -f /tmp/bharatcode-models.json
-
       - name: Install
         run: npm ci
 
@@ -116,6 +100,67 @@ jobs:
             echo "BHARATCODE_API_KEY repository secret is not configured." >&2
             exit 78
           fi
+
+      - name: Preflight BharatCode catalog and minimal generation
+        shell: bash
+        env:
+          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
+          BHARATCODE_MODEL: deepseek-v4.1-flash
+        run: |
+          node <<'NODE'
+          const key = process.env.BHARATCODE_API_KEY;
+          const model = process.env.BHARATCODE_MODEL;
+          const base = 'https://bharatcode.ai/api/model/v1';
+          const headers = {
+            authorization: `Bearer ${key}`,
+            'content-type': 'application/json',
+            accept: 'application/json',
+          };
+          const redact = (text) =>
+            String(text)
+              .replace(/bc_live_[A-Za-z0-9_-]{8,}/g, '[REDACTED]')
+              .replace(/sk-[A-Za-z0-9_-]{8,}/g, '[REDACTED]')
+              .slice(0, 300);
+
+          const models = await fetch(`${base}/models`, { headers });
+          console.log(`BharatCode /models HTTP ${models.status}`);
+          if (!models.ok) process.exit(78);
+          const catalog = await models.json();
+          const ids = (catalog.data ?? []).map((entry) => entry.id);
+          console.log(`Catalog models: ${ids.join(', ') || '<none>'}`);
+          if (!ids.includes(model)) process.exit(79);
+
+          const chat = await fetch(`${base}/chat/completions`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              model,
+              messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
+              temperature: 0,
+              max_tokens: 8,
+            }),
+          });
+          console.log(`BharatCode /chat/completions HTTP ${chat.status}`);
+          const body = await chat.text();
+          if (!chat.ok) {
+            let safe = '<no safe error message>';
+            try {
+              const parsed = JSON.parse(body);
+              const candidate =
+                parsed?.error?.message ??
+                parsed?.detail ??
+                parsed?.message ??
+                (typeof parsed?.error === 'string' ? parsed.error : undefined);
+              if (candidate) safe = redact(candidate);
+            } catch {}
+            console.error(`BharatCode generation error: ${safe}`);
+            process.exit(80);
+          }
+          const parsed = JSON.parse(body);
+          console.log(
+            `Minimal generation accepted: model=${parsed.model ?? model}; finish=${parsed.choices?.[0]?.finish_reason ?? '<none>'}; content_chars=${String(parsed.choices?.[0]?.message?.content ?? '').length}`,
+          );
+          NODE
 
       - name: Install
         run: npm ci
