@@ -73,8 +73,12 @@ describe('the controlled live-validation workflow', () => {
     );
     expect(deterministic).not.toContain('BHARATCODE_API_KEY');
     expect(deterministic).not.toContain('BHARATCODE_MODEL');
-    const modelStep = live.slice(live.indexOf('- name: Run the bounded real-model chain'));
-    expect(modelStep).toContain('BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}');
+    const modelStep = live.slice(
+      live.indexOf('- name: Run the bounded real-model chain'),
+    );
+    expect(modelStep).toContain(
+      'BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}',
+    );
     expect(modelStep).toContain('BHARATCODE_MODEL: deepseek-v4.1-flash');
   });
 
