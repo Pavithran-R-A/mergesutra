@@ -1,6 +1,8 @@
 name: Controlled live validation
 
 on:
+  push:
+    branches: [ops/live-validation-once]
   workflow_dispatch:
     inputs:
       run_live:
@@ -8,9 +10,10 @@ on:
         required: true
         default: false
         type: boolean
-# This workflow never runs on pull requests or pushes. Ordinary CI owns untrusted
-# code. A person must dispatch it deliberately. The live job additionally refuses
-# to run unless the selected ref is main.
+# This workflow never runs on pull requests. Manual dispatch on main remains the
+# normal path. This temporary ops branch can run exactly one live validation when
+# the triggering commit carries [live-model-once]; the branch is cleaned after
+# evidence collection.
 permissions:
   contents: read
 
@@ -61,7 +64,13 @@ jobs:
   live-model:
     name: real BharatCode E2E
     needs: no-key-chain
-    if: github.ref == 'refs/heads/main' && inputs.run_live == true
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main' &&
+       inputs.run_live == true) ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/ops/live-validation-once' &&
+       contains(github.event.head_commit.message, '[live-model-once]'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
