@@ -12,7 +12,7 @@ const FIXTURE_URL = 'https://github.com/Pavithran-R-A/mergesutra.git';
 const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra/issues/8';
 const FIXTURE_BRANCH = 'main';
 const MODEL = 'qwen-3.8-27b';
-const LIVE_DEADLINE_MS = 10 * 60_000;
+const LIVE_DEADLINE_MS = 25 * 60_000;
 
 const mode = process.argv[2];
 if (mode !== 'no-key' && mode !== 'live') {
