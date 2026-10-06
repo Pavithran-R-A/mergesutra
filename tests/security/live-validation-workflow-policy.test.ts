@@ -65,7 +65,7 @@ describe('the controlled live-validation workflow', () => {
     expect(live).toContain("contains(github.event.head_commit.message, '[live-model-once]')");
     expect(live).toContain('needs: no-key-chain');
     expect(live).toContain('BHARATCODE_MODEL: qwen-3.8-27b');
-    expect(live).toContain('timeout-minutes: 15');
+    expect(live).toContain('timeout-minutes: 30');
     expect(live).toContain('node scripts/e2e-validation.mjs live');
   });
 
@@ -81,6 +81,8 @@ describe('the controlled live-validation workflow', () => {
     const modelStep = live.slice(live.indexOf('- name: Run the bounded real-model chain'));
     expect(modelStep).toContain('BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}');
     expect(modelStep).toContain('BHARATCODE_MODEL: qwen-3.8-27b');
+    expect(modelStep).toContain("BHARATCODE_TIMEOUT_MS: '180000'");
+    expect(modelStep).toContain("BHARATCODE_MAX_RETRIES: '1'");
   });
 
   it('refuses a missing secret without printing it', () => {
