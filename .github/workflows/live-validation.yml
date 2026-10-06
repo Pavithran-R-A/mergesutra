@@ -43,6 +43,22 @@ jobs:
           node-version: '24.x'
           package-manager-cache: false
 
+      - name: Preflight BharatCode catalog without printing the secret
+        shell: bash
+        env:
+          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
+        run: |
+          status="$(curl --silent --show-error --output /tmp/bharatcode-models.json --write-out '%{http_code}' \
+            https://bharatcode.ai/api/model/v1/models \
+            -H "Authorization: Bearer ${BHARATCODE_API_KEY}")"
+          echo "BharatCode /models HTTP ${status}"
+          if [ "${status}" != "200" ]; then
+            rm -f /tmp/bharatcode-models.json
+            exit 78
+          fi
+          node -e "const fs=require('fs'); const body=JSON.parse(fs.readFileSync('/tmp/bharatcode-models.json','utf8')); const ids=(body.data||[]).map(x=>x.id); console.log('Catalog models:', ids.join(', ')||'<none>'); if(!ids.includes('deepseek-v4.1-flash')) process.exit(79)"
+          rm -f /tmp/bharatcode-models.json
+
       - name: Install
         run: npm ci
 
