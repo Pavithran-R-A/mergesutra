@@ -11,7 +11,7 @@ const BIN = path.join(ROOT, 'dist', 'bin.js');
 const FIXTURE_URL = 'https://github.com/Pavithran-R-A/mergesutra.git';
 const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra/issues/8';
 const FIXTURE_BRANCH = 'main';
-const MODEL = 'deepseek-v4.1-flash';
+const MODEL = 'qwen-3.8-27b';
 const LIVE_DEADLINE_MS = 10 * 60_000;
 
 const mode = process.argv[2];
