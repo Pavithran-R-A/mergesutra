@@ -35,7 +35,9 @@ describe('the controlled live-validation workflow', () => {
   });
 
   it('allows only the BharatCode repository secret, even when scoped to multiple steps', () => {
-    const refs = [...WORKFLOW.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((match) => match[1]);
+    const refs = [...WORKFLOW.matchAll(/secrets\.([A-Z0-9_]+)/g)].map(
+      (match) => match[1],
+    );
     expect(new Set(refs)).toEqual(new Set(['BHARATCODE_API_KEY']));
     expect(WORKFLOW).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN|GITHUB_TOKEN:\s*\$\{\{\s*secrets/);
   });
