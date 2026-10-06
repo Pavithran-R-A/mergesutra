@@ -35,9 +35,7 @@ describe('the controlled live-validation workflow', () => {
   });
 
   it('allows only the BharatCode repository secret, even when scoped to multiple steps', () => {
-    const refs = [...WORKFLOW.matchAll(/secrets\.([A-Z0-9_]+)/g)].map(
-      (match) => match[1],
-    );
+    const refs = [...WORKFLOW.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((match) => match[1]);
     expect(new Set(refs)).toEqual(new Set(['BHARATCODE_API_KEY']));
     expect(WORKFLOW).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN|GITHUB_TOKEN:\s*\$\{\{\s*secrets/);
   });
@@ -66,21 +64,15 @@ describe('the controlled live-validation workflow', () => {
 
   it('keeps the BharatCode secret out of install, audit and deterministic test steps', () => {
     const live = job('live-model');
-    expect(live).not.toMatch(
-      /env:\n\s+GH_TOKEN:[\s\S]*BHARATCODE_API_KEY:[\s\S]*steps:/,
-    );
+    expect(live).not.toMatch(/env:\n\s+GH_TOKEN:[\s\S]*BHARATCODE_API_KEY:[\s\S]*steps:/);
     const deterministic = live.slice(
       live.indexOf('- name: Install'),
       live.indexOf('- name: Run the bounded real-model chain'),
     );
     expect(deterministic).not.toContain('BHARATCODE_API_KEY');
     expect(deterministic).not.toContain('BHARATCODE_MODEL');
-    const modelStep = live.slice(
-      live.indexOf('- name: Run the bounded real-model chain'),
-    );
-    expect(modelStep).toContain(
-      'BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}',
-    );
+    const modelStep = live.slice(live.indexOf('- name: Run the bounded real-model chain'));
+    expect(modelStep).toContain('BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}');
     expect(modelStep).toContain('BHARATCODE_MODEL: deepseek-v4.1-flash');
   });
 
