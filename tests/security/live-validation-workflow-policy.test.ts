@@ -129,7 +129,7 @@ describe('the controlled live-validation workflow', () => {
 
   it('prepares the isolated worktree without handing repository setup the provider secret', () => {
     expect(DRIVER).toContain("exec('workspace-install', 'npm', ['ci']");
-    expect(DRIVER).toContain("env: childEnv({ publicGit: true })");
+    expect(DRIVER).toContain('env: childEnv({ publicGit: true })');
     expect(DRIVER).toContain("workspaceRelative.startsWith('.mergesutra/worktrees/')");
   });
 
