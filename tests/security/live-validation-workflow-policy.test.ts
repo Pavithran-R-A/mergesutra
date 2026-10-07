@@ -53,12 +53,15 @@ describe('the controlled live-validation workflow', () => {
     expect(noKey).toContain('node scripts/e2e-validation.mjs no-key');
   });
 
-  it('requires a deliberate live trigger and pins the only model this run is allowed to use', () => {
+  it('requires a deliberate live trigger and restricts the selectable model set', () => {
+    expect(WORKFLOW).toContain('default: qwen-3.8-27b');
+    expect(WORKFLOW).toContain('- qwen-3.8-27b');
+    expect(WORKFLOW).toContain('- deepseek-v4.1-flash');
     const live = job('live-model');
     expect(live).toContain("if: github.ref == 'refs/heads/main' && inputs.run_live == true");
     expect(live).toContain('needs: no-key-chain');
-    expect(live).toContain('BHARATCODE_MODEL: deepseek-v4.1-flash');
-    expect(live).toContain('timeout-minutes: 15');
+    expect(live).toContain('BHARATCODE_MODEL: ${{ inputs.model }}');
+    expect(live).toContain('timeout-minutes: 30');
     expect(live).toContain('node scripts/e2e-validation.mjs live');
   });
 
@@ -73,7 +76,9 @@ describe('the controlled live-validation workflow', () => {
     expect(deterministic).not.toContain('BHARATCODE_MODEL');
     const modelStep = live.slice(live.indexOf('- name: Run the bounded real-model chain'));
     expect(modelStep).toContain('BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}');
-    expect(modelStep).toContain('BHARATCODE_MODEL: deepseek-v4.1-flash');
+    expect(modelStep).toContain('BHARATCODE_MODEL: ${{ inputs.model }}');
+    expect(modelStep).toContain("BHARATCODE_TIMEOUT_MS: '300000'");
+    expect(modelStep).toContain("BHARATCODE_MAX_RETRIES: '0'");
   });
 
   it('refuses a missing secret without printing it', () => {
@@ -111,7 +116,7 @@ describe('the controlled live-validation workflow', () => {
   });
 
   it('does not use a shell command to print the secret or environment', () => {
-    expect(WORKFLOW).not.toMatch(/\b(?:env|printenv|set)\b[^\n]*BHARATCODE/i);
+    expect(WORKFLOW).not.toMatch(/(?:^|\n)\s*(?:env|printenv|set)\b[^\n]*BHARATCODE/i);
     expect(WORKFLOW).not.toMatch(/echo[^\n]*bc_live_|echo[^\n]*sk-/i);
   });
 

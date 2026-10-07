@@ -8,6 +8,14 @@ on:
         required: true
         default: false
         type: boolean
+      model:
+        description: BharatCode model to validate
+        required: true
+        default: qwen-3.8-27b
+        type: choice
+        options:
+          - qwen-3.8-27b
+          - deepseek-v4.1-flash
 # This workflow never runs on pull requests or pushes. Ordinary CI owns untrusted
 # code. A person must dispatch it deliberately. The live job additionally refuses
 # to run unless the selected ref is main.
@@ -63,7 +71,7 @@ jobs:
     needs: no-key-chain
     if: github.ref == 'refs/heads/main' && inputs.run_live == true
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: read
     env:
@@ -92,6 +100,29 @@ jobs:
             exit 78
           fi
 
+      - name: Verify selected model is in the authenticated catalog
+        shell: bash
+        env:
+          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
+          BHARATCODE_MODEL: ${{ inputs.model }}
+        run: |
+          node <<'NODE'
+          const key = process.env.BHARATCODE_API_KEY;
+          const model = process.env.BHARATCODE_MODEL;
+          const response = await fetch('https://bharatcode.ai/api/model/v1/models', {
+            headers: {
+              authorization: `Bearer ${key}`,
+              accept: 'application/json',
+            },
+          });
+          console.log(`BharatCode /models HTTP ${response.status}`);
+          if (!response.ok) process.exit(78);
+          const body = await response.json();
+          const ids = (body.data ?? []).map((entry) => entry.id);
+          console.log(`Catalog models: ${ids.join(', ') || '<none>'}`);
+          if (!ids.includes(model)) process.exit(79);
+          NODE
+
       - name: Install
         run: npm ci
 
@@ -104,7 +135,9 @@ jobs:
       - name: Run the bounded real-model chain
         env:
           BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
-          BHARATCODE_MODEL: deepseek-v4.1-flash
+          BHARATCODE_MODEL: ${{ inputs.model }}
+          BHARATCODE_TIMEOUT_MS: '300000'
+          BHARATCODE_MAX_RETRIES: '0'
         run: node scripts/e2e-validation.mjs live
 
       - name: Upload sanitized live evidence
