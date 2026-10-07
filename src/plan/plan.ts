@@ -17,7 +17,7 @@ import {
 } from './schema.js';
 import { ZodError } from 'zod';
 
-const PLAN_MAX_TOKENS = 2048;
+const PLAN_MAX_TOKENS = 4096;
 
 /**
  * The planner — Stage 4, the first stage that asks a model anything.
