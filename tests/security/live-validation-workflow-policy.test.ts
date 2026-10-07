@@ -127,6 +127,17 @@ describe('the controlled live-validation workflow', () => {
     expect(WORKFLOW).not.toMatch(/echo[^\n]*bc_live_|echo[^\n]*sk-/i);
   });
 
+  it('prepares the isolated worktree without handing repository setup the provider secret', () => {
+    expect(DRIVER).toContain("await symlink(rootModules, path.join(workspace, 'node_modules'), 'dir');");
+    expect(DRIVER).toContain("workspaceRelative.startsWith('.mergesutra/worktrees/')");
+  });
+
+  it('consents explicitly to every repository-derived gate in the controlled live run', () => {
+    expect(DRIVER).toContain("gate.requirementLevel === 'REPOSITORY_REQUIRED'");
+    expect(DRIVER).toContain("gate.requirementLevel === 'REPOSITORY_SUGGESTED'");
+    expect(DRIVER).toContain("const allowFlags = repositoryGateIds.flatMap((id) => ['--allow', id]);");
+  });
+
   it('threads the plan run id into implementation instead of reusing the contract id', () => {
     expect(DRIVER).toContain("const plan = cli('plan', ['plan', runId], [0]);");
     expect(DRIVER).toContain('runId = plan.json.record.runId;');
