@@ -20,7 +20,7 @@ on:
           - deepseek-v4.1-flash
 # This workflow never runs on pull requests. Manual dispatch on main remains the
 # normal path. This temporary ops branch can run exactly one validation when the
-# triggering commit carries [live-model-now]. This retry validates the 4096-token bounded planner-output budget.
+# triggering commit carries [live-model-now]. This retry validates the 4096-token budget plus safe null-content response diagnostics.
 permissions:
   contents: read
 
