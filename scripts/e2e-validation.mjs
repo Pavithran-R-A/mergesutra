@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -335,9 +335,12 @@ async function main() {
     if (!workspace.startsWith(path.resolve(fixture) + path.sep)) {
       fail('implementation workspace escaped the fixture clone');
     }
-    const rootModules = path.join(ROOT, 'node_modules');
-    await stat(rootModules);
-    await symlink(rootModules, path.join(workspace, 'node_modules'), 'dir');
+    const install = exec('workspace-install', 'npm', ['ci'], {
+      cwd: workspace,
+      env: childEnv({ publicGit: true }),
+      timeoutMs: 180_000,
+    });
+    assertExit(install, [0]);
 
     const consentProbe = cli('verify-consent-probe', ['verify', runId, '--repo', fixture], [4]);
     finalRecord = consentProbe.json.record;
