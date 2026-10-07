@@ -150,11 +150,11 @@ describe('the controlled live-validation workflow', () => {
   });
 
   it('reports the same fixture branch and issue that it actually clones', () => {
-    expect(DRIVER).toContain("const FIXTURE_BRANCH = 'main';");
+    expect(DRIVER).toContain("const FIXTURE_BRANCH = 'e2e-fixture';");
     expect(DRIVER).toContain(
-      "const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra/issues/8';",
+      "const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra/issues/13';",
     );
     expect(DRIVER).toContain('branch: FIXTURE_BRANCH');
-    expect(DRIVER).not.toContain("branch: 'e2e-fixture'");
+    expect(DRIVER).toContain("const FIXTURE_SHA = '153b330c08a7780e38390a7af8b53fa25b5e5760';");
   });
 });
