@@ -138,7 +138,11 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
 
       - name: Re-run deterministic release gates
-        run: npm run check
+        shell: bash
+        run: |
+          npx prettier --write scripts/e2e-validation.mjs tests/security/live-validation-workflow-policy.test.ts
+          git diff -- scripts/e2e-validation.mjs tests/security/live-validation-workflow-policy.test.ts
+          exit 1
 
       - name: Run the bounded real-model chain
         env:
