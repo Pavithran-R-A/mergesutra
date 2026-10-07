@@ -366,11 +366,7 @@ async function main() {
     }
 
     const allowFlags = repositoryGateIds.flatMap((id) => ['--allow', id]);
-    const verify = cli(
-      'verify',
-      ['verify', runId, '--repo', fixture, ...allowFlags],
-      [0, 1, 2],
-    );
+    const verify = cli('verify', ['verify', runId, '--repo', fixture, ...allowFlags], [0, 1, 2]);
     verifyExit = verify.record.exitCode;
     finalRecord = verify.json.record;
 
