@@ -145,6 +145,8 @@ describe('the controlled live-validation workflow', () => {
   it('threads the plan run id into implementation instead of reusing the contract id', () => {
     expect(DRIVER).toContain("const plan = cli('plan', ['plan', runId], [0]);");
     expect(DRIVER).toContain('runId = plan.json.record.runId;');
+    expect(DRIVER).toContain("exec('workspace-install', 'npm', ['ci']");
+    expect(DRIVER).toContain("env: childEnv({ publicGit: true })");
     const afterPlan = DRIVER.slice(DRIVER.indexOf("const plan = cli('plan'"));
     expect(afterPlan).toMatch(/runId = plan\.json\.record\.runId;[\s\S]*'implement',[\s\S]*runId/);
   });
