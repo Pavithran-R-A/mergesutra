@@ -127,6 +127,13 @@ describe('the controlled live-validation workflow', () => {
     expect(WORKFLOW).not.toMatch(/echo[^\n]*bc_live_|echo[^\n]*sk-/i);
   });
 
+  it('threads the plan run id into implementation instead of reusing the contract id', () => {
+    expect(DRIVER).toContain("const plan = cli('plan', ['plan', runId], [0]);");
+    expect(DRIVER).toContain('runId = plan.json.record.runId;');
+    const afterPlan = DRIVER.slice(DRIVER.indexOf("const plan = cli('plan'"));
+    expect(afterPlan).toMatch(/runId = plan\.json\.record\.runId;[\s\S]*'implement',[\s\S]*runId/);
+  });
+
   it('reports the same fixture branch and issue that it actually clones', () => {
     expect(DRIVER).toContain("const FIXTURE_BRANCH = 'main';");
     expect(DRIVER).toContain(
