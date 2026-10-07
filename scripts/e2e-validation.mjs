@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -324,6 +324,21 @@ async function main() {
       fail('implementation was blocked; evidence was captured but the live chain cannot proceed');
     }
 
+    const workspaceRelative = implement.json.record.implementation?.workspace?.relativePath;
+    if (
+      typeof workspaceRelative !== 'string' ||
+      !workspaceRelative.startsWith('.mergesutra/worktrees/')
+    ) {
+      fail('implementation did not report a confined MergeSutra worktree');
+    }
+    const workspace = path.resolve(fixture, workspaceRelative);
+    if (!workspace.startsWith(path.resolve(fixture) + path.sep)) {
+      fail('implementation workspace escaped the fixture clone');
+    }
+    const rootModules = path.join(ROOT, 'node_modules');
+    await stat(rootModules);
+    await symlink(rootModules, path.join(workspace, 'node_modules'), 'dir');
+
     const consentProbe = cli('verify-consent-probe', ['verify', runId, '--repo', fixture], [4]);
     finalRecord = consentProbe.json.record;
     const gates = consentProbe.json.record.verificationPlan?.gates ?? [];
@@ -338,8 +353,24 @@ async function main() {
       fail(`expected exactly one npm test gate; observed ${String(npmTest.length)}`);
     }
     const gateId = npmTest[0].id;
+    const repositoryGateIds = gates
+      .filter(
+        (gate) =>
+          gate.requirementLevel === 'REPOSITORY_REQUIRED' ||
+          gate.requirementLevel === 'REPOSITORY_SUGGESTED' ||
+          gate.requirementLevel === 'USER_REQUESTED',
+      )
+      .map((gate) => gate.id);
+    if (!repositoryGateIds.includes(gateId)) {
+      fail('the npm test gate was not included in the repository consent set');
+    }
 
-    const verify = cli('verify', ['verify', runId, '--repo', fixture, '--allow', gateId], [0, 1]);
+    const allowFlags = repositoryGateIds.flatMap((id) => ['--allow', id]);
+    const verify = cli(
+      'verify',
+      ['verify', runId, '--repo', fixture, ...allowFlags],
+      [0, 1, 2],
+    );
     verifyExit = verify.record.exitCode;
     finalRecord = verify.json.record;
 
