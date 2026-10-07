@@ -243,6 +243,7 @@ async function requestPlan(input: {
       messages,
       temperature: 0,
       maxTokens: PLAN_MAX_TOKENS,
+      enableThinking: false,
     });
     model = completion.model;
     promptTokens = completion.usage?.promptTokens ?? null;
