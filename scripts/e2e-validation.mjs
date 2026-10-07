@@ -301,6 +301,7 @@ async function main() {
 
     const plan = cli('plan', ['plan', runId], [0]);
     finalRecord = plan.json.record;
+    runId = plan.json.record.runId;
 
     const implement = cli(
       'implement',
