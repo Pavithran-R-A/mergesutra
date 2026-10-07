@@ -70,6 +70,10 @@ function systemMessage(limits: LoopLimits): string {
     '- `argv` is an argument ARRAY with no shell characters. A command string is refused.',
     '- `RUN_CHECK` is a developer check inside this workspace. Passing one proves nothing about',
     '  the Acceptance Contract; a separate verification stage decides that, not you.',
+    '- Prefer the smallest patch that satisfies the contract. Do not add success logging, banners,',
+    '  debug output, comments, docs edits or other churn unless the task actually requires them.',
+    '- Before FINISH, if check budget remains, run the most relevant planned validation command and',
+    '  at least one repository-required gate that can catch lint/format/type/test regressions.',
     '- You may not mark a criterion PASS, weaken one, delete one, or rewrite the issue. There is',
     '  no action that does that. If a criterion looks wrong, use PROPOSE_CONTRACT_REVISION and keep',
     '  working; a human decides.',
@@ -141,6 +145,15 @@ export function buildInitialMessages(input: {
       ...plan.body.changes.map(
         (change) => `- ${change.action} ${quote(change.file)}: ${quote(change.reason)}`,
       ),
+      ...(plan.body.validationCommands.length > 0
+        ? [
+            'planned validation commands:',
+            ...plan.body.validationCommands.map(
+              (command) =>
+                `- ${quote(command.argv.join(' '))}: ${quote(command.purpose)} [${command.criterionIds.join(', ') || 'no criterion ids'}]`,
+            ),
+          ]
+        : ['planned validation commands: none']),
       ...(plan.body.risks.length > 0 ? [`risks: ${quote(plan.body.risks.join(' | '))}`] : []),
     ]),
     section('GATES THE REPOSITORY ENFORCES', [
