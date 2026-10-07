@@ -22,10 +22,12 @@ function job(name: string, next?: string): string {
 }
 
 describe('the controlled live-validation workflow', () => {
-  it('is manual-only and never runs from push or pull-request events', () => {
-    expect(WORKFLOW).toMatch(/^on:\n {2}workflow_dispatch:/m);
+  it('permits only the one-shot ops push plus manual dispatch, never pull requests or main pushes', () => {
+    expect(WORKFLOW).toMatch(
+      /^on:\n {2}push:\n {4}branches: \[ops\/live-validation-now\]\n {2}workflow_dispatch:/m,
+    );
     expect(WORKFLOW).not.toMatch(/pull_request(?:_target)?:/);
-    expect(WORKFLOW).not.toMatch(/^\s*push:/m);
+    expect(WORKFLOW).not.toMatch(/branches:\s*\[main\]/);
   });
 
   it('keeps the workflow and both jobs read-only on GitHub', () => {
@@ -53,14 +55,19 @@ describe('the controlled live-validation workflow', () => {
     expect(noKey).toContain('node scripts/e2e-validation.mjs no-key');
   });
 
-  it('requires a deliberate live trigger and restricts the selectable model set', () => {
+  it('requires either deliberate manual dispatch or the exact one-shot ops marker', () => {
     expect(WORKFLOW).toContain('default: qwen-3.8-27b');
     expect(WORKFLOW).toContain('- qwen-3.8-27b');
     expect(WORKFLOW).toContain('- deepseek-v4.1-flash');
     const live = job('live-model');
-    expect(live).toContain("if: github.ref == 'refs/heads/main' && inputs.run_live == true");
+    expect(live).toContain("github.event_name == 'workflow_dispatch'");
+    expect(live).toContain("github.ref == 'refs/heads/main'");
+    expect(live).toContain('inputs.run_live == true');
+    expect(live).toContain("github.event_name == 'push'");
+    expect(live).toContain("github.ref == 'refs/heads/ops/live-validation-now'");
+    expect(live).toContain("contains(github.event.head_commit.message, '[live-model-now]')");
     expect(live).toContain('needs: no-key-chain');
-    expect(live).toContain('BHARATCODE_MODEL: ${{ inputs.model }}');
+    expect(live).toContain('BHARATCODE_MODEL: qwen-3.8-27b');
     expect(live).toContain('timeout-minutes: 30');
     expect(live).toContain('node scripts/e2e-validation.mjs live');
   });
@@ -76,7 +83,7 @@ describe('the controlled live-validation workflow', () => {
     expect(deterministic).not.toContain('BHARATCODE_MODEL');
     const modelStep = live.slice(live.indexOf('- name: Run the bounded real-model chain'));
     expect(modelStep).toContain('BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}');
-    expect(modelStep).toContain('BHARATCODE_MODEL: ${{ inputs.model }}');
+    expect(modelStep).toContain('BHARATCODE_MODEL: qwen-3.8-27b');
     expect(modelStep).toContain("BHARATCODE_TIMEOUT_MS: '300000'");
     expect(modelStep).toContain("BHARATCODE_MAX_RETRIES: '0'");
   });
