@@ -136,7 +136,7 @@ environment into a log (`env >`, `set >`, `printenv >>`): that is how a key gets
 | 7 | `node dist/bin.js verify <run-id> --repo <fixture-clone> --allow <gate-id>` | 0 | `1` | `0` if the gates pass, `1` if they do not |
 | 8 | `node dist/bin.js review <run-id> --repo <fixture-clone> --max-review-cycles 1 --max-repair-cycles 1` | at most 2 | not walked | `3` |
 | 9 | `node dist/bin.js status <run-id> --repo <fixture-clone>` | 0 | `0` | `0` |
-| 10 | `node dist/bin.js report <run-id>` | 0 | `0` | `0` |
+| 10 | `node dist/bin.js report <run-id>` | 0 | `0` | `3` after a review outcome that itself exits 3; `0` only when the stored run outcome maps to success |
 | 11 | `node dist/bin.js pr <run-id> --repo <fixture-clone>` | 0 | `4` | `3` with a page digest, or `4` |
 
 Measured column: the credential-free walk recorded in `docs/SECURITY_GAP_REGISTER.md` under the
