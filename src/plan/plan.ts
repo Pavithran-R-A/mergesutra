@@ -239,7 +239,11 @@ async function requestPlan(input: {
   let completionTokens: number | null = null;
 
   for (let attempt = 1; attempt <= input.maxRepair + 1; attempt += 1) {
-    const completion = await client.complete({ messages, temperature: 0, maxTokens: PLAN_MAX_TOKENS });
+    const completion = await client.complete({
+      messages,
+      temperature: 0,
+      maxTokens: PLAN_MAX_TOKENS,
+    });
     model = completion.model;
     promptTokens = completion.usage?.promptTokens ?? null;
     completionTokens = completion.usage?.completionTokens ?? null;
