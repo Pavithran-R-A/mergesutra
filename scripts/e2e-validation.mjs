@@ -281,7 +281,7 @@ async function main() {
     const status = cli('status', ['status', runId, '--repo', fixture], [0]);
     finalRecord = status.json.record;
 
-    const report = cli('report', ['report', runId], [0]);
+    const report = cli('report', ['report', runId], [0, 3]);
     finalRecord = report.json.record;
 
     const pr = exec('pr-no-key', process.execPath, [BIN, '--json', 'pr', runId, '--repo', fixture]);
