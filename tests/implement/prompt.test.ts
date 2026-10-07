@@ -133,10 +133,14 @@ describe('the action list shown to the model', () => {
     expect(system).toContain('A command string is refused.');
   });
 
-  it('tells the model that a passing check is not a verdict', async () => {
+  it('tells the model that checks are evidence-gathering steps, not verdicts', async () => {
     const { system } = await build();
     expect(system).toContain('Passing one proves nothing about');
     expect(system).toContain('a separate verification stage decides that, not you.');
+    expect(system).toContain('Prefer the smallest patch that satisfies the contract.');
+    expect(system).toContain('Do not add success logging');
+    expect(system).toContain('Before FINISH, if check budget remains');
+    expect(system).toContain('at least one repository-required gate');
   });
 
   it('gives contract edits to a human, never to the model', async () => {
@@ -226,6 +230,12 @@ describe('the task message', () => {
     expect(user).toContain(`root cause: ${plan.body.rootCause}`);
     for (const change of plan.body.changes) {
       expect(user).toContain(`- ${change.action} ${change.file}: ${change.reason}`);
+    }
+    expect(user).toContain('planned validation commands:');
+    for (const command of plan.body.validationCommands) {
+      expect(user).toContain(
+        `- ${command.argv.join(' ')}: ${command.purpose} [${command.criterionIds.join(', ') || 'no criterion ids'}]`,
+      );
     }
     expect(user).toContain(`risks: ${plan.body.risks.join(' | ')}`);
   });
