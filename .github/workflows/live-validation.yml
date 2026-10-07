@@ -20,7 +20,7 @@ on:
           - deepseek-v4.1-flash
 # This workflow never runs on pull requests. Manual dispatch on main remains the
 # normal path. This temporary ops branch can run exactly one validation when the
-# triggering commit carries [live-model-now]. This retry validates canonical main after the credential-free worktree-install regression test was corrected.
+# triggering commit carries [live-model-now]. This retry validates canonical main after exact formatting and credential-free worktree preparation fixes.
 permissions:
   contents: read
 
@@ -55,13 +55,6 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Probe exact Prettier diff for live-validation policy test
-        if: runner.os == 'Linux'
-        run: |
-          npx prettier --write tests/security/live-validation-workflow-policy.test.ts
-          git diff -- tests/security/live-validation-workflow-policy.test.ts
-          exit 1
 
       - name: Walk the credential-free fixture chain
         run: node scripts/e2e-validation.mjs no-key
