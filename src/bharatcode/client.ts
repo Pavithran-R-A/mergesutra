@@ -350,6 +350,10 @@ export class HttpBharatCodeClient implements BharatCodeClient {
       messages: request.messages,
       temperature: request.temperature,
       max_tokens: request.maxTokens,
+      chat_template_kwargs:
+        request.enableThinking === undefined
+          ? undefined
+          : { enable_thinking: request.enableThinking },
     };
     const result = await this.withRetry(
       (signal, callerSignal) =>
