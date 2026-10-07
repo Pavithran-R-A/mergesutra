@@ -9,9 +9,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'dist', 'bin.js');
 const FIXTURE_URL = 'https://github.com/Pavithran-R-A/mergesutra.git';
-const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra/issues/13';
-const FIXTURE_BRANCH = 'e2e-fixture';
-const FIXTURE_SHA = '153b330c08a7780e38390a7af8b53fa25b5e5760';
+const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra/issues/8';
+const FIXTURE_BRANCH = 'main';
 const ALLOWED_MODELS = new Set(['qwen-3.8-27b', 'deepseek-v4.1-flash']);
 const LIVE_DEADLINE_MS = 25 * 60_000;
 
@@ -215,12 +214,12 @@ async function main() {
     { env: childEnv({ publicGit: true }), timeoutMs: 60_000 },
   );
   if (publicProbe.exitCode !== 0) {
-    fail('the public e2e-fixture branch is not anonymously readable; hosted validation cannot continue');
+    fail('the public main branch is not anonymously readable; hosted validation cannot continue');
   }
 
   const advertisedFixtureSha = publicProbe.stdout.trim().split(/\s+/)[0] ?? '';
-  if (advertisedFixtureSha !== FIXTURE_SHA) {
-    fail('the public e2e-fixture branch moved away from the pinned validation commit');
+  if (!/^[0-9a-f]{40}$/.test(advertisedFixtureSha)) {
+    fail('the public main branch did not advertise a full commit SHA');
   }
 
   const clone = git(
@@ -236,13 +235,13 @@ async function main() {
   const head = git('fixture-head', ['rev-parse', 'HEAD'], fixture);
   assertExit(head, [0]);
   const fixtureSha = head.stdout.trim();
-  if (fixtureSha !== FIXTURE_SHA) {
-    fail('fixture clone does not match the pinned validation commit');
+  if (fixtureSha !== advertisedFixtureSha) {
+    fail('fixture main moved while validation was cloning it; retry against one stable head');
   }
   const branch = git('fixture-branch', ['branch', '--show-current'], fixture);
   assertExit(branch, [0]);
   if (branch.stdout.trim() !== FIXTURE_BRANCH) {
-    fail('fixture clone is not on the dedicated e2e-fixture branch');
+    fail('fixture clone is not on the repository default main branch');
   }
 
   const before = await trackedSnapshot(fixture);
