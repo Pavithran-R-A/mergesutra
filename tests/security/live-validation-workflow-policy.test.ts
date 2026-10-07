@@ -141,6 +141,10 @@ describe('the controlled live-validation workflow', () => {
     );
   });
 
+  it('keeps report rendering compatible with a recorded review outcome', () => {
+    expect(DRIVER).toContain("const report = cli('report', ['report', runId], [0, 3]);");
+  });
+
   it('threads the plan run id into implementation instead of reusing the contract id', () => {
     expect(DRIVER).toContain("const plan = cli('plan', ['plan', runId], [0]);");
     expect(DRIVER).toContain('runId = plan.json.record.runId;');
