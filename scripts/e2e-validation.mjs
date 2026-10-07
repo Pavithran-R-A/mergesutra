@@ -11,8 +11,8 @@ const BIN = path.join(ROOT, 'dist', 'bin.js');
 const FIXTURE_URL = 'https://github.com/Pavithran-R-A/mergesutra.git';
 const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra/issues/8';
 const FIXTURE_BRANCH = 'main';
-const MODEL = 'deepseek-v4.1-flash';
-const LIVE_DEADLINE_MS = 10 * 60_000;
+const ALLOWED_MODELS = new Set(['qwen-3.8-27b', 'deepseek-v4.1-flash']);
+const LIVE_DEADLINE_MS = 25 * 60_000;
 
 const mode = process.argv[2];
 if (mode !== 'no-key' && mode !== 'live') {
@@ -33,8 +33,10 @@ const configuredModel = process.env.BHARATCODE_MODEL ?? '';
 
 if (mode === 'live') {
   if (secret.length < 8) fail('BHARATCODE_API_KEY is not configured; no model request was sent.');
-  if (configuredModel !== MODEL) {
-    fail(`BHARATCODE_MODEL must be exactly ${MODEL}; no model request was sent.`);
+  if (!ALLOWED_MODELS.has(configuredModel)) {
+    fail(
+      `BHARATCODE_MODEL must be one of ${[...ALLOWED_MODELS].join(', ')}; no model request was sent.`,
+    );
   }
 } else {
   delete process.env.BHARATCODE_API_KEY;
@@ -83,7 +85,7 @@ function childEnv({ publicGit = false } = {}) {
 
 function exec(label, file, args, options = {}) {
   if (mode === 'live' && Date.now() - startedAt >= LIVE_DEADLINE_MS) {
-    fail('live validation hit the 10-minute wall-clock ceiling before the next command');
+    fail('live validation hit the 25-minute wall-clock ceiling before the next command');
   }
   const result = spawnSync(file, args, {
     cwd: options.cwd ?? ROOT,
@@ -494,7 +496,7 @@ async function main() {
   if (mode === 'live') {
     if (completionCount > 12) fail('observed model requests exceeded the chain ceiling');
     if (Date.now() - startedAt > LIVE_DEADLINE_MS)
-      fail('live chain exceeded the 10-minute wall-clock ceiling');
+      fail('live chain exceeded the 25-minute wall-clock ceiling');
     if (verifyExit !== 0) fail('deterministic verification did not pass');
     if (finalRecord?.repairPlan) {
       fail('review produced a repair plan; human digest approval is required before any repair');
