@@ -117,6 +117,21 @@ describe('BharatCodeClient.complete', () => {
     expect(res.finishReason).toBe('stop');
   });
 
+  it('maps an explicit thinking preference into chat_template_kwargs', async () => {
+    const { fetch, calls } = fakeFetch([{ ok: true, status: 200, body: completionBody }]);
+    const client = createBharatCodeClient({ config: baseConfig(), fetch });
+
+    await client.complete({
+      messages: [{ role: 'user', content: 'return structured JSON' }],
+      enableThinking: false,
+      maxTokens: 4096,
+    });
+
+    const body = JSON.parse(calls[0]?.init?.body ?? '{}');
+    expect(body.max_tokens).toBe(4096);
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
+  });
+
   it('requires a model selection', async () => {
     const { fetch } = fakeFetch([{ ok: true, status: 200, body: completionBody }]);
     const client = createBharatCodeClient({ config: { ...baseConfig(), model: undefined }, fetch });

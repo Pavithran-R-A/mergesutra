@@ -266,6 +266,8 @@ export async function runImplementationLoop(
           messages,
           model: input.model,
           temperature: 0,
+          maxTokens: 4096,
+          enableThinking: false,
           signal: deps.signal,
         });
         state.model = completion.model;

@@ -53,6 +53,12 @@ export interface CompletionRequest {
   readonly model?: string;
   readonly temperature?: number;
   readonly maxTokens?: number;
+  /**
+   * Optional chat-template hint for models that expose a thinking mode.
+   * The adapter maps this to the OpenAI-compatible server's chat_template_kwargs;
+   * omit it to preserve the provider default.
+   */
+  readonly enableThinking?: boolean;
   readonly signal?: AbortSignal;
 }
 
