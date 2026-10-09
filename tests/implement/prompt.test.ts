@@ -392,6 +392,36 @@ describe('turn-to-turn feedback', () => {
     expect(after[3]?.content).toContain('do not describe anything as done');
   });
 
+  it('reminds rejected model actions of unwritten test files without repeating rejected text', () => {
+    const after = withActionRepairFeedback(opening(), 'content: Required', [
+      'fixtures/stage14-e2e/check.mjs',
+      'fixtures/stage14-e2e/README.md',
+    ]);
+    const feedback = after.at(-1)?.content ?? '';
+    expect(feedback).toContain('Planned file changes NOT YET WRITTEN');
+    expect(feedback).toContain('fixtures/stage14-e2e/check.mjs');
+    expect(feedback).toContain('fixtures/stage14-e2e/README.md');
+    expect(feedback).toContain('use READ_FILE for the unfinished path');
+    expect(feedback).toContain('complete content as a JSON string');
+    expect(after[2]?.content).toBe(
+      '(the previous answer was rejected by MergeSutra before anything ran)',
+    );
+    expect(feedback).not.toContain('previous model response bytes');
+  });
+
+  it('points a successful source edit at remaining assertion files', () => {
+    const after = withStepFeedback(
+      opening(),
+      '{"action":"WRITE_FILE"}',
+      { ok: true, detail: 'source file written' },
+      ['fixtures/stage14-e2e/check.mjs'],
+    );
+    const feedback = after.at(-1)?.content ?? '';
+    expect(feedback).toContain('NEXT: choose one unfinished file');
+    expect(feedback).toContain('fixtures/stage14-e2e/check.mjs');
+    expect(feedback).toContain('a required new assertion was added');
+  });
+
   it('states that a file write requires complete JSON-encoded content and no repeat writes', async () => {
     const { system } = await build();
     expect(system).toContain('actual JSON STRING containing the entire');

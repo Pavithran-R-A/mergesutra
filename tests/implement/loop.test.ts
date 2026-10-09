@@ -112,6 +112,33 @@ describe('the loop acts, then stops', () => {
     expect(lastFeedback(harness, 1)).toContain('test/parse.test.ts');
   });
 
+  it('preserves the unwritten test-file target after a rejected missing-content write', async () => {
+    const harness = await runLoop(tempDirs, [
+      writeAction(
+        'src/parse.ts',
+        'export const updated = true;\\n',
+        ['AC-1'],
+        digestOfWorkspaceFile('src/parse.ts'),
+      ),
+      action({
+        action: 'WRITE_FILE',
+        path: 'test/parse.test.ts',
+        replaces: { expectedSha256: digestOfWorkspaceFile('test/parse.test.ts') },
+        reason: 'add the missing regression assertions',
+      }),
+      finishAction(),
+    ]);
+    const feedback = lastFeedback(harness, 2);
+    expect(feedback).toContain('REJECTED BEFORE EXECUTION');
+    expect(feedback).toContain('Planned file changes NOT YET WRITTEN');
+    expect(feedback).toContain('test/parse.test.ts');
+    expect(feedback).not.toContain('src/parse.ts');
+    expect(feedback).toContain('content');
+    expect(harness.implementation.changes.map((change) => change.relativePath)).toEqual([
+      'src/parse.ts',
+    ]);
+  });
+
   it('writes through the confined writer and records a digest, never the content', async () => {
     const content =
       'export function parseDate(input: string): Date {\n  if (!input) throw new TypeError("empty");\n  return new Date(input);\n}\n';
