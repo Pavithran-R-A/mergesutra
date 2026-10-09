@@ -229,6 +229,14 @@ export function withActionRepairFeedback(
         '',
         'Reply again with exactly one JSON action from the allowed list, for the same task.',
         'Do not add fields, do not rename criterion ids, and do not describe anything as done.',
+        ...(problem.includes('content: Required')
+          ? [
+              'A WRITE_FILE action must include the `content` field as a STRING containing',
+              'the COMPLETE new file bytes, not a patch, summary or omitted field.',
+              'Use the latest full-file expectedSha256 from READ_FILE in `replaces`.',
+              'If unsure of the current digest, READ_FILE first rather than guessing.',
+            ]
+          : []),
       ].join('\n'),
     },
   ]);
@@ -256,6 +264,12 @@ export function withStepFeedback(
         `OUTCOME (${outcome.ok ? 'accepted' : 'refused-or-failed'}): ${markQuoted(outcome.detail).text}`,
         '',
         'Reply with the next single JSON action.',
+        ...(outcome.detail.includes('STALE_FILE')
+          ? [
+              'The stale write changed no bytes. READ_FILE to obtain the current digest,',
+              'then send one complete WRITE_FILE action with that digest and a string content.',
+            ]
+          : []),
       ].join('\n'),
     },
   ]);
