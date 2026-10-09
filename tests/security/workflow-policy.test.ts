@@ -438,12 +438,7 @@ describe('the gate set is complete, not merely valid', () => {
  * So the set of files on disk is compared against the set this file has rules for, and a
  * new file makes the suite red until someone writes its policy.
  */
-const GUARDED_WORKFLOWS = [
-  'acceptance-once.yml',
-  'ci.yml',
-  'live-validation.yml',
-  'publish.yml',
-];
+const GUARDED_WORKFLOWS = ['acceptance-once.yml', 'ci.yml', 'live-validation.yml', 'publish.yml'];
 
 function workflowFiles(): string[] {
   return readdirSync(path.join(ROOT, '.github', 'workflows'))
@@ -483,9 +478,7 @@ describe('branch-only one-time acceptance workflow policy', () => {
     expect(ACCEPTANCE_ONCE).not.toMatch(/pull_request|workflow_dispatch|repository_dispatch/);
     const marker = "contains(github.event.head_commit.message, '[acceptance-once]')";
     expect(ACCEPTANCE_ONCE.split(marker)).toHaveLength(3);
-    expect(ACCEPTANCE_ONCE).toContain(
-      "github.ref == 'refs/heads/ops/acceptance-proof-20261009'",
-    );
+    expect(ACCEPTANCE_ONCE).toContain("github.ref == 'refs/heads/ops/acceptance-proof-20261009'");
   });
 
   it('allows read-only GitHub privileges and only the selected provider secret', () => {
