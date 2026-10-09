@@ -5,6 +5,11 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+  changesOutsideAllowlist,
+  inspectFixtureAcceptance,
+  liveQualificationFailures,
+} from './lib/live-qualification.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'dist', 'bin.js');
@@ -405,64 +410,20 @@ async function main() {
     // The CLI deliberately records incomplete work as evidence rather than lying
     // about success. A successful workflow must prove the actual fixture task.
     const changed = implementation?.changes?.map((entry) => entry.relativePath) ?? [];
-    const permitted = new Set([
-      'fixtures/stage14-e2e/src/slugify.js',
-      'fixtures/stage14-e2e/check.mjs',
-      'fixtures/stage14-e2e/README.md',
-    ]);
-    const unexpected = changed.filter((entry) => !permitted.has(entry));
-    if (unexpected.length > 0) {
+    if (changesOutsideAllowlist(changed).length > 0) {
       fail('the model changed a file outside the controlled fixture allowlist');
     }
 
     // These checks execute only in the isolated worktree, with all secrets and
     // GitHub tokens removed. Repository CI by itself does not cover AC-1..AC-5.
     const workspace = path.join(fixture, '.mergesutra', 'worktrees', runId);
-    const scriptPath = path.join(workspace, 'fixtures', 'stage14-e2e', 'check.mjs');
-    const checkSource = await readFile(scriptPath, 'utf8');
-    const requiredInputs = ['  Hello  World  ', 'a--b', '--x--'];
-    const missingAssertions = requiredInputs.filter(
-      (input) =>
-        !checkSource.includes(`slugify('${input}')`) &&
-        !checkSource.includes(`slugify("${input}")`),
-    );
-    const fixturePkg = JSON.parse(
-      await readFile(path.join(workspace, 'fixtures', 'stage14-e2e', 'package.json'), 'utf8'),
-    );
-    const dependencyFree =
-      Object.keys(fixturePkg.dependencies ?? {}).length === 0 &&
-      Object.keys(fixturePkg.devDependencies ?? {}).length === 0;
-
-    const independent = exec(
-      'fixture-independent-acceptance',
-      process.execPath,
-      [
-        '--input-type=module',
-        '-e',
-        [
-          "import assert from 'node:assert/strict';",
-          "import { slugify } from './fixtures/stage14-e2e/src/slugify.js';",
-          "assert.equal(slugify('  Hello  World  '), 'hello-world');",
-          "assert.equal(slugify('a--b'), 'a-b');",
-          "assert.equal(slugify('--x--'), 'x');",
-        ].join('\n'),
-      ],
-      { cwd: workspace, env: childEnv({ publicGit: true }), timeoutMs: 15_000 },
-    );
-    const fixtureCheck = exec(
-      'fixture-check-file',
-      process.execPath,
-      ['fixtures/stage14-e2e/check.mjs'],
-      { cwd: workspace, env: childEnv({ publicGit: true }), timeoutMs: 15_000 },
-    );
-    fixtureProof = {
-      directBehaviorsPass: independent.exitCode === 0,
-      checkedScriptPass: fixtureCheck.exitCode === 0,
-      checkContainsAllThreeAssertions: missingAssertions.length === 0,
-      dependencyFree,
-      changesWithinFixture: unexpected.length === 0,
+    fixtureProof = await inspectFixtureAcceptance({
+      workspace,
+      run: exec,
+      env: childEnv({ publicGit: true }),
+      readFile,
       changedPaths: changed,
-    };
+    });
   }
 
   const after = await trackedSnapshot(fixture);
@@ -600,29 +561,17 @@ async function main() {
   process.stdout.write(JSON.stringify(summary, null, 2) + '\n');
 
   if (mode === 'live') {
-    if (completionCount > 12) fail('observed model requests exceeded the chain ceiling');
-    if (Date.now() - startedAt > LIVE_DEADLINE_MS)
-      fail('live chain exceeded the 25-minute wall-clock ceiling');
-    if (verifyExit !== 0) fail('deterministic verification did not pass');
-    if (implementation?.status !== 'COMPLETED_BY_MODEL') {
-      fail('the implementation loop did not finish the requested fixture task');
-    }
-    if (
-      !fixtureProof?.directBehaviorsPass ||
-      !fixtureProof?.checkedScriptPass ||
-      !fixtureProof?.checkContainsAllThreeAssertions ||
-      !fixtureProof?.dependencyFree ||
-      !fixtureProof?.changedPaths?.includes('fixtures/stage14-e2e/check.mjs') ||
-      !fixtureProof?.changedPaths?.includes('fixtures/stage14-e2e/src/slugify.js')
-    ) {
-      fail('the independent fixture acceptance criteria were not all satisfied');
-    }
-    if (!review || review.findings.length > 0) {
-      fail('the model review reported findings or could not be completed cleanly');
-    }
-    if (finalRecord?.repairPlan) {
-      fail('review produced a repair plan; human digest approval is required before any repair');
-    }
+    const failures = liveQualificationFailures({
+      completionCount,
+      elapsedMs: Date.now() - startedAt,
+      deadlineMs: LIVE_DEADLINE_MS,
+      verifyExit,
+      implementation,
+      fixtureProof,
+      review,
+      repairPlanPresent: Boolean(finalRecord?.repairPlan),
+    });
+    for (const failure of failures) fail(failure);
   }
 }
 

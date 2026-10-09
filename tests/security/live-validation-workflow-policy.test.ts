@@ -9,6 +9,10 @@ const WORKFLOW = readFileSync(
   'utf8',
 );
 const DRIVER = readFileSync(path.join(ROOT, 'scripts', 'e2e-validation.mjs'), 'utf8');
+const LIVE_RULES = readFileSync(
+  path.join(ROOT, 'scripts', 'lib', 'live-qualification.mjs'),
+  'utf8',
+);
 
 const CHECKOUT_SHA = 'd23441a48e516b6c34aea4fa41551a30e30af803';
 const SETUP_NODE_SHA = '249970729cb0ef3589644e2896645e5dc5ba9c38';
@@ -121,12 +125,32 @@ describe('the controlled live-validation workflow', () => {
   });
 
   it('fails live qualification when the fixture is incomplete despite green repository gates', () => {
-    expect(DRIVER).toContain("implementation?.status !== 'COMPLETED_BY_MODEL'");
-    expect(DRIVER).toContain('fixture-independent-acceptance');
-    expect(DRIVER).toContain('fixture-check-file');
-    expect(DRIVER).toContain('checkContainsAllThreeAssertions');
-    expect(DRIVER).toContain('dependencyFree');
-    expect(DRIVER).toContain('if (!review || review.findings.length > 0)');
+    expect(LIVE_RULES).toContain("implementation?.status !== 'COMPLETED_BY_MODEL'");
+    expect(LIVE_RULES).toContain('fixture-independent-acceptance');
+    expect(LIVE_RULES).toContain('fixture-check-file');
+    expect(LIVE_RULES).toContain('checkContainsAllThreeAssertions');
+    expect(LIVE_RULES).toContain('dependencyFree');
+    expect(LIVE_RULES).toContain('if (!review || review.findings.length > 0)');
+    expect(LIVE_RULES).toContain('completionCount > MAX_MODEL_COMPLETIONS');
+    expect(LIVE_RULES).toContain('observed model requests exceeded the chain ceiling');
+    expect(LIVE_RULES).toContain('MAX_MODEL_COMPLETIONS = 12');
+    expect(DRIVER).toContain(
+      [
+        '    const failures = liveQualificationFailures({',
+        '      completionCount,',
+        '      elapsedMs: Date.now() - startedAt,',
+        '      deadlineMs: LIVE_DEADLINE_MS,',
+        '      verifyExit,',
+        '      implementation,',
+        '      fixtureProof,',
+        '      review,',
+        '      repairPlanPresent: Boolean(finalRecord?.repairPlan),',
+        '    });',
+        '    for (const failure of failures) fail(failure);',
+      ].join('\n'),
+    );
+    expect(DRIVER).toContain('inspectFixtureAcceptance({');
+    expect(DRIVER).toContain('run: exec');
     expect(DRIVER).toContain('env: childEnv({ publicGit: true })');
     expect(DRIVER).toContain('fixtureAcceptance: fixtureProof');
   });

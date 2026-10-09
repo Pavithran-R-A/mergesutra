@@ -4839,8 +4839,11 @@ hosted matrix that would have settled it could not start) is closed MEASUREMENT;
 tally of rejected model answers was compared to a bound meant to be consecutive, which ended six of
 the twelve paid Stage 14 attempts that reached the implementation loop — five of them before they
 touched the file issue #8 requires, the sixth after its work was already on disk and independently
-passing) is closed CODE + TEST + DOCUMENT. What Stage 14 still has to
-measure, and what it will not claim before it does:
+passing) is closed CODE + TEST + DOCUMENT; `S14-11` (issue #8's fourth criterion asks whether the
+model-authored check file *asserts* the required behaviors, and the harness asked only whether their text
+appeared anywhere, so a comment quoting the requirement scored the same as an assertion and the rule
+could not be plant-tested because it lived inside the paid driver) is closed CODE + TEST + DOCUMENT. What
+Stage 14 still has to measure, and what it will not claim before it does:
 
 - The credential-free pipeline walk has one host left to prove it on. Re-taken on this machine at
   `0802817`, the commit that carries S14-3/4/5, with no key in the environment
@@ -4902,7 +4905,9 @@ measure, and what it will not claim before it does:
   out of the source rather than estimated. The credential half has since been supplied by a human, and
   the chain has been paid for twenty-two times: enumerating every `live-model-*` artifact on the
   canonical repository (`gh api repos/Pavithran-R-A/mergesutra/actions/artifacts`, name prefix
-  `live-model`, 2026-10-09) gives 22 attempts, 9 of which ended at `mergesutra plan` and 1 at the
+  `live-model`, 2026-10-09) returns 23 rows across 22 distinct `github.run_id` values — run
+  `37448879597` uploaded the artifact twice — so 22 attempts, 9 of which ended at `mergesutra plan`
+  and 1 at the
   `implement` command's own precondition ("has no implementation plan"), so **12 entered the
   implementation loop** — S14-10 documents the 6 that ended `SCHEMA_REFUSAL`, and the section below
   names the other 6. Not one of the twelve ended because the model declined the task, and not one
@@ -4975,8 +4980,11 @@ requires, and the fixture's independent scan says `checkContainsAllThreeAssertio
 them (`37943570834` wrote `slugify.js` twice instead). That gap is this loop running out of allowance,
 not a model declining to write assertions: the model that got furthest, `37950266934`, had already
 written both files with all four independent fixture facts (`directBehaviorsPass`, `checkedScriptPass`,
-`checkContainsAllThreeAssertions`, `dependencyFree`) true, and never reached `FINISH`, so the harness's
-own `implementation?.status !== 'COMPLETED_BY_MODEL'` rule failed a chain whose work was done. None of
+`checkContainsAllThreeAssertions`, `dependencyFree`) reported true, and never reached `FINISH`, so the
+harness's own `implementation?.status !== 'COMPLETED_BY_MODEL'` rule failed a chain whose work was done.
+That third fact is read here as the export states it, not as this build re-derives it: S14-11 found the
+rule behind it counted a comment as an assertion, and the export never carried the check file's bytes, so
+of the four facts only the two process-backed ones are unfakeable. None of
 the six came close to the spend bound: 4–5 of 8 turns, 1–2 of 4 writes (the live workflow's own
 `implementation.limits`: `maxSteps: 8`, `maxWrites: 4`). The three artifacts that carry usage report 7,
 6 and 6 completions observed against the chain's ceiling of 12 (`37926378657`, `37943570834`,
@@ -5030,10 +5038,11 @@ consequence, not something this build takes. Nor does the loop fix touch what th
 afterwards: `review.findings.length > 0` still fails live qualification, and all six chains reached
 `mergesutra review` and came back with findings whose repair plan names
 `fixtures/stage14-e2e/check.mjs` as an expected file — so the review stage saw the gap every time while
-the loop was already gone. `37950266934` is the sharpest form of that: its fixture scan passed on all
-four facts and its review still raised a HIGH finding across `AC-1`–`AC-4`, which means a rerun that
-finishes is not automatically a run that qualifies. A run that ends on any bound is still reported as
-inconclusive rather than repaired.
+the loop was already gone. `37950266934` is the sharpest form of that: its fixture scan reported all
+four facts passing — the assertion-count among them being the one S14-11 later refused to take on the
+export's word alone — and its review still raised a HIGH finding across `AC-1`–`AC-4`, which means a
+rerun that finishes is not automatically a run that qualifies. A run that ends on any bound is still
+reported as inconclusive rather than repaired.
 
 *One harness observation, dated.* `37655552898` concluded **success** at the workflow level on a chain
 whose record says `IMPLEMENTATION_INCONCLUSIVE`. The fail-closed rule that prevents that
@@ -5041,6 +5050,124 @@ whose record says `IMPLEMENTATION_INCONCLUSIVE`. The fail-closed rule that preve
 `e0ef898b12db…`; `git log -S COMPLETED_BY_MODEL -- scripts/e2e-validation.mjs` puts it in at
 `759c1b9`, and it is present in the three later artifacts. Recorded so the earlier green reading is not
 mistaken for a passing qualification.
+
+**Status: CODE + TEST + DOCUMENT, hosted CI pending on this push.**
+
+## S14-11 — the acceptance rule counted a promise in a comment as an assertion
+
+**Finding.** Issue #8's fourth criterion has two halves: `node fixtures/stage14-e2e/check.mjs` exits
+`0`, **and that check file contains assertions for criteria 1–3**. The live harness ran the first half
+with a real child process and the second half with a substring test —
+`checkSource.includes("slugify('<input>')") || checkSource.includes('slugify("<input>")')` — over a
+file written by the very model being qualified. So the rule credited the requirement being *mentioned*:
+a `// issue #8 wants slugify('  Hello  World  ') …` comment, a `reason` string copied from the issue, or
+a value computed and then never asserted all satisfied it, and a check file that kept only the baseline's
+own `assert.equal(slugify('a--b'), 'a-b')` and commented the other two scored identically to one that
+asserted all three. Three planted controls name the three shapes
+(`tests/security/live-qualification-rules.test.ts`: comment-only, block-comment-only,
+computed-but-not-asserted).
+
+The rule had been unreachable by a test rather than untested by choice. It lived inside
+`scripts/e2e-validation.mjs`, where the only way to exercise it was to pay for a live chain, so no
+control could be planted against it. S14-11a first moved the live qualification rules — the fixture
+scan, the allowlist, the dependency read and the seven-criterion conjunction — into
+`scripts/lib/live-qualification.mjs` as a behavior-preserving extraction: the driver keeps the
+credential decision at the call site (`env: childEnv({ publicGit: true })`), still refuses an
+out-of-allowlist change before any child runs, and still emits the same seven messages in the same
+order, failing on the first.
+
+**Evidence boundary, stated before the fix.** The sanitized export records the scan's booleans and its
+`changedPaths`, not the check file's bytes, so this build cannot say whether the one artifact that
+reports `checkContainsAllThreeAssertions: true` — source `66cd695e0cbe…`, the `37950266934` row of
+S14-10's table, `C:\tmp\s15ev\live19\live-summary.json` — earned it. Grepping that artifact's eleven
+`live-logs` for `assert.equal(slugify` returns nothing: the file text was never exported, so neither
+reading is available. What that record cannot fake is the other two facts, because both are real
+processes: `directBehaviorsPass` runs a hard-coded three-assertion script the model never touches, and
+`checkedScriptPass` runs the model's own file and reads its exit code. The blast radius of this defect
+is therefore criterion 4's documentation evidence, not whether the slugify behavior was right. The
+`missingAssertionInputs` field described below is written only by exports produced from this commit
+forward, so it re-derives nothing about the twenty-two attempts already paid for.
+
+**Fix.** `missingAssertionInputs` now reads the file the way the criterion is written. Comments are
+dropped; string literals are kept whole, so comment punctuation carried inside one (`'report:
+https://example.com/a--b'`, a `'docs at /* stage-14'`) cannot hide the code that shares its line or
+follows it; and an input is credited only when it appears in the argument text of an `assert` call,
+taken by balanced-paren scan so an assertion spread over four lines still counts. The deciding boolean
+(`checkContainsAllThreeAssertions`) and the seven qualification messages are unchanged in content and
+order — a run that already asserted all three qualifies exactly as before. The scan's output is now also
+recorded: the proof carries `missingAssertionInputs`, the inputs the check file failed to assert, derived
+from the same call that decides the boolean so the two cannot drift. That field exists because the
+conjunction answers one message for five different causes, which left a refused run undiagnosable from
+its export — the limitation this section had to concede in writing until it was removed.
+
+**Tests.** 24 cases in `tests/security/live-qualification-rules.test.ts`, run against the shipped
+module in a real Node child process (vitest's loader cannot resolve an absolute path containing spaces,
+so `scripts/*.mjs` is executed rather than imported). The first version spawned one child per case and
+took 604 s while reporting ten `vitest-worker` timeouts; the whole matrix now goes through a single
+asynchronous harness call — 4.2 s, 24 passed — inside the 30 s hook budget the config already documents,
+so no timeout was raised and no assertion softened. Controls cover: comment-only and block-comment-only
+mentions, a computed-but-never-asserted input, the untouched baseline (which reports the two inputs it
+never covered), a file missing one assertion, double-quoted arguments, a multi-line assertion, comment
+punctuation inside a string, an implementation that was never fixed, a check file that throws, a fixture
+that added a dependency, a change outside the allowlist, and the seven-criterion conjunction — including
+that a chain whose repository tests are green but whose acceptance is unproved still fails, and that
+every failing criterion is reported rather than the first. The recorded proof itself is under test too:
+it must name the inputs an unaccepted check file lacked (`['  Hello  World  ', '--x--']` for the
+comment-only file, `['--x--']` for the block-comment one, `[]` for an accepted one), because that list is
+now the only way a refusal is diagnosable offline. `tests/security/live-validation-workflow-policy.test.ts`
+pins the driver's `liveQualificationFailures({ … })` argument block verbatim.
+
+**Measured before/after.** On a `37655552898`-shaped file (both missing inputs quoted in a comment, the
+baseline assertions kept): before `[]` — the rule reported satisfaction; after
+`['  Hello  World  ', '--x--']` — the chain is refused. On this tree's committed
+`fixtures/stage14-e2e/check.mjs`: `['  Hello  World  ', '--x--']` under both rules, so the tightening
+does not move the bar for a file that never mentioned the inputs. A file that adds the two missing
+`assert.equal` calls scores `[]` under the new rule.
+
+**Mutations.** Thirteen, each restored byte-for-byte (lib baseline `e053a3150603733e…` with the proof
+field present, `956c1724c6ef6131…` before it; driver `b68679346a9296f3…`; re-hashed after every run;
+`C:\tmp\s15ev\mutations-11c.log`, which repeats the first eleven identically to `mutations-11b.log` and
+confirms the two added anchors bind). Ten of the original eleven were caught on the first pass; two of
+them only exist because their first form proved weak: dropping the `assert`-head requirement in the
+loosest way (credit any parenthesised call) survived the suite, so it was restated as "credit any
+executable text", which "does not count a required input that is computed but never asserted" catches;
+and the driver passing `fixtureProof: null` into the conjunction was not caught at all, which is why the
+policy test now pins the whole argument block instead of the function name. The two new mutations test
+the new field rather than the rule behind it — a proof that reports `missingAssertionInputs: []` whatever
+the scan found, and one that truncates the list to its first entry — and both are caught by the control
+that reads the recorded list, so the field is evidence and not decoration.
+
+*What this does not claim.* This is a token scan, not a JavaScript parser. A check file that reaches the
+required text through something the scanner does not model — an alias (`import * as strict from
+'node:assert/strict'`), a `//` or `/*` inside a regular-expression literal, behavior assembled by `eval`
+— is **not** credited, which fails closed; the opposite direction, comment text landing inside an
+assertion's span through scanner confusion, is not provably closed by this rule, and the layer that
+cannot be talked into anything is the hard-coded `fixture-independent-acceptance` child. No credential
+was used for any of it. Nothing here shows a live model satisfying criterion 4: five of the six
+`SCHEMA_REFUSAL` runs never wrote `check.mjs` at all, which is S14-10's subject, and a rerun that writes
+comments instead of assertions is exactly what this rule now refuses.
+
+**Evidence for the closing claim.** `npm run check` is green on this tree — `prettier --check .`,
+`eslint .`, `tsc -p tsconfig.json --noEmit`, `tsc -p tsconfig.build.json`, `vitest run`, in that order:
+`Test Files 153 passed | 3 skipped (156)`, `Tests 2349 passed | 3 skipped (2352)`, exit `0`
+(`C:\tmp\s15ev\check-11d.log`, start `02:02:21` on 2026-10-05, 419.45 s). The three skipped files are
+`tests/implement/live.test.ts`, `tests/plan/live.test.ts` and `tests/review/live.test.ts`, each of which
+refuses to run with no credential in the environment; their being skipped is the boundary this stage
+stops at, stated as a count rather than hidden in a total. That reading arrived on the second attempt.
+The first sweep, an hour earlier on the same tree, got the four static phases green and then lost the
+test phase to the host volume filling up mid-run: `54 failed | 101 passed | 1 skipped (156)` files,
+`98 failed | 1935 passed | 1 skipped (2034)` tests, 132 failure blocks, of which 96 name the disk in
+their own words (`ENOSPC: no space left on device`, `git init -q failed: … No space left on device`,
+`copy-fd: write returned: No space left on device`, `unable to create temporary file`, `fatal: sha1
+file …`), none reports a timeout, and the four that do not (`tests/cli/report.test.ts` reading back a
+pack its own write could not finish) pass in both re-runs below with no code change between them
+(`C:\tmp\s15ev\check-11c.log`). So the suite was run again rather than reasoned away: first in five
+chunks that between them cover every file the default config includes exactly once — five `CHUNK_EXIT=0`
+rows, `156` files and `2352` tests, the same population the clean single sweep reports
+(`C:\tmp\s15ev\chunks-11c.log`, `01:45:38`→`01:58:42`) — then as that single sweep once the volume had
+headroom. No timeout was raised, no case was deleted or hand-skipped, and no assertion was loosened for
+either number. Hosted CI on this push is still outstanding; the commit it lands on, `e86474d`, is green
+there (run `37973754419`).
 
 **Status: CODE + TEST + DOCUMENT, hosted CI pending on this push.**
 

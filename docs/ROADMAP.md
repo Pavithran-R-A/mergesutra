@@ -1041,7 +1041,8 @@ purpose is to be refused.
       `37926378657` each stopped at 5 of 8 turns with one write and never attempted
       `fixtures/stage14-e2e/check.mjs`; `37943570834` stopped at 4 of 8 having written `slugify.js`
       twice; `37950266934` stopped at 4 of 8 with **both** required files already on disk and every
-      independent fixture fact true, and the harness then reported a finished chain as inconclusive.
+      independent fixture fact reported true (the assertion-count among them being the fact S14-11 shows
+      the export cannot re-derive), and the harness then reported a finished chain as inconclusive.
       Every record shows a usable action between the two rejections, and none of the six came near the
       completion ceiling. The bound is now a streak that a usable answer resets,
       the record carries the run-wide `rejectedAnswers` tally alongside the actions that ran, and the
@@ -1051,6 +1052,27 @@ purpose is to be refused.
       early. The other six loop runs ended `MAX_STEPS` (5) and `DEADLINE` (1), which this fix does not
       address; that class is what the required-only plan and finish guidance at `4a27c5f` targets.
       `tests/implement/loop.test.ts`, `tests/implement/implement.test.ts`; S14-10.
+- [x] That the harness's own acceptance rule means what issue #8 says. Criterion 4 has two halves, and
+      its second — the check file must *contain assertions* for the three required behaviors — was
+      implemented as a substring test over a file written by the very model being graded. A comment
+      quoting the issue, a `reason` string copied from it, or a value computed and never asserted all
+      satisfied it; and the rule lived inside the paid driver, so no offline test could reach it. The
+      live qualification rules now sit in `scripts/lib/live-qualification.mjs` and are tested against
+      planted workspaces in a real Node process: 24 cases covering line and block comments, a
+      computed-but-not-asserted input, the untouched baseline, double-quoted and multi-line assertions,
+      comment punctuation carried inside a string literal, an unfixed `slugify.js`, a throwing check
+      file, an added dependency, an out-of-allowlist change, and the seven-criterion conjunction. The
+      scan drops comments, keeps string literals whole, and credits an input only inside the arguments of
+      an `assert` call. The deciding boolean, the seven refusal messages and the driver's call sites are
+      unchanged, so a chain that genuinely asserted all three qualifies exactly as it did. The exported
+      summary additionally records `fixtureAcceptance.missingAssertionInputs`, the inputs a check file
+      failed to assert — the conjunction answers one coarse message for five causes, and that list is
+      what makes a refusal diagnosable without a rerun. No past artifact is re-derived by any of this:
+      the sanitized exports carry the booleans but never the check file's bytes, so the
+      `checkContainsAllThreeAssertions: true` reported above stays a claim a record makes, not a reading
+      this build confirms. Thirteen mutations, each restored byte-for-byte, name which assertion each
+      rule is load-bearing for. `tests/security/live-qualification-rules.test.ts`,
+      `tests/security/live-validation-workflow-policy.test.ts`; S14-11.
 - [ ] The real-model run itself, which is the boundary this stage stops at: a named model, and the
       evidence that procedure is written to produce. The procedure and its ceiling exist; no key is
       held on this machine, so the only readings that have happened are the twenty-two paid ones

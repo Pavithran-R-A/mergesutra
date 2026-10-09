@@ -259,6 +259,44 @@ the run made; remove it by path with `git -C <fixture-clone> worktree remove <pa
 `.mergesutra/runs/<run-id>.json` and `.mergesutra/runs/<run-id>/` in place — they are the evidence
 — and leave the fixture's issue open until the human decision about the pull request is made.
 
+### What the harness decides, and on which facts
+
+`scripts/e2e-validation.mjs live` does not grade the run on workflow status. It calls one conjunction,
+`liveQualificationFailures(…)` in `scripts/lib/live-qualification.mjs`, which returns every item below
+that is not true rather than only the first, and the run is refused when that list is non-empty:
+
+1. the completions the chain observed stay at or under 12 (`MAX_MODEL_COMPLETIONS`);
+2. the chain stays inside its 25-minute wall clock;
+3. `mergesutra verify` exits 0;
+4. the implementation record says `COMPLETED_BY_MODEL` — the loop finished the task it was asked to do;
+5. the independent fixture facts all hold: `directBehaviorsPass` (a hard-coded three-assertion script
+   run against the workspace's `slugify.js`), `checkedScriptPass` (the check file run as its own
+   process), `checkContainsAllThreeAssertions`, `dependencyFree`, and both required files present in
+   the changed-path list;
+6. the review completed with zero findings;
+7. no repair plan is waiting unapproved.
+
+Criterion 5's `checkContainsAllThreeAssertions` is the one that changed for issue #8's fourth criterion,
+which asks that the check file *contain assertions* for the three required behaviors. It used to ask
+whether each `slugify('<input>')` string appeared anywhere in the file — a file authored by the model
+being graded — so a comment quoting the issue satisfied it. It now reads the file: comments are dropped,
+string literals are kept whole, and an input counts only inside the arguments of an `assert` call. A
+model that writes `// also cover slugify("--x--")` and nothing else is refused, which is what a
+runbook promise about independent acceptance requires.
+
+That item's message is deliberately coarse — one line covers five causes — and the driver stops at the
+first failing item it prints, so the screen is a partial reading. The summary artifact carries the detail
+beside it: `fixtureAcceptance.missingAssertionInputs` lists the required inputs the
+check file did not assert, and `fixtureAcceptance.changedPaths` the paths the run changed. A refused run
+is read from those fields before anyone guesses at the cause. Exports written before this commit carry
+the booleans but not that list.
+
+The rules are a module, so they are testable without paying for a chain: `npm run test` runs
+`tests/security/live-qualification-rules.test.ts`, which plants workspaces (including a
+comment-only check file, an unfixed `slugify.js`, a fixture that added a dependency, and a change
+outside the allowed paths) and executes the shipped module in a real Node process. Those tests are the
+reason a future edit to a threshold cannot quietly redefine what "qualified" meant.
+
 ## 9. What the operator reports back
 
 Report the run, including the parts that did not work. Nothing in this list may be summarised
@@ -290,11 +328,12 @@ Merely obtaining a successful workflow status or a recorded review does not clos
   The fixture's primary tracked bytes/status were unchanged, and the scan found no
   credential-shaped leaks. This was useful safety evidence, not a completed contribution — and the job
   that produced it still concluded `success`, because the fail-closed
-  `implementation?.status !== 'COMPLETED_BY_MODEL'` rule in §8 did not exist in
+  `implementation?.status !== 'COMPLETED_BY_MODEL'` rule — item 4 of §8's conjunction — did not exist in
   `scripts/e2e-validation.mjs` at that commit; `git log -S COMPLETED_BY_MODEL` puts it in at `759c1b9`.
 - Six of the twelve paid attempts that reached the implementation loop ended early for the same product
   reason, and that reason is now fixed but not yet re-measured. Enumerating the `live-model-*` artifacts
-  gives 22 attempts; 9 stopped at `plan` and 1 at the `implement` precondition, so 12 ran the loop — 6
+  gives 23 rows over 22 distinct run ids (one run uploaded twice), so 22 attempts; 9 stopped at `plan`
+  and 1 at the `implement` precondition, so 12 ran the loop — 6
   ended `SCHEMA_REFUSAL`, 5 `MAX_STEPS`, 1 `DEADLINE` (S14-10 names all 12). The six in the first class
   end with the identical detail, `No usable action after 2 rejected answer(s). Last problem: Rejected
   model action: content: Required` — while every one of them had a usable action between the two

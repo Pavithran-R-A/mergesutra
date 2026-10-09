@@ -44,6 +44,34 @@ model reading has never happened; and `docs/REAL_MODEL_E2E_PROCEDURE.md` now say
 `COMPLETED_BY_MODEL` rule did not exist in `scripts/e2e-validation.mjs` at that commit (`759c1b9`
 added it), so its green job is not evidence of a qualified contribution.
 
+### Fixed — Stage 14 qualification: a promise in a comment counted as an assertion
+
+Issue #8's fourth criterion has two halves: `node fixtures/stage14-e2e/check.mjs` exits `0`, **and** that
+file contains assertions for the three required behaviors. The live harness ran the first half as a real
+child process and the second half as a substring test over a file written by the very model being
+qualified, so a `// issue #8 wants slugify('  Hello  World  ') …` comment, a `reason` string copied from
+the issue, or a value computed and never asserted all satisfied the rule. The rule also lived inside the
+paid driver, so nothing could test it without buying a chain.
+
+The live qualification rules — fixture scan, path allowlist, dependency read and the seven-criterion
+conjunction — now sit in `scripts/lib/live-qualification.mjs`, with the credential decision and the
+out-of-allowlist refusal still made by the driver at the call site. The scan drops comments, keeps
+string literals whole, and credits a required input only inside the arguments of an `assert` call, taken
+by balanced-paren scan so a multi-line assertion counts. It is tested against planted workspaces in a
+real Node process (`tests/security/live-qualification-rules.test.ts`, 24 cases) rather than against a
+live model. The deciding boolean, the seven refusal messages and their order are unchanged, so a chain
+that genuinely asserted all three qualifies exactly as before — the bar was not moved, the stated
+criterion is now enforced. The exported summary also records `fixtureAcceptance.missingAssertionInputs`,
+the inputs an unaccepted check file lacked, because the conjunction answers one message for five causes
+and a refusal was not diagnosable from the artifact alone.
+
+What this does not change: the sanitized exports of the twenty-two attempts already paid for carry the
+booleans but never the check file's bytes, so no past `checkContainsAllThreeAssertions: true` is
+re-derivable here. The unfakeable layer remains `directBehaviorsPass`, a hard-coded three-assertion
+script run against the workspace's implementation, and `checkedScriptPass`, the model's own file run as
+its own process. No credential was used to prove any of it, and thirteen mutations, each restored
+byte-for-byte, name the test each rule is load-bearing for. S14-11 in `docs/SECURITY_GAP_REGISTER.md`.
+
 ## [0.1.0] - 2026-10-05
 
 ### Fixed — Stage 13 qualification: Windows 8.3 home aliases
