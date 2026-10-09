@@ -288,7 +288,13 @@ export async function runImplementationLoop(
 
       if (answer.length > limits.maxModelOutputChars) {
         const problem = `the answer was ${answer.length} characters, over the ${limits.maxModelOutputChars}-character ceiling for a single action`;
-        messages = repair(state, limits, messages, problem, unwrittenPlannedPaths(input.plan, state));
+        messages = repair(
+          state,
+          limits,
+          messages,
+          problem,
+          unwrittenPlannedPaths(input.plan, state),
+        );
         continue;
       }
 
@@ -431,10 +437,7 @@ export async function runImplementationLoop(
  * turns. The rejected text is never echoed back — a model that has just produced
  * something invalid is the last party whose words should be replayed to it.
  */
-function unwrittenPlannedPaths(
-  plan: ImplementationPlan,
-  state: LoopState,
-): string[] {
+function unwrittenPlannedPaths(plan: ImplementationPlan, state: LoopState): string[] {
   const written = new Set(state.changes.map((change) => change.relativePath));
   return [...new Set(plan.body.changes.map((change) => change.file))].filter(
     (file) => !written.has(file),
