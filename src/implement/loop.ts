@@ -288,7 +288,7 @@ export async function runImplementationLoop(
 
       if (answer.length > limits.maxModelOutputChars) {
         const problem = `the answer was ${answer.length} characters, over the ${limits.maxModelOutputChars}-character ceiling for a single action`;
-        messages = repair(state, limits, messages, problem);
+        messages = repair(state, limits, messages, problem, unwrittenPlannedPaths(input.plan, state));
         continue;
       }
 
@@ -296,7 +296,13 @@ export async function runImplementationLoop(
       try {
         action = parseAction(safeJsonParse(answer));
       } catch (error) {
-        messages = repair(state, limits, messages, reasonOf(error));
+        messages = repair(
+          state,
+          limits,
+          messages,
+          reasonOf(error),
+          unwrittenPlannedPaths(input.plan, state),
+        );
         continue;
       }
 
@@ -393,9 +399,7 @@ export async function runImplementationLoop(
 
       const remainingPlannedPaths =
         action.action === 'WRITE_FILE' && effect.outcome === 'APPLIED'
-          ? input.plan.body.changes
-              .map((change) => change.file)
-              .filter((file) => !state.changes.some((change) => change.relativePath === file))
+          ? unwrittenPlannedPaths(input.plan, state)
           : [];
       messages = withStepFeedback(
         messages,
@@ -427,11 +431,22 @@ export async function runImplementationLoop(
  * turns. The rejected text is never echoed back — a model that has just produced
  * something invalid is the last party whose words should be replayed to it.
  */
+function unwrittenPlannedPaths(
+  plan: ImplementationPlan,
+  state: LoopState,
+): string[] {
+  const written = new Set(state.changes.map((change) => change.relativePath));
+  return [...new Set(plan.body.changes.map((change) => change.file))].filter(
+    (file) => !written.has(file),
+  );
+}
+
 function repair(
   state: LoopState,
   limits: LoopLimits,
   messages: ChatMessage[],
   problem: string,
+  remainingPlannedPaths: readonly string[] = [],
 ): ChatMessage[] {
   state.schemaRepairs += 1;
   if (state.schemaRepairs > limits.maxSchemaRepairs) {
@@ -440,7 +455,11 @@ function repair(
       `No usable action after ${state.schemaRepairs} rejected answer(s). Last problem: ${bound(problem, MAX_LOG_DETAIL_CHARS)}`,
     );
   }
-  return withActionRepairFeedback(messages, bound(problem, MAX_LOG_DETAIL_CHARS));
+  return withActionRepairFeedback(
+    messages,
+    bound(problem, MAX_LOG_DETAIL_CHARS),
+    remainingPlannedPaths,
+  );
 }
 
 interface ExecuteContext {
