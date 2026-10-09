@@ -139,6 +139,10 @@ describe('the action list shown to the model', () => {
     expect(system).toContain('a separate verification stage decides that, not you.');
     expect(system).toContain('Prefer the smallest patch that satisfies the contract.');
     expect(system).toContain('Do not add success logging');
+    expect(system).toContain('tests or assertions for specific inputs');
+    expect(system).toContain('update the allowed test file');
+    expect(system).toContain('Passing existing generic tests does not satisfy');
+    expect(system).toContain('every required source AND test-file change');
     expect(system).toContain('Before FINISH, if check budget remains');
     expect(system).toContain('at least one repository-required gate');
   });
