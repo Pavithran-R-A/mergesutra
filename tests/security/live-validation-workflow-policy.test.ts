@@ -131,6 +131,15 @@ describe('the controlled live-validation workflow', () => {
     expect(DRIVER).toContain('fixtureAcceptance: fixtureProof');
   });
 
+  it('initializes implementation evidence before independent fixture acceptance', () => {
+    const declaration = DRIVER.indexOf(
+      'const implementation = implementRecord?.implementation ?? finalRecord?.implementation ?? null;',
+    );
+    const fixtureCheck = DRIVER.indexOf('const changed = implementation?.changes?.map(');
+    expect(declaration).toBeGreaterThan(0);
+    expect(fixtureCheck).toBeGreaterThan(declaration);
+  });
+
   it('records the model stages separately rather than trusting a final stage snapshot', () => {
     expect(DRIVER).toContain('planRecord = plan.json.record');
     expect(DRIVER).toContain('implementRecord = implement.json.record');
