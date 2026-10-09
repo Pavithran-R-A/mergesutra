@@ -438,7 +438,12 @@ describe('the gate set is complete, not merely valid', () => {
  * So the set of files on disk is compared against the set this file has rules for, and a
  * new file makes the suite red until someone writes its policy.
  */
-const GUARDED_WORKFLOWS = ['acceptance-once.yml', 'ci.yml', 'live-validation.yml', 'publish.yml'];
+const GUARDED_WORKFLOWS = [
+  'acceptance-once.yml',
+  'ci.yml',
+  'live-validation.yml',
+  'publish.yml',
+];
 
 function workflowFiles(): string[] {
   return readdirSync(path.join(ROOT, '.github', 'workflows'))
@@ -470,7 +475,6 @@ describe('no hosted workflow escapes this policy', () => {
   });
 });
 
-
 describe('branch-only one-time acceptance workflow policy', () => {
   it('requires the exact opt-in branch and commit marker on both jobs', () => {
     expect(ACCEPTANCE_ONCE).toMatch(
@@ -499,8 +503,9 @@ describe('branch-only one-time acceptance workflow policy', () => {
   });
 
   it('requires immutable actions and the exact frozen main tree before any model use', () => {
-    expect(ACCEPTANCE_ONCE.match(/Assert frozen release source and branch-only workflow delta/g) ?? [])
-      .toHaveLength(2);
+    expect(
+      ACCEPTANCE_ONCE.match(/Assert frozen release source and branch-only workflow delta/g) ?? [],
+    ).toHaveLength(2);
     expect(ACCEPTANCE_ONCE).toContain('e93a4c8a8396dea1be26e3aaae9a4c4f2b9a9d16');
     expect(ACCEPTANCE_ONCE).toContain('.github/workflows/acceptance-once.yml');
     for (const line of ACCEPTANCE_ONCE.split(/\r?\n/).filter((line) => line.includes('uses: '))) {
