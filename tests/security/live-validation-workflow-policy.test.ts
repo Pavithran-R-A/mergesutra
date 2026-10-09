@@ -122,12 +122,12 @@ describe('the controlled live-validation workflow', () => {
 
   it('fails live qualification when the fixture is incomplete despite green repository gates', () => {
     expect(DRIVER).toContain("implementation?.status !== 'COMPLETED_BY_MODEL'");
-    expect(DRIVER).toContain("fixture-independent-acceptance");
-    expect(DRIVER).toContain("fixture-check-file");
+    expect(DRIVER).toContain('fixture-independent-acceptance');
+    expect(DRIVER).toContain('fixture-check-file');
     expect(DRIVER).toContain('checkContainsAllThreeAssertions');
     expect(DRIVER).toContain('dependencyFree');
-    expect(DRIVER).toContain("if (!review || review.findings.length > 0)");
-    expect(DRIVER).toContain("env: childEnv({ publicGit: true })");
+    expect(DRIVER).toContain('if (!review || review.findings.length > 0)');
+    expect(DRIVER).toContain('env: childEnv({ publicGit: true })');
     expect(DRIVER).toContain('fixtureAcceptance: fixtureProof');
   });
 
