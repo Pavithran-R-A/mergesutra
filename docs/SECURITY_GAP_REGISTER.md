@@ -5051,7 +5051,8 @@ whose record says `IMPLEMENTATION_INCONCLUSIVE`. The fail-closed rule that preve
 `759c1b9`, and it is present in the three later artifacts. Recorded so the earlier green reading is not
 mistaken for a passing qualification.
 
-**Status: CODE + TEST + DOCUMENT, hosted CI pending on this push.**
+**Status: CLOSED — CODE + TEST + DOCUMENT.** Hosted on `e86474d`: `check` green across Ubuntu/Windows ×
+Node 22/24 (run `37973754419`).
 
 ## S14-11 — the acceptance rule counted a promise in a comment as an assertion
 
@@ -5166,10 +5167,11 @@ chunks that between them cover every file the default config includes exactly on
 rows, `156` files and `2352` tests, the same population the clean single sweep reports
 (`C:\tmp\s15ev\chunks-11c.log`, `01:45:38`→`01:58:42`) — then as that single sweep once the volume had
 headroom. No timeout was raised, no case was deleted or hand-skipped, and no assertion was loosened for
-either number. Hosted CI on this push is still outstanding; the commit it lands on, `e86474d`, is green
-there (run `37973754419`).
+either number. Hosted on the commit this lands on, `a98158e`: `CI` run `37988829905`, Ubuntu/Windows ×
+Node 22/24, four check-runs all `success`. The commit before it, `e86474d` carrying S14-10, was green
+there too (run `37973754419`), which is what lets that section close as well.
 
-**Status: CODE + TEST + DOCUMENT, hosted CI pending on this push.**
+**Status: CLOSED — CODE + TEST + DOCUMENT.**
 
 ## S13-7 — Windows 8.3 home aliases defeated HOME/USERPROFILE abbreviation
 
