@@ -1,10 +1,11 @@
 # Real-model end-to-end procedure
 
-**Read this first: no run described here has happened.** Stage 14 stops at a credential this
-repository does not hold, and the handover is this file. The "measured" column in §4 records
-what every step did on the committed tree with no key in the environment; the "a live run should
-show" column is a prediction written from source, not a result. When the run happens, the person
-who ran it replaces those predictions with captured output — see §9.
+**Status (9 October 2026): real BharatCode requests have been executed.** The protected
+`main` CLI is still not qualified for public release: a controlled Qwen run completed all
+workflow jobs on 7 October, but its model implementation was INCONCLUSIVE and review found
+an unfulfilled acceptance criterion. A workflow success is not a contribution-ready result.
+§4 retains the original operator procedure and its historical no-key predictions; the measured
+hosted evidence is recorded below. Never describe a modeled future step as a verified result.
 
 This procedure is for one controlled validation run against one fixture repository. It is not a
 general tutorial; `README.md` is that, and where the two disagree the screens printed by
@@ -273,18 +274,24 @@ away, and no line of it may contain a credential:
 7. the two digests that were approved, and what was read before approving each;
 8. the output of §8's checks, and `git status --short` in both repositories.
 
-That report is what closes Stage 14 and starts Stage 15. Until it exists, every claim in this file
-about what a live run "should show" remains a prediction.
+A real-model result closes Stage 14 only when the acceptance criteria, independent fixture
+checks, security conditions, implementation completion, and review evidence are all satisfied.
+Merely obtaining a successful workflow status or a recorded review does not close this stage.
 
 ## 10. What this procedure does not prove
 
-- It is not a real-model result. The run it describes has not happened, and nothing here may be
-  presented as one.
-- The credential-free §4 chain still has one host reading. The ordinary quality sequence and the
-  dedicated path-shape qualification now run green on GitHub-hosted Ubuntu and Windows with Node 22
-  and 24, and those hosted runners discover both real `git` and real `gh`. That does **not** turn
-  those matrix jobs into a second reading of this chain: the fixture is now a deliberately tiny public branch of this same public repository, so hosted
-  runners can clone it anonymously and use the workflow's read-only ephemeral token to read issue #8.
+- The real-model run has occurred, but does not prove that the entire task was solved.
+  GitHub Actions run `37655552898` at `e0ef898b12db5d38025ce904d0cc1e2493a9a0d6`
+  completed its Windows and Ubuntu no-key jobs and its credentialed Qwen job. The sanitized
+  live artifact records `IMPLEMENTATION_INCONCLUSIVE` (schema refusal after a write),
+  `VERIFICATION_PASS` for the repository-declared gates, and a HIGH requirement gap in review:
+  `fixtures/stage14-e2e/check.mjs` did not acquire the issue's required assertions.
+  The five issue-level criteria remained `MANUAL_REVIEW_REQUIRED`; publication was blocked.
+  The fixture's primary tracked bytes/status were unchanged, and the scan found no
+  credential-shaped leaks. This was useful safety evidence, not a completed contribution.
+- The credential-free chain has hosted readings on both Ubuntu and Windows, including
+  post-merge checks. The ordinary CI matrix also runs Ubuntu/Windows × Node 22/24.
+  Neither the matrix nor a no-key walk proves an actual model patch is acceptable.
 - It does not make a run's blast radius provably the fixture. Since S14-9, ordinary
   repository/workspace child processes receive neither the BharatCode credential nor
   `GH_TOKEN`/`GITHUB_TOKEN`/`GITHUB_PAT`; GitHub authentication is preserved only for
