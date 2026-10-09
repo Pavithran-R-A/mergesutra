@@ -606,10 +606,14 @@ async function main() {
     if (implementation?.status !== 'COMPLETED_BY_MODEL') {
       fail('the implementation loop did not finish the requested fixture task');
     }
-    if (!fixtureProof?.directBehaviorsPass || !fixtureProof?.checkedScriptPass ||
-        !fixtureProof?.checkContainsAllThreeAssertions || !fixtureProof?.dependencyFree ||
-        !fixtureProof?.changedPaths?.includes('fixtures/stage14-e2e/check.mjs') ||
-        !fixtureProof?.changedPaths?.includes('fixtures/stage14-e2e/src/slugify.js')) {
+    if (
+      !fixtureProof?.directBehaviorsPass ||
+      !fixtureProof?.checkedScriptPass ||
+      !fixtureProof?.checkContainsAllThreeAssertions ||
+      !fixtureProof?.dependencyFree ||
+      !fixtureProof?.changedPaths?.includes('fixtures/stage14-e2e/check.mjs') ||
+      !fixtureProof?.changedPaths?.includes('fixtures/stage14-e2e/src/slugify.js')
+    ) {
       fail('the independent fixture acceptance criteria were not all satisfied');
     }
     if (!review || review.findings.length > 0) {
