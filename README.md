@@ -33,10 +33,14 @@ becomes a PR."*
 > not run `git commit`, push a branch or open the GitHub pull request for you.
 > A worktree is isolation for clarity, not an operating-system sandbox.
 >
-> **Live-model status:** the BharatCode adapter and opt-in live tests ship, but
-> this release candidate does not claim a completed real-endpoint Stage-14 run.
-> That evidence requires a real `BHARATCODE_API_KEY`; the repository records the
-> missing credential as a release-validation gap rather than fabricating a pass.
+> **Live-model status:** a controlled real BharatCode/Qwen validation ran on
+> 7 October 2026 ([GitHub run #37655552898](https://github.com/Pavithran-R-A/mergesutra/actions/runs/37655552898)).
+> Windows, Ubuntu and the credentialed workflow jobs were green, but the model
+> implementation was inconclusive. The independent reviewer identified a HIGH
+> requirement gap: the fixture test file did not include all three required
+> slugify assertions. Repository gate success is **not** a completed issue.
+> Production now enforces an independent fixture acceptance check; the full
+> model-driven contribution remains an open release gate.
 >
 > See the [Roadmap](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md)
 > and [real-model E2E procedure](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/REAL_MODEL_E2E_PROCEDURE.md)
@@ -67,7 +71,8 @@ node dist/bin.js --version
 node dist/bin.js doctor
 ```
 
-BharatCode-backed stages need `BHARATCODE_API_KEY`. Set
+BharatCode-backed stages need the **current user's own** `BHARATCODE_API_KEY`; no
+developer key is shared with CLI users or shipped in the npm artifact. Set
 `BHARATCODE_MODEL` when you want to pin an explicit model rather than use the
 configured/default selection. MergeSutra never needs the key for `status`,
 `report`, approval previews or other read-only recovery paths.
