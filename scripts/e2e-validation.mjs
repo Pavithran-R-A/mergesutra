@@ -399,6 +399,8 @@ async function main() {
     prJson = parseJson(pr);
   }
 
+  const implementation = implementRecord?.implementation ?? finalRecord?.implementation ?? null;
+
   if (mode === 'live') {
     // The CLI deliberately records incomplete work as evidence rather than lying
     // about success. A successful workflow must prove the actual fixture task.
@@ -499,7 +501,6 @@ async function main() {
   }
 
   const plan = planRecord?.plan ?? finalRecord?.plan ?? null;
-  const implementation = implementRecord?.implementation ?? finalRecord?.implementation ?? null;
   const review = reviewRecord?.review ?? finalRecord?.review ?? null;
   const evidence = verifyRecord?.acceptanceEvidence ?? finalRecord?.acceptanceEvidence ?? null;
   const completionCount =
