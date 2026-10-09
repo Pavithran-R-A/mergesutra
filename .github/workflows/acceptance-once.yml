@@ -1,0 +1,162 @@
+name: One-time MergeSutra acceptance proof
+
+on:
+  push:
+    branches: [ops/acceptance-proof-20261009]
+
+# Branch-only disposable workflow, never merged to main. Secrets are confined to the
+# credential-presence, catalog and bounded live-model steps; read-only Github token.
+concurrency:
+  group: mergesutra-one-time-acceptance
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  no-key-chain:
+    name: no-key chain (${{ matrix.os }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/ops/acceptance-proof-20261009' && contains(github.event.head_commit.message, '[acceptance-once]')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NO_COLOR: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert frozen release source and branch-only workflow delta
+        shell: bash
+        run: |
+          base=e93a4c8a8396dea1be26e3aaae9a4c4f2b9a9d16
+          changed="$(git diff --name-only "$base" HEAD)"
+          if [[ "$changed" != ".github/workflows/acceptance-once.yml" ]]; then
+            echo "Unexpected change relative to validated production commit." >&2
+            exit 64
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.x'
+          package-manager-cache: false
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Walk the credential-free fixture chain
+        run: node scripts/e2e-validation.mjs no-key
+
+      - name: Upload sanitized no-key evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: no-key-${{ matrix.os }}-${{ github.run_id }}
+          path: .mergesutra/live-validation-export/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  live-model:
+    name: real BharatCode E2E
+    needs: no-key-chain
+    if: github.event_name == 'push' && github.ref == 'refs/heads/ops/acceptance-proof-20261009' && contains(github.event.head_commit.message, '[acceptance-once]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NO_COLOR: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert frozen release source and branch-only workflow delta
+        shell: bash
+        run: |
+          base=e93a4c8a8396dea1be26e3aaae9a4c4f2b9a9d16
+          changed="$(git diff --name-only "$base" HEAD)"
+          if [[ "$changed" != ".github/workflows/acceptance-once.yml" ]]; then
+            echo "Unexpected change relative to validated production commit." >&2
+            exit 64
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.x'
+          package-manager-cache: false
+
+      - name: Refuse an unconfigured secret without printing it
+        shell: bash
+        env:
+          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
+        run: |
+          if [ -z "${BHARATCODE_API_KEY:-}" ]; then
+            echo "BHARATCODE_API_KEY repository secret is not configured." >&2
+            exit 78
+          fi
+
+      - name: Verify selected model is in the authenticated catalog
+        shell: bash
+        env:
+          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
+          BHARATCODE_MODEL: qwen-3.8-27b
+        run: |
+          node <<'NODE'
+          const key = process.env.BHARATCODE_API_KEY;
+          const model = process.env.BHARATCODE_MODEL;
+          const response = await fetch('https://bharatcode.ai/api/model/v1/models', {
+            headers: {
+              authorization: `Bearer ${key}`,
+              accept: 'application/json',
+            },
+          });
+          console.log(`BharatCode /models HTTP ${response.status}`);
+          if (!response.ok) process.exit(78);
+          const body = await response.json();
+          const ids = (body.data ?? []).map((entry) => entry.id);
+          console.log(`Catalog models: ${ids.join(', ') || '<none>'}`);
+          if (!ids.includes(model)) process.exit(79);
+          NODE
+
+      - name: Install
+        run: npm ci
+
+      - name: Audit shipped dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Re-run deterministic release gates
+        run: npm run check
+
+      - name: Run the bounded real-model chain
+        env:
+          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
+          BHARATCODE_MODEL: qwen-3.8-27b
+          BHARATCODE_TIMEOUT_MS: '300000'
+          BHARATCODE_MAX_RETRIES: '0'
+        run: node scripts/e2e-validation.mjs live
+
+      - name: Upload sanitized live evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: live-model-${{ github.run_id }}
+          path: .mergesutra/live-validation-export/
+          if-no-files-found: ignore
+          retention-days: 14
