@@ -87,7 +87,12 @@ export function parseCompletion(unknown: unknown, requestedModel: string): Compl
   if (!first) throw invalid('no choices returned');
   const content = first.message.content;
   if (typeof content !== 'string') {
-    throw invalid('assistant message content was not a string');
+    const reasoning = first.message.reasoning_content;
+    const reasoningType = typeof reasoning;
+    const reasoningChars = typeof reasoning === 'string' ? reasoning.length : 0;
+    throw invalid(
+      `assistant message content was not a string (content=${String(content)}, finish=${first.finish_reason ?? 'null'}, reasoningType=${reasoningType}, reasoningChars=${reasoningChars})`,
+    );
   }
   let usage: Usage | undefined;
   if (data.usage) {

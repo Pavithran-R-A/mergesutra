@@ -93,6 +93,8 @@ describe('the loop acts, then stops', () => {
       clientOptions: { model: 'the-one-that-answered' },
     });
     expect(harness.client.calls[0]?.model).toBe('someone-elses-model');
+    expect(harness.client.calls[0]?.maxTokens).toBe(4096);
+    expect(harness.client.calls[0]?.enableThinking).toBe(false);
     expect(harness.implementation.model).toBe('the-one-that-answered');
   });
 

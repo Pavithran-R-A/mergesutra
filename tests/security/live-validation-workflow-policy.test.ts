@@ -120,6 +120,23 @@ describe('the controlled live-validation workflow', () => {
     expect(WORKFLOW).not.toMatch(/echo[^\n]*bc_live_|echo[^\n]*sk-/i);
   });
 
+  it('fails live qualification when the fixture is incomplete despite green repository gates', () => {
+    expect(DRIVER).toContain("implementation?.status !== 'COMPLETED_BY_MODEL'");
+    expect(DRIVER).toContain('fixture-independent-acceptance');
+    expect(DRIVER).toContain('fixture-check-file');
+    expect(DRIVER).toContain('checkContainsAllThreeAssertions');
+    expect(DRIVER).toContain('dependencyFree');
+    expect(DRIVER).toContain('if (!review || review.findings.length > 0)');
+    expect(DRIVER).toContain('env: childEnv({ publicGit: true })');
+    expect(DRIVER).toContain('fixtureAcceptance: fixtureProof');
+  });
+
+  it('records the model stages separately rather than trusting a final stage snapshot', () => {
+    expect(DRIVER).toContain('planRecord = plan.json.record');
+    expect(DRIVER).toContain('implementRecord = implement.json.record');
+    expect(DRIVER).toContain('reviewRecord = review.json.record');
+    expect(DRIVER).toContain('verifyRecord = verify.json.record');
+  });
   it('reports the same fixture branch and issue that it actually clones', () => {
     expect(DRIVER).toContain("const FIXTURE_BRANCH = 'main';");
     expect(DRIVER).toContain(

@@ -255,6 +255,11 @@ async function main() {
   let finalRecord = null;
   let prJson = null;
   let verifyExit = null;
+  let planRecord = null;
+  let implementRecord = null;
+  let verifyRecord = null;
+  let reviewRecord = null;
+  let fixtureProof = null;
 
   if (mode === 'no-key') {
     const doctor = exec('doctor-connect', process.execPath, [BIN, 'doctor', '--connect']);
@@ -281,7 +286,7 @@ async function main() {
     const status = cli('status', ['status', runId, '--repo', fixture], [0]);
     finalRecord = status.json.record;
 
-    const report = cli('report', ['report', runId], [0]);
+    const report = cli('report', ['report', runId], [0, 3]);
     finalRecord = report.json.record;
 
     const pr = exec('pr-no-key', process.execPath, [BIN, '--json', 'pr', runId, '--repo', fixture]);
@@ -300,7 +305,9 @@ async function main() {
     runId = contract.json.record.runId;
 
     const plan = cli('plan', ['plan', runId], [0]);
-    finalRecord = plan.json.record;
+    planRecord = plan.json.record;
+    finalRecord = planRecord;
+    runId = plan.json.record.runId;
 
     const implement = cli(
       'implement',
@@ -318,10 +325,29 @@ async function main() {
       ],
       [3, 4],
     );
-    finalRecord = implement.json.record;
+    implementRecord = implement.json.record;
+    finalRecord = implementRecord;
     if (implement.record.exitCode === 4) {
       fail('implementation was blocked; evidence was captured but the live chain cannot proceed');
     }
+
+    const workspaceRelative = implement.json.record.implementation?.workspace?.relativePath;
+    if (
+      typeof workspaceRelative !== 'string' ||
+      !workspaceRelative.startsWith('.mergesutra/worktrees/')
+    ) {
+      fail('implementation did not report a confined MergeSutra worktree');
+    }
+    const workspace = path.resolve(fixture, workspaceRelative);
+    if (!workspace.startsWith(path.resolve(fixture) + path.sep)) {
+      fail('implementation workspace escaped the fixture clone');
+    }
+    const install = exec('workspace-install', 'npm', ['ci'], {
+      cwd: workspace,
+      env: childEnv({ publicGit: true }),
+      timeoutMs: 180_000,
+    });
+    assertExit(install, [0]);
 
     const consentProbe = cli('verify-consent-probe', ['verify', runId, '--repo', fixture], [4]);
     finalRecord = consentProbe.json.record;
@@ -337,26 +363,104 @@ async function main() {
       fail(`expected exactly one npm test gate; observed ${String(npmTest.length)}`);
     }
     const gateId = npmTest[0].id;
+    const repositoryGateIds = gates
+      .filter(
+        (gate) =>
+          gate.requirementLevel === 'REPOSITORY_REQUIRED' ||
+          gate.requirementLevel === 'REPOSITORY_SUGGESTED' ||
+          gate.requirementLevel === 'USER_REQUESTED',
+      )
+      .map((gate) => gate.id);
+    if (!repositoryGateIds.includes(gateId)) {
+      fail('the npm test gate was not included in the repository consent set');
+    }
 
-    const verify = cli('verify', ['verify', runId, '--repo', fixture, '--allow', gateId], [0, 1]);
+    const allowFlags = repositoryGateIds.flatMap((id) => ['--allow', id]);
+    const verify = cli('verify', ['verify', runId, '--repo', fixture, ...allowFlags], [0, 1, 2]);
     verifyExit = verify.record.exitCode;
-    finalRecord = verify.json.record;
+    verifyRecord = verify.json.record;
+    finalRecord = verifyRecord;
 
     const review = cli(
       'review',
       ['review', runId, '--repo', fixture, '--max-review-cycles', '1', '--max-repair-cycles', '1'],
       [3, 4],
     );
-    finalRecord = review.json.record;
+    reviewRecord = review.json.record;
+    finalRecord = reviewRecord;
 
     const status = cli('status', ['status', runId, '--repo', fixture], [0]);
     finalRecord = status.json.record;
-    const report = cli('report', ['report', runId], [0]);
+    const report = cli('report', ['report', runId], [0, 3, 4]);
     finalRecord = report.json.record;
 
     const pr = exec('pr', process.execPath, [BIN, '--json', 'pr', runId, '--repo', fixture]);
     assertExit(pr, [3, 4]);
     prJson = parseJson(pr);
+  }
+
+  if (mode === 'live') {
+    // The CLI deliberately records incomplete work as evidence rather than lying
+    // about success. A successful workflow must prove the actual fixture task.
+    const changed = implementation?.changes?.map((entry) => entry.relativePath) ?? [];
+    const permitted = new Set([
+      'fixtures/stage14-e2e/src/slugify.js',
+      'fixtures/stage14-e2e/check.mjs',
+      'fixtures/stage14-e2e/README.md',
+    ]);
+    const unexpected = changed.filter((entry) => !permitted.has(entry));
+    if (unexpected.length > 0) {
+      fail('the model changed a file outside the controlled fixture allowlist');
+    }
+
+    // These checks execute only in the isolated worktree, with all secrets and
+    // GitHub tokens removed. Repository CI by itself does not cover AC-1..AC-5.
+    const workspace = path.join(fixture, '.mergesutra', 'worktrees', runId);
+    const scriptPath = path.join(workspace, 'fixtures', 'stage14-e2e', 'check.mjs');
+    const checkSource = await readFile(scriptPath, 'utf8');
+    const requiredInputs = ['  Hello  World  ', 'a--b', '--x--'];
+    const missingAssertions = requiredInputs.filter(
+      (input) =>
+        !checkSource.includes(`slugify('${input}')`) &&
+        !checkSource.includes(`slugify("${input}")`),
+    );
+    const fixturePkg = JSON.parse(
+      await readFile(path.join(workspace, 'fixtures', 'stage14-e2e', 'package.json'), 'utf8'),
+    );
+    const dependencyFree =
+      Object.keys(fixturePkg.dependencies ?? {}).length === 0 &&
+      Object.keys(fixturePkg.devDependencies ?? {}).length === 0;
+
+    const independent = exec(
+      'fixture-independent-acceptance',
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        [
+          "import assert from 'node:assert/strict';",
+          "import { slugify } from './fixtures/stage14-e2e/src/slugify.js';",
+          "assert.equal(slugify('  Hello  World  '), 'hello-world');",
+          "assert.equal(slugify('a--b'), 'a-b');",
+          "assert.equal(slugify('--x--'), 'x');",
+        ].join('\n'),
+      ],
+      { cwd: workspace, env: childEnv({ publicGit: true }), timeoutMs: 15_000 },
+    );
+    const fixtureCheck = exec(
+      'fixture-check-file',
+      process.execPath,
+      ['fixtures/stage14-e2e/check.mjs'],
+      { cwd: workspace, env: childEnv({ publicGit: true }), timeoutMs: 15_000 },
+    );
+    fixtureProof = {
+      directBehaviorsPass: independent.exitCode === 0,
+      checkedScriptPass: fixtureCheck.exitCode === 0,
+      checkContainsAllThreeAssertions: missingAssertions.length === 0,
+      dependencyFree,
+      changesWithinFixture: unexpected.length === 0,
+      changedPaths: changed,
+    };
   }
 
   const after = await trackedSnapshot(fixture);
@@ -394,10 +498,10 @@ async function main() {
     await writeStep(steps[index], index);
   }
 
-  const plan = finalRecord?.plan ?? null;
-  const implementation = finalRecord?.implementation ?? null;
-  const review = finalRecord?.review ?? null;
-  const evidence = finalRecord?.acceptanceEvidence ?? null;
+  const plan = planRecord?.plan ?? finalRecord?.plan ?? null;
+  const implementation = implementRecord?.implementation ?? finalRecord?.implementation ?? null;
+  const review = reviewRecord?.review ?? finalRecord?.review ?? null;
+  const evidence = verifyRecord?.acceptanceEvidence ?? finalRecord?.acceptanceEvidence ?? null;
   const completionCount =
     (plan?.provenance?.attempts ?? 0) +
     (implementation?.summary?.modelRequests ?? 0) +
@@ -465,6 +569,7 @@ async function main() {
           repairPlanPresent: finalRecord?.repairPlan !== null,
         }
       : null,
+    fixtureAcceptance: fixtureProof,
     publication: prJson
       ? {
           outcome: prJson.outcome,
@@ -498,6 +603,22 @@ async function main() {
     if (Date.now() - startedAt > LIVE_DEADLINE_MS)
       fail('live chain exceeded the 25-minute wall-clock ceiling');
     if (verifyExit !== 0) fail('deterministic verification did not pass');
+    if (implementation?.status !== 'COMPLETED_BY_MODEL') {
+      fail('the implementation loop did not finish the requested fixture task');
+    }
+    if (
+      !fixtureProof?.directBehaviorsPass ||
+      !fixtureProof?.checkedScriptPass ||
+      !fixtureProof?.checkContainsAllThreeAssertions ||
+      !fixtureProof?.dependencyFree ||
+      !fixtureProof?.changedPaths?.includes('fixtures/stage14-e2e/check.mjs') ||
+      !fixtureProof?.changedPaths?.includes('fixtures/stage14-e2e/src/slugify.js')
+    ) {
+      fail('the independent fixture acceptance criteria were not all satisfied');
+    }
+    if (!review || review.findings.length > 0) {
+      fail('the model review reported findings or could not be completed cleanly');
+    }
     if (finalRecord?.repairPlan) {
       fail('review produced a repair plan; human digest approval is required before any repair');
     }
