@@ -27,6 +27,11 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const REAL = readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
+const ACCEPTANCE_ONCE = readFileSync(
+  path.join(ROOT, '.github', 'workflows', 'acceptance-once.yml'),
+  'utf8',
+);
+
 
 /** A full commit SHA is the only thing an external action may be pinned to. */
 const SHA = /^[0-9a-f]{40}$/;
@@ -434,7 +439,7 @@ describe('the gate set is complete, not merely valid', () => {
  * So the set of files on disk is compared against the set this file has rules for, and a
  * new file makes the suite red until someone writes its policy.
  */
-const GUARDED_WORKFLOWS = ['ci.yml', 'live-validation.yml', 'publish.yml'];
+const GUARDED_WORKFLOWS = ['acceptance-once.yml', 'ci.yml', 'live-validation.yml', 'publish.yml'];
 
 function workflowFiles(): string[] {
   return readdirSync(path.join(ROOT, '.github', 'workflows'))
@@ -463,5 +468,45 @@ describe('no hosted workflow escapes this policy', () => {
 
   it('fires when the guarded set is emptied rather than widened', () => {
     expect(uncoveredWorkflows(['ci.yml'], [])).toEqual(['ci.yml']);
+  });
+});
+
+describe('branch-only one-time acceptance workflow policy', () => {
+  it('requires the exact opt-in branch and commit marker on both jobs', () => {
+    expect(ACCEPTANCE_ONCE).toMatch(
+      /^on:\n {2}push:\n {4}branches: \[ops\/acceptance-proof-pr19-20261009\]/m,
+    );
+    expect(ACCEPTANCE_ONCE).not.toMatch(/pull_request|workflow_dispatch|repository_dispatch/);
+    const marker = "contains(github.event.head_commit.message, '[acceptance-once]')";
+    expect(ACCEPTANCE_ONCE.split(marker)).toHaveLength(3);
+    expect(ACCEPTANCE_ONCE).toContain(
+      "github.ref == 'refs/heads/ops/acceptance-proof-pr20-20261009'",
+    );
+  });
+
+  it('allows read-only GitHub privileges and only the selected provider secret', () => {
+    expect(ACCEPTANCE_ONCE.match(/contents:\s*read/g) ?? []).toHaveLength(3);
+    expect(ACCEPTANCE_ONCE).not.toMatch(/contents:\s*write|id-token:\s*write/);
+    const secretNames = [...ACCEPTANCE_ONCE.matchAll(/secrets\.([A-Z0-9_]+)/g)].map(
+      (match) => match[1],
+    );
+    expect(secretNames).toHaveLength(3);
+    expect(new Set(secretNames)).toEqual(new Set(['BHARATCODE_API_KEY']));
+    const noKey = ACCEPTANCE_ONCE.split('  no-key-chain:')[1]?.split('  live-model:')[0] ?? '';
+    expect(noKey).not.toContain('BHARATCODE_API_KEY');
+    expect(ACCEPTANCE_ONCE).toContain('BHARATCODE_MODEL: qwen-3.8-27b');
+    expect(ACCEPTANCE_ONCE).toContain("BHARATCODE_MAX_RETRIES: '0'");
+  });
+
+  it('requires immutable actions and the exact frozen main tree before any model use', () => {
+    expect(
+      ACCEPTANCE_ONCE.match(/Assert frozen release source and branch-only workflow delta/g) ?? [],
+    ).toHaveLength(2);
+    expect(ACCEPTANCE_ONCE).toContain('4a27c5f74abae8995d95257d8d0cf2ebca7e8fb5');
+    expect(ACCEPTANCE_ONCE).toContain('.github/workflows/acceptance-once.yml');
+    expect(ACCEPTANCE_ONCE).toContain('tests/security/workflow-policy.test.ts');
+    for (const line of ACCEPTANCE_ONCE.split(/\r?\n/).filter((line) => line.includes('uses: '))) {
+      expect(line).toMatch(/@[0-9a-f]{40}\s+#\s+v\d+/);
+    }
   });
 });
