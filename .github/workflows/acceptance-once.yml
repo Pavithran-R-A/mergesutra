@@ -42,7 +42,7 @@ jobs:
         run: |
           base=4a27c5f74abae8995d95257d8d0cf2ebca7e8fb5
           changed="$(git diff --name-only "$base" HEAD)"
-          expected=".github/workflows/acceptance-once.yml"
+          expected="$(printf '%s\n' '.github/workflows/acceptance-once.yml' 'tests/security/workflow-policy.test.ts')"
           if [[ "$changed" != "$expected" ]]; then
             echo "Unexpected change relative to validated production commit." >&2
             exit 64
@@ -98,7 +98,7 @@ jobs:
         run: |
           base=4a27c5f74abae8995d95257d8d0cf2ebca7e8fb5
           changed="$(git diff --name-only "$base" HEAD)"
-          expected=".github/workflows/acceptance-once.yml"
+          expected="$(printf '%s\n' '.github/workflows/acceptance-once.yml' 'tests/security/workflow-policy.test.ts')"
           if [[ "$changed" != "$expected" ]]; then
             echo "Unexpected change relative to validated production commit." >&2
             exit 64
