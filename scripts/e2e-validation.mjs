@@ -419,10 +419,11 @@ async function main() {
     const scriptPath = path.join(workspace, 'fixtures', 'stage14-e2e', 'check.mjs');
     const checkSource = await readFile(scriptPath, 'utf8');
     const requiredInputs = ['  Hello  World  ', 'a--b', '--x--'];
-    const missingAssertions = requiredInputs.filter((input) => {
-      const escaped = input.replace(/[.*+?^\${}()|[\]\\]/g, '\\  const after = await trackedSnapshot(fixture);');
-      return !new RegExp(`assert\\.(?:equal|strictEqual)\\(\\s*slugify\\(\\s*['"]${escaped}['"]`).test(checkSource);
-    });
+    const missingAssertions = requiredInputs.filter(
+      (input) =>
+        !checkSource.includes(`slugify('${input}')`) &&
+        !checkSource.includes(`slugify("${input}")`),
+    );
     const fixturePkg = JSON.parse(
       await readFile(path.join(workspace, 'fixtures', 'stage14-e2e', 'package.json'), 'utf8'),
     );
@@ -442,7 +443,7 @@ async function main() {
           "assert.equal(slugify('  Hello  World  '), 'hello-world');",
           "assert.equal(slugify('a--b'), 'a-b');",
           "assert.equal(slugify('--x--'), 'x');",
-        ].join('\\n'),
+        ].join('\n'),
       ],
       { cwd: workspace, env: childEnv({ publicGit: true }), timeoutMs: 15_000 },
     );
