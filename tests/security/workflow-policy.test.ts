@@ -508,6 +508,7 @@ describe('branch-only one-time acceptance workflow policy', () => {
     ).toHaveLength(2);
     expect(ACCEPTANCE_ONCE).toContain('e93a4c8a8396dea1be26e3aaae9a4c4f2b9a9d16');
     expect(ACCEPTANCE_ONCE).toContain('.github/workflows/acceptance-once.yml');
+    expect(ACCEPTANCE_ONCE).toContain('tests/security/workflow-policy.test.ts');
     for (const line of ACCEPTANCE_ONCE.split(/\r?\n/).filter((line) => line.includes('uses: '))) {
       expect(line).toMatch(/@[0-9a-f]{40}\s+#\s+v\d+/);
     }
