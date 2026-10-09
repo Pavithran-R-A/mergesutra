@@ -4,7 +4,7 @@ on:
   push:
     branches: [ops/acceptance-proof-pr20-20261009]
 
-# Single-use PR20 proof, bound to the exact merged source. Triggered for one measurement only. Secrets are confined to the
+# Single-use PR20 proof, bound to the exact merged source after registering this workflow's policy. Triggered for one measurement only. Secrets are confined to the
 # credential-presence, catalog and bounded live-model steps; read-only GitHub token.
 concurrency:
   group: mergesutra-one-time-acceptance-pr20
