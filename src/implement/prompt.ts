@@ -83,7 +83,7 @@ function systemMessage(limits: LoopLimits): string {
     '- An optional document or cosmetic edit is not a reason to extend a working patch.',
     '- If the required source and assertion changes are made and relevant checks have passed,',
     '  respond with FINISH rather than proposing another unnecessary WRITE_FILE.',
-    '- Before FINISH, check that every required source AND test-file change in the plan was made;'
+    '- Before FINISH, check that every required source AND test-file change in the plan was made;',
     '  otherwise continue with an allowed action or report the specific blocker.',
     '- Before FINISH, if check budget remains, run the most relevant planned validation command and',
     '  at least one repository-required gate that can catch lint/format/type/test regressions.',
