@@ -391,7 +391,7 @@ describe('turn-to-turn feedback', () => {
   it('gives a bounded corrective instruction for a missing WRITE_FILE content field', () => {
     const after = withActionRepairFeedback(opening(), 'content: Required');
     const feedback = after[3]?.content ?? '';
-    expect(feedback).toContain('content field');
+    expect(feedback).toContain('`content` field');
     expect(feedback).toContain('COMPLETE new file bytes');
     expect(feedback).toContain('expectedSha256');
     expect(feedback).toContain('READ_FILE first');
