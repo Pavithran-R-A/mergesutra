@@ -1,8 +1,6 @@
 name: Controlled live validation
 
 on:
-  push:
-    branches: [ops/live-validation-now]
   workflow_dispatch:
     inputs:
       run_live:
@@ -18,9 +16,9 @@ on:
         options:
           - qwen-3.8-27b
           - deepseek-v4.1-flash
-# This workflow never runs on pull requests. Manual dispatch on main remains the
-# normal path. This temporary ops branch can run exactly one validation when the
-# triggering commit carries [live-model-now]. This retry validates the minimal-patch implementation prompt and planned-check guidance on canonical main.
+# This workflow never runs on pull requests or pushes. Ordinary CI owns untrusted
+# code. A person must dispatch it deliberately. The live job additionally refuses
+# to run unless the selected ref is main.
 permissions:
   contents: read
 
@@ -71,13 +69,7 @@ jobs:
   live-model:
     name: real BharatCode E2E
     needs: no-key-chain
-    if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/main' &&
-       inputs.run_live == true) ||
-      (github.event_name == 'push' &&
-       github.ref == 'refs/heads/ops/live-validation-now' &&
-       contains(github.event.head_commit.message, '[live-model-now]'))
+    if: github.ref == 'refs/heads/main' && inputs.run_live == true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -112,7 +104,7 @@ jobs:
         shell: bash
         env:
           BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
-          BHARATCODE_MODEL: qwen-3.8-27b
+          BHARATCODE_MODEL: ${{ inputs.model }}
         run: |
           node <<'NODE'
           const key = process.env.BHARATCODE_API_KEY;
@@ -143,7 +135,7 @@ jobs:
       - name: Run the bounded real-model chain
         env:
           BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
-          BHARATCODE_MODEL: qwen-3.8-27b
+          BHARATCODE_MODEL: ${{ inputs.model }}
           BHARATCODE_TIMEOUT_MS: '300000'
           BHARATCODE_MAX_RETRIES: '0'
         run: node scripts/e2e-validation.mjs live
