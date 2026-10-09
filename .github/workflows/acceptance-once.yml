@@ -60,6 +60,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Probe formatting of one-time workflow policy
+        if: runner.os == 'Linux'
+        run: |
+          npx prettier --write tests/security/workflow-policy.test.ts
+          git diff -- tests/security/workflow-policy.test.ts
+          exit 1
+
       - name: Walk the credential-free fixture chain
         run: node scripts/e2e-validation.mjs no-key
 
