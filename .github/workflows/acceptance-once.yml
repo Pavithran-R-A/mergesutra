@@ -4,7 +4,7 @@ on:
   push:
     branches: [ops/acceptance-proof-20261009]
 
-# Branch-only disposable workflow, never merged to main. Secrets are confined to the
+# Single-use, branch-only workflow for the tested PR #17 main SHA; disposable. Secrets are confined to the
 # credential-presence, catalog and bounded live-model steps; read-only Github token.
 concurrency:
   group: mergesutra-one-time-acceptance
