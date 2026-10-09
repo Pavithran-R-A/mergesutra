@@ -392,6 +392,13 @@ describe('turn-to-turn feedback', () => {
     expect(after[3]?.content).toContain('do not describe anything as done');
   });
 
+  it('states that a file write requires complete JSON-encoded content and no repeat writes', async () => {
+    const { system } = await build();
+    expect(system).toContain('actual JSON STRING containing the entire');
+    expect(system).toContain('never substitute a patch');
+    expect(system).toContain('move to remaining planned files');
+  });
+
   it('gives a bounded corrective instruction for a missing WRITE_FILE content field', () => {
     const after = withActionRepairFeedback(opening(), 'content: Required');
     const feedback = after[3]?.content ?? '';
@@ -399,6 +406,8 @@ describe('turn-to-turn feedback', () => {
     expect(feedback).toContain('COMPLETE new file bytes');
     expect(feedback).toContain('expectedSha256');
     expect(feedback).toContain('READ_FILE first');
+    expect(feedback).toContain('Example of the required JSON shape');
+    expect(feedback).toContain('"content"');
     expect(feedback).not.toContain('force-write');
   });
 
@@ -410,6 +419,20 @@ describe('turn-to-turn feedback', () => {
     const feedback = after[3]?.content ?? '';
     expect(feedback).toContain('READ_FILE to obtain the current digest');
     expect(feedback).toContain('stale write changed no bytes');
+  });
+
+  it('reminds the model of unfinished planned files after a successful write', () => {
+    const after = withStepFeedback(
+      opening(),
+      '{"action":"WRITE_FILE"}',
+      { ok: true, detail: 'replaced src/parse.ts' },
+      ['test/parse.test.ts'],
+    );
+    const feedback = after[3]?.content ?? '';
+    expect(feedback).toContain('Planned file changes NOT YET WRITTEN');
+    expect(feedback).toContain('test/parse.test.ts');
+    expect(feedback).toContain('Do not repeat an already');
+    expect(feedback).not.toContain('a criterion PASS');
   });
 
   it('reports an executed action as the model’s own turn and the result as MergeSutra’s', () => {
