@@ -63,6 +63,12 @@ function systemMessage(limits: LoopLimits): string {
     '- One JSON object and nothing else. No prose, no markdown fences, no commentary.',
     '- No field you were not given. Unknown fields or actions are rejected before execution.',
     '- `path` is repository-relative POSIX. Absolute paths, drive letters, `..` and `.git` are refused.',
+    '- For WRITE_FILE, the `content` field must be an actual JSON STRING containing the entire',
+    '  new file. Escape line breaks as \\n inside that JSON string. Never omit content,',
+    '  and never substitute a patch, filename, prose description or diff.',
+    '- After a write succeeds, move to remaining planned files rather than writing the same bytes',
+    '  again. A write is not an acceptance verdict: required test assertions still need their own',
+    '  file edits, and only the independent verifier may determine whether criteria pass.',
     '- `WRITE_FILE` replaces a whole file, so it must say which version it replaces: the `replaces`',
     '  field carries either the sha256 MergeSutra gave you for that path or `expectedAbsent: true` for',
     '  a new file. There is no force. If the file moved since you read it, the write is refused as',
@@ -239,6 +245,8 @@ export function withActionRepairFeedback(
               'the COMPLETE new file bytes, not a patch, summary or omitted field.',
               'Use the latest full-file expectedSha256 from READ_FILE in `replaces`.',
               'If unsure of the current digest, READ_FILE first rather than guessing.',
+              'Example of the required JSON shape (replace the path and digest with actual values):',
+              '{"action":"WRITE_FILE","path":"src/example.js","replaces":{"expectedSha256":"<digest from READ_FILE>"},"content":"first line\\\\nsecond line\\\\n","reason":"update complete file"}',
             ]
           : []),
       ].join('\n'),
@@ -258,6 +266,7 @@ export function withStepFeedback(
   messages: readonly ChatMessage[],
   echo: string,
   outcome: { readonly detail: string; readonly ok: boolean },
+  remainingPlannedPaths: readonly string[] = [],
 ): ChatMessage[] {
   return trimTranscript([
     ...messages,
@@ -268,6 +277,14 @@ export function withStepFeedback(
         `OUTCOME (${outcome.ok ? 'accepted' : 'refused-or-failed'}): ${markQuoted(outcome.detail).text}`,
         '',
         'Reply with the next single JSON action.',
+        ...(outcome.ok && remainingPlannedPaths.length > 0
+          ? [
+              'Planned file changes NOT YET WRITTEN in this loop (proposals, not proof):',
+              ...remainingPlannedPaths.map((file) => `- ${markQuoted(file).text}`),
+              'Work on the remaining required paths before FINISH. Do not repeat an already',
+              'applied write unless you deliberately read its new digest and need another edit.',
+            ]
+          : []),
         ...(outcome.detail.includes('STALE_FILE')
           ? [
               'The stale write changed no bytes. READ_FILE to obtain the current digest,',
