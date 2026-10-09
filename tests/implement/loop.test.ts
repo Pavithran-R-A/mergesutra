@@ -100,7 +100,12 @@ describe('the loop acts, then stops', () => {
 
   it('threads still-unwritten planned file paths into post-write feedback', async () => {
     const harness = await runLoop(tempDirs, [
-      writeAction('src/parse.ts', 'export const updated = true;\\n', ['AC-1'], digestOfWorkspaceFile('src/parse.ts')),
+      writeAction(
+        'src/parse.ts',
+        'export const updated = true;\\n',
+        ['AC-1'],
+        digestOfWorkspaceFile('src/parse.ts'),
+      ),
       finishAction(),
     ]);
     expect(lastFeedback(harness, 1)).toContain('Planned file changes NOT YET WRITTEN');
