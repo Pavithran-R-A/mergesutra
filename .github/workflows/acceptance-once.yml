@@ -4,7 +4,7 @@ on:
   push:
     branches: [ops/acceptance-proof-pr19-20261009]
 
-# Single-use, branch-only workflow for the PR #19 merged main SHA; disposable. Secrets are confined to the
+# Single-use PR19 proof, bound to the exact merged source. Triggered for one measurement only. Secrets are confined to the
 # credential-presence, catalog and bounded live-model steps; read-only GitHub token.
 concurrency:
   group: mergesutra-one-time-acceptance-pr19
