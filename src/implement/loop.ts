@@ -391,10 +391,21 @@ export async function runImplementationLoop(
         );
       }
 
-      messages = withStepFeedback(messages, transcriptEcho(action), {
-        ok: effect.ok,
-        detail: defaultRedactor.text(feedbackFor(effect, repeats, limits.maxRepeatedFailures)),
-      });
+      const remainingPlannedPaths =
+        action.action === 'WRITE_FILE' && effect.outcome === 'APPLIED'
+          ? input.plan.body.changes
+              .map((change) => change.file)
+              .filter((file) => !state.changes.some((change) => change.relativePath === file))
+          : [];
+      messages = withStepFeedback(
+        messages,
+        transcriptEcho(action),
+        {
+          ok: effect.ok,
+          detail: defaultRedactor.text(feedbackFor(effect, repeats, limits.maxRepeatedFailures)),
+        },
+        remainingPlannedPaths,
+      );
     }
 
     throw new LoopEnd(
