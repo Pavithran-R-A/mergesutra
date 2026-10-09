@@ -393,11 +393,10 @@ describe('turn-to-turn feedback', () => {
   });
 
   it('reminds rejected model actions of unwritten test files without repeating rejected text', () => {
-    const after = withActionRepairFeedback(
-      opening(),
-      'content: Required',
-      ['fixtures/stage14-e2e/check.mjs', 'fixtures/stage14-e2e/README.md'],
-    );
+    const after = withActionRepairFeedback(opening(), 'content: Required', [
+      'fixtures/stage14-e2e/check.mjs',
+      'fixtures/stage14-e2e/README.md',
+    ]);
     const feedback = after.at(-1)?.content ?? '';
     expect(feedback).toContain('Planned file changes NOT YET WRITTEN');
     expect(feedback).toContain('fixtures/stage14-e2e/check.mjs');
