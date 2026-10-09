@@ -225,6 +225,7 @@ export function buildInitialMessages(input: {
 export function withActionRepairFeedback(
   messages: readonly ChatMessage[],
   problem: string,
+  remainingPlannedPaths: readonly string[] = [],
 ): ChatMessage[] {
   return trimTranscript([
     ...messages,
@@ -239,6 +240,15 @@ export function withActionRepairFeedback(
         '',
         'Reply again with exactly one JSON action from the allowed list, for the same task.',
         'Do not add fields, do not rename criterion ids, and do not describe anything as done.',
+        ...(remainingPlannedPaths.length > 0
+          ? [
+              'Planned file changes NOT YET WRITTEN (not proof of acceptance):',
+              ...remainingPlannedPaths.map((file) => `- ${markQuoted(file).text}`),
+              'Prioritize these unfinished paths before revisiting a file already changed.',
+              'A WRITE_FILE for any path must include actual complete content as a JSON string.',
+              'If you cannot supply those bytes, use READ_FILE for the unfinished path instead.',
+            ]
+          : []),
         ...(problem.includes('content: Required')
           ? [
               'A WRITE_FILE action must include the `content` field as a STRING containing',
@@ -281,8 +291,10 @@ export function withStepFeedback(
           ? [
               'Planned file changes NOT YET WRITTEN in this loop (proposals, not proof):',
               ...remainingPlannedPaths.map((file) => `- ${markQuoted(file).text}`),
-              'Work on the remaining required paths before FINISH. Do not repeat an already',
-              'applied write unless you deliberately read its new digest and need another edit.',
+              'NEXT: choose one unfinished file above. Use READ_FILE if its digest is unknown,',
+              'then WRITE_FILE with the complete new file content as a JSON string.',
+              'Do not repeat an already applied write unless its contents truly need a new edit.',
+              'A passing existing test is not evidence that a required new assertion was added.',
             ]
           : []),
         ...(outcome.detail.includes('STALE_FILE')
