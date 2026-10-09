@@ -388,6 +388,26 @@ describe('turn-to-turn feedback', () => {
     expect(after[3]?.content).toContain('do not describe anything as done');
   });
 
+  it('gives a bounded corrective instruction for a missing WRITE_FILE content field', () => {
+    const after = withActionRepairFeedback(opening(), 'content: Required');
+    const feedback = after[3]?.content ?? '';
+    expect(feedback).toContain('content field');
+    expect(feedback).toContain('COMPLETE new file bytes');
+    expect(feedback).toContain('expectedSha256');
+    expect(feedback).toContain('READ_FILE first');
+    expect(feedback).not.toContain('force-write');
+  });
+
+  it('tells a stale writer to read again without authorizing an overwrite', () => {
+    const after = withStepFeedback(opening(), '{"action":"WRITE_FILE"}', {
+      ok: false,
+      detail: 'STALE_FILE — existing bytes changed; nothing was replaced',
+    });
+    const feedback = after[3]?.content ?? '';
+    expect(feedback).toContain('READ_FILE to obtain the current digest');
+    expect(feedback).toContain('stale write changed no bytes');
+  });
+
   it('reports an executed action as the model’s own turn and the result as MergeSutra’s', () => {
     const after = withStepFeedback(opening(), '{"action":"RUN_CHECK","argv":["npm","test"]}', {
       ok: true,
