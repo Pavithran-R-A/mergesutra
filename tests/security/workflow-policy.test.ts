@@ -473,7 +473,7 @@ describe('no hosted workflow escapes this policy', () => {
 describe('branch-only one-time acceptance workflow policy', () => {
   it('requires the exact opt-in branch and commit marker on both jobs', () => {
     expect(ACCEPTANCE_ONCE).toMatch(
-      /^on:\n {2}push:\n {4}branches: \[ops\/acceptance-proof-pr18-20261009\]/m,
+      /^on:\n {2}push:\n {4}branches: \[ops\/acceptance-proof-pr19-20261009\]/m,
     );
     expect(ACCEPTANCE_ONCE).not.toMatch(/pull_request|workflow_dispatch|repository_dispatch/);
     const marker = "contains(github.event.head_commit.message, '[acceptance-once]')";
