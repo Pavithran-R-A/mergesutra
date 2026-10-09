@@ -32,7 +32,6 @@ const ACCEPTANCE_ONCE = readFileSync(
   'utf8',
 );
 
-
 /** A full commit SHA is the only thing an external action may be pinned to. */
 const SHA = /^[0-9a-f]{40}$/;
 
