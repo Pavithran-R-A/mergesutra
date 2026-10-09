@@ -98,6 +98,15 @@ describe('the loop acts, then stops', () => {
     expect(harness.implementation.model).toBe('the-one-that-answered');
   });
 
+  it('threads still-unwritten planned file paths into post-write feedback', async () => {
+    const harness = await runLoop(tempDirs, [
+      writeAction('src/parse.ts', 'export const updated = true;\\n', ['AC-1'], digestOfWorkspaceFile('src/parse.ts')),
+      finishAction(),
+    ]);
+    expect(lastFeedback(harness, 1)).toContain('Planned file changes NOT YET WRITTEN');
+    expect(lastFeedback(harness, 1)).toContain('test/parse.test.ts');
+  });
+
   it('writes through the confined writer and records a digest, never the content', async () => {
     const content =
       'export function parseDate(input: string): Date {\n  if (!input) throw new TypeError("empty");\n  return new Date(input);\n}\n';
