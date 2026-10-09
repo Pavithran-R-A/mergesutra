@@ -478,7 +478,9 @@ describe('branch-only one-time acceptance workflow policy', () => {
     expect(ACCEPTANCE_ONCE).not.toMatch(/pull_request|workflow_dispatch|repository_dispatch/);
     const marker = "contains(github.event.head_commit.message, '[acceptance-once]')";
     expect(ACCEPTANCE_ONCE.split(marker)).toHaveLength(3);
-    expect(ACCEPTANCE_ONCE).toContain("github.ref == 'refs/heads/ops/acceptance-proof-pr18-20261009'");
+    expect(ACCEPTANCE_ONCE).toContain(
+      "github.ref == 'refs/heads/ops/acceptance-proof-pr18-20261009'",
+    );
   });
 
   it('allows read-only GitHub privileges and only the selected provider secret', () => {
