@@ -176,6 +176,9 @@ describe('the planning request', () => {
     const system = client.calls[0]?.messages[0]?.content ?? '';
     const user = client.calls[0]?.messages[1]?.content ?? '';
     expect(system).toContain('argument ARRAY for exactly ONE process invocation');
+    expect(system).toContain('smallest set of file changes necessary');
+    expect(system).toContain('permission, not an');
+    expect(system).toContain('Leave it out of changes');
     expect(system).toContain('Never use bash/sh -c');
     expect(system).toContain('validationCommands is OPTIONAL');
     expect(system).toContain('Prefer validationCommands: []');
