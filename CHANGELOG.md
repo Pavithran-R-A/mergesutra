@@ -6,6 +6,44 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — Stage 14 qualification: a run ended on a tally meant to be a streak
+
+Twenty-two controlled real-model attempts of this release produced a sanitized artifact, twelve of them
+reaching the implementation loop; the six that stopped early stopped on a bound, not because the model
+refused the work.
+`src/implement/loop.ts` counted every answer it rejected
+into one run-wide number and compared it to `maxSchemaRepairs`, so the second malformed answer
+anywhere in a run ended it even when an applied write had landed in between. Actions runs
+`37648533534`, `37655552898`, `37923726827` and `37926378657` each reached 5 of 8 turns with one file
+written and never attempted the fixture's `check.mjs`; `37943570834` reached 4 of 8 with two writes to
+the same file; and
+`37950266934` reached 4 of 8 turns with **both** required files already on disk and every independent
+fixture check passing, after which the harness reported a chain whose work was done as inconclusive.
+All six ended with the identical refusal detail, and none came near the completion ceiling. The loop's
+other six endings — five `MAX_STEPS`, one `DEADLINE` — are a different defect, and this fix does not
+claim to reach them. The bound
+is now what its documentation always said it was — consecutive rejected
+answers, reset by any answer that yields a usable action, and not reset by an action that names
+criteria the contract never issued. `maxSteps` remains the ceiling on what a run can spend, so this
+cannot make a run cost more; it can only stop one from quitting early.
+
+The rejected turns are no longer invisible either. The implementation record carries
+`summary.rejectedAnswers` alongside the actions that ran — a rejected answer consumes a request and
+appears in no action row, so 5 requests against 3 recorded actions previously had nothing explaining
+the gap — and the `implement` screen prints a `Rejected answers` row when a run paid for requests
+nothing could run from. Records written before this field existed still parse, defaulting to zero.
+`tests/implement/loop.test.ts`, `tests/implement/implement.test.ts`; S14-10 in
+`docs/SECURITY_GAP_REGISTER.md`.
+
+This is a product fix, not a benchmark result: no credential was used to prove any of it, every test
+above runs a scripted model, and no live chain has been re-run since. Three documentation corrections
+travel with it, because each was false at HEAD — hosted `CI` is green on Ubuntu/Windows × Node 22/24
+(`37953984220`) rather than blocked by a spending limit; the register no longer claims a live
+model reading has never happened; and `docs/REAL_MODEL_E2E_PROCEDURE.md` now says plainly that run
+`37655552898` concluded `success` on an inconclusive chain because the fail-closed
+`COMPLETED_BY_MODEL` rule did not exist in `scripts/e2e-validation.mjs` at that commit (`759c1b9`
+added it), so its green job is not evidence of a qualified contribution.
+
 ## [0.1.0] - 2026-10-05
 
 ### Fixed — Stage 13 qualification: Windows 8.3 home aliases

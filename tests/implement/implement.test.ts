@@ -526,6 +526,31 @@ describe('the record this stage writes back', () => {
     expect(busyRun.checks.find((check) => check.name === 'Loop end')?.status).toBe('WARN');
   });
 
+  it('says how many answers it rejected, and only when it rejected some', async () => {
+    const clean = await (await harness([finishAction()])).implement();
+    expect(clean.checks.find((check) => check.name === 'Rejected answers')).toBeUndefined();
+
+    // One rejected answer with a usable action after it: the run finishes, and
+    // the screen still has to account for the turn it paid for.
+    const spent = await (
+      await harness([
+        { action: 'SHELL', command: 'ls' },
+        writeAction('src/guard.ts', 'export const guard = 1;\n'),
+        finishAction('Guard written after one broken turn.'),
+      ])
+    ).implement();
+
+    expect(spent.implementation.summary.rejectedAnswers).toBe(1);
+    expect(spent.implementation.termination.kind).toBe('FINISH');
+    expect(spent.checks.find((check) => check.name === 'Rejected answers')).toMatchObject({
+      status: 'WARN',
+      detail: expect.stringContaining('1 answer(s) the model sent that nothing could run from'),
+    });
+    expect(spent.checks.find((check) => check.name === 'Rejected answers')?.detail).not.toContain(
+      'SHELL',
+    );
+  });
+
   it('reports a reused workspace as reused, and a dirty checkout as dirty', async () => {
     const fresh = await harness([finishAction()]);
     const first = await fresh.implement();

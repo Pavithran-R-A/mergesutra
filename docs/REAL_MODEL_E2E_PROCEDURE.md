@@ -288,7 +288,32 @@ Merely obtaining a successful workflow status or a recorded review does not clos
   `fixtures/stage14-e2e/check.mjs` did not acquire the issue's required assertions.
   The five issue-level criteria remained `MANUAL_REVIEW_REQUIRED`; publication was blocked.
   The fixture's primary tracked bytes/status were unchanged, and the scan found no
-  credential-shaped leaks. This was useful safety evidence, not a completed contribution.
+  credential-shaped leaks. This was useful safety evidence, not a completed contribution — and the job
+  that produced it still concluded `success`, because the fail-closed
+  `implementation?.status !== 'COMPLETED_BY_MODEL'` rule in §8 did not exist in
+  `scripts/e2e-validation.mjs` at that commit; `git log -S COMPLETED_BY_MODEL` puts it in at `759c1b9`.
+- Six of the twelve paid attempts that reached the implementation loop ended early for the same product
+  reason, and that reason is now fixed but not yet re-measured. Enumerating the `live-model-*` artifacts
+  gives 22 attempts; 9 stopped at `plan` and 1 at the `implement` precondition, so 12 ran the loop — 6
+  ended `SCHEMA_REFUSAL`, 5 `MAX_STEPS`, 1 `DEADLINE` (S14-10 names all 12). The six in the first class
+  end with the identical detail, `No usable action after 2 rejected answer(s). Last problem: Rejected
+  model action: content: Required` — while every one of them had a usable action between the two
+  rejected answers. `37648533534`, `37655552898`, `37923726827` and `37926378657` each stopped at 5 of 8
+  turns with one write and never attempted `fixtures/stage14-e2e/check.mjs`; `37943570834` stopped at
+  4 of 8 having written `slugify.js` twice; run `37950266934` at
+  `66cd695e0cbe7286058411dac2ad6868bda98dd7` stopped at 4 of 8 with **both** required files on disk and
+  every independent fixture fact true. None of the six came near the ceiling in §5: 7, 6 and 6
+  completions on the three artifacts that carry usage, against 12. No model declined the task.
+  `src/implement/loop.ts` compared a run-wide tally of
+  rejected answers to `maxSchemaRepairs`, so the second malformed answer in a run ended it even when an
+  applied write had landed in between (S14-10).
+  The bound is now a streak that a usable answer resets, and the record carries both numbers.
+  The `MAX_STEPS` and `DEADLINE` classes are **not** addressed by this fix; they are what the
+  required-only plan and finish guidance at `4a27c5f` targets, and no reading here proves either.
+  What a rerun should therefore show, and what this document does **not** claim until it does: the
+  chain reaching `FINISH` with `implementation.status === 'COMPLETED_BY_MODEL'`, and a
+  `Rejected answers` screen row if the model still sends answers nothing could run from. A rerun is a
+  chargeable action and needs the operator's explicit authorization.
 - The credential-free chain has hosted readings on both Ubuntu and Windows, including
   post-merge checks. The ordinary CI matrix also runs Ubuntu/Windows × Node 22/24.
   Neither the matrix nor a no-key walk proves an actual model patch is acceptable.

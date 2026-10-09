@@ -33,14 +33,17 @@ becomes a PR."*
 > not run `git commit`, push a branch or open the GitHub pull request for you.
 > A worktree is isolation for clarity, not an operating-system sandbox.
 >
-> **Live-model status:** a controlled real BharatCode/Qwen validation ran on
-> 7 October 2026 ([GitHub run #37655552898](https://github.com/Pavithran-R-A/mergesutra/actions/runs/37655552898)).
-> Windows, Ubuntu and the credentialed workflow jobs were green, but the model
-> implementation was inconclusive. The independent reviewer identified a HIGH
-> requirement gap: the fixture test file did not include all three required
-> slugify assertions. Repository gate success is **not** a completed issue.
-> Production now enforces an independent fixture acceptance check; the full
-> model-driven contribution remains an open release gate.
+> **Live-model status:** controlled real BharatCode/Qwen validations have run
+> 22 times, most recently 9 October 2026 (for example
+> [GitHub run #37950266934](https://github.com/Pavithran-R-A/mergesutra/actions/runs/37950266934)).
+> Twelve of them reached the implementation loop and **none reached the model's
+> own `FINISH`**: six were cut off by a bound the loop miscounted (fixed in this
+> build, not yet re-measured), five spent every turn they were allowed, and one
+> ran out of wall-clock. In one attempt the model did write both required files
+> and the fixture's independent checks passed, and the chain was still reported
+> inconclusive. Repository gate success is **not** a completed issue, and a green
+> workflow job is not a qualified contribution. The full model-driven contribution
+> remains an open release gate.
 >
 > See the [Roadmap](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md)
 > and [real-model E2E procedure](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/REAL_MODEL_E2E_PROCEDURE.md)

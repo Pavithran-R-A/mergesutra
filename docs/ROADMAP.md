@@ -1004,7 +1004,10 @@ purpose is to be refused.
       three are named and explained rather than averaged away: the live-model trio (no credential,
       so skipped on both hosts) plus the two case-collision rows and the 8.3 short-name block that
       the confinement matrix gates to a Windows filesystem in code. Neither host is a superset of the
-      other, and the entry says so. `docs/SECURITY_GAP_REGISTER.md`; S14-8.
+      other, and the entry says so. `docs/SECURITY_GAP_REGISTER.md`; S14-8. The hosted reading this
+      entry said was blocked has since run: the `CI` matrix (Ubuntu/Windows × Node 22/24) is green on
+      `main`, four check-runs, so what remains open for S14-8 is the credential-free *chain* on a
+      second host with `gh` present, not the gates.
 - [x] That the live harness cannot print, commit, argument-pass or artifact-write a credential —
       measured, not asserted: a command a run starts no longer receives the model key in its
       environment, and the value a configuration reads is registered with the masks that write
@@ -1031,10 +1034,31 @@ purpose is to be refused.
       this tree, run id threaded as the document says, eleven exit codes recorded, and the fixture's
       five tracked files hashed identical before and after — the walk that found the document's own
       run-id bug. `tests/docs/real-model-procedure.test.ts`; S14-7.
+- [x] That a run gives up only when the model cannot recover — the defect six of the twelve paid Stage
+      14 attempts that reached the loop died on. `src/implement/loop.ts` compared a run-wide tally of
+      rejected answers to `maxSchemaRepairs`, so the second malformed answer anywhere in a run ended it
+      even when an applied write landed in between. `37648533534`, `37655552898`, `37923726827` and
+      `37926378657` each stopped at 5 of 8 turns with one write and never attempted
+      `fixtures/stage14-e2e/check.mjs`; `37943570834` stopped at 4 of 8 having written `slugify.js`
+      twice; `37950266934` stopped at 4 of 8 with **both** required files already on disk and every
+      independent fixture fact true, and the harness then reported a finished chain as inconclusive.
+      Every record shows a usable action between the two rejections, and none of the six came near the
+      completion ceiling. The bound is now a streak that a usable answer resets,
+      the record carries the run-wide `rejectedAnswers` tally alongside the actions that ran, and the
+      `implement` screen prints a `Rejected answers` row when a run paid for requests nothing could
+      run from. An action that names criteria the contract never issued does not reset it.
+      `maxSteps` remains the spend bound, so this cannot raise what a run costs — only stop it quitting
+      early. The other six loop runs ended `MAX_STEPS` (5) and `DEADLINE` (1), which this fix does not
+      address; that class is what the required-only plan and finish guidance at `4a27c5f` targets.
+      `tests/implement/loop.test.ts`, `tests/implement/implement.test.ts`; S14-10.
 - [ ] The real-model run itself, which is the boundary this stage stops at: a named model, and the
-      evidence that procedure is written to produce. The procedure and its ceiling exist; the run
-      needs a key this machine does not hold. Do not fabricate, substitute or simulate this
-      evidence.
+      evidence that procedure is written to produce. The procedure and its ceiling exist; no key is
+      held on this machine, so the only readings that have happened are the twenty-two paid ones
+      enumerated in S14-10 — twelve of them reaching the implementation loop, run in the controlled
+      workflow with an operator-supplied repository secret. Not one is a clean
+      reading, and S14-10 explains why in product terms rather than model terms. Do not fabricate,
+      substitute or simulate this evidence; closing this line needs a rerun, which spends provider
+      capacity and is therefore an authorization, not engineering.
 - [ ] ~10 real tasks across classes; publish honest metrics **and failures**
 
 ## Stage 15 — Demo + README + release readiness

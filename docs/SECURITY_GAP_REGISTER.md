@@ -4835,7 +4835,11 @@ whose safety claim is that no such switch exists) is closed DOCUMENT + TEST; `S1
 a controlled E2E procedure and a budget ceiling, and had neither outside a roadmap sentence, so the
 credential boundary was a paragraph rather than something an operator could run) is closed TEST +
 DOCUMENT; `S14-8` (every measured number this stage hands to a human came from one host, while the
-hosted matrix that would have settled it could not start) is closed MEASUREMENT. What Stage 14 still has to
+hosted matrix that would have settled it could not start) is closed MEASUREMENT; `S14-10` (a run-wide
+tally of rejected model answers was compared to a bound meant to be consecutive, which ended six of
+the twelve paid Stage 14 attempts that reached the implementation loop — five of them before they
+touched the file issue #8 requires, the sixth after its work was already on disk and independently
+passing) is closed CODE + TEST + DOCUMENT. What Stage 14 still has to
 measure, and what it will not claim before it does:
 
 - The credential-free pipeline walk has one host left to prove it on. Re-taken on this machine at
@@ -4865,16 +4869,18 @@ measure, and what it will not claim before it does:
   `?? pnpm-lock.yaml`. What is left is the same chain read on a second host, since every number above is
   Windows — and S14-8 narrows what that sentence still means: the *gates* have their second reading now
   (green on Linux, with the three-test delta named), while the *chain* does not, because `gh` is absent
-  on that host and it is how step 2 reads an issue. The hosted Linux reading of the same suite is the
-  one this account's Actions spending limit currently prevents — the failure signature, captured from the
-  API rather than from a UI, is in `C:\tmp\s142-ci-blocked.txt` (`runner_id: 0`, `steps: []`, a job that
-  "completed" in about three seconds), re-confirmed on this push in `C:\tmp\s147-ci-blocked.txt`
-  (run `37265382086`, four check-runs, all `runner_id: 0` with no steps, annotated "The job was not
-  started because recent account payments have failed or your spending limit needs to be increased",
-  while `actions/permissions` reports `enabled=true, allowed_actions=all` — the workflow is permitted
-  and the runners are not), re-taken once more for `c66369f` (run `37266807277`, opened `05:13:22Z`,
-  closed `05:14:00Z`, four jobs, every one `runner_id: 0` with zero steps and the same spending-limit
-  annotation), and it is an external billing condition rather than a defect in this tree.
+  on that host and it is how step 2 reads an issue. The hosted Linux reading of the same suite was
+  blocked while this repository was private — the failure signature, captured from the API rather than
+  from a UI, is in `C:\tmp\s142-ci-blocked.txt` (`runner_id: 0`, `steps: []`, a job that "completed" in
+  about three seconds), re-confirmed in `C:\tmp\s147-ci-blocked.txt` (run `37265382086`, four check-runs,
+  all `runner_id: 0` with no steps, annotated "The job was not started because recent account payments
+  have failed or your spending limit needs to be increased", while `actions/permissions` reports
+  `enabled=true, allowed_actions=all` — the workflow is permitted and the runners are not) and again for
+  `c66369f` (run `37266807277`). That condition no longer holds, and this paragraph is corrected rather
+  than copied forward: with the canonical repository public, the `CI` workflow ran the full
+  Ubuntu/Windows × Node 22/24 matrix on `main` at `4a27c5f7` — run `37953984220`, four check-runs, every
+  one `completed`/`success` — so the hosted second reading of the *gates* is no longer a gap, and the
+  open half of S14-8 is the credential-free *chain* read on a second host with `gh` present.
 - The leak half of the harness question is now measured: S14-3 keeps the value out of the environment a
   run is given, S14-5 keeps it out of what a run writes back, and the two are tested against a sentinel
   through the production `execFile` and a loopback HTTP server. What is *not* closed is the fixture-scoping
@@ -4893,10 +4899,18 @@ measure, and what it will not claim before it does:
   without a credential now exists: `docs/REAL_MODEL_E2E_PROCEDURE.md` is the runbook, its §4 chain is
   the eleven commands with their no-key exit codes cited to the walk above, and its §5 ceiling is
   **at most 20 completions** for that chain as typed, 26 at the shipped defaults, read verb by verb
-  out of the source rather than estimated. What is left is what only a human can supply: a key, and a
-  model name this build cannot list for them. Nothing in this stage may be presented as a live-model
-  result until it has happened, and the register will record the commands, the cost and the outcome
-  rather than a summary.
+  out of the source rather than estimated. The credential half has since been supplied by a human, and
+  the chain has been paid for twenty-two times: enumerating every `live-model-*` artifact on the
+  canonical repository (`gh api repos/Pavithran-R-A/mergesutra/actions/artifacts`, name prefix
+  `live-model`, 2026-10-09) gives 22 attempts, 9 of which ended at `mergesutra plan` and 1 at the
+  `implement` command's own precondition ("has no implementation plan"), so **12 entered the
+  implementation loop** — S14-10 documents the 6 that ended `SCHEMA_REFUSAL`, and the section below
+  names the other 6. Not one of the twelve ended because the model declined the task, and not one
+  reached `FINISH`. All recorded from the sanitized artifacts, never from a rerun.
+  What still does not exist is a live reading that reaches `FINISH` with the fixture's own checks
+  satisfied — that is the result this stage must not present before it happens, and the register will
+  record the commands, the cost and the outcome rather than a summary. A rerun spends provider
+  capacity, so it is an operator action, not something this tree can take.
 
 ## S14-9 — GitHub environment credentials crossed the workspace process boundary
 
@@ -4926,7 +4940,109 @@ another credential source available to the operating-system account, and arbitra
 its own network calls. The roadmap's broader "one fixture and nothing else" live-run item therefore
 remains open until the controlled experiment is executed in an isolated/scoped environment.
 
-**Status: CODE + TEST + DOCUMENT, awaiting hosted CI on this branch.**
+**Status: CODE + TEST + DOCUMENT.** Hosted reading of the code above: `CI` run `37953984220` on `main`
+at `4a27c5f`, Ubuntu/Windows × Node 22/24, four check-runs all `success`. The broader live-run
+blast-radius claim in **Limit** is unchanged by that green reading and stays open.
+
+## S14-10 — a tally of bad answers ended six paid runs, and it was not the bound anyone meant
+
+**Finding.** Twenty-two controlled live attempts produced a `live-model-*` artifact; ten of them never
+reached the loop (9 stopped at `plan`, 1 at the `implement` precondition), so twelve ran it. Enumerating
+those twelve by the termination their own record reports splits them `SCHEMA_REFUSAL` 6, `MAX_STEPS` 5,
+`DEADLINE` 1. The six in the first class ended byte for byte the same way —
+`termination.kind: SCHEMA_REFUSAL`, detail `No usable action after 2 rejected answer(s). Last
+problem: Rejected model action: content: Required` — and each record shows a usable action between the
+two rejections, which is the shape the bound was never meant to punish:
+
+| run | source | turns used of 8 | writes of 4 | actions recorded | where the run stopped |
+| --- | --- | --- | --- | --- | --- |
+| `37648533534` | `36fbcd1da924…` | 5 | 1 | 1 write applied, 3 write refused (stale base), 4 read | rejections at 2 and 5; `check.mjs` never written |
+| `37655552898` | `e0ef898b12db…` | 5 | 1 | 1 write applied, 3 write refused (stale base), 4 read | rejections at 2 and 5; `check.mjs` never written |
+| `37923726827` | `c7654ed2e3e3…` | 5 | 1 | 1 write applied, 3 write refused (stale base), 4 read | rejections at 2 and 5; `check.mjs` never written |
+| `37926378657` | `4da3d6831a4f…` | 5 | 1 | 1 write applied, 3 write refused (stale base), 4 read | rejections at 2 and 5; `check.mjs` never written |
+| `37943570834` | `884e5a93ac79…` | 4 | 2 | 1 and 3, both writes applied to `slugify.js` | rejections at 2 and 4; `check.mjs` never written |
+| `37950266934` | `66cd695e0cbe…` | 4 | 2 | 1 write `slugify.js`, 3 write `check.mjs`, both applied | rejections at 2 and 4, **with both required files already on disk** |
+
+The `MAX_STEPS` half is `37623703887` (`40f2333c`), `37627652044` (`eaeca08a`), `37638578822`
+(`805d77d3`), `37645970921` (`ba3b3553`) and `37650988934` (`deb2b24c`) — each of them spent all 8 turns
+and stopped with 2–3 writes landed and no `FINISH`; the `DEADLINE` is `37641160103` (`8869a034`), 6 turns.
+**This section's fix addresses only the `SCHEMA_REFUSAL` class.** It cannot rescue a run that used every
+turn it was allowed; that class is the one the required-only plan and finish guidance at HEAD
+(`81f71d1`…`4a27c5f`) targets, and no reading here proves either repair works on a live model.
+
+Five of the six never wrote `fixtures/stage14-e2e/check.mjs`, the file issue #8's fourth criterion
+requires, and the fixture's independent scan says `checkContainsAllThreeAssertions: false` for each of
+them (`37943570834` wrote `slugify.js` twice instead). That gap is this loop running out of allowance,
+not a model declining to write assertions: the model that got furthest, `37950266934`, had already
+written both files with all four independent fixture facts (`directBehaviorsPass`, `checkedScriptPass`,
+`checkContainsAllThreeAssertions`, `dependencyFree`) true, and never reached `FINISH`, so the harness's
+own `implementation?.status !== 'COMPLETED_BY_MODEL'` rule failed a chain whose work was done. None of
+the six came close to the spend bound: 4–5 of 8 turns, 1–2 of 4 writes (the live workflow's own
+`implementation.limits`: `maxSteps: 8`, `maxWrites: 4`). The three artifacts that carry usage report 7,
+6 and 6 completions observed against the chain's ceiling of 12 (`37926378657`, `37943570834`,
+`37950266934`); `37655552898`'s summary reports every usage counter at zero, which is
+the run-id threading S14-7 later corrected, not a free run.
+
+`src/implement/loop.ts` counted rejections into one run-wide number and compared it to
+`maxSchemaRepairs` (default 1, cap 2, not reachable from the CLI), so *any* two malformed answers
+anywhere in a run — however many usable actions landed between them — ended it. The bound's own
+documented reason was "more is cost with no information", and the code did not implement that: a
+rejected answer that a real write followed had produced information. It also reset nothing across a
+`resume`, although a resumed loop starts a fresh transcript, so a run could be born already out of
+allowance.
+
+**Fix.** The bound is now a streak. `LoopState` carries `rejectionStreak`, reset at the point an answer
+yields a usable action (`src/implement/loop.ts`, immediately after the criterion-id check) — an action
+the schema accepts and whose criterion ids the contract issued, whether or not the harness then ran it,
+which is why the `STALE_FILE` write refusals at step 3 above count as recovery, and `rejectedAnswers`,
+the run-wide tally, kept because the run did pay for those requests.
+`repair()` compares the streak to `maxSchemaRepairs` and names both numbers in the
+`SCHEMA_REFUSAL` detail, so an ending says what the rule was. An action that parses but names
+criteria the contract never issued does **not** reset the streak: that is the model lying, not the
+model recovering. `maxSteps` remains the spend bound, and it counts every request whichever way a
+turn goes, so the fix cannot increase the ceiling on a run's cost — it can only stop a run from
+giving up early. `src/implement/limits.ts` now documents the knob as consecutive.
+
+**Tests.** `tests/implement/loop.test.ts` — "ends only on a streak of rejections, not on two spread
+across a recovery" reproduces the live shape (rejected write with no `content`, applied write,
+rejected unknown action, `FINISH`) and was watched failing first at three requests instead of four,
+which is the live failure: the fourth turn was never asked for. "counts in the record the answers it
+rejected before anything ran" pins `summary.rejectedAnswers` and that the rejected text — including
+a sentinel planted in the rejected answer — never reaches the record. `tests/implement/implement.test.ts`
+— "says how many answers it rejected, and only when it rejected some" puts the tally on the screen as
+a WARN row and pins that the row does not quote the rejected action. The pre-existing
+consecutive-rejection pins (`stops asking after one repair round…`, `refuses a write that does not say
+which version it replaces`, and the sibling-workspace pair in `tests/implement/nested.test.ts`) are
+unchanged and still end the run, because two refusals in a row is still what the bound is for.
+`src/implement/state.ts` defaults the new summary field to zero, so a record written before it exists
+still parses.
+
+**Evidence for the closing claim.** `npm run check` on Windows at this tree: `CHECK_EXIT=0`,
+`Test Files 152 passed | 3 skipped (155)`, `Tests 2325 passed | 3 skipped (2328)`, after
+`format:check`, `lint`, `typecheck` and `build`.
+
+*What this does not claim.* No credential was used to prove any of it; every test above runs a
+scripted model, and the six records it was read from are the evidence, not a rerun. Nothing here
+shows a live chain reaching `FINISH`: five of the six never attempted `check.mjs`, and the sixth
+wrote it and was still cut off before it could finish. Whether the streak fix lets a real model get
+there is a measurement a paid rerun owes, and that rerun is an operator action with a billing
+consequence, not something this build takes. Nor does the loop fix touch what the harness requires
+afterwards: `review.findings.length > 0` still fails live qualification, and all six chains reached
+`mergesutra review` and came back with findings whose repair plan names
+`fixtures/stage14-e2e/check.mjs` as an expected file — so the review stage saw the gap every time while
+the loop was already gone. `37950266934` is the sharpest form of that: its fixture scan passed on all
+four facts and its review still raised a HIGH finding across `AC-1`–`AC-4`, which means a rerun that
+finishes is not automatically a run that qualifies. A run that ends on any bound is still reported as
+inconclusive rather than repaired.
+
+*One harness observation, dated.* `37655552898` concluded **success** at the workflow level on a chain
+whose record says `IMPLEMENTATION_INCONCLUSIVE`. The fail-closed rule that prevents that
+(`implementation?.status !== 'COMPLETED_BY_MODEL'`) did not exist in `scripts/e2e-validation.mjs` at
+`e0ef898b12db…`; `git log -S COMPLETED_BY_MODEL -- scripts/e2e-validation.mjs` puts it in at
+`759c1b9`, and it is present in the three later artifacts. Recorded so the earlier green reading is not
+mistaken for a passing qualification.
+
+**Status: CODE + TEST + DOCUMENT, hosted CI pending on this push.**
 
 ## S13-7 — Windows 8.3 home aliases defeated HOME/USERPROFILE abbreviation
 

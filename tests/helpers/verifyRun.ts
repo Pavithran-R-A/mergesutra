@@ -104,6 +104,7 @@ export function stubImplementation(
       writes: 2,
       commands: 1,
       refusedActions: 0,
+      rejectedAnswers: 0,
       proposedRevisions: 0,
       totalBytesWritten: 220,
     },

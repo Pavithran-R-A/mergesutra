@@ -145,7 +145,10 @@ interface LoopState {
   writes: number;
   commands: number;
   refusedActions: number;
-  schemaRepairs: number;
+  /** Answers rejected before execution, counted across the whole run. */
+  rejectedAnswers: number;
+  /** Rejections in a row with no usable action between them. The bound is on this one. */
+  rejectionStreak: number;
   bytesWritten: number;
   /** Bytes of repository text already handed over, initial context included. */
   contextBytes: number;
@@ -219,7 +222,8 @@ export async function runImplementationLoop(
     writes: 0,
     commands: 0,
     refusedActions: 0,
-    schemaRepairs: 0,
+    rejectedAnswers: 0,
+    rejectionStreak: 0,
     bytesWritten: 0,
     contextBytes: context.bytes,
     model: 'unknown',
@@ -330,6 +334,12 @@ export async function runImplementationLoop(
         continue;
       }
 
+      // The answer produced a usable action, so a later rejection starts a fresh
+      // streak rather than spending the run's whole tally. A lie about the
+      // criteria above does not reset it: an action that names obligations the
+      // contract never issued is not the model recovering.
+      state.rejectionStreak = 0;
+
       if (action.action === 'FINISH' || action.action === 'BLOCKED') {
         // Ending the loop is not an effect: nothing ran, and the difference
         // between "the model says it is done" and "the model says it cannot
@@ -429,13 +439,10 @@ export async function runImplementationLoop(
 }
 
 /**
- * Feed a rejected turn back to the model, at most `maxSchemaRepairs` times.
+ * The plan's files this run has not written yet.
  *
- * One round trip is worth it, because the refusal names the exact rule broken.
- * Past that it is a paid API being asked to guess, so the loop stops and records
- * that no usable action was ever produced rather than spending the remaining
- * turns. The rejected text is never echoed back — a model that has just produced
- * something invalid is the last party whose words should be replayed to it.
+ * A proposal, not a status: the model is told what is unfinished so a rejected
+ * turn does not cost it the thread, and nothing here claims those files matter.
  */
 function unwrittenPlannedPaths(plan: ImplementationPlan, state: LoopState): string[] {
   const written = new Set(state.changes.map((change) => change.relativePath));
@@ -444,6 +451,24 @@ function unwrittenPlannedPaths(plan: ImplementationPlan, state: LoopState): stri
   );
 }
 
+/**
+ * Feed a rejected turn back to the model, at most `maxSchemaRepairs` times in a row.
+ *
+ * The bound is a streak, not a tally. One round trip is worth it, because the
+ * refusal names the exact rule broken; two refusals with nothing usable between
+ * them are a paid API being asked to guess, and the loop stops and records that
+ * the model never produced a usable action. But a rejected answer that a real
+ * write followed *was* answered — the model recovered, the run gained
+ * information, and the cost is already bounded by `maxSteps`, which counts every
+ * request whichever way a turn goes.
+ *
+ * This distinction is not academic: both credentialed Stage 14 runs were killed
+ * by a tally, at step 5 of 8 with three of four writes still unused, before the
+ * run had attempted the one file the issue's acceptance criteria required.
+ *
+ * The rejected text is never echoed back — a model that has just produced
+ * something invalid is the last party whose words should be replayed to it.
+ */
 function repair(
   state: LoopState,
   limits: LoopLimits,
@@ -451,11 +476,14 @@ function repair(
   problem: string,
   remainingPlannedPaths: readonly string[] = [],
 ): ChatMessage[] {
-  state.schemaRepairs += 1;
-  if (state.schemaRepairs > limits.maxSchemaRepairs) {
+  state.rejectedAnswers += 1;
+  state.rejectionStreak += 1;
+  if (state.rejectionStreak > limits.maxSchemaRepairs) {
     throw new LoopEnd(
       'SCHEMA_REFUSAL',
-      `No usable action after ${state.schemaRepairs} rejected answer(s). Last problem: ${bound(problem, MAX_LOG_DETAIL_CHARS)}`,
+      `No usable action after ${state.rejectionStreak} consecutive rejected answer(s) ` +
+        `(${state.rejectedAnswers} rejected in total across this run). ` +
+        `Last problem: ${bound(problem, MAX_LOG_DETAIL_CHARS)}`,
     );
   }
   return withActionRepairFeedback(
@@ -843,6 +871,7 @@ function buildRecord(
       writes: state.writes,
       commands: state.commands,
       refusedActions: state.refusedActions,
+      rejectedAnswers: state.rejectedAnswers,
       proposedRevisions: state.revisions.length,
       totalBytesWritten: state.bytesWritten,
     },

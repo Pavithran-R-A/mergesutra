@@ -227,6 +227,17 @@ function describeRun(
     },
   ];
 
+  if (implementation.summary.rejectedAnswers > 0) {
+    // The requests are paid for and no action row exists for them, so the
+    // screen has to say where they went. The rejected text itself is not here.
+    checks.push({
+      name: 'Rejected answers',
+      status: 'WARN',
+      detail:
+        `${implementation.summary.rejectedAnswers} answer(s) the model sent that nothing could ` +
+        'run from; each cost a request and none appears as an action',
+    });
+  }
   if (implementation.proposedRevisions.length > 0) {
     checks.push({
       name: 'Proposed revisions',

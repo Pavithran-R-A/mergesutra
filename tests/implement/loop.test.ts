@@ -411,6 +411,47 @@ describe('refusals a model cannot argue past', () => {
     expect(harness.implementation.summary.modelRequests).toBe(2);
   });
 
+  it('ends only on a streak of rejections, not on two spread across a recovery', async () => {
+    // The shape that ended both credentialed Stage 14 runs: a write with no
+    // `content`, one applied write, a second malformed answer — with turns and
+    // write budget still unused. A usable action in between is information, so
+    // the run continues; `maxSteps` is what bounds the spend.
+    const harness = await runLoop(tempDirs, [
+      action({ action: 'WRITE_FILE', path: 'src/guard.ts', reason: 'forgot the bytes' }),
+      writeAction('src/guard.ts', 'export const guard = 1;\n'),
+      action({ action: 'TELEPORT', destination: 'prod' }),
+      finishAction('Guard written between two broken turns.'),
+    ]);
+
+    expect(harness.client.calls).toHaveLength(4);
+    expect(harness.implementation.termination.kind).toBe('FINISH');
+    expect(harness.implementation.status).toBe('COMPLETED_BY_MODEL');
+    expect(outcomes(harness)).toEqual(['WRITE_FILE:APPLIED', 'FINISH:CLAIMED']);
+    expect(harness.implementation.summary.writes).toBe(1);
+  });
+
+  it('counts in the record the answers it rejected before anything ran', async () => {
+    // Both Stage 14 live artifacts asked "five requests, three actions — where
+    // did the other two go?" and had no field that could answer. The rejected
+    // text stays out; only the count is recorded.
+    const harness = await runLoop(tempDirs, [
+      action({
+        action: 'WRITE_FILE',
+        path: 'src/guard.ts',
+        reason: `no content, and holding ${SECRET_IN_FILE}`,
+      }),
+      writeAction('src/guard.ts', 'export const guard = 1;\n'),
+      action({ action: 'TELEPORT', destination: 'prod' }),
+      finishAction('Guard written between two broken turns.'),
+    ]);
+
+    expect(harness.implementation.summary.rejectedAnswers).toBe(2);
+    const json = JSON.stringify(harness.implementation);
+    expect(json).not.toContain('TELEPORT');
+    expect(json).not.toContain(SECRET_IN_FILE);
+    expect(json).not.toContain('holding');
+  });
+
   it('rejects an answer larger than one action is allowed to be', async () => {
     const harness = await runLoop(tempDirs, ['x'.repeat(200_000), finishAction()]);
     expect(lastFeedback(harness, 1)).toContain('over the');

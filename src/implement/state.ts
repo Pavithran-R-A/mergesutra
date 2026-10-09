@@ -135,6 +135,16 @@ export const implementationSummarySchema = z
     writes: z.number().int().nonnegative(),
     commands: z.number().int().nonnegative(),
     refusedActions: z.number().int().nonnegative(),
+    /**
+     * Model answers rejected before anything ran, over the whole run.
+     *
+     * Without this the record could say five requests and three actions and had
+     * no way to account for the other two, which is how both Stage 14 live runs
+     * spent paid turns and then failed to explain themselves. Defaulted because
+     * records written before the field exist on disk; a run that rejected
+     * nothing reads as zero, which is what it did.
+     */
+    rejectedAnswers: z.number().int().nonnegative().default(0),
     proposedRevisions: z.number().int().nonnegative(),
     totalBytesWritten: z.number().int().nonnegative(),
   })

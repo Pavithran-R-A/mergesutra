@@ -32,7 +32,12 @@ export interface LoopLimits {
    * warning, and the run ends at this count.
    */
   readonly maxRepeatedFailures: number;
-  /** Schema refusals per step; more is cost with no information. */
+  /**
+   * Consecutive rejected answers, not a tally for the run. A usable action in
+   * between resets the count, because the model answered and the run gained
+   * information; `maxSteps` bounds the spend whichever way the turns go. More
+   * refusals than this in a row is cost with no information.
+   */
   readonly maxSchemaRepairs: number;
   /** Files the initial context may carry. */
   readonly maxContextFiles: number;
