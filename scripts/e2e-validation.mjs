@@ -281,7 +281,7 @@ async function main() {
     const status = cli('status', ['status', runId, '--repo', fixture], [0]);
     finalRecord = status.json.record;
 
-    const report = cli('report', ['report', runId], [0]);
+    const report = cli('report', ['report', runId], [0, 3]);
     finalRecord = report.json.record;
 
     const pr = exec('pr-no-key', process.execPath, [BIN, '--json', 'pr', runId, '--repo', fixture]);
@@ -301,6 +301,7 @@ async function main() {
 
     const plan = cli('plan', ['plan', runId], [0]);
     finalRecord = plan.json.record;
+    runId = plan.json.record.runId;
 
     const implement = cli(
       'implement',
@@ -323,6 +324,24 @@ async function main() {
       fail('implementation was blocked; evidence was captured but the live chain cannot proceed');
     }
 
+    const workspaceRelative = implement.json.record.implementation?.workspace?.relativePath;
+    if (
+      typeof workspaceRelative !== 'string' ||
+      !workspaceRelative.startsWith('.mergesutra/worktrees/')
+    ) {
+      fail('implementation did not report a confined MergeSutra worktree');
+    }
+    const workspace = path.resolve(fixture, workspaceRelative);
+    if (!workspace.startsWith(path.resolve(fixture) + path.sep)) {
+      fail('implementation workspace escaped the fixture clone');
+    }
+    const install = exec('workspace-install', 'npm', ['ci'], {
+      cwd: workspace,
+      env: childEnv({ publicGit: true }),
+      timeoutMs: 180_000,
+    });
+    assertExit(install, [0]);
+
     const consentProbe = cli('verify-consent-probe', ['verify', runId, '--repo', fixture], [4]);
     finalRecord = consentProbe.json.record;
     const gates = consentProbe.json.record.verificationPlan?.gates ?? [];
@@ -337,8 +356,20 @@ async function main() {
       fail(`expected exactly one npm test gate; observed ${String(npmTest.length)}`);
     }
     const gateId = npmTest[0].id;
+    const repositoryGateIds = gates
+      .filter(
+        (gate) =>
+          gate.requirementLevel === 'REPOSITORY_REQUIRED' ||
+          gate.requirementLevel === 'REPOSITORY_SUGGESTED' ||
+          gate.requirementLevel === 'USER_REQUESTED',
+      )
+      .map((gate) => gate.id);
+    if (!repositoryGateIds.includes(gateId)) {
+      fail('the npm test gate was not included in the repository consent set');
+    }
 
-    const verify = cli('verify', ['verify', runId, '--repo', fixture, '--allow', gateId], [0, 1]);
+    const allowFlags = repositoryGateIds.flatMap((id) => ['--allow', id]);
+    const verify = cli('verify', ['verify', runId, '--repo', fixture, ...allowFlags], [0, 1, 2]);
     verifyExit = verify.record.exitCode;
     finalRecord = verify.json.record;
 
@@ -351,7 +382,7 @@ async function main() {
 
     const status = cli('status', ['status', runId, '--repo', fixture], [0]);
     finalRecord = status.json.record;
-    const report = cli('report', ['report', runId], [0]);
+    const report = cli('report', ['report', runId], [0, 3, 4]);
     finalRecord = report.json.record;
 
     const pr = exec('pr', process.execPath, [BIN, '--json', 'pr', runId, '--repo', fixture]);
