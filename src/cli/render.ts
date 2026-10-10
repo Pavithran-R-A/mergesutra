@@ -36,11 +36,17 @@ const COLORS: Record<Status | 'dim' | 'bold', string> = {
   bold: '1',
 };
 
-export function resolveColor(noColorFlag: boolean | undefined, env: NodeJS.ProcessEnv): boolean {
+export function resolveColor(
+  noColorFlag: boolean | undefined,
+  env: NodeJS.ProcessEnv,
+  isTTY: boolean = process.stdout.isTTY === true,
+): boolean {
   if (noColorFlag) return false;
   if (env.NO_COLOR !== undefined && env.NO_COLOR !== '') return false;
   if (env.FORCE_COLOR === '0') return false;
-  return true;
+  // A caller can explicitly request colour, but piped output is plain by default.
+  if (['1', '2', '3'].includes(env.FORCE_COLOR ?? '')) return true;
+  return isTTY;
 }
 
 export function createRenderer(options: RenderOptions) {
