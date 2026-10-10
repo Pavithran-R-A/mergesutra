@@ -250,27 +250,28 @@ describe('the installed command runs as a customer would run it', () => {
     expect(result.stdout).toContain('doctor');
   });
 
-  it(
-    'provides installed, credential-free help for every shipped CLI command',
-    async () => {
-      const commands = [
-        'doctor',
-        'issue',
-        'inspect',
-        'contract',
-        'plan',
-        'implement',
-        'verify',
-        'review',
-        'repair',
-        'report',
-        'pr',
-        'status',
-        'resume',
-        'run',
-      ];
-      for (const command of commands) {
-        const { stdout, stderr } = await execFileAsync(process.execPath, [installedBin(), command, '--help'], {
+  it('provides installed, credential-free help for every shipped CLI command', async () => {
+    const commands = [
+      'doctor',
+      'issue',
+      'inspect',
+      'contract',
+      'plan',
+      'implement',
+      'verify',
+      'review',
+      'repair',
+      'report',
+      'pr',
+      'status',
+      'resume',
+      'run',
+    ];
+    for (const command of commands) {
+      const { stdout, stderr } = await execFileAsync(
+        process.execPath,
+        [installedBin(), command, '--help'],
+        {
           cwd: consumer,
           windowsHide: true,
           timeout: 10_000,
@@ -282,18 +283,17 @@ describe('the installed command runs as a customer would run it', () => {
             GITHUB_TOKEN: '',
             NO_COLOR: '1',
           },
-        });
-        expect(stdout, `${command} printed no usable help`).toContain(`mergesutra ${command}`);
-        expect(stderr, `${command} logged an exception`).not.toMatch(
-          /ERR_MODULE|ERR_REQUIRE|Cannot find module/,
-        );
-        expect(stdout, `${command} leaked ANSI controls into piped help`).not.toContain(
-          String.fromCharCode(27),
-        );
-      }
-    },
-    60_000,
-  );
+        },
+      );
+      expect(stdout, `${command} printed no usable help`).toContain(`mergesutra ${command}`);
+      expect(stderr, `${command} logged an exception`).not.toMatch(
+        /ERR_MODULE|ERR_REQUIRE|Cannot find module/,
+      );
+      expect(stdout, `${command} leaked ANSI controls into piped help`).not.toContain(
+        String.fromCharCode(27),
+      );
+    }
+  }, 60_000);
 
   /**
    * The other half of the two-entry design: `main` is importable and stays quiet.
