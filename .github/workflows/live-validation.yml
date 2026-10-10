@@ -9,11 +9,12 @@ on:
         default: false
         type: boolean
       model:
-        description: BharatCode model to validate
+        description: BharatCode model (Qwen for students/Lite/Pro; DeepSeek requires Pro; live /models check is authoritative)
         required: true
-        default: deepseek-v4.1-flash
+        default: qwen-3.8-27b
         type: choice
         options:
+          - qwen-3.8-27b
           - deepseek-v4.1-flash
 # This workflow never runs on pull requests or pushes. Ordinary CI owns untrusted
 # code. A person must dispatch it deliberately. The live job additionally refuses
