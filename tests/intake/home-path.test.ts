@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { abbreviateHomePath } from '../../src/intake/intake.js';
 
@@ -33,6 +36,24 @@ describe('abbreviateHomePath', () => {
       'C:/Users/alice2/repo',
     );
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'canonicalizes macOS aliases before comparing existing HOME and Git paths',
+    () => {
+      const realHome = mkdtempSync(path.join(tmpdir(), 'mergesutra-home-alias-'));
+      const alias = realHome + '-alias';
+      try {
+        mkdirSync(path.join(realHome, 'repo'));
+        symlinkSync(realHome, alias);
+        expect(abbreviateHomePath(path.join(realHome, 'repo'), { HOME: alias }, 'darwin')).toBe(
+          '~/repo',
+        );
+      } finally {
+        rmSync(alias, { force: true });
+        rmSync(realHome, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('keeps POSIX comparison case-sensitive', () => {
     expect(abbreviateHomePath('/home/alice/repo', { HOME: '/home/alice' }, 'linux')).toBe('~/repo');
