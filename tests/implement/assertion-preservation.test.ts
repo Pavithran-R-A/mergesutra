@@ -47,10 +47,7 @@ describe('model test rewrites preserve baseline assertions', () => {
   it('keeps matchers and repeated assertions, but ignores formatting differences', () => {
     expect(missingExistingAssertions('expect(x).toEqual(1);', 'expect(x).toBe(1);')).toBe(1);
     expect(
-      missingExistingAssertions(
-        'assert.equal(x, 1);\nassert.equal(x, 1);',
-        'assert.equal(x, 1);',
-      ),
+      missingExistingAssertions('assert.equal(x, 1);\nassert.equal(x, 1);', 'assert.equal(x, 1);'),
     ).toBe(1);
     expect(
       missingExistingAssertions(
@@ -79,9 +76,7 @@ describe('the live model write boundary', () => {
     expect(harness.implementation.summary.writes).toBe(0);
     expect(harness.implementation.actions[0]?.outcome).toBe('REFUSED');
     expect(harness.implementation.actions[0]?.detail).toContain('PRESERVE_ASSERTIONS');
-    expect(await readFile(path.join(harness.root, 'test/parse.test.ts'), 'utf8')).toBe(
-      baseline,
-    );
+    expect(await readFile(path.join(harness.root, 'test/parse.test.ts'), 'utf8')).toBe(baseline);
   });
 
   it('explains the refusal and accepts a corrected write without extra privileges', async () => {
@@ -94,18 +89,14 @@ describe('the live model write boundary', () => {
       writeAction('test/parse.test.ts', corrected, [], digestOf(baseline)),
       finishAction(),
     ]);
-    expect(harness.client.calls[1]?.messages.at(-1)?.content).toContain(
-      'PRESERVE_ASSERTIONS',
-    );
+    expect(harness.client.calls[1]?.messages.at(-1)?.content).toContain('PRESERVE_ASSERTIONS');
     expect(harness.implementation.summary.writes).toBe(1);
     expect(harness.implementation.actions.map((a) => a.outcome)).toEqual([
       'REFUSED',
       'APPLIED',
       'CLAIMED',
     ]);
-    expect(await readFile(path.join(harness.root, 'test/parse.test.ts'), 'utf8')).toBe(
-      corrected,
-    );
+    expect(await readFile(path.join(harness.root, 'test/parse.test.ts'), 'utf8')).toBe(corrected);
   });
 
   it('does not block ordinary source writes that are not test files', async () => {
