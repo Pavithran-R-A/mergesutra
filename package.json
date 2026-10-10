@@ -55,7 +55,7 @@
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:live": "MERGESUTRA_LIVE_BHARATCODE=1 vitest run --all",
+    "test:live": "node scripts/run-live-tests.mjs",
     "test:artifact": "vitest run --config vitest.release.config.ts",
     "qualify:path-shapes": "node scripts/path-shape-qualification.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test",
