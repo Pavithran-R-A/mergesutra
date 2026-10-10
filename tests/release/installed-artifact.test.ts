@@ -270,23 +270,19 @@ describe('the installed command runs as a customer would run it', () => {
         'run',
       ];
       for (const command of commands) {
-        const { stdout, stderr } = await execFileAsync(
-          process.execPath,
-          [installedBin(), command, '--help'],
-          {
-            cwd: consumer,
-            windowsHide: true,
-            timeout: 10_000,
-            env: {
-              ...process.env,
-              BHARATCODE_API_KEY: '',
-              BHARATCODE_MODEL: '',
-              GH_TOKEN: '',
-              GITHUB_TOKEN: '',
-              NO_COLOR: '1',
-            },
+        const { stdout, stderr } = await execFileAsync(process.execPath, [installedBin(), command, '--help'], {
+          cwd: consumer,
+          windowsHide: true,
+          timeout: 10_000,
+          env: {
+            ...process.env,
+            BHARATCODE_API_KEY: '',
+            BHARATCODE_MODEL: '',
+            GH_TOKEN: '',
+            GITHUB_TOKEN: '',
+            NO_COLOR: '1',
           },
-        );
+        });
         expect(stdout, `${command} printed no usable help`).toContain(`mergesutra ${command}`);
         expect(stderr, `${command} logged an exception`).not.toMatch(
           /ERR_MODULE|ERR_REQUIRE|Cannot find module/,
