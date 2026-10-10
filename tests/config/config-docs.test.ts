@@ -31,6 +31,13 @@ describe('the BharatCode configuration surface is documented, not only readable 
     expect(undocumentedIn(names, readme), 'README omits a configuration variable').toEqual([]);
   });
 
+  it('makes the required no-default model explicit in first-use instructions', () => {
+    const firstUse = readme.slice(0, readme.indexOf('## Why MergeSutra'));
+    expect(firstUse).toContain('There is no default BharatCode model.');
+    expect(firstUse).toContain('BHARATCODE_MODEL');
+    expect(firstUse).toContain('https://bharatcode.ai/build');
+  });
+
   it('names the variable the adapter asks for when no model is selected', () => {
     const names = namesIn('src/bharatcode/client.ts');
     expect(names.length, 'the adapter names a configuration variable in a refusal').toBeGreaterThan(

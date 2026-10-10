@@ -73,11 +73,12 @@ node dist/bin.js --version
 node dist/bin.js doctor
 ```
 
-BharatCode-backed stages need the **current user's own** `BHARATCODE_API_KEY`; no
-developer key is shared with CLI users or shipped in the npm artifact. Set
-`BHARATCODE_MODEL` when you want to pin an explicit model rather than use the
-configured/default selection. MergeSutra never needs the key for `status`,
-`report`, approval previews or other read-only recovery paths.
+BharatCode-backed stages need the **current user's own** `BHARATCODE_API_KEY`
+and `BHARATCODE_MODEL`; no developer key is shared with CLI users or shipped
+in the npm artifact. **There is no default BharatCode model.** Choose an exact
+model ID from the provider's live catalog at https://bharatcode.ai/build; the
+catalog and serving hours may change. MergeSutra never needs the key for
+`status`, `report`, approval previews or other read-only recovery paths.
 
 ## Why MergeSutra
 
@@ -1647,8 +1648,9 @@ source.
   `No BharatCode model selected.` and names this variable, at exit `78`. `plan`,
   `review` and `repair` have no model flag, so for those three this variable is
   what makes them runnable. `implement` additionally accepts `--model <id>` for a
-  single run. Which models the endpoint offers is what `mergesutra doctor
-  --connect` reports; it needs the key and asks for nothing else. The ordered run
+  single run. `mergesutra doctor --connect` checks the endpoint and reports the number of
+  available models, not their IDs; consult BharatCode's live catalog or `/models`
+  for the exact ID. The ordered run
   that spends both variables — every command, flag, budget and exit code in one
   page — is
   [docs/REAL_MODEL_E2E_PROCEDURE.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/REAL_MODEL_E2E_PROCEDURE.md).

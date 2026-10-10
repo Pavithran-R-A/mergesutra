@@ -379,19 +379,19 @@ export function abbreviateHomePath(
   platform: NodeJS.Platform = process.platform,
 ): string {
   const canonical = (input: string): string => {
-    if (platform !== 'win32') return input;
+    if (platform !== 'win32' && platform !== 'darwin') return input;
     try {
-      // Windows temp/home variables may use an 8.3 short-name alias while Git
-      // reports the same existing directory by its long name. Canonicalize both
-      // spellings before comparing so USERPROFILE/HOME abbreviation is about the
-      // directory, not which alias named it.
+      // Windows may use 8.3 short names; macOS exposes /var through /private/var.
+      // Git and HOME can name the same existing directory differently. Compare
+      // their real paths rather than their visible aliases before abbreviating.
       return realpathSync.native(input);
     } catch {
       return input;
     }
   };
   const normalize = (input: string): string => {
-    const separators = platform === 'win32' ? canonical(input).replaceAll('\\', '/') : input;
+    const separators =
+      platform === 'win32' ? canonical(input).replaceAll('\\', '/') : canonical(input);
     return separators.length > 1 ? separators.replace(/\/+$/, '') : separators;
   };
   const candidate = normalize(value);
