@@ -267,7 +267,7 @@ describe('mergesutra implement — what the reader is allowed to believe', () =>
     expect(c.text()).not.toContain('\u001b[');
   });
 
-  it('turns colour off when asked, and only then', async () => {
+  it('enables colour by explicit request and honors NO_COLOR', async () => {
     const quiet = async (env: Record<string, string>): Promise<string> => {
       const stage = await harness([finishAction()]);
       const c = capture();
@@ -275,8 +275,8 @@ describe('mergesutra implement — what the reader is allowed to believe', () =>
       return c.text();
     };
 
-    expect(await quiet({ PATH: '/usr/bin' })).toContain('\u001b[1m');
-    const plain = await quiet({ PATH: '/usr/bin', NO_COLOR: '1' });
+    expect(await quiet({ PATH: '/usr/bin', FORCE_COLOR: '1' })).toContain('\u001b[1m');
+    const plain = await quiet({ PATH: '/usr/bin', NO_COLOR: '1', FORCE_COLOR: '1' });
     expect(plain).not.toContain('\u001b[');
     expect(plain).toContain('MergeSutra — bounded implementation run');
   });
