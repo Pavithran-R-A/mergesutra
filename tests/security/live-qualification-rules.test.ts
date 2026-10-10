@@ -15,6 +15,8 @@ interface FixtureProof {
   checkedScriptPass: boolean;
   checkContainsAllThreeAssertions: boolean;
   missingAssertionInputs: string[];
+  baselineAssertionsPreserved: boolean;
+  missingBaselineAssertionInputs: string[];
   dependencyFree: boolean;
   changesWithinFixture: boolean;
   changedPaths: string[];
@@ -127,6 +129,8 @@ import { slugify } from './src/slugify.js';
 const COMPLETE_CHECK = `${CHECK_HEADER}assert.equal(slugify('  Hello  World  '), 'hello-world');
 assert.equal(slugify('a--b'), 'a-b');
 assert.equal(slugify('--x--'), 'x');
+assert.equal(slugify('Hello World'), 'hello-world');
+assert.equal(slugify('a.b,c'), 'a-b-c');
 `;
 
 const DOUBLE_QUOTED_CHECK = COMPLETE_CHECK.replace(/'/g, '"');
@@ -191,6 +195,10 @@ const planted = (slugifySource: string, checkSource: string, pkg = CLEAN_PKG) =>
 
 const FIXTURES: Record<string, Record<string, string>> = {
   accepted: planted(FIXED_SLUGIFY, COMPLETE_CHECK),
+  'baseline-regression': planted(
+    FIXED_SLUGIFY,
+    COMPLETE_CHECK.replace("assert.equal(slugify('a.b,c'), 'a-b-c');\n", ''),
+  ),
   'double-quoted': planted(FIXED_SLUGIFY, DOUBLE_QUOTED_CHECK),
   'multi-line-assert': planted(FIXED_SLUGIFY, MULTILINE_ASSERT_CHECK),
   'slashes-in-string': planted(FIXED_SLUGIFY, SLASHES_IN_STRING_CHECK),
@@ -236,6 +244,8 @@ const passingProof = (overrides: Partial<FixtureProof> = {}): FixtureProof => ({
   checkedScriptPass: true,
   checkContainsAllThreeAssertions: true,
   missingAssertionInputs: [],
+  baselineAssertionsPreserved: true,
+  missingBaselineAssertionInputs: [],
   dependencyFree: true,
   changesWithinFixture: true,
   changedPaths: CHANGED_OK,
@@ -256,6 +266,13 @@ const base = {
 const QUALIFY_CASES: Record<string, unknown> = {
   passing: base,
   'behaviour-unproven': { ...base, fixtureProof: passingProof({ directBehaviorsPass: false }) },
+  'baseline-assertion-lost': {
+    ...base,
+    fixtureProof: passingProof({
+      baselineAssertionsPreserved: false,
+      missingBaselineAssertionInputs: ['a.b,c'],
+    }),
+  },
   'assertions-missing': {
     ...base,
     fixtureProof: passingProof({
@@ -341,6 +358,8 @@ describe('the live fixture-acceptance scanner, run against planted workspaces', 
       checkedScriptPass: true,
       checkContainsAllThreeAssertions: true,
       missingAssertionInputs: [],
+      baselineAssertionsPreserved: true,
+      missingBaselineAssertionInputs: [],
       dependencyFree: true,
       changesWithinFixture: true,
       changedPaths: CHANGED_OK,
@@ -428,6 +447,15 @@ describe('the live fixture-acceptance scanner, run against planted workspaces', 
     expect(evidence.directBehaviorsPass).toBe(false);
   });
 
+  it('refuses to certify a model that drops a valid baseline punctuation assertion', () => {
+    const evidence = proof('baseline-regression');
+    expect(evidence.directBehaviorsPass).toBe(true);
+    expect(evidence.checkedScriptPass).toBe(true);
+    expect(evidence.checkContainsAllThreeAssertions).toBe(true);
+    expect(evidence.baselineAssertionsPreserved).toBe(false);
+    expect(evidence.missingBaselineAssertionInputs).toEqual(['a.b,c']);
+  });
+
   it('records in the proof itself which inputs an unaccepted check file lacked', () => {
     expect(proof('comment-only').missingAssertionInputs).toEqual(['  Hello  World  ', '--x--']);
     expect(proof('block-comment').missingAssertionInputs).toEqual(['--x--']);
@@ -449,6 +477,7 @@ describe('the live-qualification conjunction', () => {
   it('refuses to qualify on the model’s own completion claim alone', () => {
     expect(qualify('behaviour-unproven')).toEqual([ACCEPTANCE]);
     expect(qualify('assertions-missing')).toEqual([ACCEPTANCE]);
+    expect(qualify('baseline-assertion-lost')).toEqual([ACCEPTANCE]);
   });
 
   it('refuses a chain that stopped before the model finished, even with a perfect workspace', () => {
