@@ -5,7 +5,7 @@ describe('CLI colour portability', () => {
   it('prints plain text when stdout is redirected, even without NO_COLOR', () => {
     const renderer = createRenderer({ color: resolveColor(false, {}, false) });
     expect(renderer.row('PASS', 'gate', 'done')).toContain('PASS');
-    expect(renderer.row('PASS', 'gate', 'done')).not.toMatch(/\u001b\[/);
+    expect(renderer.row('PASS', 'gate', 'done')).not.toContain(`${String.fromCharCode(27)}[`);
   });
 
   it('uses colour on TTY and supports an explicit FORCE_COLOR override', () => {
