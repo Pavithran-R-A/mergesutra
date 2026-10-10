@@ -5,7 +5,7 @@ import process from 'node:process';
 /**
  * Cross-platform opt-in live test launcher.
  * Tests are never started during ordinary CI or `npm test`; this command
- * deliberately enables only the three credential-gated BharatCode suites.
+ * enables the three credential-gated BharatCode suites in addition to offline tests.
  * `--help` is safe to smoke-test without an API key or model request.
  */
 const root = fileURLToPath(new URL('../', import.meta.url));
