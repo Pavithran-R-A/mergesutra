@@ -390,7 +390,8 @@ export function abbreviateHomePath(
     }
   };
   const normalize = (input: string): string => {
-    const separators = platform === 'win32' ? canonical(input).replaceAll('\\', '/') : canonical(input);
+    const separators =
+      platform === 'win32' ? canonical(input).replaceAll('\\', '/') : canonical(input);
     return separators.length > 1 ? separators.replace(/\/+$/, '') : separators;
   };
   const candidate = normalize(value);
