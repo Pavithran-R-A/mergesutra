@@ -497,8 +497,8 @@ function repair(
 /** Apply baseline test preservation to the tests a model is allowed to rewrite. */
 function isTestLikePath(relativePath: string): boolean {
   return (
-    /(?:^|\\/)(?:test|tests|__tests__)\\//.test(relativePath) ||
-    /(?:^|\\/)(?:check\\.[cm]?js|[^/]+\\.(?:test|spec)\\.[cm]?js|[^/]+\\.(?:test|spec)\\.tsx?)$/.test(
+    /(?:^|\/)(?:test|tests|__tests__)\//.test(relativePath) ||
+    /(?:^|\/)(?:check\.[cm]?js|[^/]+\.(?:test|spec)\.[cm]?js|[^/]+\.(?:test|spec)\.tsx?)$/.test(
       relativePath,
     )
   );
