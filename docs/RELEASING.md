@@ -9,7 +9,8 @@ itself.
 A release candidate is not releasable unless all of these are true:
 
 1. `main` and the release commit are identical to the commit being tagged.
-2. GitHub-hosted CI is green on Ubuntu and Windows, on Node 22 and Node 24.
+2. GitHub-hosted CI is green on Ubuntu, Windows and macOS, on Node 22 and Node 24,
+   at the exact release SHA (six jobs).
 3. `npm audit --omit=dev --audit-level=high` succeeds.
 4. `npm run check`, `npm run verify:package` and `npm run test:artifact` succeed.
 5. The package version, `src/version.ts`, release tag and checked-out commit agree.
