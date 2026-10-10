@@ -77,7 +77,10 @@ BharatCode-backed stages need the **current user's own** `BHARATCODE_API_KEY`
 and `BHARATCODE_MODEL`; no developer key is shared with CLI users or shipped
 in the npm artifact. **There is no default BharatCode model.** Choose an exact
 model ID from the provider's live catalog at https://bharatcode.ai/build; the
-catalog and serving hours may change. MergeSutra never needs the key for
+catalog, eligibility and serving hours may change. As of 10 October 2026,
+Qwen 3.8 27B is listed for verified students, Lite and Pro, whereas DeepSeek V4.1
+Flash requires Pro. The authenticated `/models` response determines actual access.
+MergeSutra never needs the key for
 `status`, `report`, approval previews or other read-only recovery paths.
 
 ## Why MergeSutra
