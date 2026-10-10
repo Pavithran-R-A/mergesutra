@@ -145,7 +145,7 @@ export function toIssueDocument(
 export function sanitizeInline(value: string, maxLength = 200): string {
   const flat = value
     // eslint-disable-next-line no-control-regex -- stripping C0/C1 controls from untrusted text *is* the point
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return flat.length > maxLength ? flat.slice(0, maxLength) + '…' : flat;
