@@ -223,10 +223,16 @@ repository declares, which is a different threat and gets a different boundary.
   instructions to a verification engine.
 - **Executing a repository command is not sandboxed, and does not claim to be.**
   The gate runs in the run's worktree with a real cwd; a worktree is isolation for
-  clarity, not a security boundary (§4). What MergeSutra adds is *observation*:
-  the workspace's patch identity is re-described after every gate, and a gate that
-  left the tree changed voids the run's verdict rather than reporting the next
-  result, because the next measurement would describe bytes no one identified.
+  clarity, not a security boundary (§4). The child environment strips model and
+  GitHub credentials plus common unrelated credential variables (cloud, registry,
+  database and API keys), while retaining ordinary build flags. The GitHub-owned
+  read runner alone may retain GitHub authentication. **This is not a sandbox**:
+  repository code can still read files visible to the host account, and a secret
+  held under an unrecognized variable name may still be inherited. What MergeSutra
+  adds is *observation*: the workspace's patch identity is re-described after
+  every gate, and a gate that left the tree changed voids the run's verdict rather
+  than reporting the next result, because the next measurement would describe
+  bytes no one identified.
 - **Receipts are the only thing that can prove anything, so they are bounded and
   redacted.** A receipt keeps exit code, termination, duration, a 4 KB tail of
   *redacted* stdout/stderr and the sha-256 of the unredacted bytes — the digest
