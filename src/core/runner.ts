@@ -67,6 +67,7 @@ const OTHER_CREDENTIAL_ENV_NAMES = new Set([
   'aws_session_token',
   'database_url',
   'postgres_url',
+  'supabase_service_role_key',
   'google_application_credentials',
   'npm_config_//registry.npmjs.org/:_authtoken',
 ]);
