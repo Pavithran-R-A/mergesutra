@@ -1,9 +1,10 @@
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CAN_SYMLINK } from '../helpers/fixture.js';
 import { requireNpmCli } from '../helpers/npmInvocation.js';
@@ -33,6 +34,7 @@ import { requireNpmCli } from '../helpers/npmInvocation.js';
  */
 
 const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
+const execFileAsync = promisify(execFile);
 const NPM_CLI = requireNpmCli();
 const manifest = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')) as {
   name: string;
@@ -247,6 +249,55 @@ describe('the installed command runs as a customer would run it', () => {
     expect(result.stdout).toContain('Usage: mergesutra');
     expect(result.stdout).toContain('doctor');
   });
+
+  it(
+    'provides installed, credential-free help for every shipped CLI command',
+    async () => {
+      const commands = [
+        'doctor',
+        'issue',
+        'inspect',
+        'contract',
+        'plan',
+        'implement',
+        'verify',
+        'review',
+        'repair',
+        'report',
+        'pr',
+        'status',
+        'resume',
+        'run',
+      ];
+      for (const command of commands) {
+        const { stdout, stderr } = await execFileAsync(
+          process.execPath,
+          [installedBin(), command, '--help'],
+          {
+            cwd: consumer,
+            windowsHide: true,
+            timeout: 10_000,
+            env: {
+              ...process.env,
+              BHARATCODE_API_KEY: '',
+              BHARATCODE_MODEL: '',
+              GH_TOKEN: '',
+              GITHUB_TOKEN: '',
+              NO_COLOR: '1',
+            },
+          },
+        );
+        expect(stdout, `${command} printed no usable help`).toContain(`mergesutra ${command}`);
+        expect(stderr, `${command} logged an exception`).not.toMatch(
+          /ERR_MODULE|ERR_REQUIRE|Cannot find module/,
+        );
+        expect(stdout, `${command} leaked ANSI controls into piped help`).not.toContain(
+          String.fromCharCode(27),
+        );
+      }
+    },
+    60_000,
+  );
 
   /**
    * The other half of the two-entry design: `main` is importable and stays quiet.
