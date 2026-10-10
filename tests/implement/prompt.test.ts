@@ -149,6 +149,15 @@ describe('the action list shown to the model', () => {
     expect(system).toContain('at least one repository-required gate');
   });
 
+  it('preserves existing regression checks when adding acceptance assertions', async () => {
+    const { system } = await build();
+    expect(system).toContain('preserve assertions for unrelated behavior');
+    expect(system).toContain('Add required cases alongside them');
+    expect(system).toContain('do not drop regression coverage');
+    expect(system).toContain('update only that assertion');
+    expect(system).toContain('Do not silently delete a valid test.');
+  });
+
   it('gives contract edits to a human, never to the model', async () => {
     const { system } = await build();
     expect(system).toContain('You may not mark a criterion PASS, weaken one, delete one');
