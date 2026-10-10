@@ -54,14 +54,36 @@ export interface RunnerOptions {
  */
 const MODEL_CREDENTIAL_ENV_NAMES = ['bharatcode_api_key', 'bharatcode_key'];
 const GITHUB_CREDENTIAL_ENV_NAMES = ['gh_token', 'github_token', 'github_pat'];
-const COMMAND_CREDENTIAL_ENV_NAMES = [
-  ...MODEL_CREDENTIAL_ENV_NAMES,
-  ...GITHUB_CREDENTIAL_ENV_NAMES,
-];
+
+/**
+ * A repository's own test script is executable code, not an authenticated
+ * extension of MergeSutra. Scrub common unrelated credentials as well as the
+ * two identities this CLI handles. This is defense in depth, NOT an OS sandbox:
+ * a child can still read files permitted by the host account.
+ */
+const OTHER_CREDENTIAL_ENV_NAMES = new Set([
+  'aws_access_key_id',
+  'aws_secret_access_key',
+  'aws_session_token',
+  'database_url',
+  'postgres_url',
+  'google_application_credentials',
+  'npm_config_//registry.npmjs.org/:_authtoken',
+]);
+
+/** Match conventional secret-bearing names without stripping ordinary build flags. */
+const SECRET_ENV_NAME_PATTERN =
+  /(?:^|[_-])(?:api[_-]?key|access[_-]?key|token|secret|password|passphrase|private[_-]?key|credentials?|webhook)(?:$|[_-])/i;
 
 /** The environment names ordinary child commands are never allowed to receive. */
 export function isCredentialEnvName(name: string): boolean {
-  return COMMAND_CREDENTIAL_ENV_NAMES.includes(name.toLowerCase());
+  const normalized = name.toLowerCase();
+  return (
+    MODEL_CREDENTIAL_ENV_NAMES.includes(normalized) ||
+    GITHUB_CREDENTIAL_ENV_NAMES.includes(normalized) ||
+    OTHER_CREDENTIAL_ENV_NAMES.has(normalized) ||
+    SECRET_ENV_NAME_PATTERN.test(normalized)
+  );
 }
 
 /**
@@ -82,7 +104,8 @@ export function withoutCredentialEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv 
 function withoutModelCredentialEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(
     Object.entries(env).filter(
-      ([name]) => !MODEL_CREDENTIAL_ENV_NAMES.includes(name.toLowerCase()),
+      ([name]) =>
+        GITHUB_CREDENTIAL_ENV_NAMES.includes(name.toLowerCase()) || !isCredentialEnvName(name),
     ),
   ) as NodeJS.ProcessEnv;
 }
