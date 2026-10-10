@@ -58,9 +58,10 @@ describe('the controlled live-validation workflow', () => {
   });
 
   it('requires a deliberate live trigger and restricts the selectable model set', () => {
-    expect(WORKFLOW).toContain('default: deepseek-v4.1-flash');
+    expect(WORKFLOW).toContain('default: qwen-3.8-27b');
+    expect(WORKFLOW).toContain('- qwen-3.8-27b');
     expect(WORKFLOW).toContain('- deepseek-v4.1-flash');
-    expect(WORKFLOW).not.toContain('- qwen-3.8-27b');
+    expect(WORKFLOW).toContain('DeepSeek requires Pro');
     const live = job('live-model');
     expect(live).toContain("if: github.ref == 'refs/heads/main' && inputs.run_live == true");
     expect(live).toContain('needs: no-key-chain');
