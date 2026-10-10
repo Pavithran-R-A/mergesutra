@@ -448,7 +448,7 @@ describe('the status screen, the page a person acts on', () => {
     const out = capture();
     await statusAction(
       RUN_ID,
-      { env: {} },
+      { env: { FORCE_COLOR: '1' } },
       {
         store: coloured.store,
         cwd: coloured.cwd,
@@ -460,7 +460,7 @@ describe('the status screen, the page a person acts on', () => {
     );
     const page = out.text();
 
-    // Safety may not be bought by giving up the renderer: its own colour is still there.
+    // Explicitly forced colour must stay safe: only the renderer may emit escapes.
     expect(page).toContain(`${ESC}[1m`);
     expect(page).toContain(`${ESC}[90m`);
     // …and it is the *only* thing on the page that can still talk to the terminal.
