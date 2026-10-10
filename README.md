@@ -33,17 +33,16 @@ becomes a PR."*
 > not run `git commit`, push a branch or open the GitHub pull request for you.
 > A worktree is isolation for clarity, not an operating-system sandbox.
 >
-> **Live-model status:** controlled real BharatCode/Qwen validations have run
-> 22 times, most recently 9 October 2026 (for example
-> [GitHub run #37950266934](https://github.com/Pavithran-R-A/mergesutra/actions/runs/37950266934)).
-> Twelve of them reached the implementation loop and **none reached the model's
-> own `FINISH`**: six were cut off by a bound the loop miscounted (fixed in this
-> build, not yet re-measured), five spent every turn they were allowed, and one
-> ran out of wall-clock. In one attempt the model did write both required files
-> and the fixture's independent checks passed, and the chain was still reported
-> inconclusive. Repository gate success is **not** a completed issue, and a green
-> workflow job is not a qualified contribution. The full model-driven contribution
-> remains an open release gate.
+> **Live-model status (10 October 2026):** controlled real BharatCode/Qwen validation
+> [run #38022890736](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38022890736)
+> executed at pinned commit `f7d348c`. The model reached `FINISH` after seven implementation
+> requests, changing the two allowed fixture files. Independent fixture acceptance passed
+> all five criteria; the output/artifact credential scan found no leaked credentials.
+> **The run still failed release qualification:** the independent reviewer identified a
+> LOW regression-coverage gap because the model-generated `check.mjs` dropped the valid
+> pre-existing `slugify('a.b,c') === 'a-b-c'` assertion. Publication remained blocked.
+> [PR #21](https://github.com/Pavithran-R-A/mergesutra/pull/21) proposes a prompt/test fix,
+> but this has not been re-qualified with another paid live-model run.
 >
 > See the [Roadmap](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md)
 > and [real-model E2E procedure](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/REAL_MODEL_E2E_PROCEDURE.md)
