@@ -7,6 +7,7 @@ import {
   createRunner,
   defaultRunner,
   githubReadRunner,
+  isCredentialEnvName,
   safeRun,
   type Runner,
 } from '../../src/core/runner.js';
@@ -195,6 +196,74 @@ describe('the environment a started command receives', () => {
         expect(result.stdout).not.toContain(SENTINEL);
         expect(process.env.GH_TOKEN).toBe(SENTINEL);
         expect(process.env.GITHUB_TOKEN).toBe(SENTINEL);
+      });
+    });
+  });
+
+  it('detects unrelated cloud, registry, and database credentials without hiding ordinary flags', () => {
+    for (const name of [
+      'NPM_TOKEN',
+      'NODE_AUTH_TOKEN',
+      'OPENROUTER_API_KEY',
+      'OPENAI_API_KEY',
+      'Aws_Access_Key_Id',
+      'AWS_SECRET_ACCESS_KEY',
+      'AZURE_CLIENT_SECRET',
+      'SUPABASE_SERVICE_ROLE_KEY',
+      'DATABASE_URL',
+      'RESEND_API_KEY',
+      'RAZORPAY_KEY_SECRET',
+      'NPM_CONFIG_//registry.npmjs.org/:_authToken',
+    ]) {
+      expect(isCredentialEnvName(name), name).toBe(true);
+    }
+    for (const name of ['PATH', 'NODE_ENV', 'CI', 'MERGESUTRA_ORDINARY_BUILD_VAR']) {
+      expect(isCredentialEnvName(name), name).toBe(false);
+    }
+  });
+
+  it('removes unrelated credentials from a real child with a caller-supplied environment', async () => {
+    const env = {
+      PATH: process.env.PATH,
+      Path: process.env.Path,
+      NPM_TOKEN: SENTINEL,
+      NODE_AUTH_TOKEN: SENTINEL,
+      OPENROUTER_API_KEY: SENTINEL,
+      AWS_ACCESS_KEY_ID: SENTINEL,
+      AWS_SECRET_ACCESS_KEY: SENTINEL,
+      SUPABASE_SERVICE_ROLE_KEY: SENTINEL,
+      DATABASE_URL: SENTINEL,
+      MERGESUTRA_ORDINARY_BUILD_VAR: 'allowed',
+    };
+    const result = await createRunner({ env })(NODE, [
+      '-e',
+      'process.stdout.write(JSON.stringify({secret: Object.values(process.env).includes(' +
+        JSON.stringify(SENTINEL) +
+        '), normal: process.env.MERGESUTRA_ORDINARY_BUILD_VAR}))',
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe('{"secret":false,"normal":"allowed"}');
+    expect(result.stdout).not.toContain(SENTINEL);
+    expect(env.NPM_TOKEN).toBe(SENTINEL);
+  });
+
+  it('lets the GitHub-owned read runner use GitHub auth but not unrelated provider secrets', async () => {
+    await withEnv('GH_TOKEN', SENTINEL, async () => {
+      await withEnv('OPENROUTER_API_KEY', SENTINEL, async () => {
+        await withEnv('NPM_TOKEN', SENTINEL, async () => {
+          const result = await githubReadRunner(NODE, [
+            '-e',
+            'process.stdout.write(JSON.stringify({gh:process.env.GH_TOKEN,' +
+              'openrouter:process.env.OPENROUTER_API_KEY ?? "ABSENT",' +
+              'npm:process.env.NPM_TOKEN ?? "ABSENT"}))',
+          ]);
+          expect(result.code).toBe(0);
+          expect(JSON.parse(result.stdout)).toEqual({
+            gh: SENTINEL,
+            openrouter: 'ABSENT',
+            npm: 'ABSENT',
+          });
+        });
       });
     });
   });
