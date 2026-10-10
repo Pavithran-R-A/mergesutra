@@ -600,6 +600,8 @@ describe('source shape, so a new site cannot arrive unmeasured', () => {
    * Every write through a computed key, by file. A new site is reported rather than absorbed,
    * and the four listed here are the whole set the reviewer has to trust:
    *
+   * - `implement/assertion-preservation.ts` — `chars[index]` uses only a bounded
+   *   local integer array index, never a key from a model or parsed object;
    * - `implement/limits.ts` — keys of a `Partial<LoopLimits>` that `cli/implement.ts` fills
    *   from three named flags, and every value is a number, which cannot be a prototype;
    * - `lifecycle/snapshot.ts` — `tally()` over the stage and outcome words this module itself
@@ -611,6 +613,7 @@ describe('source shape, so a new site cannot arrive unmeasured', () => {
    * S12-16, in `security/redaction.ts`, and the five cases that describe it are above.
    */
   const COMPUTED_WRITES: Record<string, string[]> = {
+    'implement/assertion-preservation.ts': ['chars[index]'],
     'implement/limits.ts': ['out[key]'],
     'lifecycle/snapshot.ts': ['out[key]', 'out[value]'],
     'repair/limits.ts': ['limits[key]'],

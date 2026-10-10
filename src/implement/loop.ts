@@ -15,6 +15,7 @@ import { defaultRedactor } from '../security/redaction.js';
 import { MAX_READ_BYTES, openConfinedReader, type ConfinedReader } from '../security/reader.js';
 import { openConfinedWriter, type ConfinedWriter } from '../security/writer.js';
 import type { RunRecord } from '../state/run-record.js';
+import { missingExistingAssertions } from './assertion-preservation.js';
 import { assembleInitialContext, readForModel } from './context.js';
 import { resolveLimits, type LoopLimits } from './limits.js';
 import {
@@ -493,6 +494,16 @@ function repair(
   );
 }
 
+/** Apply baseline test preservation to the tests a model is allowed to rewrite. */
+function isTestLikePath(relativePath: string): boolean {
+  return (
+    /(?:^|\/)(?:test|tests|__tests__)\//.test(relativePath) ||
+    /(?:^|\/)(?:check\.[cm]?js|[^/]+\.(?:test|spec)\.[cm]?js|[^/]+\.(?:test|spec)\.tsx?)$/.test(
+      relativePath,
+    )
+  );
+}
+
 interface ExecuteContext {
   reader: ConfinedReader;
   writer: ConfinedWriter;
@@ -582,6 +593,26 @@ async function execute(action: LoopAction, ctx: ExecuteContext): Promise<ActionE
         { workspace: ctx.writer.root },
       );
       if (!decision.allowed) return refused(decision.reason, decision.risk);
+      // A whole-file model write must not silently delete pre-existing test
+      // assertions. Compare with the confined reader BEFORE the atomic writer
+      // touches disk; the writer still independently enforces the SHA precondition.
+      if ('expectedSha256' in action.replaces && isTestLikePath(action.path)) {
+        const original = await attempt(ctx.reader.readText(action.path, MAX_READ_BYTES));
+        if (!original.ok) return refused(reasonOf(original.error), decision.risk);
+        if (original.value.truncated) {
+          return refused(
+            'PRESERVE_ASSERTIONS: the existing test file is too large to compare in full. Nothing was written; request human review of this edit.',
+            decision.risk,
+          );
+        }
+        const missing = missingExistingAssertions(original.value.text, action.content);
+        if (missing > 0) {
+          return refused(
+            `PRESERVE_ASSERTIONS: the proposed whole-file edit removes or changes ${missing} existing assertion(s). Nothing was written. READ_FILE again and retain those assertions while adding the new cases; if a baseline assertion genuinely conflicts with the contract, ask for human review.`,
+            decision.risk,
+          );
+        }
+      }
       const receipt = await attempt(
         ctx.writer.writeText(action.path, action.content, action.replaces),
       );
