@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
  * that position and to no other suite here:
  *
  * - **Silent shrinkage.** Deleting a step does not make a test red; it makes that
- *   test not run. All four matrix entries would report success while the
+ *   test not run. All six matrix entries would report success while the
  *   packaged-artifact gate quietly stopped existing.
  * - **Silent widening.** A permission, a trigger, or a floating version reference
  *   added in a routine edit grants something on every future run, including runs
@@ -264,8 +264,8 @@ describe('the hosted workflow obeys the Actions security policy', () => {
     expect(REAL).not.toMatch(/timeout-minutes/);
   });
 
-  it('covers both operating systems and both supported Node lines', () => {
-    expect(/os:\s*\[ubuntu-latest,\s*windows-latest\]/.test(REAL)).toBe(true);
+  it('covers all three operating systems and both supported Node lines', () => {
+    expect(/os:\s*\[ubuntu-latest,\s*windows-latest,\s*macos-latest\]/.test(REAL)).toBe(true);
     expect(/node:\s*\['22\.x',\s*'24\.x'\]/.test(REAL)).toBe(true);
     expect(/fail-fast:\s*false/.test(REAL), 'one platform must not hide another failure').toBe(
       true,
