@@ -13,6 +13,10 @@ export const FIXTURE_ALLOWED_PATHS = Object.freeze([
 
 export const REQUIRED_SLUG_INPUTS = Object.freeze(['  Hello  World  ', 'a--b', '--x--']);
 
+// Valid pre-existing fixture assertions must survive a model's edits. The 10 Oct
+// paid run passed the new requirements but deleted the punctuation regression.
+export const BASELINE_SLUG_INPUTS = Object.freeze(['Hello World', 'a--b', 'a.b,c']);
+
 export const MAX_MODEL_COMPLETIONS = 12;
 
 const FIXTURE_SUBDIR = path.join('fixtures', 'stage14-e2e');
@@ -122,6 +126,8 @@ const DIRECT_BEHAVIOR_SCRIPT = [
   "assert.equal(slugify('  Hello  World  '), 'hello-world');",
   "assert.equal(slugify('a--b'), 'a-b');",
   "assert.equal(slugify('--x--'), 'x');",
+  "assert.equal(slugify('Hello World'), 'hello-world');",
+  "assert.equal(slugify('a.b,c'), 'a-b-c');",
 ].join('\n');
 
 export async function inspectFixtureAcceptance({ workspace, run, env, readFile, changedPaths }) {
@@ -143,6 +149,7 @@ export async function inspectFixtureAcceptance({ workspace, run, env, readFile, 
     options,
   );
   const missing = missingAssertionInputs(checkSource);
+  const missingBaseline = missingAssertionInputs(checkSource, BASELINE_SLUG_INPUTS);
   return {
     directBehaviorsPass: independent.exitCode === 0,
     checkedScriptPass: fixtureCheck.exitCode === 0,
@@ -150,6 +157,8 @@ export async function inspectFixtureAcceptance({ workspace, run, env, readFile, 
     // which of issue #8's inputs the check file lacked without re-running the scan.
     checkContainsAllThreeAssertions: missing.length === 0,
     missingAssertionInputs: missing,
+    baselineAssertionsPreserved: missingBaseline.length === 0,
+    missingBaselineAssertionInputs: missingBaseline,
     dependencyFree: isDependencyFree(fixturePkg),
     changesWithinFixture: changesOutsideAllowlist(changedPaths).length === 0,
     changedPaths,
@@ -181,6 +190,7 @@ export function liveQualificationFailures({
     !fixtureProof?.directBehaviorsPass ||
     !fixtureProof?.checkedScriptPass ||
     !fixtureProof?.checkContainsAllThreeAssertions ||
+    !fixtureProof?.baselineAssertionsPreserved ||
     !fixtureProof?.dependencyFree ||
     !fixtureProof?.changedPaths?.includes('fixtures/stage14-e2e/check.mjs') ||
     !fixtureProof?.changedPaths?.includes('fixtures/stage14-e2e/src/slugify.js')
