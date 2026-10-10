@@ -1078,12 +1078,15 @@ purpose is to be refused.
       held on this machine, so the only readings that have happened are the twenty-two paid ones
       enumerated in S14-10 — twelve of them reaching the implementation loop, run in the controlled
       workflow with an operator-supplied repository secret. The additional
-      2026-10-10 Qwen run `38022890736` on `f7d348c` completed the implementation and passed
-      five independent fixture acceptance checks, but the review found a LOW regression-test
-      coverage loss, so final live qualification failed. PR #21 strengthened the prompt to
-      preserve baseline assertions and passed ordinary CI; that changed prompt has not been
-      requalified in a credentialed live run. Do not fabricate, substitute, or simulate a clean
-      result; closing this line still needs a new authorized real-model rerun.
+      2026-10-10 Qwen run `38022890736` on `f7d348c` reached FINISH but lost one baseline
+      assertion, so final qualification failed. After PR #21 improved the model prompt,
+      controlled run `38040856632` on `87c9a514` again reached FINISH and passed direct
+      fixture behaviors; it removed *two* original assertions (`Hello World` and `a.b,c`).
+      The new independent guard correctly refused acceptance and the reviewer found MEDIUM
+      and LOW test gaps. PR #29 therefore moved baseline-preservation enforcement to the
+      implementation WRITE_FILE boundary; it passed the six-platform PR CI matrix and merged
+      at `602afca4`. No further paid run has proven that guard. This checklist stays open
+      until a new qualified real-model run succeeds; do not simulate its evidence.
 - [ ] ~10 real tasks across classes; publish honest metrics **and failures**
 
 ## Stage 15 — Demo + README + release readiness
