@@ -1077,16 +1077,21 @@ purpose is to be refused.
       evidence that procedure is written to produce. The procedure and its ceiling exist; no key is
       held on this machine, so the only readings that have happened are the twenty-two paid ones
       enumerated in S14-10 — twelve of them reaching the implementation loop, run in the controlled
-      workflow with an operator-supplied repository secret. Not one is a clean
-      reading, and S14-10 explains why in product terms rather than model terms. Do not fabricate,
-      substitute or simulate this evidence; closing this line needs a rerun, which spends provider
-      capacity and is therefore an authorization, not engineering.
+      workflow with an operator-supplied repository secret. The additional
+      2026-10-10 Qwen run `38022890736` on `f7d348c` completed the implementation and passed
+      five independent fixture acceptance checks, but the review found a LOW regression-test
+      coverage loss, so final live qualification failed. PR #21 strengthened the prompt to
+      preserve baseline assertions and passed ordinary CI; that changed prompt has not been
+      requalified in a credentialed live run. Do not fabricate, substitute, or simulate a clean
+      result; closing this line still needs a new authorized real-model rerun.
 - [ ] ~10 real tasks across classes; publish honest metrics **and failures**
 
 ## Stage 15 — Demo + README + release readiness
 
-- [x] Public release CI: Ubuntu/Windows × Node 22/24 runs source gates, runtime-only
-      npm audit, package-boundary verification and packed-artifact installation.
+- [x] Public release CI: Ubuntu/Windows/macOS × Node 22/24 runs source gates, runtime-only
+      npm audit, path-shape and Git/gh discovery, package-boundary verification and packed-artifact
+      installation. All six jobs passed on exact merged `main` SHA
+      `cf8ec619608c01e87b70b3a306f770fc0b9894f8` in Actions run `38029178224`.
 - [x] npm release workflow prepared with GitHub OIDC, immutable action pins,
       release-tag/commit identity checks and idempotent registry verification.
 - [x] v0.1.0 package identity and consumer README prepared.
@@ -1103,5 +1108,7 @@ purpose is to be refused.
 ## Cross-cutting backlog
 
 - [ ] Scheduled test-runner major bump to clear dev-only advisories (ADR-009)
-- [ ] macOS qualification once core CI is strong
+- [x] macOS qualification on Node 22 and 24, including a real macOS `/var` vs
+      `/private/var` HOME alias defect found and fixed in PR #24; both macOS release cells
+      passed on `main` at `cf8ec619` (Actions run `38029178224`).
 - [ ] Optional beginner-friendly explanations (accessibility, later)
