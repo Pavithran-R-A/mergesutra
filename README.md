@@ -22,7 +22,7 @@ becomes a PR."*
 
 > **Release status: v0.1.0 release candidate.** The deterministic source gates,
 > package-boundary gates and packed-artifact install test run on GitHub-hosted
-> Ubuntu and Windows with Node 22 and Node 24. The shipped command surface is
+> Ubuntu, Windows and macOS with Node 22 and Node 24 (six CI cells). The shipped command surface is
 > `doctor`, `issue`, `inspect`, `contract`, `plan`, `implement`,
 > `verify`, `report`, `review`, `repair`, `pr`, `status` and
 > `resume`. The unattended `run` command remains deliberately planned rather
@@ -41,8 +41,8 @@ becomes a PR."*
 > **The run still failed release qualification:** the independent reviewer identified a
 > LOW regression-coverage gap because the model-generated `check.mjs` dropped the valid
 > pre-existing `slugify('a.b,c') === 'a-b-c'` assertion. Publication remained blocked.
-> [PR #21](https://github.com/Pavithran-R-A/mergesutra/pull/21) proposes a prompt/test fix,
-> but this has not been re-qualified with another paid live-model run.
+> [PR #21](https://github.com/Pavithran-R-A/mergesutra/pull/21) merged the prompt/test fix,
+> but that change has not been re-qualified with another real-model run.
 >
 > See the [Roadmap](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md)
 > and [real-model E2E procedure](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/REAL_MODEL_E2E_PROCEDURE.md)
