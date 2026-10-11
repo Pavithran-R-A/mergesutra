@@ -38,12 +38,6 @@ jobs:
           npm ci
           npm run build
 
-      - name: Print exact policy formatter result (temporary)
-        run: |
-          echo 'MERGESUTRA_POLICY_FORMAT_BEGIN'
-          ./node_modules/.bin/prettier tests/security/sandbox-workflow-policy.test.ts
-          echo 'MERGESUTRA_POLICY_FORMAT_END'
-
       - name: Preload exact official Node image (outside product runner)
         run: docker pull node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8
 
