@@ -57,12 +57,30 @@ describe('the GitHub CLI is never an ordinary command', () => {
     const decision = decide(['gh', 'pr', 'create', '--fill']);
     expect(decision.risk).toBe('REMOTE_MUTATION');
     expect(decision.allowed).toBe(false);
-    expect(decision.reason).toContain('gh pr create --fill');
+    expect(decision.reason).toContain(JSON.stringify(['gh', 'pr', 'create', '--fill']));
+  });
+
+  it('does not reuse remote approval when one argument becomes two', () => {
+    const approved = ['gh', 'pr', 'create', '--title', 'a b'];
+    const swapped = ['gh', 'pr', 'create', '--title', 'a', 'b'];
+    expect(approved.join(' ')).toBe(swapped.join(' '));
+    expect(decide(approved, { summary: JSON.stringify(approved) }).allowed).toBe(true);
+
+    const decision = decide(swapped, { summary: JSON.stringify(approved) });
+    expect(decision.allowed).toBe(false);
+    expect(decision.requiresApproval).toBe(true);
+  });
+
+  it('does not treat an old space-joined remote approval as an exact action', () => {
+    const argv = ['git', 'push', 'origin', 'HEAD'];
+    const decision = decide(argv, { summary: argv.join(' ') });
+    expect(decision.allowed).toBe(false);
+    expect(decision.requiresApproval).toBe(true);
   });
 
   it('still waits for an exact human approval rather than a consent, and no run path gives one', () => {
     const argv = ['gh', 'pr', 'create', '--fill'];
-    expect(decide(argv, { summary: argv.join(' ') }).allowed).toBe(true);
+    expect(decide(argv, { summary: JSON.stringify(argv) }).allowed).toBe(true);
     expect(decide(argv, { summary: 'approved everything' }).allowed).toBe(false);
     expect(decide(argv).requiresApproval).toBe(true);
   });

@@ -559,9 +559,14 @@ function decideRemote(request: ToolOp, context: ToolContext): ToolDecision {
   };
 }
 
-/** A git command that reaches the remote is described by the command itself. */
+/**
+ * A remote approval must bind the *argument boundaries*, not a display string.
+ * `['gh', 'pr', 'create', '--title', 'a b']` and the invocation ending
+ * `['--title', 'a', 'b']` are different actions despite sharing joined text.
+ * This is an exact, printable argv tuple; legacy string approvals fail closed.
+ */
 function commandSummary(request: ToolOp): string {
-  return request.op === 'execute' ? request.argv.join(' ') : '';
+  return request.op === 'execute' ? JSON.stringify(request.argv) : '';
 }
 
 function decideFile(request: ToolOp, context: ToolContext, risk: RiskClass): ToolDecision {
