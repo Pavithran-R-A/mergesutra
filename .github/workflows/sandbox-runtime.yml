@@ -1,0 +1,45 @@
+name: Real Docker isolation proof
+
+on:
+  pull_request:
+    paths:
+      - 'src/security/sandbox.ts'
+      - 'scripts/sandbox-runtime-proof.mjs'
+      - '.github/workflows/sandbox-runtime.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/security/sandbox.ts'
+      - 'scripts/sandbox-runtime-proof.mjs'
+      - '.github/workflows/sandbox-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (no persisted credentials)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22.x'
+          package-manager-cache: false
+
+      - name: Build from lockfile
+        run: |
+          npm ci
+          npm run build
+
+      - name: Preload exact official Node image (outside product runner)
+        run: docker pull node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8
+
+      - name: Execute malicious fixture inside real isolated container
+        run: node scripts/sandbox-runtime-proof.mjs
