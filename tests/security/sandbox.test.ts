@@ -2,10 +2,7 @@ import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import {
-  createSandboxedRunner,
-  sandboxDockerArgv,
-} from '../../src/security/sandbox.js';
+import { createSandboxedRunner, sandboxDockerArgv } from '../../src/security/sandbox.js';
 import type { Runner } from '../../src/core/runner.js';
 
 const IMAGE = `node@sha256:${'b'.repeat(64)}`;
@@ -25,8 +22,13 @@ describe('pinned, reduced-privilege Docker command', () => {
   it('exposes only the selected workspace and no host network, socket or credentials', async () => {
     const { workspace, inside } = await fixture();
     const argv = sandboxDockerArgv({
-      workspace, cwd: inside, image: IMAGE, file: 'node', args: ['check.js', 'one two'],
-      uid: 1001, gid: 1001,
+      workspace,
+      cwd: inside,
+      image: IMAGE,
+      file: 'node',
+      args: ['check.js', 'one two'],
+      uid: 1001,
+      gid: 1001,
     });
     expect(argv).toContain('--network=none');
     expect(argv).toContain('--cap-drop=ALL');
@@ -39,7 +41,9 @@ describe('pinned, reduced-privilege Docker command', () => {
     expect(argv).toContain('/workspace/sub');
     expect(argv).toContain(`type=bind,source=${workspace},target=/workspace`);
     expect(argv.slice(-3)).toEqual(['node', 'check.js', 'one two']);
-    expect(argv.join(' ')).not.toMatch(/docker\.sock|--privileged|--network=host|GH_TOKEN|BHARATCODE_API_KEY/);
+    expect(argv.join(' ')).not.toMatch(
+      /docker\.sock|--privileged|--network=host|GH_TOKEN|BHARATCODE_API_KEY/,
+    );
     expect(argv.filter((a) => a.startsWith('type=bind,'))).toHaveLength(1);
   });
 
@@ -55,9 +59,15 @@ describe('pinned, reduced-privilege Docker command', () => {
     const { workspace } = await fixture();
     const link = path.join(workspace, 'escape');
     await symlink(tmpdir(), link, process.platform === 'win32' ? 'junction' : 'dir');
-    expect(() => sandboxDockerArgv({
-      workspace, cwd: link, image: IMAGE, file: 'node', args: [],
-    })).toThrow(/outside its workspace/);
+    expect(() =>
+      sandboxDockerArgv({
+        workspace,
+        cwd: link,
+        image: IMAGE,
+        file: 'node',
+        args: [],
+      }),
+    ).toThrow(/outside its workspace/);
   });
 
   it('never attempts docker run when the pinned local image is unavailable', async () => {
