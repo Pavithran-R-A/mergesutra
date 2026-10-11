@@ -76,9 +76,7 @@ socket.setTimeout(2000, finish);
   assert.equal(await readFile(path.join(sibling, 'original.txt'), 'utf8'), 'untouched');
   assert.equal(existsSync(path.join(sibling, 'escape.txt')), false);
   assert.equal(connections, 0, 'host loopback listener must see no sandbox connection');
-  console.log(
-    'SANDBOX_RUNTIME_PROOF: PASS (host private file, sibling write, host network, token env)',
-  );
+  process.stdout.write('SANDBOX_RUNTIME_PROOF: PASS\n');
 } finally {
   if (server) await new Promise((resolve) => server.close(resolve));
   await rm(root, { recursive: true, force: true });
