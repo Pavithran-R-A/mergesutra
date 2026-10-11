@@ -57,7 +57,7 @@ describe('the GitHub CLI is never an ordinary command', () => {
     const decision = decide(['gh', 'pr', 'create', '--fill']);
     expect(decision.risk).toBe('REMOTE_MUTATION');
     expect(decision.allowed).toBe(false);
-    expect(decision.reason).toContain('gh pr create --fill');
+    expect(decision.reason).toContain(JSON.stringify(['gh', 'pr', 'create', '--fill']));
   });
 
   it('does not reuse remote approval when one argument becomes two', () => {
