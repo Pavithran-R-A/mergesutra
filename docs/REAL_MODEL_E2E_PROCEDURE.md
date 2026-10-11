@@ -1,11 +1,23 @@
 # Real-model end-to-end procedure
 
-**Status (9 October 2026): real BharatCode requests have been executed.** The protected
-`main` CLI is still not qualified for public release: a controlled Qwen run completed all
-workflow jobs on 7 October, but its model implementation was INCONCLUSIVE and review found
-an unfulfilled acceptance criterion. A workflow success is not a contribution-ready result.
-§4 retains the original operator procedure and its historical no-key predictions; the measured
-hosted evidence is recorded below. Never describe a modeled future step as a verified result.
+**Status (11 October 2026): single controlled real-model fixture qualified; public
+release not yet qualified.** The earlier Qwen run #38040856632 exposed lost
+baseline test assertions and failed independent acceptance. After the
+regression-preservation fix, controlled
+[run #38144174041](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38144174041)
+on exact `main` SHA `b1c18bfaf299dfae6316b70e17647a6bde48caee`
+succeeded on Ubuntu no-key, Windows no-key, and real Qwen 3.8 27B E2E.
+The model made 9 of 12 budgeted completions. Independent checks proved the
+three slugify behavior cases, the three added test assertions, preservation
+of existing test assertions, no dependency additions, fixture-only edits,
+and a passing verification script. The reviewer recorded no findings.
+Its publication outcome is still `PR_CANDIDATE_RECORDED`, with
+`NOT_READY_FOR_PUBLICATION` and `published=false`.
+One successful controlled task does not close the representative real-task
+benchmark, demonstration, OS sandbox, first npm publication, or hackathon
+submission gates. See [REAL_TASK_BENCHMARK.md](REAL_TASK_BENCHMARK.md)
+for the pending independent benchmark protocol. Section 4 retains the
+historical no-key procedure; predictions are not passing evidence.
 
 This procedure is for one controlled validation run against one fixture repository. It is not a
 general tutorial; `README.md` is that, and where the two disagree the screens printed by

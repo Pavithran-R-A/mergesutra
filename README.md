@@ -33,18 +33,21 @@ becomes a PR."*
 > not run `git commit`, push a branch or open the GitHub pull request for you.
 > A worktree is isolation for clarity, not an operating-system sandbox.
 >
-> **Live-model status (10 October 2026):** controlled real BharatCode/Qwen validation
-> [run #38040856632](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38040856632)
-> exercised pinned commit `87c9a514`: the authenticated model catalog returned HTTP 200,
-> Qwen made nine model requests within the bounded twelve-request budget, and the generated
-> source passed the direct functional checks. **Release qualification still failed.**
-> The rewritten check file dropped two valid pre-existing assertions (`Hello World`
-> and `a.b,c`); independent acceptance rejected it and review found MEDIUM and LOW
-> test gaps. No leaked credential was reported in the exported artifact.
-> [PR #29](https://github.com/Pavithran-R-A/mergesutra/pull/29) subsequently added
-> a deterministic, pre-write guard that refuses deletion of existing test assertions.
-> It passed six-platform CI and was merged, but **the new guard has not yet been
-> qualified by another live-model run**. Do not claim a clean live contribution yet.
+> **Live-model status (11 October 2026):** the controlled real BharatCode/Qwen
+> [run #38144174041](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38144174041)
+> completed successfully on the exact current main commit
+> `b1c18bfaf299dfae6316b70e17647a6bde48caee`, after the
+> [earlier failed run #38040856632](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38040856632).
+> The new run used `qwen-3.8-27b` and completed 9 of 12 budgeted model
+> requests. The independent fixture checks passed required outputs, required
+> new assertions, preservation of original assertions, dependency policy and
+> changed-file scope; review recorded no findings. The live job also ran
+> 2,368 passing deterministic tests (6 skipped).
+> **This proves one bounded fixture task, not general customer reliability.**
+> The actual PR was neither approved nor published: the report explicitly says
+> `NOT_READY_FOR_PUBLICATION`. Ten representative real tasks, OS-level isolation
+> for untrusted repository execution, a real recorded demo, authenticated
+> npm first publication and matching release are still open.
 >
 > See the [Roadmap](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md)
 > and [real-model E2E procedure](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/REAL_MODEL_E2E_PROCEDURE.md)

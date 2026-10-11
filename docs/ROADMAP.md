@@ -1073,20 +1073,16 @@ purpose is to be refused.
       this build confirms. Thirteen mutations, each restored byte-for-byte, name which assertion each
       rule is load-bearing for. `tests/security/live-qualification-rules.test.ts`,
       `tests/security/live-validation-workflow-policy.test.ts`; S14-11.
-- [ ] The real-model run itself, which is the boundary this stage stops at: a named model, and the
-      evidence that procedure is written to produce. The procedure and its ceiling exist; no key is
-      held on this machine, so the only readings that have happened are the twenty-two paid ones
-      enumerated in S14-10 — twelve of them reaching the implementation loop, run in the controlled
-      workflow with an operator-supplied repository secret. The additional
-      2026-10-10 Qwen run `38022890736` on `f7d348c` reached FINISH but lost one baseline
-      assertion, so final qualification failed. After PR #21 improved the model prompt,
-      controlled run `38040856632` on `87c9a514` again reached FINISH and passed direct
-      fixture behaviors; it removed *two* original assertions (`Hello World` and `a.b,c`).
-      The new independent guard correctly refused acceptance and the reviewer found MEDIUM
-      and LOW test gaps. PR #29 therefore moved baseline-preservation enforcement to the
-      implementation WRITE_FILE boundary; it passed the six-platform PR CI matrix and merged
-      at `602afca4`. No further paid run has proven that guard. This checklist stays open
-      until a new qualified real-model run succeeds; do not simulate its evidence.
+- [x] The single controlled real-model fixture qualification, on exact `main` SHA
+      `b1c18bfaf299dfae6316b70e17647a6bde48caee`, now passed in
+      [controlled run #38144174041](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38144174041).
+      Ubuntu and Windows credential-free chains and the Qwen 3.8 27B real-model job
+      all succeeded; the model completed in 9 of 12 possible completions.
+      Independent slugify behavior, required test assertions, preserved baseline
+      assertions, unchanged dependencies, allowed-file scope and verification
+      passed; the reviewer found no issues. The run produced an unapproved,
+      unpublished local PR candidate; this does not prove general task reliability,
+      OS sandboxing or release readiness.
 - [ ] ~10 real tasks across classes; publish honest metrics **and failures**
 
 ## Stage 15 — Demo + README + release readiness
@@ -1098,9 +1094,13 @@ purpose is to be refused.
 - [x] npm release workflow prepared with GitHub OIDC, immutable action pins,
       release-tag/commit identity checks and idempotent registry verification.
 - [x] v0.1.0 package identity and consumer README prepared.
-- [ ] Controlled real-BharatCode run and ~10-task benchmark from Stage 14. These
-      remain evidence requirements; no credential is available to this environment
-      and no result is fabricated.
+- [x] A **single** controlled real-BharatCode Qwen fixture run successfully
+      qualified at exact `main` SHA `b1c18bfaf299dfae6316b70e17647a6bde48caee`
+      in workflow #38144174041, with independent fixture acceptance passing.
+      It was not a published PR or an end-user reliability study.
+- [ ] Representative ~10-task independent real-model benchmark from Stage 14,
+      with honest successes and failures. The pending protocol and empty ledger
+      are in [REAL_TASK_BENCHMARK.md](REAL_TASK_BENCHMARK.md).
 - [ ] 60–90s hero demo recorded from a real run.
 - [ ] First npm publication. npm requires the package to exist before a Trusted
       Publisher can be configured, so the namespace bootstrap needs an authenticated
