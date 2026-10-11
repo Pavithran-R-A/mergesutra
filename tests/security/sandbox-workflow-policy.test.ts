@@ -74,11 +74,16 @@ describe('real Docker workflow has explicit authority boundaries', () => {
   });
 
   it('rejects lost real-run evidence and a silently ignored failure', () => {
-    expect(violations(WORKFLOW.replace('node scripts/sandbox-runtime-proof.mjs', 'echo skipped'))).toContain(
-      'independent host-side proof does not run',
-    );
-    expect(violations(WORKFLOW.replace('node scripts/sandbox-runtime-proof.mjs', 'node scripts/sandbox-runtime-proof.mjs || true'))).toContain(
-      'unsafe failure suppression or sandbox privilege',
-    );
+    expect(
+      violations(WORKFLOW.replace('node scripts/sandbox-runtime-proof.mjs', 'echo skipped')),
+    ).toContain('independent host-side proof does not run');
+    expect(
+      violations(
+        WORKFLOW.replace(
+          'node scripts/sandbox-runtime-proof.mjs',
+          'node scripts/sandbox-runtime-proof.mjs || true',
+        ),
+      ),
+    ).toContain('unsafe failure suppression or sandbox privilege');
   });
 });
