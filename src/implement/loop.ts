@@ -8,7 +8,8 @@ import type { ChatMessage } from '../bharatcode/types.js';
 import { loadBharatCodeConfig } from '../config/load-config.js';
 import type { AcceptanceContract } from '../contract/schema.js';
 import { isAppError } from '../core/errors.js';
-import { createRunner, type Runner } from '../core/runner.js';
+import type { Runner } from '../core/runner.js';
+import { createRepositoryCommandRunner } from '../security/repository-runner.js';
 import { decideTool, type RiskClass } from '../process/tool-policy.js';
 import type { ImplementationPlan } from '../plan/schema.js';
 import { defaultRedactor } from '../security/redaction.js';
@@ -202,10 +203,11 @@ export async function runImplementationLoop(
   const writer = deps.writer ?? (await openConfinedWriter(input.workspaceRoot));
   const run =
     deps.run ??
-    createRunner({
+    createRepositoryCommandRunner({
+      workspace: reader.root,
+      cwd: reader.root,
       timeoutMs: limits.commandTimeoutMs,
       maxOutputBytes: limits.maxCommandOutputBytes,
-      cwd: reader.root,
     });
 
   const criterionIds = input.contract.criteria.map((criterion) => criterion.id);
