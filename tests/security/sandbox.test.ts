@@ -3,7 +3,11 @@ import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createSandboxedRunner, dockerClientEnvironment, sandboxDockerArgv } from '../../src/security/sandbox.js';
+import {
+  createSandboxedRunner,
+  dockerClientEnvironment,
+  sandboxDockerArgv,
+} from '../../src/security/sandbox.js';
 import type { Runner } from '../../src/core/runner.js';
 
 const IMAGE = `node@sha256:${'b'.repeat(64)}`;
