@@ -93,7 +93,12 @@ describe('pinned, reduced-privilege Docker command', () => {
       calls.push([file, ...args]);
       return { code: 1, stdout: '', stderr: 'not found' };
     };
-    const run = createSandboxedRunner({ workspace, image: IMAGE, dockerExecutable: process.execPath, hostRun });
+    const run = createSandboxedRunner({
+      workspace,
+      image: IMAGE,
+      dockerExecutable: process.execPath,
+      hostRun,
+    });
     await expect(run('node', ['check.js'])).rejects.toThrow(/SANDBOX_UNAVAILABLE/);
     expect(calls).toEqual([[process.execPath, 'image', 'inspect', IMAGE]]);
   });
@@ -105,7 +110,12 @@ describe('pinned, reduced-privilege Docker command', () => {
       calls.push([file, ...args]);
       return { code: 0, stdout: 'ok', stderr: '' };
     };
-    const run = createSandboxedRunner({ workspace, image: IMAGE, dockerExecutable: process.execPath, hostRun });
+    const run = createSandboxedRunner({
+      workspace,
+      image: IMAGE,
+      dockerExecutable: process.execPath,
+      hostRun,
+    });
     const result = await run('npm', ['test']);
     expect(result.code).toBe(0);
     expect(calls).toHaveLength(2);
