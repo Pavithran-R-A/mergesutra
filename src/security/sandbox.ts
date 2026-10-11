@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { realpathSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { AppError } from '../core/errors.js';
 import { createRunner, type Runner, type RunnerOptions } from '../core/runner.js';
 import { isBareProgram } from './command-safety.js';
@@ -21,6 +21,8 @@ export interface SandboxedRunnerOptions extends RunnerOptions {
   readonly workspace: string;
   /** Image must be already present locally and pinned by digest. */
   readonly image: string;
+  /** Absolute trusted Docker CLI path; never resolve Docker via repository-controlled PATH. */
+  readonly dockerExecutable: string;
   /** Only for deterministic transport tests; defaults to a scrubbed host runner. */
   readonly hostRun?: Runner;
 }
@@ -110,6 +112,22 @@ export function createSandboxedRunner(options: SandboxedRunnerOptions): Runner {
   // Reject invalid images before even attempting a Docker command.
   if (!DIGEST_IMAGE.test(options.image))
     throw unavailable('container image must use @sha256 digest');
+  if (!path.isAbsolute(options.dockerExecutable)) {
+    throw unavailable('Docker executable must have an absolute, operator-selected path');
+  }
+  let dockerExecutable: string;
+  try {
+    dockerExecutable = realpathSync(options.dockerExecutable);
+    if (!statSync(dockerExecutable).isFile()) throw unavailable('Docker binary is not a file');
+    const workspace = realpathSync(options.workspace);
+    const relative = path.relative(workspace, dockerExecutable);
+    if (relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))) {
+      throw unavailable('Docker executable resolves inside the untrusted workspace');
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw unavailable('selected trusted Docker executable is unavailable');
+  }
   const hostRun =
     options.hostRun ??
     createRunner({
@@ -127,9 +145,9 @@ export function createSandboxedRunner(options: SandboxedRunnerOptions): Runner {
     });
     // Unlike `docker run`, image inspect is read-only and cannot pull from
     // the network; it ensures a missing image returns NOT_EXECUTED.
-    const probe = await hostRun('docker', ['image', 'inspect', options.image]);
+    const probe = await hostRun(dockerExecutable, ['image', 'inspect', options.image]);
     if (probe.code !== 0) throw unavailable('local Docker image or daemon is unavailable');
-    const result = await hostRun('docker', argv);
+    const result = await hostRun(dockerExecutable, argv);
     // Docker failures have ambiguous origin (daemon error versus program
     // failure). Never claim the command passed unless the container exited 0.
     return result;
