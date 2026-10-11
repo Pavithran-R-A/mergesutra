@@ -121,7 +121,12 @@ export function createSandboxedRunner(options: SandboxedRunnerOptions): Runner {
     if (!statSync(dockerExecutable).isFile()) throw unavailable('Docker binary is not a file');
     const workspace = realpathSync(options.workspace);
     const relative = path.relative(workspace, dockerExecutable);
-    if (relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))) {
+    if (
+      relative === '' ||
+      (relative !== '..' &&
+        !relative.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relative))
+    ) {
       throw unavailable('Docker executable resolves inside the untrusted workspace');
     }
   } catch (error) {
