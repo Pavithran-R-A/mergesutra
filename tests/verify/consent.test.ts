@@ -418,6 +418,47 @@ describe('what a consent binds', () => {
     expect(scopeDigest(here)).not.toBe(scopeDigest(elsewhere));
   });
 
+  it('rejects stale consent when argv token boundaries change but printed command does not', () => {
+    const original = plan([
+      gate({
+        id: 'VG-001',
+        command: 'node check.js alpha beta',
+        argv: ['node', 'check.js', 'alpha beta'],
+      }),
+    ]);
+    const substituted = plan([
+      gate({
+        id: 'VG-001',
+        command: 'node check.js alpha beta',
+        argv: ['node', 'check.js', 'alpha', 'beta'],
+      }),
+    ]);
+
+    // This was a collision under the former argv.join(' ') serialization.
+    expect(original.gates[0]?.argv.join(' ')).toBe(substituted.gates[0]?.argv.join(' '));
+    expect(scopeDigest(original)).not.toBe(scopeDigest(substituted));
+    const decision = decideExecution(substituted.gates[0] as PlannedGate, {
+      plan: substituted,
+      workspace: WORKSPACE,
+      consent: consentFor(original, ['VG-001']),
+    });
+    expect(decision.status).toBe('BLOCKED');
+    expect(decision.code).toBe('BLOCKED_REPO_EXECUTION_CONSENT_STALE');
+    expect(decision.allowed).toBe(false);
+  });
+
+  it('distinguishes delimiter characters inside argv from separators between gates', () => {
+    const a = plan([
+      gate({ id: 'VG-001', argv: ['node', 'check.js', 'x\\ny'] }),
+      gate({ id: 'VG-002', argv: ['node', 'other.js'] }),
+    ]);
+    const b = plan([
+      gate({ id: 'VG-001', argv: ['node', 'check.js', 'x', 'y'] }),
+      gate({ id: 'VG-002', argv: ['node', 'other.js'] }),
+    ]);
+    expect(scopeDigest(a)).not.toBe(scopeDigest(b));
+  });
+
   it('produces a digest, not something a reader has to trust', () => {
     expect(scopeDigest(plan([gate({ id: 'VG-001' })]))).toMatch(/^[0-9a-f]{64}$/);
   });
