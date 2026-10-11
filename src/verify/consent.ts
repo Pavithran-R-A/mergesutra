@@ -103,10 +103,15 @@ export interface ExecutionInput {
 
 /** The digest a consent has to match: the commands themselves, in a fixed order. */
 export function scopeDigest(plan: VerificationPlan): string {
-  const lines = plan.gates
-    .map((gate) => `${gate.id}\u0000${gate.cwd}\u0000${gate.argv.join(' ')}`)
-    .sort();
-  return sha256Hex(lines.join('\n'));
+  // Bind to argv *boundaries*, not a readable rendering of a command.
+  // ['node', 'check.js', 'a b'] and ['node', 'check.js', 'a', 'b']
+  // print identically when joined with spaces, but execute differently.
+  // A length-delimited JSON tuple also prevents a newline or separator in
+  // cwd/arguments from being mistaken for a different gate.
+  const commands = plan.gates
+    .map((gate) => [gate.id, gate.cwd, [...gate.argv]] as const)
+    .sort((a, b) => a[0].localeCompare(b[0]));
+  return sha256Hex(JSON.stringify(commands));
 }
 
 /**
