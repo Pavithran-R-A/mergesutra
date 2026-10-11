@@ -1,4 +1,5 @@
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -39,7 +40,7 @@ describe('pinned, reduced-privilege Docker command', () => {
     expect(argv).toContain('1001:1001');
     expect(argv).toContain('--workdir');
     expect(argv).toContain('/workspace/sub');
-    expect(argv).toContain(`type=bind,source=${workspace},target=/workspace`);
+    expect(argv).toContain(`type=bind,source=${realpathSync(workspace)},target=/workspace`);
     expect(argv.slice(-3)).toEqual(['node', 'check.js', 'one two']);
     expect(argv.join(' ')).not.toMatch(
       /docker\.sock|--privileged|--network=host|GH_TOKEN|BHARATCODE_API_KEY/,
