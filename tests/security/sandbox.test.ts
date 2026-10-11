@@ -3,7 +3,7 @@ import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createSandboxedRunner, sandboxDockerArgv } from '../../src/security/sandbox.js';
+import { createSandboxedRunner, dockerClientEnvironment, sandboxDockerArgv } from '../../src/security/sandbox.js';
 import type { Runner } from '../../src/core/runner.js';
 
 const IMAGE = `node@sha256:${'b'.repeat(64)}`;
@@ -69,6 +69,44 @@ describe('pinned, reduced-privilege Docker command', () => {
         args: [],
       }),
     ).toThrow(/outside its workspace/);
+  });
+
+  it('refuses a symlinked workspace root even when the target exists', async () => {
+    const { workspace } = await fixture();
+    const alias = `${workspace}-alias`;
+    dirs.push(alias);
+    await symlink(workspace, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    expect(() =>
+      sandboxDockerArgv({
+        workspace: alias,
+        cwd: alias,
+        image: IMAGE,
+        file: 'node',
+        args: [],
+      }),
+    ).toThrow(/workspace root cannot be a symlink/);
+  });
+
+  it('does not inherit Docker daemon redirects, proxy settings or credentials', () => {
+    const env = dockerClientEnvironment(path.join(tmpdir(), 'empty-config'));
+    expect(env.DOCKER_CONFIG).toBe(path.join(tmpdir(), 'empty-config'));
+    expect(env.HOME).toBe(path.join(tmpdir(), 'empty-config'));
+    for (const key of [
+      'DOCKER_HOST',
+      'DOCKER_CONTEXT',
+      'HTTP_PROXY',
+      'HTTPS_PROXY',
+      'GH_TOKEN',
+      'BHARATCODE_API_KEY',
+      'NPM_TOKEN',
+    ]) {
+      expect(env[key], key).toBeUndefined();
+    }
+    expect(Object.keys(env).sort()).toEqual(
+      process.platform === 'win32'
+        ? ['DOCKER_CONFIG', 'HOME', 'SystemRoot', 'USERPROFILE'].sort()
+        : ['DOCKER_CONFIG', 'HOME', 'USERPROFILE'].sort(),
+    );
   });
 
   it('rejects a Docker executable located inside the untrusted workspace', async () => {
