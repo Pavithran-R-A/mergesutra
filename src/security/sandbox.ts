@@ -68,8 +68,8 @@ export function sandboxDockerArgv(input: {
   if (!isBareProgram(input.file) || input.args.some((a) => a.includes('\0'))) {
     throw unavailable('executable name or arguments cannot be passed safely');
   }
-  const uid = input.uid ?? (process.getuid?.() ?? 1000);
-  const gid = input.gid ?? (process.getgid?.() ?? 1000);
+  const uid = input.uid ?? process.getuid?.() ?? 1000;
+  const gid = input.gid ?? process.getgid?.() ?? 1000;
   if (!Number.isSafeInteger(uid) || !Number.isSafeInteger(gid) || uid < 0 || gid < 0) {
     throw unavailable('invalid unprivileged execution identity');
   }
@@ -89,9 +89,12 @@ export function sandboxDockerArgv(input: {
     '--memory=512m',
     '--cpus=1',
     '--tmpfs=/tmp:rw,nosuid,noexec,size=64m',
-    '--user', identity,
-    '--mount', `type=bind,source=${workspace},target=${SANDBOX_ROOT}`,
-    '--workdir', `${SANDBOX_ROOT}${within}`,
+    '--user',
+    identity,
+    '--mount',
+    `type=bind,source=${workspace},target=${SANDBOX_ROOT}`,
+    '--workdir',
+    `${SANDBOX_ROOT}${within}`,
     '--env=HOME=/tmp',
     '--env=XDG_CONFIG_HOME=/tmp',
     '--env=npm_config_cache=/tmp/npm-cache',
@@ -105,11 +108,14 @@ export function sandboxDockerArgv(input: {
 /** Create a fail-closed runner; a missing Docker daemon/image never runs on the host. */
 export function createSandboxedRunner(options: SandboxedRunnerOptions): Runner {
   // Reject invalid images before even attempting a Docker command.
-  if (!DIGEST_IMAGE.test(options.image)) throw unavailable('container image must use @sha256 digest');
-  const hostRun = options.hostRun ?? createRunner({
-    timeoutMs: options.timeoutMs,
-    maxOutputBytes: options.maxOutputBytes,
-  });
+  if (!DIGEST_IMAGE.test(options.image))
+    throw unavailable('container image must use @sha256 digest');
+  const hostRun =
+    options.hostRun ??
+    createRunner({
+      timeoutMs: options.timeoutMs,
+      maxOutputBytes: options.maxOutputBytes,
+    });
 
   return async (file, args) => {
     const argv = sandboxDockerArgv({
