@@ -55,6 +55,10 @@ socket.setTimeout(2000, finish);
 
   await writeFile(path.join(workspace, 'probe.cjs'), proof);
 
+  // Prove that inherited Docker daemon/context settings cannot redirect execution.
+  process.env.DOCKER_HOST = 'tcp://127.0.0.1:1';
+  process.env.DOCKER_CONTEXT = 'mergesutra-deliberately-invalid';
+
   const run = createSandboxedRunner({
     workspace,
     image: IMAGE,
