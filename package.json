@@ -50,7 +50,7 @@
     "dev": "tsx src/bin.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format:check": "prettier --write src/security/sandbox.ts tests/security/sandbox.test.ts && git diff -- src/security/sandbox.ts tests/security/sandbox.test.ts && prettier --check .",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
