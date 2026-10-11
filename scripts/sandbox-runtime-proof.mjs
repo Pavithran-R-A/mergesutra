@@ -9,8 +9,7 @@ import { createSandboxedRunner } from '../dist/security/sandbox.js';
 // This intentionally uses a real Docker daemon, not a mocked Runner.
 // The workflow preloads this *digest* independently; the product runner
 // refuses missing images instead of pulling a mutable tag.
-const IMAGE =
-  'node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8';
+const IMAGE = 'node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8';
 const root = await mkdtemp(path.join(tmpdir(), 'mergesutra-real-sandbox-'));
 const workspace = path.join(root, 'workspace');
 const sibling = path.join(root, 'sibling');
@@ -72,10 +71,7 @@ socket.setTimeout(2000, finish);
     networkConnected: false,
     tokenInherited: false,
   });
-  assert.equal(
-    await readFile(path.join(workspace, 'allowed.txt'), 'utf8'),
-    'sandbox-writable',
-  );
+  assert.equal(await readFile(path.join(workspace, 'allowed.txt'), 'utf8'), 'sandbox-writable');
   assert.equal(await readFile(path.join(hostPrivate, 'secret.txt'), 'utf8'), sentinel);
   assert.equal(await readFile(path.join(sibling, 'original.txt'), 'utf8'), 'untouched');
   assert.equal(existsSync(path.join(sibling, 'escape.txt')), false);
