@@ -70,6 +70,22 @@ describe('pinned, reduced-privilege Docker command', () => {
     ).toThrow(/outside its workspace/);
   });
 
+  it('rejects a Docker executable located inside the untrusted workspace', async () => {
+    const { workspace } = await fixture();
+    const fakeDocker = path.join(workspace, 'docker');
+    await import('node:fs/promises').then((fs) => fs.writeFile(fakeDocker, 'fake'));
+    expect(() =>
+      createSandboxedRunner({ workspace, image: IMAGE, dockerExecutable: fakeDocker }),
+    ).toThrow(/inside the untrusted workspace/);
+  });
+
+  it('requires an absolute Docker binary before any host probe', async () => {
+    const { workspace } = await fixture();
+    expect(() =>
+      createSandboxedRunner({ workspace, image: IMAGE, dockerExecutable: 'docker' }),
+    ).toThrow(/absolute/);
+  });
+
   it('never attempts docker run when the pinned local image is unavailable', async () => {
     const { workspace } = await fixture();
     const calls: string[][] = [];
@@ -77,9 +93,9 @@ describe('pinned, reduced-privilege Docker command', () => {
       calls.push([file, ...args]);
       return { code: 1, stdout: '', stderr: 'not found' };
     };
-    const run = createSandboxedRunner({ workspace, image: IMAGE, hostRun });
+    const run = createSandboxedRunner({ workspace, image: IMAGE, dockerExecutable: process.execPath, hostRun });
     await expect(run('node', ['check.js'])).rejects.toThrow(/SANDBOX_UNAVAILABLE/);
-    expect(calls).toEqual([['docker', 'image', 'inspect', IMAGE]]);
+    expect(calls).toEqual([[process.execPath, 'image', 'inspect', IMAGE]]);
   });
 
   it('starts only the reduced container when the image was preloaded', async () => {
@@ -89,12 +105,12 @@ describe('pinned, reduced-privilege Docker command', () => {
       calls.push([file, ...args]);
       return { code: 0, stdout: 'ok', stderr: '' };
     };
-    const run = createSandboxedRunner({ workspace, image: IMAGE, hostRun });
+    const run = createSandboxedRunner({ workspace, image: IMAGE, dockerExecutable: process.execPath, hostRun });
     const result = await run('npm', ['test']);
     expect(result.code).toBe(0);
     expect(calls).toHaveLength(2);
-    expect(calls[0]).toEqual(['docker', 'image', 'inspect', IMAGE]);
-    expect(calls[1]?.[0]).toBe('docker');
+    expect(calls[0]).toEqual([process.execPath, 'image', 'inspect', IMAGE]);
+    expect(calls[1]?.[0]).toBe(process.execPath);
     expect(calls[1]).toContain('--network=none');
     expect(calls[1]?.slice(-2)).toEqual(['npm', 'test']);
   });
