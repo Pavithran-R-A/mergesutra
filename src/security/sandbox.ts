@@ -123,9 +123,7 @@ export function createSandboxedRunner(options: SandboxedRunnerOptions): Runner {
     const relative = path.relative(workspace, dockerExecutable);
     if (
       relative === '' ||
-      (relative !== '..' &&
-        !relative.startsWith(`..${path.sep}`) &&
-        !path.isAbsolute(relative))
+      (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
     ) {
       throw unavailable('Docker executable resolves inside the untrusted workspace');
     }
