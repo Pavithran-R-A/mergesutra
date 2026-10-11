@@ -20,16 +20,16 @@ function violations(text: string, harness = HARNESS): string[] {
   const image = /docker pull (node@sha256:[0-9a-f]{64})/.exec(text)?.[1];
   const expected = /const IMAGE =\s*'(node@sha256:[0-9a-f]{64})'/.exec(harness)?.[1];
   if (!image || image !== expected) problems.push('image is unpinned or does not match harness');
-  if (!/^permissions:\s*\n  contents: read\s*$/m.test(text)) {
+  if (!/^permissions:\s*\n {2}contents: read\s*$/m.test(text)) {
     problems.push('permissions are not explicitly read-only');
   }
   if (/pull_request_target|secrets\.|id-token:|contents: write/.test(text)) {
     problems.push('workflow has privileged trigger or secret access');
   }
-  if (!/^  pull_request:\s*$/m.test(text) || !/^  workflow_dispatch:\s*$/m.test(text)) {
+  if (!/^ {2}pull_request:\s*$/m.test(text) || !/^ {2}workflow_dispatch:\s*$/m.test(text)) {
     problems.push('expected ordinary PR and manual triggers missing');
   }
-  if (!/^    branches: \[main\]$/m.test(text)) {
+  if (!/^ {4}branches: \[main\]$/m.test(text)) {
     problems.push('push is not constrained to main');
   }
   if (!/persist-credentials: false/.test(text)) {
