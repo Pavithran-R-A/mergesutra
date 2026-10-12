@@ -82,7 +82,9 @@ describe('real Docker workflow has explicit authority boundaries', () => {
 
   it('rejects removal of stage engine proof or its controlled Docker settings', () => {
     expect(
-      violations(WORKFLOW.replace('node --import tsx scripts/sandbox-stage-proof.mjs', 'echo skipped')),
+      violations(
+        WORKFLOW.replace('node --import tsx scripts/sandbox-stage-proof.mjs', 'echo skipped'),
+      ),
     ).toContain('real Stage 6 and Stage 7 Docker proof not enforced');
     expect(
       violations(WORKFLOW.replace('MERGESUTRA_DOCKER_EXECUTABLE: /usr/bin/docker', '')),
