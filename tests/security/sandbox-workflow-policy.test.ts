@@ -47,6 +47,13 @@ function violations(text: string, harness = HARNESS): string[] {
   if (!/run: node scripts\/sandbox-runtime-proof\.mjs/.test(text)) {
     problems.push('independent host-side proof does not run');
   }
+  if (
+    !/run: node --import tsx scripts\/sandbox-stage-proof\.mjs/.test(text) ||
+    !/MERGESUTRA_SANDBOX_IMAGE: node@sha256:[0-9a-f]{64}/.test(text) ||
+    !/MERGESUTRA_DOCKER_EXECUTABLE: \/usr\/bin\/docker/.test(text)
+  ) {
+    problems.push('real Stage 6 and Stage 7 Docker proof not enforced');
+  }
   return problems;
 }
 
@@ -71,6 +78,15 @@ describe('real Docker workflow has explicit authority boundaries', () => {
     expect(violations(WORKFLOW, HARNESS.replace('node@sha256:', 'alpine@sha256:'))).toContain(
       'image is unpinned or does not match harness',
     );
+  });
+
+  it('rejects removal of stage engine proof or its controlled Docker settings', () => {
+    expect(
+      violations(WORKFLOW.replace('node --import tsx scripts/sandbox-stage-proof.mjs', 'echo skipped')),
+    ).toContain('real Stage 6 and Stage 7 Docker proof not enforced');
+    expect(
+      violations(WORKFLOW.replace('MERGESUTRA_DOCKER_EXECUTABLE: /usr/bin/docker', '')),
+    ).toContain('real Stage 6 and Stage 7 Docker proof not enforced');
   });
 
   it('rejects lost real-run evidence and a silently ignored failure', () => {
