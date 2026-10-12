@@ -202,6 +202,11 @@ describe.skipIf(!AVAILABLE)(
           store,
           cwd: repo,
           now: () => NOW,
+          repoRun: (file, args) =>
+            createRunner({ cwd: path.join(repo, '.mergesutra', 'worktrees', implementedRunId) })(
+              file,
+              args,
+            ),
           client: scriptedClient([
             writeAction('src/date.mjs', FIXED_IMPL, ['AC-2'], digestOf(BASE_IMPL)),
             writeAction('test/invalid.test.mjs', REGRESSION_TEST),
@@ -235,7 +240,12 @@ describe.skipIf(!AVAILABLE)(
       // ---- Stage 7, second pass: the operator names the two repository gates. ----
       const stage = await runVerifyStage(
         { runId: implementedRunId, allow: ['VG-001', 'VG-002'] },
-        { store, now: () => NOW },
+        {
+          store,
+          now: () => NOW,
+          // Trusted, locally constructed scenario only; no production opt-out.
+          runFor: (spec) => createRunner({ cwd: spec.cwd, timeoutMs: spec.timeoutMs }),
+        },
       );
 
       // Every verdict below came out of a process this machine really started.
