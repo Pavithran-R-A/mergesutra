@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AppError } from '../../src/core/errors.js';
-import { defaultRunner } from '../../src/core/runner.js';
+import { createRunner, defaultRunner } from '../../src/core/runner.js';
 import { runContractStage } from '../../src/cli/contract.js';
 import { runInspect } from '../../src/discovery/inspect.js';
 import { runPlanStage } from '../../src/plan/plan.js';
@@ -97,7 +97,19 @@ async function implement(
   const client = scriptedClient(answers);
   const result = await runImplementStage(
     { runId, ...input },
-    { store: fixture.store, client, now: () => NOW, cwd: fixture.repo },
+    {
+      store: fixture.store,
+      client,
+      now: () => NOW,
+      cwd: fixture.repo,
+      // This Git-owned test repository deliberately executes real fixture code;
+      // production never receives this runner or a sandbox bypass flag.
+      repoRun: (file, args) =>
+        createRunner({
+          cwd: path.join(fixture.repo, '.mergesutra', 'worktrees', runId),
+          timeoutMs: input.limits?.commandTimeoutMs,
+        })(file, args),
+    },
   );
   return { result, client };
 }
@@ -311,10 +323,9 @@ describe.skipIf(!gitAvailable)('two runs of one repository, with nothing shared 
 
   it('bounds a check that never finishes, with the loop’s own runner', async () => {
     const fixture = await plannedPair();
-    // A bare `node` reads stdin forever, which is the one hang every platform
-    // this product runs on produces on demand. Nothing is injected here: the
-    // loop builds its own runner from `commandTimeoutMs`, so this is the
-    // measurement the stage actually makes of a command that never returns.
+    // A bare `node` reads stdin until the configured timeout. This scenario
+    // uses an explicitly injected trusted-fixture runner, not the production
+    // host execution default (which must refuse without Docker).
     const attempt = await implement(
       fixture,
       fixture.runA,
