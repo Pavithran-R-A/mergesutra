@@ -1,5 +1,7 @@
 import path from 'node:path';
-import { realpathSync, statSync } from 'node:fs';
+import { lstatSync, realpathSync, statSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { AppError } from '../core/errors.js';
 import { createRunner, type Runner, type RunnerOptions } from '../core/runner.js';
 import { isBareProgram } from './command-safety.js';
@@ -57,7 +59,18 @@ export function sandboxDockerArgv(input: {
   if (!path.isAbsolute(input.workspace) || !path.isAbsolute(input.cwd)) {
     throw unavailable('workspace and command directory must be absolute paths');
   }
-  const workspace = realpathSync(input.workspace);
+  let workspace: string;
+  try {
+    // A run-owned root is never a caller-chosen alias to a different directory.
+    // Resolving it silently would defeat the promise made to the operator.
+    if (lstatSync(input.workspace).isSymbolicLink()) {
+      throw unavailable('workspace root cannot be a symlink');
+    }
+    workspace = realpathSync(input.workspace);
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw unavailable('workspace root is unavailable');
+  }
   // Both paths must exist at invocation, not merely be lexically inside the root.
   const cwd = realpathSync(input.cwd);
   const relative = path.relative(workspace, cwd);
@@ -107,6 +120,20 @@ export function sandboxDockerArgv(input: {
   ];
 }
 
+/**
+ * A Docker CLI launch must not inherit settings that can redirect it to a
+ * remote daemon, load credentials, change its context, or select plugins.
+ * An absolute docker executable is selected separately by the operator.
+ */
+export function dockerClientEnvironment(configDir: string): NodeJS.ProcessEnv {
+  return {
+    DOCKER_CONFIG: configDir,
+    HOME: configDir,
+    USERPROFILE: configDir,
+    ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {}),
+  };
+}
+
 /** Create a fail-closed runner; a missing Docker daemon/image never runs on the host. */
 export function createSandboxedRunner(options: SandboxedRunnerOptions): Runner {
   // Reject invalid images before even attempting a Docker command.
@@ -131,11 +158,22 @@ export function createSandboxedRunner(options: SandboxedRunnerOptions): Runner {
     if (error instanceof AppError) throw error;
     throw unavailable('selected trusted Docker executable is unavailable');
   }
-  const hostRun =
+  const hostRun: Runner =
     options.hostRun ??
-    createRunner({
-      timeoutMs: options.timeoutMs,
-      maxOutputBytes: options.maxOutputBytes,
+    (async (file, args) => {
+      // Never let DOCKER_HOST, DOCKER_CONTEXT, DOCKER_CONFIG, proxy variables,
+      // or a user's Docker auth settings redirect a supposedly local launch.
+      // Every operation gets a private, empty client configuration directory.
+      const configDir = await mkdtemp(path.join(tmpdir(), 'mergesutra-docker-client-'));
+      try {
+        return await createRunner({
+          timeoutMs: options.timeoutMs,
+          maxOutputBytes: options.maxOutputBytes,
+          env: dockerClientEnvironment(configDir),
+        })(file, args);
+      } finally {
+        await rm(configDir, { recursive: true, force: true });
+      }
     });
 
   return async (file, args) => {
