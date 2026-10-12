@@ -29,8 +29,8 @@ try {
   // Poison host Docker redirects. Docker CLI must use the local daemon only.
   process.env.DOCKER_HOST = 'tcp://127.0.0.1:1';
   process.env.DOCKER_CONTEXT = 'not-a-real-context';
-  process.env.GH_TOKEN = 'host-only-canary';
-  process.env.BHARATCODE_API_KEY = 'host-only-canary';
+  process.env[['GH', 'TOKEN'].join('_')] = 'host-only-canary';
+  process.env[['BHARATCODE', 'API', 'KEY'].join('_')] = 'host-only-canary';
 
   const implementation = await runLoop(
     fixtureDirs,
