@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { createRunner, type Runner } from '../core/runner.js';
+import type { Runner } from '../core/runner.js';
+import { createRepositoryCommandRunner } from '../security/repository-runner.js';
 import { AppError } from '../core/errors.js';
 import { resolveInsideRoot } from '../security/path-safety.js';
 import { defaultRedactor } from '../security/redaction.js';
@@ -161,7 +162,13 @@ export async function runVerification(
   const { plan, workspace } = input;
   const now = deps.now ?? (() => new Date());
   const runFor =
-    deps.runFor ?? ((spec) => createRunner({ cwd: spec.cwd, timeoutMs: spec.timeoutMs }));
+    deps.runFor ??
+    ((spec) =>
+      createRepositoryCommandRunner({
+        workspace,
+        cwd: spec.cwd,
+        timeoutMs: spec.timeoutMs,
+      }));
   const describe =
     deps.currentPatchIdentity ??
     (async (spec) => {

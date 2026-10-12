@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { repairPlanDigest } from '../../src/repair/digest.js';
 import { runRepairStage } from '../../src/repair/stage.js';
+import { createRunner } from '../../src/core/runner.js';
 import { scopeDigest } from '../../src/verify/consent.js';
 import { describePatch } from '../../src/verify/patch.js';
 import { recordWith } from '../helpers/review.js';
@@ -419,6 +420,9 @@ describe.skipIf(!AVAILABLE)('runRepairStage', () => {
         now: () => NOW,
         runsRoot: fixture.runsRoot,
         runFor: fixture.runFor,
+        // The controlled generator deliberately writes outside the repair plan.
+        // A real process fixture proves the scope detector; customers get Docker.
+        commandRun: (file, args) => createRunner({ cwd: fixture.workspace })(file, args),
       },
     );
 

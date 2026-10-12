@@ -100,6 +100,8 @@ export interface RepairStageDeps {
   readonly client?: NonNullable<ImplementationLoopDeps['client']>;
   /** How the re-verification starts its gate processes. A test seam, the engine's shape. */
   readonly runFor?: (spec: GateExecutionSpec) => NonNullable<ImplementationLoopDeps['run']>;
+  /** Internal fixture-only runner for repository commands during repair, not a CLI opt-out. */
+  readonly commandRun?: NonNullable<ImplementationLoopDeps['run']>;
   /** Bounds a caller may tighten; the ceilings in `bounds.ts` are not movable. */
   readonly limits?: Partial<RepairLimits>;
 }
@@ -218,6 +220,7 @@ export async function runRepairStage(
     {
       now,
       ...(deps.client ? { client: deps.client } : {}),
+      ...(deps.commandRun ? { run: deps.commandRun } : {}),
       ...(input.signal ? { signal: input.signal } : {}),
     },
   );

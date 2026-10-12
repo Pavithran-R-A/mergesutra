@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -171,6 +171,24 @@ describe('the loop acts, then stops', () => {
     expect(tree).toContain('src/new.ts');
     expect(tree.every((file) => !file.startsWith('..'))).toBe(true);
     expect(harness.implementation.workspace.relativePath).toContain('.mergesutra/worktrees/');
+  });
+
+  it('refuses a model RUN_CHECK with no Docker rather than executing on the host', async () => {
+    vi.stubEnv('MERGESUTRA_SANDBOX_IMAGE', undefined);
+    vi.stubEnv('MERGESUTRA_DOCKER_EXECUTABLE', undefined);
+    try {
+      const harness = await runLoop(
+        tempDirs,
+        [checkAction(['node', '--version']), finishAction()],
+        { deps: { run: undefined } },
+      );
+      expect(harness.implementation.actions[0]?.outcome).toBe('REFUSED');
+      expect(harness.implementation.actions[0]?.detail).toContain('SANDBOX_UNAVAILABLE');
+      expect(harness.implementation.summary.commands).toBe(0);
+      expect(harness.runner.calls).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('treats a failing developer check as a fact, not an exception', async () => {

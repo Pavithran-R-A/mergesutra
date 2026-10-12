@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { RunResult, Runner } from '../../src/core/runner.js';
 import { scopeDigest } from '../../src/verify/consent.js';
 import {
@@ -74,6 +74,28 @@ describe('running the gates a plan names', () => {
       gateId: 'VG-001',
     });
     expect(run.result).toBe('PASS');
+  });
+
+  it('never marks a consented repo gate PASS when Docker is not configured', async () => {
+    vi.stubEnv('MERGESUTRA_SANDBOX_IMAGE', undefined);
+    vi.stubEnv('MERGESUTRA_DOCKER_EXECUTABLE', undefined);
+    try {
+      const plan = planOf([plannedGate({ id: 'VG-001', argv: ['node', '--version'] })]);
+      const run = await runVerification(
+        { plan, workspace: WORKSPACE, consent: consentFor(plan, ['VG-001']) },
+        {
+          now: steppingClock(),
+          currentPatchIdentity: identitiesProbe([UNCHANGED, UNCHANGED]),
+        },
+      );
+      const receipt = entry(run, 'VG-001').receipt;
+      expect(receipt.result).toBe('INCONCLUSIVE');
+      expect(receipt.termination).toBe('NOT_EXECUTED');
+      expect(receipt.stderrSummary).toContain('SANDBOX_UNAVAILABLE');
+      expect(run.result).toBe('INCONCLUSIVE');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('hands the runner the directory and the timeout this gate was planned with', async () => {

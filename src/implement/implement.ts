@@ -59,6 +59,8 @@ export interface ImplementStageDeps {
   readonly now?: () => Date;
   readonly client?: BharatCodeClient;
   readonly run?: Runner;
+  /** Internal fixture-only seam: command runner separate from Git workspace setup. */
+  readonly repoRun?: Runner;
   readonly env?: NodeJS.ProcessEnv;
 }
 
@@ -124,7 +126,7 @@ export async function runImplementStage(
       limits: input.limits,
       model: input.model,
     },
-    { client, now, signal: input.signal, run: deps.run },
+    { client, now, signal: input.signal, run: deps.repoRun ?? deps.run },
   );
 
   const checks = describeRun(implementation, workspace, contract);

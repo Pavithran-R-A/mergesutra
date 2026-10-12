@@ -317,6 +317,8 @@ describe.skipIf(!AVAILABLE)(
           store,
           cwd: repo,
           now: () => NOW,
+          repoRun: (file, args) =>
+            createRunner({ cwd: path.join(repo, '.mergesutra', 'worktrees', runId) })(file, args),
           client: scriptedClient([
             writeAction('src/date.mjs', GUARD_ONLY_IMPL, ids, digestOf(BASE_IMPL)),
             writeAction('test/parse.test.mjs', GUARD_TEST, ids, digestOf(EXISTING_TEST)),
@@ -330,7 +332,11 @@ describe.skipIf(!AVAILABLE)(
       // ---- Stage 7: the repository's own gates, run for real. ----
       const firstVerification = await runVerifyStage(
         { runId, allow: ['VG-001', 'VG-002'] },
-        { store, now: () => NOW },
+        {
+          store,
+          now: () => NOW,
+          runFor: (spec) => createRunner({ cwd: spec.cwd, timeoutMs: spec.timeoutMs }),
+        },
       );
       const patchA = await describePatch({ workspace, baseSha: base });
       // The whole premise of this stage, in one assertion: every gate passed.
@@ -389,6 +395,8 @@ describe.skipIf(!AVAILABLE)(
           cwd: repo,
           now: () => NOW,
           runsRoot: defaultRunStoreRoot(storeRoot),
+          commandRun: (file, args) => createRunner({ cwd: workspace })(file, args),
+          runFor: (spec) => createRunner({ cwd: spec.cwd, timeoutMs: spec.timeoutMs }),
           client: scriptedClient([
             writeAction(
               'src/date.mjs',
