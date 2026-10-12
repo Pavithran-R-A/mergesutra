@@ -77,7 +77,7 @@ try {
   const argv = ['node', 'stage-probe.cjs'];
   const gate = {
     id: 'VG-001',
-    name: 'independent sandbox execution check',
+    name: 'test',
     command: argv.join(' '),
     argv,
     cwd: '.',
