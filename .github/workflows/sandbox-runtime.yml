@@ -5,12 +5,20 @@ on:
     paths:
       - 'src/security/sandbox.ts'
       - 'scripts/sandbox-runtime-proof.mjs'
+      - 'scripts/sandbox-stage-proof.mjs'
+      - 'src/implement/loop.ts'
+      - 'src/verify/engine.ts'
+      - 'src/security/repository-runner.ts'
       - '.github/workflows/sandbox-runtime.yml'
   push:
     branches: [main]
     paths:
       - 'src/security/sandbox.ts'
       - 'scripts/sandbox-runtime-proof.mjs'
+      - 'scripts/sandbox-stage-proof.mjs'
+      - 'src/implement/loop.ts'
+      - 'src/verify/engine.ts'
+      - 'src/security/repository-runner.ts'
       - '.github/workflows/sandbox-runtime.yml'
   workflow_dispatch:
 
@@ -43,3 +51,9 @@ jobs:
 
       - name: Execute malicious fixture inside real isolated container
         run: node scripts/sandbox-runtime-proof.mjs
+
+      - name: Exercise real Stage 6 and Stage 7 Docker routing
+        run: node --import tsx scripts/sandbox-stage-proof.mjs
+        env:
+          MERGESUTRA_SANDBOX_IMAGE: node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8
+          MERGESUTRA_DOCKER_EXECUTABLE: /usr/bin/docker
