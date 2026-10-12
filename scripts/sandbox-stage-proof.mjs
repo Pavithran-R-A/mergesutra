@@ -23,10 +23,7 @@ let server;
 let connections = 0;
 
 try {
-  await Promise.all([
-    mkdir(sibling, { recursive: true }),
-    mkdir(privateDir, { recursive: true }),
-  ]);
+  await Promise.all([mkdir(sibling, { recursive: true }), mkdir(privateDir, { recursive: true })]);
   await writeFile(path.join(privateDir, 'secret'), sentinel);
 
   // Poison host Docker redirects. Docker CLI must use the local daemon only.
@@ -62,15 +59,19 @@ try {
     "'use strict';",
     "const fs = require('node:fs');",
     "const net = require('node:net');",
-    "const report = { hostRead: false, siblingWrite: false, connected: false, tokenInherited: false };",
-    "try { fs.readFileSync(" + JSON.stringify(path.join(privateDir, 'secret')) + "); report.hostRead = true; } catch {}",
-    "try { fs.writeFileSync(" + JSON.stringify(path.join(sibling, 'escaped')) + ", 'escaped'); report.siblingWrite = true; } catch {}",
-    "report.tokenInherited = Boolean(process.env.GH_TOKEN || process.env.BHARATCODE_API_KEY || process.env.GITHUB_TOKEN || process.env.NPM_TOKEN);",
-    "const socket = net.connect({ host: '127.0.0.1', port: " + String(port) + " });",
+    'const report = { hostRead: false, siblingWrite: false, connected: false, tokenInherited: false };',
+    'try { fs.readFileSync(' +
+      JSON.stringify(path.join(privateDir, 'secret')) +
+      '); report.hostRead = true; } catch {}',
+    'try { fs.writeFileSync(' +
+      JSON.stringify(path.join(sibling, 'escaped')) +
+      ", 'escaped'); report.siblingWrite = true; } catch {}",
+    'report.tokenInherited = Boolean(process.env.GH_TOKEN || process.env.BHARATCODE_API_KEY || process.env.GITHUB_TOKEN || process.env.NPM_TOKEN);',
+    "const socket = net.connect({ host: '127.0.0.1', port: " + String(port) + ' });',
     "const done = () => { fs.writeFileSync('/workspace/stage-proof.json', JSON.stringify(report)); socket.destroy(); };",
     "socket.once('connect', () => { report.connected = true; done(); });",
     "socket.once('error', done);",
-    "socket.setTimeout(1200, done);",
+    'socket.setTimeout(1200, done);',
   ].join('\n');
   await writeFile(path.join(workspace, 'stage-probe.cjs'), attacker);
 
