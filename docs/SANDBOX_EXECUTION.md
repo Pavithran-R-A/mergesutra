@@ -29,7 +29,11 @@ container isolation.
 The isolated container uses a digest-pinned image, no host network, no elevated
 capabilities, an unprivileged user, a read-only container filesystem and a
 single worktree bind mount; the latter is writable so legitimate test output
-can be produced and contamination can still be detected.
+can be produced and contamination can still be detected. The container runs
+exactly the program the caller named: `--entrypoint <program>` is set, because
+an image's own entrypoint may otherwise substitute an interpreter for a command
+it does not recognise (measured on the pinned digest, a gate that asked for
+`git --version` executed `node git --version`).
 
 ## Limitations requiring dedicated acceptance before consumer launch
 
@@ -37,10 +41,27 @@ can be produced and contamination can still be detected.
   host-only secret, sibling-write, token-environment and loopback-network
   boundary. It does not prove every possible escape, other operating systems,
   or security against an actively compromised Docker daemon.
-- Worktrees store Git metadata outside the single-mounted directory. Git-native
-  verification checks may therefore refuse or fail inside the sandbox until
-  safely isolated Git metadata is provided. Do not bypass this with a raw host
-  runner or mark such an incomplete verification as PASS.
+- Worktrees store Git metadata outside the single-mounted directory, and that is now measured rather
+  than assumed. A linked worktree's `.git` is a pointer to an absolute host path; inside a container
+  that path is not mounted, so Git resolves it against the container root. Driven through the
+  production Stage 7 path (real repository runner, real patch identity, no stubs) against a real
+  linked worktree, with the flag set the product builds (`--network=none`, `--cap-drop=ALL`,
+  `--read-only`, `--user`, one bind mount at `/workspace`): `git --version` returned
+  `git version 2.39.5` (rc 0), while `git status --porcelain`, `git diff --check` and
+  `git rev-parse HEAD` each returned rc 128 with
+  `fatal: not a git repository: /workspace/C:/…/.git/worktrees/ws`, and the legitimate repository
+  command in the same container — `node src/f.js` — ran and exited 0. The round came back `FAIL`,
+  never `PASS`. So a git-native gate fails closed inside the sandbox; it does not silently pass, and
+  it does not block ordinary repository code. Do not bypass this with a raw host runner or mark such
+  an incomplete verification as PASS. `SECURITY_GAP_REGISTER.md` S16-4 records the reading and the
+  open design question it leaves for MergeSutra-owned Git reads.
+- The digest this repository pins for the sandbox is not a git image. The image pinned by
+  `.github/workflows/sandbox-runtime.yml` and `scripts/sandbox-runtime-proof.mjs` is Alpine with
+  `NODE_VERSION=26.6.0` and no `git` binary at all, so the container refuses to start MergeSutra's own
+  `diff-check` gate: exit 127, `exec: "git": executable file not found in $PATH`, round `FAIL`. The
+  hosted proofs stay green because the only programs they run inside the container are `node` ones.
+  Sandbox-backed execution is therefore qualified for `node` commands and unqualified for git-native
+  ones, and no Node 22 or Node 24 sandbox image has been measured.
 - Unit tests may inject a trusted fixture runner to exercise scenario logic;
   that dependency-injection seam is **not** a product-level opt-out switch.
 - Repository-controlled commands are distinct from MergeSutra-owned GitHub

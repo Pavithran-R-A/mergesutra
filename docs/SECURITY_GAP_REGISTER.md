@@ -5194,3 +5194,313 @@ Ubuntu Node 22/24 and Windows Node 22/24 after the fix. The ordinary suite in th
 green before the qualification.
 
 **Status: CLOSED.**
+
+## Register status, Stage 16 (in progress)
+
+Stage 16 asks a narrower question than the stages before it: does the chain still work, and stay
+confined, on a repository an ordinary customer already works in? The shape that decides it is a
+**linked worktree**. `git worktree add` is how people hold two branches at once, and it is what
+Stage 5 hands every run, so a workspace's `.git` entry is a one-line pointer into the primary
+checkout's `.git/worktrees/<id>` — and that pointer is inside the directory the run may write. Three
+reads of a workspace are MergeSutra's own: Stage 7's patch identity, Stage 11's observation of the
+tree, and the git-native gate the sandbox is given. Until this stage each of them let **Git decide**
+which repository it was reading. Git's decision starts from that pointer and then obeys whatever
+configuration it leads to, and configuration names programs to run (`core.fsmonitor`,
+`core.hooksPath`, `diff.<driver>.textconv`, a `remote.<name>.url` spelled with `ext::`). S12-23 had
+already stopped MergeSutra from *asking* for a hook-firing verb; nothing stopped the code under
+review from *choosing* one.
+
+`S16-1` (the rule that decides which Git directory a measurement may read at all), `S16-2` (the patch
+identity moved onto that rule, and the test fixtures moved onto the worktree shape Stage 5 actually
+creates) and `S16-3` (a container that ran the image's interpreter instead of the program the gate
+named, shipped at `c31a6f8` with no register entry until now) are closed CODE + TEST + DOCUMENT
+below. What Stage 16 will not claim before it measures it:
+
+- **A customer worktree driven through real Docker: executed, and it does not work.** `S16-4` below
+  carries the reading: the production Stage 7 path (`createRepositoryCommandRunner` for the gate, the
+  default `currentPatchIdentity` for the measurement — no stubs) was run twice against a real linked
+  worktree, and MergeSutra's own built-in `git diff --check` gate failed both times, for two different
+  reasons. What is *still* not decided is the fix: whether a mount design can give a container a
+  repository it cannot write, and that is an open design question with three candidate answers (a
+  derived read-only snapshot gitdir, a second read-only mount of the admin directory, or dropping
+  git-native gates and keeping patch identity on the host) — none chosen, implemented or measured. The
+  rule in `docs/SANDBOX_EXECUTION.md` that such a round must not be reported as a PASS and must not
+  fall back to a raw host runner held in both runs: the rounds came back `FAIL`, never `PASS`.
+- **Three reads still ask Git to discover the repository.** `src/lifecycle/observe.ts:195`
+  (`rev-parse --show-toplevel`), `:207` (`rev-parse --verify HEAD`), `:339` (`cat-file -e`) through
+  the `-C` helper at `:343-344`; `src/review/context.ts:437` (`git -C <workspace> diff …`); and the
+  built-in `git diff --check` gate named above. These are not the same risk in the same degree: the
+  observation read already fails closed — its `describePatch` call is the S16-2 function, so a
+  workspace that cannot be trusted stops the *patch* half of the report, while the three `-C` reads
+  still happen first. `src/git/workspace.ts` and `src/intake/local-repo.ts` also use `-C`, on the
+  operator's own checkout chosen before any run exists, and are named in
+  `tests/security/hook-firing-verbs.test.ts` rather than being treated as clean.
+- **No hosted or cross-platform reading of this arc exists yet.** Everything below was measured on
+  one Windows host; the branch has not been pushed, so no `CI` matrix has seen it, and macOS has not
+  run anything (`scripts/sandbox-runtime-proof.mjs` names `/usr/bin/docker` and
+  `.github/workflows/sandbox-runtime.yml` runs on Ubuntu only). Issue #33 therefore stays open.
+
+## S16-1 — a run could author the repository MergeSutra measured it through
+
+**Finding.** Stage 7 names a patch by asking Git what differs from the run's base commit, and Stage 11
+observes a workspace the same way. Both began from `git -C <workspace>`, which means Git *discovers*
+the repository — from the workspace's own `.git` entry. Stage 5 gives the run that directory
+read-write, because a gate is repository code and repository code writes there, so the entry is one
+of the bytes the run controls. A run (or a model it was tricked into running) that replaces the
+pointer with a directory of its own — or with a pointer to a directory it wrote inside the workspace —
+hands MergeSutra a repository whose configuration names a program, and the trusted host-side read then
+executes it outside the sandbox, or reports a forged-but-self-consistent tree as the run's patch. The
+second half is the quieter failure: the report would still be internally consistent, which is the
+shape an inflated evidence pack takes in the wild.
+
+**Fix.** `src/git/workspace-git-dir.ts` answers one question and nothing else:
+`resolveTrustedGitDir(workspace)` returns `{ gitDir, workTree }` — both resolved — only when three
+structural facts hold. `.git` is a *regular file* (`lstat`, so a symlink to a pointer file is refused
+because a symlink is still a link the run placed, and a `.git` **directory** is metadata inside the
+writable area); the `gitdir:` target resolves to a directory **outside** the workspace; and that
+directory's own `gitdir` back-pointer names exactly this workspace's `.git`. The rule is structural,
+not a deny-list, which is why it survives a new Git configuration key: a planted `.git` cannot satisfy
+it because satisfying it requires bytes the run has no route to write. `null` means *this workspace
+cannot be measured safely* and is never an invitation to fall back to discovery.
+
+**Tests.** `tests/git/workspace-git-dir.test.ts` (9 tests, 43 498 ms on the run below) covers the
+arrangement Stage 5 really creates by calling production `prepareWorkspace` over a real temporary
+repository, and then uses the pair: `git status --porcelain` through
+`--git-dir <returned> --work-tree <returned>` sees a file the test just wrote, so the test proves the
+returned directory is *usable for measurement*, not merely correctly shaped. The refusals are the
+attacks, each built from what a run can actually do — delete-then-create the pointer, so the file
+carries the workspace's own permissions: a plain checkout, whose metadata sits inside the writable
+area; `.git` replaced by a directory containing a `core.fsmonitor` config; a pointer that stays inside
+the workspace, aimed at a complete and self-consistent gitdir with its own `HEAD`, a correct
+back-pointer and a `commondir` that really does point outside (one structural test cannot be satisfied
+by any amount of internal tidiness); a pointer aimed at **another run's** metadata, which is the
+cross-contamination case — both worktrees legitimate, the deception being whose HEAD and index gets
+read; a pointer at a directory with no worktree metadata; a symlinked `.git`, skipped where the
+platform will not let an unprivileged process make one; and a workspace that is not there at all.
+
+*What this does not claim.* This is a rule about *which repository to read*, not a sandbox and not a
+claim that Git can be made inert. It does not stop a repository's own hooks from firing in a checkout
+the **operator** asked MergeSutra to read (`src/git/workspace.ts`, `src/intake/local-repo.ts`), and it
+says nothing about what a gate does inside the container. The planted-config tests are written so that
+their load-bearing assertion is the one about *obedience* rather than *execution*: whether
+`core.fsmonitor` is actually reached depends on how a host quotes the path — Git for Windows fails to
+spawn a hook whose path contains a space — and the module comment at `tests/verify/patch.test.ts:243-249`
+says so instead of assuming a POSIX outcome on a Windows runner.
+
+**Evidence for the closing claim.** `src/git/workspace-git-dir.ts` and
+`tests/git/workspace-git-dir.test.ts` shipped at `1833625` (+94 and +226 lines). Its refusal is the one
+`S16-2` builds on, so the two share the reading recorded there.
+
+**Status: CLOSED — CODE + TEST + DOCUMENT.**
+
+## S16-2 — the patch identity let Git find its own repository inside the directory under review
+
+**Finding.** `describePatch` is the function that makes Stage 7's receipts mean something: it turns
+"the workspace differs from this commit by these bytes" into one digest, and every staleness decision
+in the product reads that digest. It did so by running `git -C <workspace> rev-parse --show-toplevel`
+and then taking Git's answer as the root to measure. That is the S16-1 vector standing in the most
+consequential place — and it had a second, smaller defect behind it: the equality check that compared
+the answer to the requested directory used a prefix test, which is also true of a directory *beneath*
+the workspace.
+
+**Fix.** The measurement now goes `measure(workspace)` → `resolveTrustedGitDir` (S16-1) →
+`git --git-dir <metadata the run cannot author> --work-tree <workspace> --no-optional-locks <verb>`,
+with every one of the four reads (`rev-parse HEAD`, the tracked `diff --name-status`, the untracked
+`ls-files`, and the two per-file reads) going through that one helper. `--no-optional-locks` is placed
+among the general options so the read stays what this module's header has always claimed it is: a
+measurement must not take an index lock a run's own `git` is holding. The
+`rev-parse --show-toplevel` read and its equality clause are **gone**, because the trusted pair already
+names the work tree; deleting them was decided after a mutation showed no test noticed the equality
+clause, not because deletion looked tidy. A workspace whose own `.git` does not lead outside itself is
+refused with `Cannot name a patch: … has no Git metadata a run could not have written`, and there is no
+fallback path in the function.
+
+The shared comparison became `isSamePath(left, right, options?)` in `src/security/path-safety.ts:46-53`
+— `isInsideRoot` cannot answer "is this the same directory", because it is also true for a candidate
+beneath the root, which is exactly the case a back-pointer check must reject — and
+`workspace-git-dir.ts`'s private `samePath` moved onto it rather than staying duplicated beside it.
+
+**Tests.** `tests/verify/patch.test.ts:227-359` is the new block (the file: 17 tests, 84 045 ms in the
+sweep cited below). Its
+first case records **every** argv the function issues through a real runner and asserts the exact six
+leading tokens for each, plus that `-C` appears nowhere: a rewrite back to discovery fails on the shape,
+not on a message. Then the refusals — a plain checkout, and a workspace aimed at metadata inside
+itself — and between them the plant that makes the refusal worth its cost: `plantRepositoryInside`
+builds a complete second repository inside the workspace (its own `HEAD`, a committed empty commit, a
+`core.fsmonitor` naming a script) and points the workspace's `.git` at it, after which the **control**
+runs the argv MergeSutra used until this commit landed —
+
+```
+git -C <workspace> rev-parse HEAD   → exit 0, and prints the planted commit, not the base
+```
+
+(`tests/verify/patch.test.ts:345-358`, asserting the code, the planted digest, and that it differs from
+the base) — while the S16-2 argv refuses the same workspace and the sentinel file is still absent. That
+pair is the proof: the old read did obey a repository the run wrote, and the new one cannot be talked
+into anything.
+
+The second half of this commit is the test fixtures, and it is where the honest cost landed. Fixtures
+had been handing `describePatch` a plain checkout (`relativePath: '.'`), which is *not* the shape
+Stage 5 creates, so the product had never been tested against the workspace it actually measures.
+`tests/helpers/git.ts`, `verifyRun.ts`, `publicationRun.ts` and `repairRun.ts` now build a primary
+checkout plus a linked worktree, and `RepairFixture` gained `primaryDir`. That migration failed ten
+tests before any assertion was touched — `tests/pr/hero.test.ts`, `tests/cli/pr.test.ts`,
+`tests/pr/injection.test.ts`, `tests/cli/repair.test.ts` (4), `tests/repair/cycle-ceiling.test.ts` (3) —
+and every one of them was the fixture, not the product: each typed `--repo <worktree>` where the stage
+contract is `--repo <primary checkout>` joined to the recorded relative path
+(`src/repair/stage.ts:182-183`, `src/pr/stage.ts:230-232`, `src/verify/stage.ts:90-91`,
+`src/lifecycle/observe.ts:163-164`), so the derived workspace pointed inside a worktree and did not
+exist, and S16-2's new refusal printed `Cannot name a patch: …`. Sixteen call sites moved to
+`fixture.primaryDir`. That is the failure mode this stage was for, reproduced by the product's own
+refusal rather than by a new test: a doubled path used to be measured as an empty patch by the old
+discovering read. `tests/cli/review.test.ts` also gained a per-file timeout budget (`180_000`, with the
+measured reason in the comment above it): its three-outcome case builds three real workspaces, measured
+17 386 ms run alone and 21 540 ms in the 16-worker sweep below, and overran the 30 s default in a
+concurrent sweep on this shared host — and the case that overran is the one that asserts no outcome
+prints an approval. No assertion was softened, nothing was skipped, and no
+config file changed. Three source-shape inventories (`tests/repair/source-shape.test.ts`,
+`tests/pr/source-shape.test.ts`, `tests/lifecycle/source-shape.test.ts`) and
+`tests/security/hook-firing-verbs.test.ts` were re-pinned to the argv that now exists, losing
+`verify/patch.ts: git rev-parse --show-toplevel` from the closed list and gaining the
+`--git-dir … --work-tree … --no-optional-locks` open site.
+
+*What this does not claim.* Nothing here has been executed inside a container; see the Stage 16 status
+list — the same trusted pair cannot be obtained there yet, which is why this change makes the
+mount problem explicit rather than incidental. It does not close the `-C` reads in
+`src/lifecycle/observe.ts` or `src/review/context.ts`, which still discover. And a workspace measured
+through metadata a run could not author is only as trustworthy as the pair *describes the right
+worktree*: the back-pointer equality is what ties them, and it is tested against a sibling run's
+metadata (`tests/git/workspace-git-dir.test.ts:164-177`) rather than assumed.
+
+**Evidence for the closing claim.** `npm run check` on `77fbc8b` — `prettier --check .`, `eslint .`,
+`tsc -p tsconfig.json --noEmit`, `tsc -p tsconfig.build.json`, `vitest run` in that order, with the
+default worker count: exit `0`, `Test Files 161 passed | 3 skipped (164)`,
+`Tests 2412 passed | 4 skipped (2416)`, `Duration 328.47s` (`C:\tmp\s16\check-16a.log`, vitest
+`Start at 16:58:00` local, finished `11:33:29Z` on 2026-10-15). The three skipped files are
+`tests/implement/live.test.ts`, `tests/plan/live.test.ts` and `tests/review/live.test.ts`, each of which
+refuses to run with no credential in the environment, and the fourth skipped test is the `win32`
+condition inside `tests/intake/home-path.test.ts` — stated as counts, not folded into a total. The
+2 412 passed is the same population as the 2 411 passed + 1 failed reading taken an hour earlier at
+2 workers (`C:\tmp\s15ev`-era sweep on the pre-migration tree), the delta being the timeout case this
+commit budgets for. No test was deleted, no assertion loosened, no worker count committed.
+
+**Status: CLOSED — CODE + TEST + DOCUMENT.**
+
+## S16-3 — the sandbox ran the image's interpreter, not the program the gate named
+
+**Finding.** `sandboxDockerArgv` assembled `docker run <flags> <image> <file> <args…>`, which leaves
+the image's own entrypoint in front of the argv. The official `node` images put
+`docker-entrypoint.sh` there, and that script prepends `node` to any first word that is not already an
+executable on its `PATH`. Measured on the digest this repository pins: asking the sandbox for
+`git --version` executed `node git --version` and came back with a Node module-loader stack — so the
+receipt recorded the verdict of a program nobody had named, against a gate whose consent digest was
+computed for `git`. `npm run` is the same shape a customer repository hands over, which makes this the
+one defect in this stage that would have silently invalidated a *legitimate* pass rather than a hostile
+one.
+
+**Fix.** `src/security/sandbox.ts:117-127` names the entrypoint itself — `--entrypoint <file>` before
+the image — so the container runs exactly the program the caller passed and the image is removed from
+that decision. A program missing from the image now fails at container creation instead of running
+something else and reporting its exit code.
+
+**Tests.** `tests/security/sandbox.test.ts:61` — "names the program as the container entrypoint so the
+image cannot substitute another program" — pins the argv positions rather than a substring, and the
+file's existing argv inventory (10 tests) keeps the mount, network, capability and credential flags
+where the S14/S15 readings put them.
+
+*What this does not claim.* Pinning the entrypoint makes the container run what was asked for; it does
+not make the program *present* in the image, and no test here runs a real container — the proof that a
+named `git` behaves as expected inside the pinned digest is part of the unexecuted Docker qualification
+named in the Stage 16 status list.
+
+**Evidence for the closing claim.** `src/security/sandbox.ts` (+10) and
+`tests/security/sandbox.test.ts` (+35) shipped at `c31a6f8`; the green reading above
+(`tests/security/sandbox.test.ts (10 tests)` inside `C:\tmp\s16\check-16a.log`) covers the file as it
+now stands.
+
+**Status: CLOSED — CODE + TEST + DOCUMENT.**
+
+## S16-4 — a customer worktree cannot run MergeSutra's own git-native gate under the sandbox
+
+**Finding.** Stage 5 hands every run a *linked* Git worktree, and Stage 7 always adds one gate of
+MergeSutra's own to the plan — `{name: 'diff-check', argv: ['git','diff','--check']}` at
+`src/verify/workspace.ts:44-50`, passed as `additional: BUILT_IN_GATES` at `:162` and `:173` — and every
+gate runs through `createRepositoryCommandRunner` (`src/verify/engine.ts:164-171`). So this pair is a
+claim about the product, not about a hostile repository: **an ordinary round runs `git` inside the
+container, in the directory the container was given.** Two things have to hold for that to work, and
+measured on this host, neither does.
+
+**Reading A — the pinned image has no `git`.** `.github/workflows/sandbox-runtime.yml:50,58` and
+`scripts/sandbox-runtime-proof.mjs:13` all pin
+`node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8`. That digest, inspected
+locally (`docker image inspect`: its `RepoDigests` names the same digest, created
+2026-08-04T21:07:52Z), is an **Alpine** image whose only declared version is `NODE_VERSION=26.6.0`, and
+`command -v git` inside it prints `ABSENT`. Asked through the production runner, `git --version` exits
+**127** with `OCI runtime create failed: … exec: "git": executable file not found in $PATH`, and the
+built-in gate recorded exactly that: `result=FAIL`, `exitCode=127`, `termination=EXITED`, round
+`result=FAIL`. Note what S16-3 changed here: before the `--entrypoint <program>` fix this argv ran
+`node git diff --check`; now the container is told to run the program the gate named and it refuses to
+start one it does not have. The fix is right and the gate still cannot run — the honest description is
+"this is not a git image", not "the sandbox works". It is also why the hosted proof is green: the only
+command `scripts/sandbox-runtime-proof.mjs` runs in the container is `node probe.cjs`, and
+`scripts/sandbox-stage-proof.mjs` runs `node --version` and then stubs `currentPatchIdentity`
+(`:122`), so no hosted reading has ever asked that image for `git`.
+
+**Reading B — the metadata the worktree points at is not mounted.** Run against a git-bearing pinned
+digest (`node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7`, created
+2026-09-23, `git version 2.39.5`), the same workspace gives:
+
+```text
+SANDBOX git --version          -> code=0   "git version 2.39.5"
+SANDBOX git diff --check       -> code=128 "fatal: not a git repository: /workspace/C:/tmp/s16/cwt/repo/.git/worktrees/ws"
+SANDBOX git status --porcelain -> code=128 (same)
+SANDBOX git rev-parse HEAD     -> code=128 (same)
+SANDBOX node src/f.js          -> code=0   "changed"     <- the legitimate repository command works
+HOST  describePatch            -> identity=beab4e3e11552817679f6453d111fd4c817fa13a0ddc46ed48709e546efa2942, 2 files
+STAGE 7 (no stubs)             -> result=FAIL, precondition MATCHED, gate exitCode=128,
+                                  receipt patchIdentity === round patchIdentity
+```
+
+The workspace's `.git` is one line — `gitdir: C:/tmp/s16/cwt/repo/.git/worktrees/ws` — and the mount is
+`type=bind,source=<workspace>,target=/workspace` with nothing else attached. Git resolves that absolute
+pointer inside the container, so it looks for `/workspace/C:/…`, which is not a repository.
+`src/git/workspace-git-dir.ts` documents the same fact from the other side: a workspace may only be
+measured through metadata that lives *outside* it, which is precisely what the single mount withholds.
+
+**What this is evidence of, and what it is not.** It is evidence that the boundary fails **closed** —
+`FAIL`, never `PASS`, and the rule in `docs/SANDBOX_EXECUTION.md` against a raw host fallback held —
+and that ordinary repository code still runs (the `node src/f.js` control exited 0 in both images), so
+this is not a sandbox that blocks every customer command. It is *not* evidence that the product works
+on a customer worktree: with either image, a clean run's own built-in gate fails the round, which is a
+false negative about code MergeSutra wrote itself. The engine cannot tell "the check ran and the patch
+has conflict markers" from "this image cannot run this check", because any non-zero exit of a program
+that started is recorded `FAIL` (`src/verify/engine.ts:363-367`); a runner that *throws* is the honest
+`INCONCLUSIVE`/`NOT_EXECUTED` path at `:370-379`, and that is what an unconfigured sandbox produces.
+
+**Not implemented here, on purpose.** The resolution changes an execution boundary — either the image
+must contain git *and* expose a repository the container cannot write, or MergeSutra's own git-native
+gate must stop being a container gate — and each candidate has a property this stage has not proven. A
+second mount of the admin directory would hand the container the primary checkout's `config` and refs
+unless it is `:ro` and scoped to one worktree's directory, and a derived read-only snapshot gitdir has
+to be built without letting the run author it, which is the S16-1 rule again in a new place. Per the
+brief — if a limitation prevents full qualification, preserve the block and document the precise
+limitation — this is recorded rather than guessed at.
+
+**Reproduction (host-local, disposable).** `C:\tmp\s16\cwt\repo` is a two-commit repository (base
+`2f9d5fdf80d13ab26acfd3de5ed112b50562923a`) and `C:\tmp\s16\cwt\ws` a linked worktree on
+`mergesutra/probe` with `src/f.js` modified and `src/g.js` untracked. `C:\tmp\s16\prod-cwt-probe.mjs`
+imports the built product (`dist/security/repository-runner.js`, `dist/verify/engine.js`,
+`dist/verify/patch.js`), sets `MERGESUTRA_SANDBOX_IMAGE` and `MERGESUTRA_DOCKER_EXECUTABLE`, calls
+`describePatch`, then calls `runVerification({plan, workspace, consent})` with **no `deps`** — so the
+production repository runner and the production patch-identity measurement are both in the path — and
+the readings above are the output in `C:\tmp\s16\prod-cwt-pinned.log` and
+`C:\tmp\s16\prod-cwt-node22.log`. A fixture, deliberately not a suite test: it needs a Docker daemon and
+a specific image, so it belongs in the qualification workflow, not in `npm test`. Nothing under `src/`
+or `tests/` changed for this item.
+
+*What this does not claim.* One host, one Docker Desktop daemon (server 29.8.1), Linux containers on
+Windows. It does not show what a Linux host with a bind-mounted worktree does, says nothing about macOS
+or Windows containers, and does not prove that no mount design could work — only that the one shipped
+today does not.
+
+**Status: OPEN — DOCUMENTED, NOT FIXED. Issue #33 stays blocked on it.**

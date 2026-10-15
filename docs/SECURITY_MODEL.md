@@ -233,6 +233,23 @@ repository declares, which is a different threat and gets a different boundary.
   every gate, and a gate that left the tree changed voids the run's verdict rather
   than reporting the next result, because the next measurement would describe
   bytes no one identified.
+- **The measurement is told which repository to read.** Stage 7's patch identity
+  and everything downstream of it ask Git what differs from the run's base commit.
+  A Stage 5 workspace's `.git` entry is a one-line pointer *inside* the directory
+  the run may write, so letting Git *discover* the repository from that directory
+  would let the code under review choose which configuration the trusted read
+  obeys — and Git configuration names programs to run (`core.fsmonitor`,
+  `core.hooksPath`, a `remote.<name>.url` spelled with `ext::`). The rule is in
+  `resolveTrustedGitDir` (`src/git/workspace-git-dir.ts`) and it is structural
+  rather than a deny-list: a workspace's Git directory is read only when `.git` is
+  a regular non-symlink file, its target resolves to a directory outside the
+  workspace, and that directory's own back-pointer names exactly this workspace's
+  `.git`. A plain checkout, a `.git` directory, a pointer aimed inside the
+  workspace or at another run's metadata is unmeasurable, and the run's verdict
+  says so — there is no fallback to discovery, because "unmeasurable" and
+  "measured against the run's own invention" have to be different outcomes.
+  `SECURITY_GAP_REGISTER.md` S16-1/S16-2 carry the control that shows a
+  discovering read reporting a planted repository as the run's patch.
 - **Receipts are the only thing that can prove anything, so they are bounded and
   redacted.** A receipt keeps exit code, termination, duration, a 4 KB tail of
   *redacted* stdout/stderr and the sha-256 of the unredacted bytes — the digest
@@ -909,6 +926,16 @@ half of either, and a refused oversized write to an existing path is proven by
 test to leave the original bytes in place. That resolution of the way is done
 twice, once when the write is planned and once immediately before the rename, and
 §4.3 states what the gap between the two still allows.
+
+Reading a workspace is the same problem from the other side, and Stage 16 gave it
+a rule of the same shape. Among the bytes a run may write is the `.git` entry that
+tells Git where its repository is, so MergeSutra's own trusted reads — the patch
+identity of §2.2 above all — do not ask Git to find a repository from inside a
+workspace. They name the metadata directory `resolveTrustedGitDir` accepts, which
+lies outside the writable area and resolves only when the workspace's pointer and
+that directory's back-pointer describe each other. Where such a pair cannot be
+obtained, the read refuses and says the workspace is unmeasurable; it does not
+discover instead.
 
 The API has no delete, no rename and no chmod, and a test asserts that the only
 methods on the object are `writeText` and `exists`. A writer that cannot delete
