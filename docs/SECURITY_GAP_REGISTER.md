@@ -5245,10 +5245,13 @@ below. What Stage 16 will not claim before it measures it:
   at 13:36:34Z, after `docker.io/library/node@sha256:a4fb14143ee2…: Pulling from library/node`) — and
   that hosted green is exactly the blind spot `S16-4` describes: both proofs run `node` in the container
   and nothing runs `git`, so a pinned image without git and a worktree whose metadata is not mounted
-  both pass. Still unmeasured: the Windows cells on a SHA carrying the `S16-5` fix, macOS Docker
+  both pass. The `S16-5` fix has its own hosted reading: run `38750554405` on `4550b8e` came back with
+  all six `check (…)` cells `success` — both Windows cells reporting `Tests 2412 passed | 4 skipped
+  (2416)` and `tests/verify/patch.test.ts (17 tests)` green — and `Real Docker isolation proof` run
+  `38750554426` green on the same SHA. Still unmeasured: macOS Docker
   (`scripts/sandbox-runtime-proof.mjs` names `/usr/bin/docker` and
-  `.github/workflows/sandbox-runtime.yml` runs on Ubuntu only), and any Node 22 or Node 24 *sandbox
-  image*. Issue #33 therefore stays open.
+  `.github/workflows/sandbox-runtime.yml` runs on Ubuntu only, and its single job is labelled
+  `ubuntu-latest`), and any Node 22 or Node 24 *sandbox image*. Issue #33 therefore stays open.
 
 ## S16-1 — a run could author the repository MergeSutra measured it through
 
@@ -5561,12 +5564,20 @@ the file was then restored and `git status` reported it clean.
 
 *What this does not claim.* The product was never wrong here — the refusal fired on all six cells, and
 no customer-visible path changed. This is a test-scoping defect, and it is the kind that hides the next
-one: an assertion that passes only while the host happens not to run the hook. It also does not close
-the cross-platform qualification: the two Windows cells were red for the reason above and need their own
-green reading on the SHA that carries this fix, and `Real Docker isolation proof` still runs only Ubuntu
-and only `node` inside the container (`S16-4`).
+one: an assertion that passes only while the host happens not to run the hook.
+
+**After the fix.** `4550b8e` gets its own hosted reading, and it is green: run
+`38750554405` reports all six `check (…)` cells `success`, with both `windows-latest` cells printing
+`Test Files 161 passed | 3 skipped (164)` and `Tests 2412 passed | 4 skipped (2416)` and
+`✓ tests/verify/patch.test.ts (17 tests)` in each. `Real Docker isolation proof` run `38750554426` is
+`success` on the same SHA — one `sandbox` job, labelled `ubuntu-latest`. So the six-cell source matrix of
+this arc is qualified on all three operating systems and both Node versions; what that reading still does
+not cover is Docker on macOS and Windows, and any sandbox image other than the pinned
+`node@sha256:a4fb14143ee2…` (`S16-4`).
 
 **Evidence for the closing claim.** `tests/verify/patch.test.ts` (+20/−5) — no `src/` change. Hosted
-before-state: run `38744108119`, `https://github.com/Pavithran-R-A/mergesutra/actions/runs/38744108119`.
+before-state: run `38744108119`, `https://github.com/Pavithran-R-A/mergesutra/actions/runs/38744108119`;
+after-state: run `38750554405`, `https://github.com/Pavithran-R-A/mergesutra/actions/runs/38750554405`,
+with the Docker proof at `https://github.com/Pavithran-R-A/mergesutra/actions/runs/38750554426`.
 
-**Status: CLOSED — TEST + DOCUMENT.**
+**Status: CLOSED — TEST + DOCUMENT, with its hosted six-cell green reading on `4550b8e`.**
