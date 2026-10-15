@@ -5235,10 +5235,20 @@ below. What Stage 16 will not claim before it measures it:
   still happen first. `src/git/workspace.ts` and `src/intake/local-repo.ts` also use `-C`, on the
   operator's own checkout chosen before any run exists, and are named in
   `tests/security/hook-firing-verbs.test.ts` rather than being treated as clean.
-- **No hosted or cross-platform reading of this arc exists yet.** Everything below was measured on
-  one Windows host; the branch has not been pushed, so no `CI` matrix has seen it, and macOS has not
-  run anything (`scripts/sandbox-runtime-proof.mjs` names `/usr/bin/docker` and
-  `.github/workflows/sandbox-runtime.yml` runs on Ubuntu only). Issue #33 therefore stays open.
+- **Cross-platform qualification of this arc has started, and it found a defect in this stage's own
+  test.** Everything measured here began on one Windows host. The branch is pushed, and run
+  `38744108119` on `d95f39b` gave the first six-cell reading: ubuntu and macOS green on both Node
+  versions, **both `windows-latest` cells red** on `tests/verify/patch.test.ts:342` — root-caused and
+  fixed as `S16-5`, a fixture that asserted a host's path-quoting rather than the product's behavior.
+  `Real Docker isolation proof` also ran on `d95f39b` (run `38744108329`, ubuntu, one `sandbox` job,
+  every step `success`: `SANDBOX_RUNTIME_PROOF: PASS` at 13:36:33Z then `STAGE_6_AND_7_DOCKER_PROOF: PASS`
+  at 13:36:34Z, after `docker.io/library/node@sha256:a4fb14143ee2…: Pulling from library/node`) — and
+  that hosted green is exactly the blind spot `S16-4` describes: both proofs run `node` in the container
+  and nothing runs `git`, so a pinned image without git and a worktree whose metadata is not mounted
+  both pass. Still unmeasured: the Windows cells on a SHA carrying the `S16-5` fix, macOS Docker
+  (`scripts/sandbox-runtime-proof.mjs` names `/usr/bin/docker` and
+  `.github/workflows/sandbox-runtime.yml` runs on Ubuntu only), and any Node 22 or Node 24 *sandbox
+  image*. Issue #33 therefore stays open.
 
 ## S16-1 — a run could author the repository MergeSutra measured it through
 
@@ -5504,3 +5514,59 @@ or Windows containers, and does not prove that no mount design could work — on
 today does not.
 
 **Status: OPEN — DOCUMENTED, NOT FIXED. Issue #33 stays blocked on it.**
+
+## S16-5 — a Stage 16 test asserted a fact about the host's path quoting, and the Windows cells failed
+
+**Finding.** Pushing this arc produced the first hosted cross-platform reading of it, and the reading
+was red: run `38744108119` on `d95f39b` ran the six-cell `CI` matrix and reported
+
+```text
+check (ubuntu-latest,  node 22.x)  success
+check (ubuntu-latest,  node 24.x)  success
+check (macos-latest,   node 22.x)  success
+check (macos-latest,   node 24.x)  success
+check (windows-latest, node 22.x)  failure   ← tests/verify/patch.test.ts:342
+check (windows-latest, node 24.x)  failure   ← same assertion, same reason
+```
+
+with `Tests 1 failed | 2411 passed | 4 skipped (2416)` in both Windows cells. The failing assertion was
+S16-2's own — `refuses a workspace that points at Git metadata inside itself`, `expect(existsSync(sentinel))
+.toBe(false)` — and the same commit was green on this Windows host (`2412 passed | 4 skipped`), so the
+difference was not "Windows versus Linux" but *which* Windows path the fixture landed in.
+
+**Root cause.** The fixture's plant step reads the repository it is planting: `plantRepositoryInside`
+ends with `git --git-dir <crafted> rev-parse HEAD`, and `<crafted>/config` names
+`core.fsmonitor = <crafted>/hook.sh`, which Git consults during repository setup. The hook is a `sh`
+script, so whether Git for Windows can spawn it depends on how the path is quoted — under a profile
+name with a space it fails to start, under a hosted checkout (`D:\a\…`, no space) it runs, and the
+sentinel it touches is created **before MergeSutra is asked anything**. The test then blamed the
+product's measurement for the fixture's own setup call. S16-2's comment had the right hedge ("whether
+that program is reached depends on how this host quotes the path") and the wrong conclusion: it decided
+nothing could be asserted from the sentinel, when in fact the sentinel was the wrong instrument.
+
+**Fix.** The assertion now measures what it means to. The plant's side effect is cleared after planting,
+and the substance is asserted directly and host-independently: `describePatch` is given a recording
+`Runner` and the test requires `expect(asked).toEqual([])` — the refusal at `src/verify/patch.ts:104`
+happens before Git is asked anything, so *no* call is the proof, not an absent file — with the sentinel
+kept as the secondary check that nothing executed after that point. The fixture comment states the
+measured host-dependence instead of guessing at it.
+
+**Tests and how the failure was reproduced.** Reproduced on this host without a Windows runner by
+pointing `TMPDIR` at a space-free directory: `TMPDIR=C:\tmp\s16\nst npx vitest run tests/verify/patch.test.ts`
+fails at `:342` with `expected true to be false`, exactly the hosted message; after the fix the same
+command is `17 passed (17)` and the file also passes in the default (spaced) shape. Anti-vacuity for the
+new assertion: inserting `await run('git', ['--version'])` immediately before `measure(...)` at
+`src/verify/patch.ts:104` turns it red with `expected [ [ 'git', '--version' ] ] to deeply equal []`;
+the file was then restored and `git status` reported it clean.
+
+*What this does not claim.* The product was never wrong here — the refusal fired on all six cells, and
+no customer-visible path changed. This is a test-scoping defect, and it is the kind that hides the next
+one: an assertion that passes only while the host happens not to run the hook. It also does not close
+the cross-platform qualification: the two Windows cells were red for the reason above and need their own
+green reading on the SHA that carries this fix, and `Real Docker isolation proof` still runs only Ubuntu
+and only `node` inside the container (`S16-4`).
+
+**Evidence for the closing claim.** `tests/verify/patch.test.ts` (+20/−5) — no `src/` change. Hosted
+before-state: run `38744108119`, `https://github.com/Pavithran-R-A/mergesutra/actions/runs/38744108119`.
+
+**Status: CLOSED — TEST + DOCUMENT.**

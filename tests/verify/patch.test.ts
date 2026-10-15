@@ -243,10 +243,14 @@ describe.skipIf(!AVAILABLE)(
      * `core.fsmonitor` naming a script. That key is not a flourish: it is one of the
      * documented ways Git configuration names a program to run, and it is consulted
      * during repository setup, before any listing command. Whether that program is
-     * *reached* depends on how this host quotes the path — Git for Windows fails to
-     * spawn a hook whose path contains a space — so nothing here asserts that it
-     * ran. What is always true, and what the refusal is for, is that a read which
-     * discovers the repository obeys the repository the run chose.
+     * *reached* depends on how this host quotes the path — measured on Windows, the
+     * hook spawns when the fixture's path contains no space and does not when it
+     * does, which is why a hosted runner's checkout behaves differently from a temp
+     * directory under a profile name with one. The plant's own setup call is
+     * therefore capable of creating the sentinel before MergeSutra is asked anything,
+     * so the test below clears it after planting and asserts on what the refusal does
+     * from that point. What is always true, and what the refusal is for, is that a
+     * read which discovers the repository obeys the repository the run chose.
      */
     async function plantRepositoryInside(workspace: string, sentinel: string): Promise<string> {
       const crafted = path.join(workspace, 'planted-gitdir');
@@ -334,11 +338,22 @@ describe.skipIf(!AVAILABLE)(
       await put(workspace, 'src/a.ts', 'fixed\n');
       const sentinel = path.join(repo, 'HOST-PWNED');
       await plantRepositoryInside(workspace, sentinel);
+      // The plant read the planted config to build itself, and on a host whose path
+      // quoting lets the hook spawn that is enough to leave the sentinel behind.
+      // Nothing may be concluded from that; what has to hold is that the refused
+      // measurement adds no execution of its own.
+      await rm(sentinel, { force: true });
+      const asked: string[][] = [];
+      const record: Runner = async (file, args) => {
+        asked.push([file, ...args]);
+        return defaultRunner(file, args);
+      };
 
-      await expect(describePatch({ workspace, baseSha: base })).rejects.toThrow(
+      await expect(describePatch({ workspace, baseSha: base }, { run: record })).rejects.toThrow(
         /metadata|trust|measure/i,
       );
 
+      expect(asked).toEqual([]);
       expect(existsSync(sentinel)).toBe(false);
     });
 
