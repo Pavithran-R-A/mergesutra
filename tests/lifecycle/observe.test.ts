@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, readdir, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { defaultRunner, type Runner } from '../../src/core/runner.js';
@@ -16,7 +16,7 @@ import { writeEvidencePack } from '../../src/report/write.js';
 import { repairPlanDigest } from '../../src/repair/digest.js';
 import { scopeDigest } from '../../src/verify/consent.js';
 import { describePatch } from '../../src/verify/patch.js';
-import { headOf, hasGit, initRepository, statusOf } from '../helpers/git.js';
+import { headOf, hasGit, runWorkspace, statusOf } from '../helpers/git.js';
 import { cycleFor } from '../helpers/repair.js';
 import { cleanUp, contractBackedRun, NOW } from '../helpers/plan.js';
 import { recordWith } from '../helpers/review.js';
@@ -78,6 +78,12 @@ function relocated(record: RunRecord, to: string): RunRecord {
   });
 }
 
+/** The workspace a record names, relative to the repository it was prepared in. */
+function workspacePathOf(record: RunRecord): string {
+  if (!record.implementation) throw new Error('the fixture record holds no workspace');
+  return record.implementation.workspace.relativePath;
+}
+
 /** Commit everything in a workspace, the way a person would, and return the new HEAD. */
 async function commitEverything(workspace: string): Promise<string> {
   await put(workspace, 'PERSON.md', 'a person works here\n');
@@ -107,10 +113,15 @@ describe.skipIf(!AVAILABLE)('the workspace a run recorded', () => {
 
   it('reports a workspace that is not there, and does not create it on the way', async () => {
     const fixture = await reviewedRun(tempDirs);
-    const missing = path.join(path.dirname(fixture.workspace), 'never-created-workspace');
+    // The repository the run worked in has moved, or someone removed its
+    // `.mergesutra/` directory. The path the record names is still derived the way
+    // Stage 5 derived it — the run's repository, plus the workspace it recorded —
+    // and it is not there.
+    const movedAway = await scratch('mergesutra-observe-primary-moved-');
+    const missing = path.resolve(movedAway, workspacePathOf(fixture.record));
     await expect(stat(missing)).rejects.toThrow();
 
-    const observation = await observe(relocated(fixture.record, missing), fixture.runsRoot);
+    const observation = await observe(relocated(fixture.record, movedAway), fixture.runsRoot);
 
     expect(stateOf(observation)).toBe('MISSING');
     expect(observation.workspace.path).toBe(missing);
@@ -132,6 +143,10 @@ describe.skipIf(!AVAILABLE)('the workspace a run recorded', () => {
   it('calls a directory that is not a Git workspace unreadable rather than unchanged', async () => {
     const fixture = await reviewedRun(tempDirs);
     const plain = await scratch('mergesutra-observe-not-a-repo-');
+    // The directory the record names is there — somebody made the shape of the
+    // path without making a workspace — and Git does not know it as one.
+    const placed = path.resolve(plain, workspacePathOf(fixture.record));
+    await mkdir(placed, { recursive: true });
 
     const observation = await observe(relocated(fixture.record, plain), fixture.runsRoot);
 
@@ -159,10 +174,19 @@ describe.skipIf(!AVAILABLE)('the workspace a run recorded', () => {
 
   it('refuses to treat another repository as this run’s workspace', async () => {
     const fixture = await reviewedRun(tempDirs);
-    const elsewhere = await initRepository({ 'README.md': '# an unrelated project\n' });
-    tempDirs.push(elsewhere.dir);
+    // A second repository, with a workspace of this run's own name prepared in it
+    // the way Stage 5 prepares one. So the path exists and Git recognises it, and
+    // the only thing wrong is which repository it belongs to — the case a rename or
+    // a copied clone leaves behind.
+    const elsewhere = await runWorkspace(
+      { 'README.md': '# an unrelated project\n' },
+      fixture.record.runId,
+    );
+    tempDirs.push(elsewhere.primary);
 
-    const observation = await observe(fixture.record, fixture.runsRoot, { repo: elsewhere.dir });
+    const observation = await observe(fixture.record, fixture.runsRoot, {
+      repo: elsewhere.primary,
+    });
 
     expect(stateOf(observation)).toBe('BASE_MISMATCH');
     // A different cause, said in different words: this repository does not hold
@@ -437,9 +461,18 @@ describe.skipIf(!AVAILABLE)('looking changes nothing', () => {
     expect(calls.length).toBeGreaterThan(0);
     for (const argv of calls) {
       expect(argv[0]).toBe('git');
-      expect(argv[1]).toBe('-C');
-      // The subcommand follows the directory argument: git -C <dir> <subcommand> …
-      const subcommand = argv[3] ?? '';
+      // An observation names the repository before the verb, in one of two shapes:
+      // `-C <directory>`, where Git works out which repository that directory
+      // belongs to, and `--git-dir <dir> --work-tree <dir> --no-optional-locks`,
+      // which is the patch measurement opening metadata this run could not have
+      // written and taking no index lock on the way. A third shape would be a
+      // repository the observation did not decide to read.
+      const discovered = argv[1] === '-C';
+      const measured =
+        argv[1] === '--git-dir' && argv[3] === '--work-tree' && argv[5] === '--no-optional-locks';
+      expect(discovered || measured, argv.join(' ')).toBe(true);
+      // The subcommand follows the directory argument in either shape.
+      const subcommand = (discovered ? argv[3] : argv[6]) ?? '';
       expect(['cat-file', 'diff', 'ls-files', 'rev-parse'], subcommand).toContain(subcommand);
     }
     expect(await statusOf(fixture.workspace, '--untracked-files=all')).toBe(dirtyBefore);

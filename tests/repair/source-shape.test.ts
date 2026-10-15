@@ -294,17 +294,22 @@ describe('what a repair cycle could ever put in front of a process', () => {
 
     expect(unsafe).toEqual([]);
 
-    // The whole enumeration, listed rather than sampled. Six commands, and every
+    // The whole enumeration, listed rather than sampled. Five commands, and every
     // one of them is git being asked what the workspace holds: the two patch
     // measurements a repair cycle is built around, the review's per-file diff, and
     // the one check MergeSutra declares for itself. Nothing in a repair's reach
     // constructs a command over anything but `git`, which is why §32's list of
     // fears — publish, wipe, escalate, re-interpret — has nowhere to enter.
+    //
+    // `git rev-parse --show-toplevel` used to be on this list. Asking Git what
+    // directory it thinks a workspace is is discovery from inside the directory
+    // under review, and the patch measurement no longer does that: it names the
+    // repository through metadata a run cannot write, so the toplevel it needs is
+    // already known before a process starts.
     expect(closed.map(show)).toEqual([
       'review/context.ts: git -C value diff --no-ext-diff --no-renames value -- value',
       'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
-      'verify/patch.ts: git rev-parse --show-toplevel',
       'verify/patch.ts: git rev-parse HEAD',
       'verify/workspace.ts: git diff --check',
     ]);
@@ -317,8 +322,12 @@ describe('what a repair cycle could ever put in front of a process', () => {
 
     // A spread means an argv this file cannot read, so the two that exist are
     // named rather than waved through. `verify/patch.ts` is the project's own
-    // `git(run, dir, args)` shorthand passing its parameter along — every caller of
-    // it is literal, which is what lets the list above count as complete.
+    // `git(run, measured, args)` shorthand passing its parameter along; what it
+    // cannot show here is the subcommand, not the repository. The prefix it does
+    // show is the point — `--git-dir` and `--work-tree` are read from metadata the
+    // run could not have written, so Git is told which repository to open instead
+    // of discovering one from inside the directory under review. Every caller of
+    // the shorthand is literal, which is what lets the list above count as complete.
     // `verify/command.ts` is a *gate*: its argv comes from the repository's build
     // files, so MergeSutra never wrote a command down to begin with. Those run only
     // under the execution consent Stage 7 records, and a gate that escapes its
@@ -328,7 +337,7 @@ describe('what a repair cycle could ever put in front of a process', () => {
     // fails so that the next person decides about it instead of inheriting it.
     expect(open.map(show)).toEqual([
       'verify/command.ts: value (open)',
-      'verify/patch.ts: git -C value (open)',
+      'verify/patch.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
     ]);
   });
 

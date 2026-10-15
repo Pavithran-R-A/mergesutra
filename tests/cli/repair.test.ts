@@ -89,7 +89,7 @@ describe.skipIf(!AVAILABLE)('mergesutra repair', () => {
     const client = scriptedClient([]);
 
     const code = await run(
-      ['node', 'mergesutra', 'repair', fixture.record.runId, '--repo', fixture.workspace],
+      ['node', 'mergesutra', 'repair', fixture.record.runId, '--repo', fixture.primaryDir],
       { ...io, env: {}, repair: depsFor(fixture, client) },
     );
 
@@ -120,7 +120,7 @@ describe.skipIf(!AVAILABLE)('mergesutra repair', () => {
     // No `client` dep and an empty environment: the dry run must not fail on a key
     // it never uses, or `--approve-plan` becomes a flag readers cannot test.
     const code = await run(
-      ['node', 'mergesutra', 'repair', fixture.record.runId, '--repo', fixture.workspace],
+      ['node', 'mergesutra', 'repair', fixture.record.runId, '--repo', fixture.primaryDir],
       { ...io, env: {}, repair: { store: fixture.store, now: () => NOW, cwd: fixture.workspace } },
     );
 
@@ -141,7 +141,7 @@ describe.skipIf(!AVAILABLE)('mergesutra repair', () => {
         'repair',
         fixture.record.runId,
         '--repo',
-        fixture.workspace,
+        fixture.primaryDir,
         '--approve-plan',
         'f'.repeat(64),
       ],
@@ -167,7 +167,7 @@ describe.skipIf(!AVAILABLE)('mergesutra repair', () => {
         'repair',
         fixture.record.runId,
         '--repo',
-        fixture.workspace,
+        fixture.primaryDir,
         '--approve-plan',
         repairPlanDigest(fixture.plan),
       ],
@@ -205,7 +205,7 @@ describe.skipIf(!AVAILABLE)('mergesutra repair', () => {
         'repair',
         fixture.record.runId,
         '--repo',
-        fixture.workspace,
+        fixture.primaryDir,
         '--approve-plan',
         repairPlanDigest(fixture.plan),
         '--json',
@@ -240,7 +240,7 @@ describe.skipIf(!AVAILABLE)('mergesutra repair', () => {
         'repair',
         fixture.record.runId,
         '--repo',
-        fixture.workspace,
+        fixture.primaryDir,
         '--approve-plan',
         repairPlanDigest(fixture.plan),
       ],
@@ -302,7 +302,7 @@ describe.skipIf(!AVAILABLE)('mergesutra repair', () => {
         'repair',
         fixture.record.runId,
         '--repo',
-        fixture.workspace,
+        fixture.primaryDir,
         '--approve-plan',
         repairPlanDigest(fixture.plan),
       ],
@@ -334,7 +334,7 @@ describe.skipIf(!AVAILABLE)('mergesutra repair', () => {
         'repair',
         fixture.record.runId,
         '--repo',
-        fixture.workspace,
+        fixture.primaryDir,
         '--approve-plan',
         repairPlanDigest(fixture.plan),
       ],

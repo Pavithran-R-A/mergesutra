@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { BharatCodeClient } from '../../src/bharatcode/client.js';
 import type { CompletionRequest } from '../../src/bharatcode/types.js';
 import { run } from '../../src/cli/program.js';
@@ -33,6 +33,16 @@ import {
 
 const AVAILABLE = await hasGit();
 const made: string[] = [];
+
+/**
+ * The fixtures build real Git workspaces — a repository and a linked worktree per
+ * run — and the slowest case here builds three of them to cover three outcomes, so
+ * it measured 17.4 s on a quiet machine against the config's 30 s default. The
+ * budget is for that work, exactly as `vitest.config.ts` raises it for the same
+ * reason: contention must not report a timeout the assertions did not earn. No
+ * assertion is softened, and no case is skipped.
+ */
+vi.setConfig({ testTimeout: 180_000 });
 
 afterAll(async () => {
   await cleanUp(made);

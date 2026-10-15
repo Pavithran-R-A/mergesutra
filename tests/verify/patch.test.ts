@@ -1,8 +1,11 @@
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { defaultRunner } from '../../src/core/runner.js';
+import { defaultRunner, type Runner } from '../../src/core/runner.js';
+import { prepareWorkspace } from '../../src/git/workspace.js';
+import { resolveTrustedGitDir } from '../../src/git/workspace-git-dir.js';
 import { sha256Hex } from '../../src/security/digest.js';
 import { describePatch, stalenessOf, type PatchDescription } from '../../src/verify/patch.js';
 import { hasGit, initRepository } from '../helpers/git.js';
@@ -17,8 +20,33 @@ import { hasGit, initRepository } from '../helpers/git.js';
  */
 
 const made: string[] = [];
+let worktreeCount = 0;
 
-async function makeRepo(files: Record<string, string>): Promise<{ dir: string; base: string }> {
+/**
+ * The workspace a run really has: Stage 5's linked worktree, inside a repository
+ * of these files.
+ *
+ * `dir` is that workspace and `repo` is the human's checkout standing next to it.
+ * Measuring anything else would be measuring a shape production never measures —
+ * a plain checkout has no Git metadata outside itself, which is exactly the fact
+ * the tests below are about.
+ */
+async function makeRepo(
+  files: Record<string, string>,
+): Promise<{ dir: string; repo: string; base: string }> {
+  const repo = await initRepository(files);
+  made.push(repo.dir);
+  worktreeCount += 1;
+  const prepared = await prepareWorkspace({
+    primaryRoot: repo.dir,
+    runId: `run-patch-${worktreeCount}`,
+    baseSha: repo.base,
+  });
+  return { dir: prepared.path, repo: repo.dir, base: prepared.baseSha };
+}
+
+/** A plain checkout: a directory whose own bytes are its repository. */
+async function makeCheckout(files: Record<string, string>): Promise<{ dir: string; base: string }> {
   const repo = await initRepository(files);
   made.push(repo.dir);
   return repo;
@@ -117,9 +145,14 @@ describe.skipIf(!AVAILABLE)('what a patch is', () => {
   });
 
   it('excludes MergeSutra scratch and a nested workspace even when the repository forgot to ignore them', async () => {
-    // No .gitignore at all: a repository that never heard of MergeSutra must not
-    // be able to make one run's evidence part of another run's patch.
-    const { dir, base } = await makeRepo({ 'src/a.ts': 'a\n' });
+    // The ignore rule reaches only the primary's own root, so a `.mergesutra/`
+    // directory inside this workspace is un-ignored and would be listed by
+    // `git ls-files --others`: one run's evidence must not become another run's
+    // patch, whatever the repository's rules happen to be.
+    const { dir, base } = await makeRepo({
+      'src/a.ts': 'a\n',
+      '.gitignore': 'node_modules/\n/.mergesutra/\n',
+    });
     await put(dir, 'src/a.ts', 'fixed\n');
     const before = await describePatch({ workspace: dir, baseSha: base });
 
@@ -127,8 +160,8 @@ describe.skipIf(!AVAILABLE)('what a patch is', () => {
     await put(dir, '.mergesutra/runs/run-1/record.json', '{}\n');
     const after = await describePatch({ workspace: dir, baseSha: base });
 
-    expect(after.identity).toBe(before.identity);
     expect(paths(after)).toEqual(['src/a.ts']);
+    expect(after.identity).toBe(before.identity);
   });
 
   it('reports a rename as one file gone and another arrived, not as a guess', async () => {
@@ -179,6 +212,152 @@ describe.skipIf(!AVAILABLE)('what a patch is', () => {
     );
   });
 });
+
+/**
+ * Measuring only through Git metadata a run could not have written.
+ *
+ * Stage 5 hands a run a worktree whose `.git` entry is a pointer into the primary
+ * repository, and every byte of that directory — the pointer included — is
+ * something the run may rewrite, since a gate is repository code running there.
+ * Git's own discovery starts from that entry and then reads whatever configuration
+ * it leads to, and configuration names programs. So the trusted host-side read of
+ * the patch may not ask Git to discover the repository from the directory under
+ * review: it has to be given the one metadata directory the run cannot author.
+ */
+describe.skipIf(!AVAILABLE)(
+  'measuring a worktree only through metadata the run could not write',
+  () => {
+    /** The workspace Stage 5 made, plus the metadata directory it points at. */
+    async function makeWorktree(files: Record<string, string>) {
+      const { dir: workspace, repo, base } = await makeRepo(files);
+      const trusted = await resolveTrustedGitDir(workspace);
+      if (trusted === null) throw new Error('the fixture must create a measurable worktree');
+      return { workspace, repo, base, gitDir: trusted.gitDir, workTree: trusted.workTree };
+    }
+
+    /**
+     * A complete second repository, standing inside the workspace.
+     *
+     * `.git` stays a pointer file — the shape a check for "is it a file" would wave
+     * through — but it leads to a gitdir the run wrote, with a HEAD of its own and a
+     * `core.fsmonitor` naming a script. That key is not a flourish: it is one of the
+     * documented ways Git configuration names a program to run, and it is consulted
+     * during repository setup, before any listing command. Whether that program is
+     * *reached* depends on how this host quotes the path — Git for Windows fails to
+     * spawn a hook whose path contains a space — so nothing here asserts that it
+     * ran. What is always true, and what the refusal is for, is that a read which
+     * discovers the repository obeys the repository the run chose.
+     */
+    async function plantRepositoryInside(workspace: string, sentinel: string): Promise<string> {
+      const crafted = path.join(workspace, 'planted-gitdir');
+      await mkdir(path.join(crafted, 'objects'), { recursive: true });
+      await mkdir(path.join(crafted, 'refs'), { recursive: true });
+      await writeFile(path.join(crafted, 'HEAD'), 'ref: refs/heads/main\n', 'utf8');
+      const hook = path.join(crafted, 'hook.sh').replace(/\\/g, '/');
+      await writeFile(
+        path.join(crafted, 'config'),
+        `[core]\n\trepositoryformatversion = 0\n\tfsmonitor = ${hook}\n`,
+        'utf8',
+      );
+      await writeFile(
+        path.join(crafted, 'hook.sh'),
+        `#!/bin/sh\ntouch "${sentinel.replace(/\\/g, '/')}"\necho unsupported-v2\n`,
+        'utf8',
+      );
+      const commit = await defaultRunner('git', [
+        '--git-dir',
+        crafted,
+        '--work-tree',
+        workspace,
+        '-c',
+        'user.name=planted',
+        '-c',
+        'user.email=planted@invalid',
+        'commit',
+        '-q',
+        '--allow-empty',
+        '-m',
+        'planted',
+      ]);
+      if (commit.code !== 0) throw new Error(`planting failed: ${commit.stderr}`);
+      // Delete-then-create, because that is what a run can do: the file it writes
+      // back carries the workspace's ordinary permissions.
+      await rm(path.join(workspace, '.git'), { force: true });
+      await writeFile(
+        path.join(workspace, '.git'),
+        `gitdir: ${crafted.replace(/\\/g, '/')}\n`,
+        'utf8',
+      );
+      const head = await defaultRunner('git', ['--git-dir', crafted, 'rev-parse', 'HEAD']);
+      if (head.code !== 0) throw new Error(`planted HEAD is unreadable: ${head.stderr}`);
+      return head.stdout.trim();
+    }
+
+    it('asks Git through the metadata directory instead of the workspace it is measuring', async () => {
+      const { workspace, base, gitDir, workTree } = await makeWorktree({ 'src/a.ts': 'a\n' });
+      await put(workspace, 'src/a.ts', 'fixed\n');
+      const argv: string[][] = [];
+      const record: Runner = async (file, args) => {
+        const result = await defaultRunner(file, args);
+        argv.push([file, ...args]);
+        return result;
+      };
+
+      const patch = await describePatch({ workspace, baseSha: base }, { run: record });
+
+      expect(paths(patch)).toEqual(['src/a.ts']);
+      expect(argv.length).toBeGreaterThan(0);
+      for (const call of argv) {
+        expect(call.slice(0, 6)).toEqual([
+          'git',
+          '--git-dir',
+          gitDir,
+          '--work-tree',
+          workTree,
+          '--no-optional-locks',
+        ]);
+        expect(call).not.toContain('-C');
+      }
+    });
+
+    it('refuses a plain checkout rather than discovering the repository from its own bytes', async () => {
+      const { dir, base } = await makeCheckout({ 'src/a.ts': 'a\n' });
+      await put(dir, 'src/a.ts', 'fixed\n');
+
+      await expect(describePatch({ workspace: dir, baseSha: base })).rejects.toThrow(
+        /metadata|trust|measure/i,
+      );
+    });
+
+    it('refuses a workspace that points at Git metadata inside itself', async () => {
+      const { workspace, repo, base } = await makeWorktree({ 'src/a.ts': 'a\n' });
+      await put(workspace, 'src/a.ts', 'fixed\n');
+      const sentinel = path.join(repo, 'HOST-PWNED');
+      await plantRepositoryInside(workspace, sentinel);
+
+      await expect(describePatch({ workspace, baseSha: base })).rejects.toThrow(
+        /metadata|trust|measure/i,
+      );
+
+      expect(existsSync(sentinel)).toBe(false);
+    });
+
+    it('shows what that refusal is for: discovery from the same workspace obeys the planted repository', async () => {
+      // The control. Same workspace, same workspace-authored metadata, and the argv
+      // MergeSutra used until this was fixed — `git -C <workspace>` with Git left to
+      // find the repository for itself. It finds, and reports, the repository the
+      // run wrote, which is the fact the refusal above exists to prevent.
+      const { workspace, repo, base } = await makeWorktree({ 'src/a.ts': 'a\n' });
+      const planted = await plantRepositoryInside(workspace, path.join(repo, 'HOST-PWNED'));
+
+      const discovered = await defaultRunner('git', ['-C', workspace, 'rev-parse', 'HEAD']);
+
+      expect(discovered.code).toBe(0);
+      expect(discovered.stdout.trim()).toBe(planted);
+      expect(discovered.stdout.trim()).not.toBe(base);
+    });
+  },
+);
 
 describe('staleness of evidence against the patch it describes', () => {
   it('calls evidence current when the patch has not moved', () => {

@@ -5,6 +5,7 @@ import {
   assertSafePathSegment,
   isCaseInsensitivePlatform,
   isInsideRoot,
+  isSamePath,
   isSafePathSegment,
   resolveInsideRoot,
 } from '../../src/security/path-safety.js';
@@ -36,6 +37,34 @@ describe('isInsideRoot', () => {
     expect(isInsideRoot(ROOT, '/WORKSPACE/REPO/x', { caseInsensitive: false })).toBe(false);
     expect(isCaseInsensitivePlatform('win32')).toBe(true);
     expect(isCaseInsensitivePlatform('linux')).toBe(false);
+  });
+});
+
+describe('isSamePath', () => {
+  it('accepts one directory named two ways', () => {
+    expect(isSamePath(ROOT, ROOT, { caseInsensitive: false })).toBe(true);
+    expect(
+      isSamePath(path.join(ROOT, 'nested'), path.resolve('/workspace/repo/nested'), {
+        caseInsensitive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects a path merely inside the other, which is what isInsideRoot also accepts', () => {
+    expect(isSamePath(ROOT, path.join(ROOT, 'src'), { caseInsensitive: false })).toBe(false);
+    expect(isSamePath(path.join(ROOT, 'src'), ROOT, { caseInsensitive: false })).toBe(false);
+  });
+
+  it('rejects siblings, parents and name prefixes', () => {
+    expect(isSamePath(ROOT, '/workspace/other', { caseInsensitive: false })).toBe(false);
+    expect(isSamePath(ROOT, '/workspace', { caseInsensitive: false })).toBe(false);
+    expect(isSamePath(ROOT, '/workspace/repo-evil', { caseInsensitive: false })).toBe(false);
+  });
+
+  it('ignores a trailing separator and honours case per platform', () => {
+    expect(isSamePath(`${ROOT}${path.sep}`, ROOT, { caseInsensitive: false })).toBe(true);
+    expect(isSamePath(ROOT, '/WORKSPACE/REPO', { caseInsensitive: true })).toBe(true);
+    expect(isSamePath(ROOT, '/WORKSPACE/REPO', { caseInsensitive: false })).toBe(false);
   });
 });
 

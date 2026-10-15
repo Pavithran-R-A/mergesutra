@@ -129,9 +129,10 @@ describe('what a publication stage could ever put in front of a process', () => 
     expect(unsafe).toEqual([]);
 
     // The whole enumeration, listed rather than sampled. A publication run measures
-    // the workspace twice at most — once for the patch, once for the base it sits on
-    // — and asks git what it is looking at. Nothing else in the stage's reach builds
-    // a command at all, which is why there is nowhere for a push to enter.
+    // the workspace at most — the patch, and the commit it sits on — and asks git
+    // about a repository it has already been told the location of. Nothing else in
+    // the stage's reach builds a command at all, which is why there is nowhere for a
+    // push to enter.
     //
     // The first entry is Stage 9's, reached transitively: `state/run-record.ts` and
     // the pack layer import the review and repair documents, so the walk arrives at
@@ -143,7 +144,6 @@ describe('what a publication stage could ever put in front of a process', () => 
       'review/context.ts: git -C value diff --no-ext-diff --no-renames value -- value',
       'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
-      'verify/patch.ts: git rev-parse --show-toplevel',
       'verify/patch.ts: git rev-parse HEAD',
     ]);
     expect([...new Set(closed.map((site) => site.argv[0] ?? ''))]).toEqual(['git']);
@@ -153,9 +153,12 @@ describe('what a publication stage could ever put in front of a process', () => 
     const open = constructions(await reachFrom(entries())).filter((site) => site.open);
 
     // A spread means an argv this file cannot read, so each one is named rather than
-    // waved through. `verify/patch.ts` is the project's own `git(run, dir, args)`
-    // shorthand passing its parameter along; every caller of it that a publication
-    // run reaches is literal, which is what lets the list above count as complete.
+    // waved through. `verify/patch.ts` is the project's own `git(run, measured, args)`
+    // shorthand passing its parameter along; the unreadable part is the subcommand,
+    // while the repository it will open is fixed on the page as `--git-dir` and
+    // `--work-tree` read from metadata a run could not write. Every caller of the
+    // shorthand that a publication run reaches is literal, which is what lets the list
+    // above count as complete.
     // `verify/command.ts` is a *gate*: its argv is discovered from the repository's
     // own build files, so MergeSutra never wrote a command down. Gates run only under
     // the execution consent Stage 7 records, and Stage 10 never runs one — it reads
@@ -167,7 +170,7 @@ describe('what a publication stage could ever put in front of a process', () => 
     // decides about it rather than inheriting it.
     expect(open.map(show).sort()).toEqual([
       'verify/command.ts: value (open)',
-      'verify/patch.ts: git -C value (open)',
+      'verify/patch.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
     ]);
   });
 

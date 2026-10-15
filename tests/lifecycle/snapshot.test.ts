@@ -80,7 +80,13 @@ describe.skipIf(!AVAILABLE)('what a snapshot separates', () => {
       fixture.runsRoot,
     );
 
-    expect(snapshot.workspace.path).toBe(elsewhere);
+    // The clone moved, so the workspace the run recorded is read out of wherever
+    // the clone now stands — named in full rather than reduced to the directory the
+    // person pointed at, which is the difference between "your worktree is missing"
+    // and "something under this name is missing".
+    expect(snapshot.workspace.path).toBe(
+      path.resolve(elsewhere, fixture.record.implementation!.workspace.relativePath),
+    );
     expect(snapshot.workspace.observedHead).toBeNull();
     expect(snapshot.workspace.state).toBe('MISSING');
     expect(snapshot.recorded.stage).toBe('review');

@@ -299,11 +299,19 @@ describe('what the product can put in front of Git', () => {
     const open = constructions(await allSources(SRC)).filter((site: Site) => site.open);
 
     // Eight, and each is a pass-through rather than a command: the project's own
-    // `git(run, dir, …)` shorthand handing its parameter along, and `verify/command.ts`
+    // git shorthands handing their parameters along, and `verify/command.ts`
     // discovering a gate command from the repository's own build files — the S12-22
     // boundary, which runs only under execution consent and is never a MergeSutra-authored
     // git call. A ninth open site is a command nobody can read, and this fails so the next
     // person decides about it instead of inheriting it.
+    //
+    // What the pass-throughs are worth, since a hook fires from a directory as well as
+    // from a verb: `intake/local-repo.ts` and the two `git/workspace.ts` sites read the
+    // operator's own checkout, chosen before any run exists, and `lifecycle/observe.ts`
+    // reads the workspace path a run record names. `verify/patch.ts` used to be a third
+    // `-C` discovery; it is now `--git-dir`/`--work-tree` read out of metadata the run
+    // could not have written, because that measurement describes bytes a model authored,
+    // and the repository it opens must not be one of the things those bytes get to pick.
     expect(open.map(show).sort()).toEqual([
       'git/workspace.ts: git -C value (open)',
       'git/workspace.ts: git -C value (open)',
@@ -312,7 +320,7 @@ describe('what the product can put in front of Git', () => {
       'lifecycle/observe.ts: git -C value (open)',
       'lifecycle/observe.ts: git cat-file -e (open)',
       'verify/command.ts: value (open)',
-      'verify/patch.ts: git -C value (open)',
+      'verify/patch.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
     ]);
   });
 });

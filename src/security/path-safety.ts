@@ -37,6 +37,22 @@ export function isInsideRoot(
 }
 
 /**
+ * True when both names address the same directory — and only then.
+ *
+ * `isInsideRoot` cannot answer this question because it is also true for a
+ * candidate beneath the root, which is exactly the case a caller comparing two
+ * directory names has to reject.
+ */
+export function isSamePath(
+  left: string,
+  right: string,
+  options: { readonly caseInsensitive?: boolean } = {},
+): boolean {
+  const caseInsensitive = options.caseInsensitive ?? isCaseInsensitivePlatform();
+  return forCompare(left, caseInsensitive) === forCompare(right, caseInsensitive);
+}
+
+/**
  * Resolve `candidate` against `root` and prove it stays inside.
  *
  * Absolute paths and `..` segments are refused outright rather than normalised

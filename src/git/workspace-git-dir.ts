@@ -1,6 +1,6 @@
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { isCaseInsensitivePlatform, isInsideRoot } from '../security/path-safety.js';
+import { isInsideRoot, isSamePath } from '../security/path-safety.js';
 
 /**
  * Which Git directory MergeSutra may trust when it measures a run workspace.
@@ -65,7 +65,7 @@ export async function resolveTrustedGitDir(workspace: string): Promise<TrustedGi
   // Git writes that back-pointer itself when it creates the worktree, and the run
   // cannot forge one because the file lives outside the directory it may write in.
   const back = await read(path.join(gitDir, 'gitdir'));
-  if (back === null || !samePath(await resolveAgainst(back, gitDir), pointerPath)) return null;
+  if (back === null || !isSamePath(await resolveAgainst(back, gitDir), pointerPath)) return null;
 
   return { gitDir, workTree };
 }
@@ -81,12 +81,6 @@ function pointerTarget(contents: string | null, workTree: string): string | null
 async function resolveAgainst(value: string, base: string): Promise<string> {
   const trimmed = value.trim();
   return path.isAbsolute(trimmed) ? trimmed : path.resolve(base, trimmed);
-}
-
-function samePath(a: string, b: string): boolean {
-  const left = path.resolve(a).replace(/[\\/]+$/, '');
-  const right = path.resolve(b).replace(/[\\/]+$/, '');
-  return isCaseInsensitivePlatform() ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
 async function read(file: string): Promise<string | null> {

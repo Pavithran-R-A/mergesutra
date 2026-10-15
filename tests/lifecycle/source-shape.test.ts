@@ -196,7 +196,11 @@ describe('what recovery could ever put in front of a process', () => {
 
     // The whole enumeration, listed rather than sampled. Status measures a workspace and
     // a patch — the recorded base, the current bytes, the identity of the pack on disk —
-    // and asks git what it is looking at. The `review/context.ts` entry arrives through
+    // and asks git what it is looking at. The observer's own two `rev-parse` entries are
+    // how it finds the workspace at all; the `verify/patch.ts` entries are the measurement
+    // it then takes, and that measurement no longer asks git to discover a repository from
+    // inside the directory under review, so it no longer appears here as a `--show-toplevel`.
+    // The `review/context.ts` entry arrives through
     // `report/write.ts`: reading a pack's identity reaches the module that assembles a
     // reviewer's model, which reads a per-file diff. That diff is a read over bytes
     // already on disk, so it belongs on this list; it is also a reason to keep the list
@@ -207,7 +211,6 @@ describe('what recovery could ever put in front of a process', () => {
       'review/context.ts: git -C value diff --no-ext-diff --no-renames value -- value',
       'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
-      'verify/patch.ts: git rev-parse --show-toplevel',
       'verify/patch.ts: git rev-parse HEAD',
     ]);
     expect([...new Set(closed.map((site) => site.argv[0] ?? ''))]).toEqual(['git']);
@@ -217,9 +220,10 @@ describe('what recovery could ever put in front of a process', () => {
     const open = constructions(await reachFrom(observerEntries())).filter((site) => site.open);
 
     // A spread means an argv this file cannot fully see, so each one is named rather than
-    // waved through. Three of the four are the project's own `git(run, dir, args)`
-    // shorthand passing its parameter along — the literal commands those helpers are
-    // called with are the enumeration above. `verify/command.ts` is a *gate* whose argv is
+    // waved through. Three of the four are the project's own git shorthands passing their
+    // parameters along — the literal commands those helpers are called with are the
+    // enumeration above, and the `verify/patch.ts` one names the repository it will read
+    // instead of letting git find one. `verify/command.ts` is a *gate* whose argv is
     // discovered from the repository's own build files, so MergeSutra never wrote a
     // command down; gates run only under the execution consent Stage 7 records, and
     // status never runs one. A fifth open site, or one in a module the observer newly
@@ -229,7 +233,7 @@ describe('what recovery could ever put in front of a process', () => {
       'lifecycle/observe.ts: git -C value (open)',
       'lifecycle/observe.ts: git cat-file -e (open)',
       'verify/command.ts: value (open)',
-      'verify/patch.ts: git -C value (open)',
+      'verify/patch.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
     ]);
   });
 
@@ -368,11 +372,11 @@ describe('what `resume --execute` is not given permission to reach', () => {
     for (const site of closed) expect(risksOf(site.argv), show(site)).toBe('READ');
 
     // The full enumeration for the acting half, listed because "identical to Stages
-    // 3–10" is only checkable as a set. Nine more than the observer, and all nine are
-    // measurement: `git/workspace.ts` for the worktree a resumed loop stands in,
-    // `verify/workspace.ts` for the `--check` a gate round wants, and the extra
-    // `rev-parse`/`cat-file` reads that identify a base commit. Not one of them writes,
-    // and nothing here is new to this stage — which is the property a later contributor
+    // 3–10" is only checkable as a set. Seven more than the observer, and all seven are
+    // measurement: the six `git/workspace.ts` reads that find, check and list the worktree
+    // a resumed loop stands in, and the `git diff --check` in `verify/workspace.ts` that a
+    // gate round wants. Not one of them writes, and nothing here is new to this stage —
+    // which is the property a later contributor
     // can break with a single added helper, so it is pinned.
     expect(closed.map(show).sort()).toEqual([
       'git/workspace.ts: git cat-file -t value',
@@ -386,7 +390,6 @@ describe('what `resume --execute` is not given permission to reach', () => {
       'review/context.ts: git -C value diff --no-ext-diff --no-renames value -- value',
       'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
-      'verify/patch.ts: git rev-parse --show-toplevel',
       'verify/patch.ts: git rev-parse HEAD',
       'verify/workspace.ts: git diff --check',
     ]);
@@ -407,7 +410,7 @@ describe('what `resume --execute` is not given permission to reach', () => {
       'lifecycle/observe.ts: git -C value (open)',
       'lifecycle/observe.ts: git cat-file -e (open)',
       'verify/command.ts: value (open)',
-      'verify/patch.ts: git -C value (open)',
+      'verify/patch.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
     ]);
   });
 
