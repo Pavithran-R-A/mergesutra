@@ -114,8 +114,16 @@ export function sandboxDockerArgv(input: {
     '--env=XDG_CONFIG_HOME=/tmp',
     '--env=npm_config_cache=/tmp/npm-cache',
     '--env=CI=1',
-    input.image,
+    // Run exactly the program the caller named. An image's own entrypoint is
+    // free to reinterpret an argv it does not recognise — the official `node`
+    // images prepend `node`, so a gate that asked for `git status` would have
+    // `node git status` executed instead, and its exit code recorded as the
+    // gate's. Naming the entrypoint removes the image from that decision; a
+    // missing program then fails at container creation instead of running
+    // something else.
+    '--entrypoint',
     input.file,
+    input.image,
     ...input.args,
   ];
 }
