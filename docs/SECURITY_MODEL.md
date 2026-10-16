@@ -252,9 +252,9 @@ repository declares, which is a different threat and gets a different boundary.
   the customer's code under review, still goes to the sandbox. The host read is
   then made through the trusted Git directory of the next bullet, so the check
   obeys configuration the run could not have authored.
-- **The measurement is told which repository to read.** Stage 7's patch identity,
-  Stage 11's observation of the workspace and Stage 9's per-file diff each ask Git
-  what differs from the run's base commit.
+- **The measurement is told which repository to read.** Stage 5's reuse
+  decision, Stage 7's patch identity, Stage 9's per-file diff and Stage 11's
+  observation of the tree each ask Git what differs from the run's base commit.
   A Stage 5 workspace's `.git` entry is a one-line pointer *inside* the directory
   the run may write, so letting Git *discover* the repository from that directory
   would let the code under review choose which configuration the trusted read
@@ -269,11 +269,15 @@ repository declares, which is a different threat and gets a different boundary.
   says so — there is no fallback to discovery, because "unmeasurable" and
   "measured against the run's own invention" have to be different outcomes.
   `SECURITY_GAP_REGISTER.md` S16-1/S16-2 carry the control that shows a
-  discovering read reporting a planted repository as the run's patch, and S16-6
-  and S16-7 the two reads that were still discovering after that. One is left:
-  Stage 5 asks a workspace that already exists, through discovery, whether it may
-  reuse it (`headAt`, `src/git/workspace.ts:247`) — S16-8, open, with the
-  reproduction and the reason it is not a quick edit.
+  discovering read reporting a planted repository as the run's patch, and S16-6,
+  S16-7 and S16-8 the three reads that were still discovering after that. Each
+  of the four resolves the pair before it asks anything —
+  `src/verify/patch.ts:137`, `src/lifecycle/observe.ts:204`,
+  `src/review/context.ts:229` and `src/git/workspace.ts:138` and `:193` — and
+  each then asks through `--git-dir`/`--work-tree`/`--no-optional-locks`
+  (`src/verify/patch.ts:405`, `src/lifecycle/observe.ts:365`,
+  `src/review/context.ts:391`, `src/git/workspace.ts:324`). The `-C` reads that
+  remain are of the operator's own checkout, chosen before any run exists.
 - **Receipts are the only thing that can prove anything, so they are bounded and
   redacted.** A receipt keeps exit code, termination, duration, a 4 KB tail of
   *redacted* stdout/stderr and the sha-256 of the unredacted bytes — the digest

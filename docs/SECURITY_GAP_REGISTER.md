@@ -5236,17 +5236,16 @@ it:
   `docs/SANDBOX_EXECUTION.md` that such a round must not be reported as a PASS and must not fall back to
   a raw host runner still holds for every command a repository wrote down; the rounds that broke came
   back `FAIL`, never `PASS`, and the round that works now earns its `PASS` by measuring.
-- **Every read MergeSutra makes of a run workspace now names a Git directory the run cannot write —
-  except one.** The three that mattered when this status was first written — Stage 7's patch identity
-  (`S16-2`), Stage 11's observation of the tree (`S16-6`) and the reviewer's per-file diff (`S16-7`) —
-  each resolve the pair before asking anything (`src/verify/patch.ts:137`, `src/lifecycle/observe.ts:204`,
-  `src/review/context.ts:229`), refuse when it is `null`, and then ask through
+- **Every read MergeSutra makes of a run workspace now names a Git directory the run cannot write.**
+  The four that mattered when this status was first written — Stage 7's patch identity (`S16-2`), Stage 11's
+  observation of the tree (`S16-6`), the reviewer's per-file diff (`S16-7`) and Stage 5's reuse decision
+  (`S16-8`) — each resolve the pair before asking anything (`src/verify/patch.ts:137`,
+  `src/lifecycle/observe.ts:204`, `src/review/context.ts:229`, `src/git/workspace.ts:138` and `:193`),
+  refuse when it is `null`, and then ask through
   `git --git-dir <admin> --work-tree <workspace> --no-optional-locks …`. The built-in `git diff --check`
   gate stopped being one of these reads in `S16-4`: it is a host measurement of the trusted pair now, not
-  a command handed to the container. What remains is `S16-8` — Stage 5's reuse decision asks `headAt`
-  through Git discovery (`src/git/workspace.ts:247`, called at `:132`), so a workspace an earlier run left
-  behind answers for itself, and the quiet case is the plant whose HEAD already equals the base.
-  `src/git/workspace.ts` and `src/intake/local-repo.ts` also use `-C`, on the operator's own checkout
+  a command handed to the container.
+  `src/git/workspace.ts` and `src/intake/local-repo.ts` still use `-C`, on the operator's own checkout
   chosen before any run exists, and are named in `tests/security/hook-firing-verbs.test.ts` rather than
   being treated as clean.
 - **Cross-platform qualification of this arc has started, and it found a defect in this stage's own
@@ -5266,7 +5265,12 @@ it:
   `38860423299` on `0d90b59` — which carries `S16-4`'s fix and its register entry — reports all six
   `check (…)` cells `success`, ubuntu, Windows and macOS at Node 22.x and 24.x, and
   `Real Docker isolation proof` run `38860423879` on that SHA is `success` with its one `sandbox` job.
-  Neither reading covers `S16-6` or `S16-7`: those are not pushed yet. Still unmeasured: macOS Docker
+  The arc's head since then has its own reading, and it covers `S16-6` through `S16-8`: CI run
+  `38887286320` on `635a157` reports all six `check (…)` cells `success` — `Tests 2431 passed | 4 skipped
+  (2435)` on macOS and Windows at both Node versions, `2429 passed | 6 skipped (2435)` on ubuntu — and
+  `Real Docker isolation proof` run `38887286328` on that SHA is `success`, pulling the pinned
+  `node@sha256:a4fb14143ee2…` digest and printing `SANDBOX_RUNTIME_PROOF: PASS` then
+  `STAGE_6_AND_7_DOCKER_PROOF: PASS`. Still unmeasured: macOS Docker
   (`scripts/sandbox-runtime-proof.mjs` names `/usr/bin/docker` and
   `.github/workflows/sandbox-runtime.yml` runs on Ubuntu only, and its single job is labelled
   `ubuntu-latest`), and any Node 22 or Node 24 *sandbox image*. Issue #33 therefore stays open.
@@ -5817,9 +5821,9 @@ reported `1 failed | 24 passed (25)` with
 `git -C C:\Users\…\worktrees\run-… diff --no-ext-diff --no-renames 67c983ce… -- src/parse.ts: expected
 ['-C', …(3)] to deeply equal ['--git-dir', …(3)]`.
 
-## S16-8 — Stage 5 asks an existing run workspace, through Git discovery, whether it may reuse it — OPEN (found while closing S16-7)
+## S16-8 — Stage 5 asked an existing run workspace, through Git discovery, whether it may reuse it — CLOSED (CODE + TEST + DOCUMENT)
 
-**Finding.** `headAt` (`src/git/workspace.ts:246-250`) runs `git -C <directory> rev-parse --verify HEAD`,
+**Finding.** `headAt` (pre-fix `src/git/workspace.ts:246-250`) runs `git -C <directory> rev-parse --verify HEAD`,
 and `prepareWorkspace` calls it with **the run's workspace** in two places: `:132`, deciding whether a
 workspace that already exists stands at the recorded base and may be reused, and `:178`, checking the
 workspace it has just created. The second is MergeSutra's own bytes, written one command earlier. The
@@ -5837,20 +5841,96 @@ same commit — where Stage 5 returns that directory as a reuse and the next run
 workspace whose metadata aims at another repository, while MergeSutra's own host reads of it fire
 whatever configuration that repository names.
 
-**Why it is still open, and what closing it needs.** The fix is the same two lines as S16-6 and S16-7:
-resolve the pair for `workspace`, refuse the reuse when it is `null`, and ask `rev-parse` through
-`--git-dir`/`--work-tree`. It is not done here because `tests/git/workspace.test.ts` scripts Git against a
-path that does not exist on disk (`C:/repos/datekit`, `:21`); every reuse test there would answer
-`resolveTrustedGitDir → null` and fall into the refusal, so each of those fixtures has to be given a
-workspace this build will measure — either a real `git init` in a temporary directory, as
-`tests/helpers/git.ts` and `tests/git/workspace-git-dir.test.ts` already do, or the planted pointer-and-
-back-pointer pair `tests/lifecycle/budget-cli.test.ts` used for the same consequence of S16-6. Either way
-it is a rewrite of that file's whole fixture layer, which is a stage of its own rather than an edit to slip
-beside a gate sweep. Downstream
-still fails closed: the patch identity of such a workspace is refused by S16-2's `measure`
-(`src/verify/patch.ts:137`), so a reused planted workspace cannot produce a `PASS`ing verification, and
-this item records the *decision* taken from metadata the run authored, not a false PASS earned from it.
+**Fix.** `prepareWorkspace` resolves the pair at both of the two places that asked the workspace, and
+refuses before it asks anything: `src/git/workspace.ts:138` for a workspace that already exists, with
+`:139-146` returning "a workspace for run … is registered in this repository, but MergeSutra cannot name
+Git metadata for it that the run could not have written", and `:193` for the directory `git worktree add`
+has just created, with `:194-201` refusing anything that has no metadata outside the workspace. `headAt`
+now takes the resolved pair (`:277`) and asks through `git(run, measured, …)`, whose trusted branch at
+`:320-330` emits `--git-dir <admin> --work-tree <workspace> --no-optional-locks rev-parse --verify HEAD`
+(`:324`). The union on that helper is what keeps the operator-checkout reads (`:110, 120, 170, 179, 185,
+231, 250, 260`) on `-C` — a directory the run never had — while no read of a run workspace discovers.
+Stage 5's reuse decision is therefore made from metadata the run cannot author, and the quiet case the
+**Measured** paragraph names — a plant whose HEAD already equals the base — is refused at the refusal, not
+answered by the planted repository.
 
-**Status: OPEN.** Named in `tests/security/hook-firing-verbs.test.ts`'s whole-product open-site inventory
-comment, because that list renders `git -C value (open)` for both the operator-checkout reads and this
-one, and the inventory cannot tell them apart.
+**Tests.** Two new ones, at the layer where the plant is real. `tests/git/workspace.test.ts`
+"refuses a reuse whose pointer was forged onto a sibling run's registration at the base" plants the pair
+Git itself writes for a *second* run whose registered HEAD is the base, forges this run's `.git` to point
+at that sibling's admin directory, and asserts the refusal, that no `rev-parse --verify HEAD` reached the
+process at all, that no `worktree add` followed, and that the sibling's own back-pointer is still intact
+and its workspace still measurable — the forged pointer aims at a real, honest registration, so the test
+proves the refusal is about who authored the entry, not that the target is nonsense.
+"refuses a real workspace forged onto a sibling registration that real Git answers at the base" does the
+same over two production `prepareWorkspace` calls against a real repository: the positive controls are
+recorded inside the test (`rev-parse --absolute-git-dir` on the forged workspace answers the *sibling's*
+admin directory, and `rev-parse --verify HEAD` answers `baseSha` — discovery really does report the base,
+which is the condition the finding describes), and the assertions then run against the recorded argv of
+every `git` process MergeSutra spawned: no argv pair names the forged workspace as a `-C` target, none
+carries `--git-dir` from a discovery-shaped call, no `worktree add` appears, and the forged pointer file
+is byte-identical afterwards. Positive coverage is kept: create-and-reuse, malformed pointer, missing
+admin metadata and path-alias cases all still pass.
+
+**The fixture consequence, stated honestly.** This is the fourth module to make the pair request, and the
+first that is *fixture-heavy*: the trust rule is a filesystem rule, so every scripted test that reuses a
+workspace had to be given a workspace that exists on disk with the real pointer/back-pointer pair
+(`plantLinkedWorktree`, `tests/git/workspace.test.ts:58-77`, used by the forge at `:290`), and the scripted Git in
+`tests/helpers/implement.ts:328, 398` had to learn to translate the pair shape into the verb its repository
+understands rather than keying off `-C`. That propagated to `tests/implement/credential-env.test.ts`,
+`tests/implement/implement.test.ts:564`, `tests/lifecycle/budget-cli.test.ts:159, 188`, and to the two
+inventories that count call sites — `tests/lifecycle/source-shape.test.ts:396, 428` and
+`tests/security/hook-firing-verbs.test.ts:314`, where the whole-product list is now ten open sites because
+the scanner renders `run('git', ['-C', value, …])` and the trusted pair identically and so cannot tell a
+measured read from a discovering one. No assertion was removed from either inventory to make it green; the
+lists were re-counted.
+
+**Anti-vacuity.** Four mutations of `src/git/workspace.ts`, each reverted and verified byte-for-byte with
+`cmp`, each run against `tests/git/workspace.test.ts` (`/c/tmp/s16/teeth-s168.log`):
+
+- **V** — the pre-fix implementation, with only the two new sibling-forge tests selected:
+  `2 failed | 19 skipped (21)`, both failing `promise resolved "{ …(9) }" instead of rejecting`. That is
+  the RED the fix had to earn: the tests describe the plant, and the old product walks straight into it.
+- **A** — `headAt` back to `git(run, measured.workTree, …)`: `1 failed | 20 passed (21)`,
+  `expected '-C' to be '--git-dir'` from the argv pin.
+- **B** — the reuse guard's `measured === null` changed to `undefined` so it cannot fire:
+  `3 failed | 18 passed (21)` — the scripted refusal test, the real-Git forge test, and
+  "refuses a workspace it cannot measure rather than letting Git discover one", each getting
+  `Cannot read properties of null (reading 'gitDir')` instead of the refusal.
+- **C** — the same for the post-creation guard: `1 failed | 20 passed (21)` on
+  "refuses a workspace Git created without metadata outside it".
+- Control on the unmutated tree: `21 passed (21)`.
+
+**Readings on this tree.** `npx vitest run tests/git tests/security/hook-firing-verbs.test.ts
+tests/lifecycle/source-shape.test.ts` → `Test Files 6 passed (6)`, `Tests 95 passed (95)`.
+`typecheck`, `lint`, `build`, `format:check`, `qualify:path-shapes` (`git-discovery=covered`) each exit
+`0`; `verify:package` → `115 passed`; `test:artifact` → `14 passed`. The whole-suite sweep on this host is
+**not** a clean local reading and is not reported as one: `C:` was at 100 % full throughout
+(`df -h /c`: 592 MB free at the start of this item's work, 358 MB by its end, and this is the only drive on
+the machine), and the sweep's 19 failures were classified by error text — 17 `ENOSPC` on `open`, 1 on
+`write`, 2 `git` exit-255 — with those three files re-run in isolation returning
+`Test Files 3 passed (3)`, `Tests 75 passed (75)`. That is a host resource limit, not an assertion. The
+authoritative cross-platform reading is hosted, on the pushed SHA, in the next paragraph.
+
+**Hosted, on the exact SHA that carries this fix** (`635a157bc2af8da93e34200de0aede2eec0d50e2`):
+`Real Docker isolation proof` run
+[38887286328](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38887286328) is `success` — its one
+`sandbox` job pulled `docker.io/library/node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8`
+and printed `SANDBOX_RUNTIME_PROOF: PASS` (10:27:11Z) then `STAGE_6_AND_7_DOCKER_PROOF: PASS` (10:27:12Z).
+`CI` run [38887286320](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38887286320) on that SHA is
+`success` with all six `check (…)` cells green — ubuntu, Windows and macOS at Node 22.x and 24.x, each
+reporting `Test Files 162 passed | 3 skipped (165)` and `Tests 2431 passed | 4 skipped (2435)` (the ubuntu
+cells report `2429 passed | 6 skipped (2435)`, the difference being the three `live.test.ts` files that
+need a model gateway), and each showing `tests/git/workspace.test.ts (21 tests)` green — the two new
+sibling-forge tests included.
+
+**What this does not claim.** The refusal is a filesystem judgement made on the host, so it proves MergeSutra
+will not *read* an authored repository; it does not prove a plant is unreachable — Stage 6 runs repository
+code with that directory mounted read-write, which is the condition S16-1 was written for, and a run can
+still try. And this closes the four *workspace* reads the register named; the `-C` reads that remain are
+of the operator's checkout, chosen before any run exists, and are listed as such rather than being
+silently counted clean.
+
+**Status: CLOSED (CODE + TEST + DOCUMENT).** `tests/security/hook-firing-verbs.test.ts`'s whole-product
+inventory still renders this module's pair call as an open site, because the scanner cannot distinguish
+`git -C <value>` from the trusted argv; the citation there names `src/git/workspace.ts:278` as measured,
+not discovered.
