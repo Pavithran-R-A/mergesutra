@@ -252,8 +252,9 @@ repository declares, which is a different threat and gets a different boundary.
   the customer's code under review, still goes to the sandbox. The host read is
   then made through the trusted Git directory of the next bullet, so the check
   obeys configuration the run could not have authored.
-- **The measurement is told which repository to read.** Stage 7's patch identity
-  and everything downstream of it ask Git what differs from the run's base commit.
+- **The measurement is told which repository to read.** Stage 7's patch identity,
+  Stage 11's observation of the workspace and Stage 9's per-file diff each ask Git
+  what differs from the run's base commit.
   A Stage 5 workspace's `.git` entry is a one-line pointer *inside* the directory
   the run may write, so letting Git *discover* the repository from that directory
   would let the code under review choose which configuration the trusted read
@@ -268,7 +269,11 @@ repository declares, which is a different threat and gets a different boundary.
   says so — there is no fallback to discovery, because "unmeasurable" and
   "measured against the run's own invention" have to be different outcomes.
   `SECURITY_GAP_REGISTER.md` S16-1/S16-2 carry the control that shows a
-  discovering read reporting a planted repository as the run's patch.
+  discovering read reporting a planted repository as the run's patch, and S16-6
+  and S16-7 the two reads that were still discovering after that. One is left:
+  Stage 5 asks a workspace that already exists, through discovery, whether it may
+  reuse it (`headAt`, `src/git/workspace.ts:247`) — S16-8, open, with the
+  reproduction and the reason it is not a quick edit.
 - **Receipts are the only thing that can prove anything, so they are bounded and
   redacted.** A receipt keeps exit code, termination, duration, a 4 KB tail of
   *redacted* stdout/stderr and the sha-256 of the unredacted bytes — the digest
@@ -809,8 +814,17 @@ is refused outright rather than escalated (§2.1). Four things about it are wort
   `git push --force` proposed as `execute` is DESTRUCTIVE, `git push` is
   REMOTE MUTATION, and `git -c core.pager=evil log` — which is a *read* until
   git starts the pager — is DESTRUCTIVE too. Global git options that redirect
-  the repository, the config or the program are refused outright; MergeSutra
-  only ever emits `-C`, which chooses a directory and nothing else.
+  the repository, the config or the program are refused outright, and a command
+  this controller mediates only ever carries `-C`, which chooses a directory and
+  nothing else. MergeSutra's own trusted measurements (§2.2) are the one place
+  those tokens appear — `--git-dir`/`--work-tree` in
+  `src/verify/patch.ts`, `src/lifecycle/observe.ts` and `src/review/context.ts` —
+  and they are not proposed to this controller: each module runs its own argv
+  through a `Runner`, defaulting to `defaultRunner` (`src/verify/patch.ts:93`),
+  with the two paths taken from metadata the run cannot write rather than from
+  anything the repository proposed. The classifier still marks that argv
+  DESTRUCTIVE, which is why the shape is written once per module and pinned by a
+  test rather than proposed as an action.
 - **A remote mutation needs a yes for that exact action.** The approval carries
   the action's own summary and is compared word for word, so a general
   "you may publish" cannot cover a different push. Without the match the
