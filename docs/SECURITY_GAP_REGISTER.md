@@ -6068,6 +6068,30 @@ deleting exactly the 1 236 files that run created, rebuilding with the correct c
 (`dist/` = 472 files) and re-running made both artifact gates exit `0`, and no source file was
 touched.
 
+**Whole-suite local reading, `b39af4cb64fc7e4ce8038bf9c11b0ad6035a9a5d`.** The free-space numbers quoted
+in this item's earlier paragraphs are readings of their own runs, not a standing condition: the host has
+moved between 55 MB and 6.0 GB available across this Stage 16 work, which is why the whole-suite sweep
+was recorded as an open limitation rather than as a proven failure. With room on the drive, `npx vitest
+run --minWorkers=2 --maxWorkers=2` completed on this tree — `exit=0`, captured adjacent to the command,
+`Test Files 163 passed | 3 skipped (166)` and `Tests 2435 passed | 4 skipped (2439)` in 1 464.68 s. The
+skip set is the hosted Windows and macOS cells' skip set: `tests/implement/live.test.ts`,
+`tests/plan/live.test.ts` and `tests/review/live.test.ts`, one test each behind a model gateway this host
+does not have, plus one in-file skip in `tests/intake/home-path.test.ts`. `tests/git/customer-worktree.test.ts`
+reports `(4 tests) 22189ms`, so the customer topology is measured on this host's real Git as well as in
+CI. No `ENOSPC`, no unhandled-error and no `ERR_` line appears anywhere in the log. The sweep moved the
+drive from 6.0 GB to 4.0 GB available (`df -h /c` before and after, `100 %` used at the end) — the margin
+the earlier sweeps did not have. One host, one operating system, one Git version: a second independent
+reading, not a substitute for the six-cell hosted matrix above. The suites that read this register were
+run on this tree with `--minWorkers=1 --maxWorkers=1` → `Test Files 43 passed (43)`, `Tests 624 passed
+(624)` in 240.23 s, exit `0`; `npx prettier --check docs/SECURITY_GAP_REGISTER.md` exits `0`. Both were
+taken before the last wording of the two sentences that report them, so the after-edit reading for this
+prose is the hosted CI run of the commit that carries it, not this local pass. **Tooling artifact, kept because it looked like a green gate:** the first pass of
+that subset named `tests/plan/source-shape.test.ts`, which does not exist — the three files are
+`tests/lifecycle`, `tests/pr` and `tests/repair` — and vitest selects nothing for a path that matches no
+test, so that run reported `41 passed (41)` / `609 passed (609)` and exit `0` while two of the intended
+files had never been executed. A gate's own file list has to be checked against the filesystem; the
+`43 passed (43)` reading above is the corrected list.
+
 **What this does not claim.** Stage 9's per-file diff was not driven through production in this
 topology; it resolves the same `resolveTrustedGitDir` gate the four tests here already exercise, and
 what this file shows about the layout is the one fact that read depends on — which is a claim about
