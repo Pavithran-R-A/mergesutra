@@ -6020,14 +6020,23 @@ it could disturb, one worker: `tests/git/customer-worktree.test.ts` (4), `tests/
 full-disk reason as above; the hosted run for this commit is what closes it, and is recorded only when it
 lands.
 
-**Hosted reading, `3fc1d85ab79bfafcc5880918830b2ee32b5b8ac4`.** CI run `38896143773` is 6/6 green
-(ubuntu / macOS / Windows × Node 22.x / 24.x); every cell reports `Test Files 163 passed | 3 skipped
-(166)` and names `tests/git/customer-worktree.test.ts (2 tests)` passing — so the topology is measured
-against three operating systems' real Git, not one host's. `Real Docker isolation proof`
-(`38896143640`) is green on the same SHA with `SANDBOX_RUNTIME_PROOF: PASS` and
-`STAGE_6_AND_7_DOCKER_PROOF: PASS`. The two Stage 11 tests above are *not* in that reading: they land
-after `3fc1d85`, so their hosted evidence is the run for their own commit, recorded when it lands and
-not assumed from this one.
+**Hosted reading, `f2557d16a2e2910a7b8c0ad2bc2414dcb151d3c7` — the commit that carries all four
+tests.** CI run `38905245614` is 6/6 green on that exact SHA (ubuntu / macOS / Windows × Node 22.x /
+24.x); every cell reports `Test Files 163 passed | 3 skipped (166)` and names
+`tests/git/customer-worktree.test.ts (4 tests)` in its passing list — 641 ms on ubuntu/Node 22 up to
+10 476 ms on Windows/Node 24 — so the topology is measured against three operating systems' real Git,
+not one host's. The test totals differ only by live-model skips: `Tests 2433 passed | 6 skipped
+(2439)` on the ubuntu cells and `2435 passed | 4 skipped (2439)` on Windows and macOS. The three
+skipped *files* are the same in all six cells — `tests/implement/live.test.ts`,
+`tests/plan/live.test.ts` and `tests/review/live.test.ts`, one test each, all gated behind a model
+gateway CI does not have — and no Git-topology file is among them. Each cell also runs the two
+artifact gates: `115 passed (115)` and `14 passed (14)`. `Real Docker isolation proof`
+(`38905245682`) is `success` on the same SHA: its job ran `npm ci` (157 packages) and `npm run build`,
+pulled the pinned `node@sha256:a4fb14143ee2…`, then printed `SANDBOX_RUNTIME_PROOF: PASS` and
+`STAGE_6_AND_7_DOCKER_PROOF: PASS` — Ubuntu/Node 22 only, exactly as `S16-4` limits it. The
+preceding head `3fc1d85ab…` had the same 6/6 and the same Docker PASS (`38896143773`, `38896143640`),
+but over the two-test version of this file, so it is not the evidence for the Stage 11 pair; this
+reading is. The commit that records it changes no test.
 
 **What this does not claim.** Stage 9's per-file diff was not driven through production in this
 topology; it resolves the same `resolveTrustedGitDir` gate the four tests here already exercise, and
