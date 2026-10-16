@@ -294,10 +294,12 @@ describe('what a repair cycle could ever put in front of a process', () => {
 
     expect(unsafe).toEqual([]);
 
-    // The whole enumeration, listed rather than sampled. Five commands, and every
+    // The whole enumeration, listed rather than sampled. Six commands, and every
     // one of them is git being asked what the workspace holds: the two patch
     // measurements a repair cycle is built around, the review's per-file diff, and
-    // the one check MergeSutra declares for itself. Nothing in a repair's reach
+    // the one check MergeSutra declares for itself — which Stage 7 now measures on
+    // the host, so `verify/patch.ts` constructs it from the same constant
+    // `verify/workspace.ts` puts in the plan. Nothing in a repair's reach
     // constructs a command over anything but `git`, which is why §32's list of
     // fears — publish, wipe, escalate, re-interpret — has nowhere to enter.
     //
@@ -308,6 +310,7 @@ describe('what a repair cycle could ever put in front of a process', () => {
     // already known before a process starts.
     expect(closed.map(show)).toEqual([
       'review/context.ts: git -C value diff --no-ext-diff --no-renames value -- value',
+      'verify/patch.ts: git diff --check',
       'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
       'verify/patch.ts: git rev-parse HEAD',

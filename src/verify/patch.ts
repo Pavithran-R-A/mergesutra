@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
-import { defaultRunner, type Runner } from '../core/runner.js';
+import { createRunner, defaultRunner, type RunResult, type Runner } from '../core/runner.js';
 import { AppError } from '../core/errors.js';
 import { resolveTrustedGitDir, type TrustedGitDir } from '../git/workspace-git-dir.js';
 import { sha256Hex } from '../security/digest.js';
@@ -144,6 +144,68 @@ async function measure(workspace: string): Promise<TrustedGitDir> {
     remediation:
       'Measure the workspace MergeSutra prepared for this run (Stage 5 creates it). MergeSutra will not let Git discover a repository from inside the directory under review, because configuration found there can name programs to run.',
   });
+}
+
+/**
+ * MergeSutra's own check of the patch, and the one place its command is spelled.
+ *
+ * Stage 7 asks every workspace one question the repository never asked it: does
+ * the patch still carry conflict markers or trailing whitespace. The answer comes
+ * from Git, and Git needs the repository — which is the fact that made this check
+ * unrunnable where it used to run. A sandbox mounts the workspace and nothing
+ * else, and a linked worktree's metadata lives outside it, so the same gate that
+ * measures cleanly on the host exits 128 in the container (`docs/SECURITY_GAP_REGISTER.md`
+ * S16-4 measured both readings on a real customer worktree). Handing the container
+ * the metadata would be the wrong fix: read-only, it exposes `remote.<name>.url`,
+ * which a customer may have written with a token in it; writable, it hands the run
+ * the hooks MergeSutra itself obeys.
+ *
+ * So this is a measurement, not a command under review, and it runs beside the
+ * other one. Three things keep that honest, and the second is why the argv is a
+ * constant rather than a field:
+ *
+ * - Git is told which repository to read, through `measure` and nothing else, so
+ *   the S16-2 refusal applies here too — a workspace that could have authored its
+ *   own metadata is refused instead of measured with discovery.
+ * - The command comes from this constant. A verification plan is a document, and a
+ *   document a run can write inside its own workspace could otherwise name any Git
+ *   command for a host read; equality with a literal in source is the whole of the
+ *   authority here, and it leaves the plan no choice to make.
+ * - Only a gate MergeSutra declared for itself qualifies. A repository's own
+ *   `git diff --check` step keeps going to the sandbox, because there the command
+ *   is the customer's and it is under review.
+ */
+export const WORKSPACE_CHECK: readonly string[] = ['git', 'diff', '--check'];
+
+/** The shape this decision reads, told structurally so no plan type is needed here. */
+export interface WorkspaceCheckCandidate {
+  readonly argv: readonly string[];
+  readonly provenance: { readonly source: string };
+  readonly requirementLevel: string;
+}
+
+/** Whether a gate is MergeSutra's own check, command for command. */
+export function isWorkspaceCheck(gate: WorkspaceCheckCandidate): boolean {
+  return (
+    gate.provenance.source === 'MERGESUTRA_BUILTIN' &&
+    gate.requirementLevel === 'MERGESUTRA_ADDITIONAL' &&
+    gate.argv.length === WORKSPACE_CHECK.length &&
+    WORKSPACE_CHECK.every((token, index) => gate.argv[index] === token)
+  );
+}
+
+export interface WorkspaceCheckDeps {
+  readonly timeoutMs?: number;
+  readonly run?: Runner;
+}
+
+export async function runWorkspaceCheck(
+  workspace: string,
+  deps: WorkspaceCheckDeps = {},
+): Promise<RunResult> {
+  const measured = await measure(workspace);
+  const run = deps.run ?? createRunner({ timeoutMs: deps.timeoutMs });
+  return git(run, measured, WORKSPACE_CHECK.slice(1));
 }
 
 /**

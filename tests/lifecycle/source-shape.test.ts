@@ -200,6 +200,10 @@ describe('what recovery could ever put in front of a process', () => {
     // how it finds the workspace at all; the `verify/patch.ts` entries are the measurement
     // it then takes, and that measurement no longer asks git to discover a repository from
     // inside the directory under review, so it no longer appears here as a `--show-toplevel`.
+    // The `git diff --check` among them is MergeSutra's own gate check, which Stage 7 reads
+    // from the host through the same trusted metadata as the patch identity; a status round
+    // reaches the module that holds it, not the gate round that runs it, so it is listed
+    // here as a read this path can construct and nothing more.
     // The `review/context.ts` entry arrives through
     // `report/write.ts`: reading a pack's identity reaches the module that assembles a
     // reviewer's model, which reads a per-file diff. That diff is a read over bytes
@@ -209,6 +213,7 @@ describe('what recovery could ever put in front of a process', () => {
       'lifecycle/observe.ts: git rev-parse --show-toplevel',
       'lifecycle/observe.ts: git rev-parse --verify HEAD',
       'review/context.ts: git -C value diff --no-ext-diff --no-renames value -- value',
+      'verify/patch.ts: git diff --check',
       'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
       'verify/patch.ts: git rev-parse HEAD',
@@ -388,6 +393,7 @@ describe('what `resume --execute` is not given permission to reach', () => {
       'lifecycle/observe.ts: git rev-parse --show-toplevel',
       'lifecycle/observe.ts: git rev-parse --verify HEAD',
       'review/context.ts: git -C value diff --no-ext-diff --no-renames value -- value',
+      'verify/patch.ts: git diff --check',
       'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
       'verify/patch.ts: git rev-parse HEAD',

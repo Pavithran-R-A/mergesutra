@@ -247,8 +247,24 @@ describe.skipIf(!AVAILABLE)('an interrupted run, read back', () => {
     // six gates and reports on six, so the one that never came back is visible by
     // name — and `exitCode: null` with `termination: NOT_EXECUTED` is the engine's
     // own way of refusing to record a status for a command that returned none.
+    //
+    // Six divides into two kinds, and the split is Stage 7's own: every command the
+    // repository wrote down goes through the runner injected here, while MergeSutra's
+    // check of the patch is a host measurement that never asks that runner for
+    // anything. So the enumeration below is of the repository's commands, and the
+    // built-in is proven separately — by its receipt showing it ran, and by its
+    // command showing it was never dispatched. Without the second half, a round could
+    // fold a measurement nobody took into a total that still adds up.
     const measured = stage.run.gates.filter((gate) => gate.receipt.result === 'PASS');
-    expect(dying.calls).toHaveLength(stage.run.gates.length);
+    const repositoryGates = stage.plan.gates.filter(
+      (gate) => gate.provenance.source !== 'MERGESUTRA_BUILTIN',
+    );
+    const builtInGate = stage.plan.gates.find(
+      (gate) => gate.provenance.source === 'MERGESUTRA_BUILTIN',
+    );
+    expect(dying.calls).toHaveLength(repositoryGates.length);
+    expect(builtInGate?.argv.join(' ')).toBe('git diff --check');
+    expect(dying.calls).not.toContain('git diff --check');
     expect(measured).toHaveLength(stage.run.gates.length - 1);
     const [died] = stage.run.gates.filter((gate) => gate.receipt.result !== 'PASS');
     expect(died?.receipt.termination).toBe('NOT_EXECUTED');

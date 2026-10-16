@@ -76,8 +76,19 @@ describe.skipIf(!AVAILABLE)('runVerifyStage', () => {
         receipt: { result: 'BLOCKED', termination: 'NOT_EXECUTED' },
       });
     }
-    // Only MergeSutra's own check was allowed to speak.
-    expect(gates.calls).toEqual(['git diff --check']);
+    // Only MergeSutra's own check was allowed to speak, and it speaks from the
+    // host: the runner that isolates a repository's commands heard nothing at all,
+    // because a sandbox that mounts the workspace and no Git metadata cannot
+    // answer a question about this patch (Stage 16, S16-4).
+    expect(gates.calls).toEqual([]);
+    const builtIn = stage.plan.gates.find(
+      (gate) => gate.provenance.source === 'MERGESUTRA_BUILTIN',
+    );
+    expect(builtIn?.argv.join(' ')).toBe('git diff --check');
+    const measured = stage.run.gates.find((gate) => gate.gateId === builtIn?.id);
+    expect(measured, builtIn?.command).toMatchObject({
+      receipt: { result: 'PASS', exitCode: 0, termination: 'EXITED' },
+    });
 
     expect(stage.run.result).toBe('BLOCKED');
     expect(stage.record.outcome).toBe('VERIFICATION_BLOCKED');
@@ -106,7 +117,19 @@ describe.skipIf(!AVAILABLE)('runVerifyStage', () => {
     );
 
     for (const gate of first.plan.gates) {
-      expect(gates.calls, gate.command).toContain(gate.argv.join(' '));
+      // Two execution boundaries, and a gate can only be on one of them: a
+      // repository's command is dispatched to the runner that isolates it, while
+      // the check MergeSutra wrote itself is measured on the host and must never
+      // appear in that dispatch log.
+      if (gate.provenance.source === 'MERGESUTRA_BUILTIN') {
+        expect(gates.calls, gate.command).not.toContain(gate.argv.join(' '));
+        const measured = stage.run.gates.find((entry) => entry.gateId === gate.id);
+        expect(measured, gate.command).toMatchObject({
+          receipt: { termination: 'EXITED' },
+        });
+      } else {
+        expect(gates.calls, gate.command).toContain(gate.argv.join(' '));
+      }
     }
     expect(stage.consent).not.toBeNull();
     expect(stage.consent?.planDigest).toBe(scopeDigest(stage.plan));

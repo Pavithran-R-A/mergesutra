@@ -140,8 +140,15 @@ describe('what a publication stage could ever put in front of a process', () => 
     // That diff is a read over bytes already on disk, which is why it belongs on this
     // list rather than being excepted from it — but it is a reason to keep the list
     // long enough that the next transitive arrival is noticed here.
+    //
+    // `git diff --check` arrived as the next one. Stage 7 measures its own check of a
+    // patch on the host now, through the Git directory a run could not have written,
+    // and the command it builds for that lives in `verify/patch.ts` — which a
+    // publication run reaches the same way it reaches the review diff. It is the same
+    // read the stage always meant, over the same work tree, and it is still a read.
     expect(closed.map(show).sort()).toEqual([
       'review/context.ts: git -C value diff --no-ext-diff --no-renames value -- value',
+      'verify/patch.ts: git diff --check',
       'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
       'verify/patch.ts: git rev-parse HEAD',
