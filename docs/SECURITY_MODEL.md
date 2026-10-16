@@ -221,18 +221,37 @@ repository declares, which is a different threat and gets a different boundary.
   spell `sudo rm -rf` is refused as DESTRUCTIVE even though a repository wrote it
   in a workflow file — repository text is data, including when it looks like
   instructions to a verification engine.
-- **Executing a repository command is not sandboxed, and does not claim to be.**
-  The gate runs in the run's worktree with a real cwd; a worktree is isolation for
-  clarity, not a security boundary (§4). The child environment strips model and
-  GitHub credentials plus common unrelated credential variables (cloud, registry,
-  database and API keys), while retaining ordinary build flags. The GitHub-owned
-  read runner alone may retain GitHub authentication. **This is not a sandbox**:
-  repository code can still read files visible to the host account, and a secret
-  held under an unrecognized variable name may still be inherited. What MergeSutra
-  adds is *observation*: the workspace's patch identity is re-described after
-  every gate, and a gate that left the tree changed voids the run's verdict rather
-  than reporting the next result, because the next measurement would describe
-  bytes no one identified.
+- **A repository's command runs in the sandbox, or it does not run at all.**
+  Stage 7 hands a discovered CI step or package script to
+  `createRepositoryCommandRunner` (`src/security/repository-runner.ts`), which is
+  a boundary rather than a preference: with no digest-pinned
+  `MERGESUTRA_SANDBOX_IMAGE` or no absolute `MERGESUTRA_DOCKER_EXECUTABLE` it
+  throws `SANDBOX_UNAVAILABLE` and executes nothing, and no product flag swaps in
+  a host runner. The container's own rules — one bind mount of the workspace,
+  `--network=none`, dropped capabilities, a read-only root filesystem, an
+  environment of exactly four variables so no host credential is even offered to
+  the gate, and a Docker client configuration the launch owns rather than
+  inherits — are `docs/SANDBOX_EXECUTION.md`'s, and the child never sees the
+  BharatCode or GitHub credentials (§6). What the container does *not* do is make
+  the workspace trustworthy: its one writable mount is the directory under review,
+  so a gate can still change the bytes being measured. That is why the patch
+  identity is re-described after every gate and a gate that left the tree changed
+  voids the run's verdict rather than reporting the next result, because the next
+  measurement would describe bytes no one identified.
+- **MergeSutra's own check of the patch is a host measurement, and it is the only
+  one.** The single gate this stage runs outside the container is its built-in
+  `git diff --check`, and the reason is that the sandbox mounts the workspace and
+  nothing else: a Git command dispatched into it cannot see the repository it is
+  being asked about, and would report the pinned image's missing `git` (exit 127)
+  as a verdict about the change forever. The authority for the exception is
+  structural, in `isWorkspaceCheck` (`src/verify/patch.ts`): a gate is measured on
+  the host only when its argv is exactly that constant *and* its
+  `provenance.source` is `MERGESUTRA_BUILTIN` *and* its `requirementLevel` is
+  `MERGESUTRA_ADDITIONAL` — so a plan a run can rewrite inside its own workspace
+  gains no host Git read, and a repository's own `git diff --check` step, being
+  the customer's code under review, still goes to the sandbox. The host read is
+  then made through the trusted Git directory of the next bullet, so the check
+  obeys configuration the run could not have authored.
 - **The measurement is told which repository to read.** Stage 7's patch identity
   and everything downstream of it ask Git what differs from the run's base commit.
   A Stage 5 workspace's `.git` entry is a one-line pointer *inside* the directory

@@ -24,7 +24,11 @@ Missing or invalid configuration produces `SANDBOX_UNAVAILABLE`, **not host
 execution**. A refused Stage 6 `RUN_CHECK` cannot be treated as a successful
 check. Stage 7 records a command it could not execute as inconclusive, rather
 than a PASS. Operator verification consent remains required and separate from
-container isolation.
+container isolation. The one thing Stage 7 reads outside the sandbox is
+MergeSutra's own check of the workspace's patch, and it is not a command that
+failed to be isolated: it is a measurement of Git metadata a run could not have
+written, which the sandbox is never given. A repository's command — including
+one that runs `git` — has no path to the host.
 
 The isolated container uses a digest-pinned image, no host network, no elevated
 capabilities, an unprivileged user, a read-only container filesystem and a
@@ -53,15 +57,28 @@ it does not recognise (measured on the pinned digest, a gate that asked for
   command in the same container — `node src/f.js` — ran and exited 0. The round came back `FAIL`,
   never `PASS`. So a git-native gate fails closed inside the sandbox; it does not silently pass, and
   it does not block ordinary repository code. Do not bypass this with a raw host runner or mark such
-  an incomplete verification as PASS. `SECURITY_GAP_REGISTER.md` S16-4 records the reading and the
-  open design question it leaves for MergeSutra-owned Git reads.
+  an incomplete verification as PASS.
+  What that rule protects is a *command under review*, and it still applies to every one a repository
+  wrote down: a `git` step in a CI file is code this round is judging, so it stays in the container and
+  keeps its fail-closed reading there. MergeSutra's own check of a workspace's patch is a different
+  kind of thing — a measurement, like the patch identity beside it — and S16-4 moved it out of the
+  sandbox: it runs on the host, through the Git directory `resolveTrustedGitDir` proves the run could
+  not have authored, and `isWorkspaceCheck` authorises it by comparing the gate's argv with a source
+  constant plus its built-in provenance and requirement level, so no plan document, repository file or
+  model answer can name a command that takes that path. That is not permission for a raw host runner.
+  It is one named command, decided structurally, refusing any workspace whose metadata it cannot trust;
+  a repository-controlled command that reached the host would be this section's failure, and
+  `SECURITY_GAP_REGISTER.md` S16-4 carries the before reading, the after reading and the residual.
 - The digest this repository pins for the sandbox is not a git image. The image pinned by
   `.github/workflows/sandbox-runtime.yml` and `scripts/sandbox-runtime-proof.mjs` is Alpine with
-  `NODE_VERSION=26.6.0` and no `git` binary at all, so the container refuses to start MergeSutra's own
-  `diff-check` gate: exit 127, `exec: "git": executable file not found in $PATH`, round `FAIL`. The
-  hosted proofs stay green because the only programs they run inside the container are `node` ones.
-  Sandbox-backed execution is therefore qualified for `node` commands and unqualified for git-native
-  ones, and no Node 22 or Node 24 sandbox image has been measured.
+  `NODE_VERSION=26.6.0` and no `git` binary at all, so a gate that asks the container for `git` gets
+  exit 127, `exec: "git": executable file not found in $PATH`. That is why MergeSutra's own `diff-check`
+  used to fail every customer round: it asked for a program the image does not contain, and a non-zero
+  exit of a program that started is a `FAIL`. It no longer asks the container (S16-4), so a clean
+  worktree round measures and passes, while a repository that writes its own `git` step still gets 127
+  and still fails closed. The hosted proofs stay green because the only programs they run inside the
+  container are `node` ones. Sandbox-backed execution is therefore qualified for `node` commands and
+  unqualified for git-native ones, and no Node 22 or Node 24 sandbox image has been measured.
 - Unit tests may inject a trusted fixture runner to exercise scenario logic;
   that dependency-injection seam is **not** a product-level opt-out switch.
 - Repository-controlled commands are distinct from MergeSutra-owned GitHub

@@ -5216,16 +5216,23 @@ creates) and `S16-3` (a container that ran the image's interpreter instead of th
 named, shipped at `c31a6f8` with no register entry until now) are closed CODE + TEST + DOCUMENT
 below. What Stage 16 will not claim before it measures it:
 
-- **A customer worktree driven through real Docker: executed, and it does not work.** `S16-4` below
-  carries the reading: the production Stage 7 path (`createRepositoryCommandRunner` for the gate, the
-  default `currentPatchIdentity` for the measurement — no stubs) was run twice against a real linked
-  worktree, and MergeSutra's own built-in `git diff --check` gate failed both times, for two different
-  reasons. What is *still* not decided is the fix: whether a mount design can give a container a
-  repository it cannot write, and that is an open design question with three candidate answers (a
-  derived read-only snapshot gitdir, a second read-only mount of the admin directory, or dropping
-  git-native gates and keeping patch identity on the host) — none chosen, implemented or measured. The
-  rule in `docs/SANDBOX_EXECUTION.md` that such a round must not be reported as a PASS and must not
-  fall back to a raw host runner held in both runs: the rounds came back `FAIL`, never `PASS`.
+- **A customer worktree driven through real Docker: executed, and it did not work — then fixed, and
+  executed again.** `S16-4` below carries both readings. The *before*: the production Stage 7 path
+  (`createRepositoryCommandRunner` for the gate, the default `currentPatchIdentity` for the measurement
+  — no stubs) was run twice against a real linked worktree, and MergeSutra's own built-in
+  `git diff --check` gate failed both times, for two different reasons. The choice made afterwards is
+  the third candidate listed there — patch identity and MergeSutra's own check stay host measurements,
+  and a git-native gate MergeSutra wrote stops pretending to be a container gate — while the two mount
+  designs were refused rather than left untried: a read-only mount of the admin directory carries
+  `remote.<name>.url`, which is where a customer can leave a token, and a writable one hands the run the
+  hooks MergeSutra obeys when it measures. The *after* is the same fixture, the same pinned image and
+  the same production entry point with no stubs: the built-in gate `PASS`es, a repository's `npm test`
+  executes inside the container, and a patch left with trailing whitespace still `FAIL`s the round with
+  Git's own finding. What remains unmeasured is the rest of the platform matrix (macOS, Windows
+  containers, any image other than the pinned digest), not this behaviour. The rule in
+  `docs/SANDBOX_EXECUTION.md` that such a round must not be reported as a PASS and must not fall back to
+  a raw host runner still holds for every command a repository wrote down; the rounds that broke came
+  back `FAIL`, never `PASS`, and the round that works now earns its `PASS` by measuring.
 - **Three reads still ask Git to discover the repository.** `src/lifecycle/observe.ts:195`
   (`rev-parse --show-toplevel`), `:207` (`rev-parse --verify HEAD`), `:339` (`cat-file -e`) through
   the `-C` helper at `:343-344`; `src/review/context.ts:437` (`git -C <workspace> diff …`); and the
@@ -5487,36 +5494,100 @@ this is not a sandbox that blocks every customer command. It is *not* evidence t
 on a customer worktree: with either image, a clean run's own built-in gate fails the round, which is a
 false negative about code MergeSutra wrote itself. The engine cannot tell "the check ran and the patch
 has conflict markers" from "this image cannot run this check", because any non-zero exit of a program
-that started is recorded `FAIL` (`src/verify/engine.ts:363-367`); a runner that *throws* is the honest
-`INCONCLUSIVE`/`NOT_EXECUTED` path at `:370-379`, and that is what an unconfigured sandbox produces.
+that started is recorded `FAIL` (`src/verify/engine.ts:397-401`); a runner that *throws* is the honest
+`INCONCLUSIVE`/`NOT_EXECUTED` path at `:404-413`, and that is what an unconfigured sandbox produces.
 
-**Not implemented here, on purpose.** The resolution changes an execution boundary — either the image
-must contain git *and* expose a repository the container cannot write, or MergeSutra's own git-native
-gate must stop being a container gate — and each candidate has a property this stage has not proven. A
-second mount of the admin directory would hand the container the primary checkout's `config` and refs
-unless it is `:ro` and scoped to one worktree's directory, and a derived read-only snapshot gitdir has
-to be built without letting the run author it, which is the S16-1 rule again in a new place. Per the
-brief — if a limitation prevents full qualification, preserve the block and document the precise
-limitation — this is recorded rather than guessed at.
+**The two mounts this first proposed, and why neither was built.** Both candidates were refused
+before any code was written. A read-only mount of the primary `.git` would carry
+`remote.<name>.url`, and a remote URL is a place a customer can leave a token; a writable mount of
+any Git directory hands the run the hooks, `core.fsmonitor`, `core.hooksPath` and `diff.<driver>`
+drivers that MergeSutra itself obeys when it measures — which is the S16-1 threat wearing a new hat.
+The third option named above (delete the claim) loses a check that genuinely finds conflict markers.
 
-**Reproduction (host-local, disposable).** `C:\tmp\s16\cwt\repo` is a two-commit repository (base
-`2f9d5fdf80d13ab26acfd3de5ed112b50562923a`) and `C:\tmp\s16\cwt\ws` a linked worktree on
-`mergesutra/probe` with `src/f.js` modified and `src/g.js` untracked. `C:\tmp\s16\prod-cwt-probe.mjs`
-imports the built product (`dist/security/repository-runner.js`, `dist/verify/engine.js`,
-`dist/verify/patch.js`), sets `MERGESUTRA_SANDBOX_IMAGE` and `MERGESUTRA_DOCKER_EXECUTABLE`, calls
-`describePatch`, then calls `runVerification({plan, workspace, consent})` with **no `deps`** — so the
-production repository runner and the production patch-identity measurement are both in the path — and
-the readings above are the output in `C:\tmp\s16\prod-cwt-pinned.log` and
-`C:\tmp\s16\prod-cwt-node22.log`. A fixture, deliberately not a suite test: it needs a Docker daemon and
-a specific image, so it belongs in the qualification workflow, not in `npm test`. Nothing under `src/`
-or `tests/` changed for this item.
+**Fix (this item, implemented).** MergeSutra's own check of a workspace's patch is no longer a
+container gate. It is a host measurement, taken through the same `resolveTrustedGitDir` pair that
+measures the patch identity, so the thing that decides the verdict is the metadata a run could not
+have authored rather than a mount the run is confined to. Three files carry it:
 
-*What this does not claim.* One host, one Docker Desktop daemon (server 29.8.1), Linux containers on
+- `src/verify/patch.ts:178` names the command (`WORKSPACE_CHECK`) as a module constant, and
+  `:188-195` decides whether a gate *is* that command — byte-for-byte on argv, plus
+  `provenance.source === 'MERGESUTRA_BUILTIN'`, plus `requirementLevel === 'MERGESUTRA_ADDITIONAL'`.
+  A repository that writes `git diff --check` into a CI file has all of the first and none of the
+  other two, so it cannot borrow the host read. `:202-209` measures first and only then builds the
+  argv, so a workspace whose metadata is writable is refused before a process exists.
+- `src/verify/engine.ts:382-384` dispatches on that predicate and nothing else. Every other gate,
+  including a repository's `git` step, still goes to `runFor`, which builds the isolating runner —
+  `FAIL`/`127` included, because that command is code under review and code under review does not
+  get a host read.
+- `src/verify/engine.ts:166` and `:203` add `workspaceCheck` to `VerifyDeps`, injected the same way
+  `currentPatchIdentity` already is: it reads this machine rather than a command this plan named, so
+  a test about gate *judgements* supplies it, and the tests that care about the real read build a
+  real linked worktree and use the default.
+
+**Tests.** `tests/verify/workspace-check.test.ts` (11 tests) is new: it measures a real linked
+worktree's patch the way Git does, reports the conflict marker a customer left, refuses a workspace
+whose metadata a run could have written, and then runs whole rounds over a customer worktree with a
+stand-in sandbox that cannot run git — proving the built-in still PASSes while a `git` step a
+repository wrote still gets 127 inside the container. The four gate suites that had pinned the old
+single-boundary behaviour (`engine`, `stage`, `workspace`, `lifecycle/interruption`) now assert the
+two-boundary property instead: a repository command appears in the dispatched list, MergeSutra's
+check appears in it *not*, and its receipt shows a measurement that ran. Three source-shape
+inventories (`lifecycle`, `repair`, `pr`) name the new `verify/patch.ts: git diff --check` site.
+
+*Anti-vacuity, four mutations, each reverted byte-for-byte:* never route to the host → 8 failures;
+always route to the host (dropping the predicate) → 13; drop the provenance clause from the
+predicate → 3, including the repository-wrote-a-`git diff --check` round; build the command by Git's
+own discovery instead of the trusted pair → 1, the refusal test, resolved to an exit code instead of
+rejecting.
+
+**After, on the same fixture under real Docker** (this host, daemon 29.8.1, pinned
+`node@sha256:a4fb14143ee2…`, `C:\tmp\s16\prod-cwt-probe2.mjs` driving production `verifyWorkspace`
+with no injected dependencies — production discovery, plan builder, repository runner and patch
+identity; output in `C:\tmp\s16\prod-cwt-after.log`). The container is unchanged: `git --version` and
+`git diff --check` both still exit 127 there, `node --version` 0 (v26.6.0), `npm --version` 0
+(11.18.0). A clean customer worktree now round-trips: with no consent on file the round is `BLOCKED`
+and says so per gate, while the built-in `git diff --check` returns `PASS`/exit 0/`EXITED`; naming the
+repository gate makes it run *inside* the container — its captured output carries
+`file:///workspace/src/g.js`, the mount path, not this host's — and the round reads `PASS` with both
+receipts bound to patch `cbb1c74f7e84…`. A patch left with trailing whitespace flips the built-in to
+`FAIL`/exit 2 with the real finding (`src/f.js:2: trailing whitespace.`) and the round to `FAIL`; the
+receipt's own command line shows the measurement taken through `--git-dir C:\tmp\s16\cwt\repo\.git\worktrees\ws
+--work-tree C:\tmp\s16\cwt\ws --no-optional-locks`. So: the false negative is gone, the check still
+finds what it exists to find, and nothing was handed to the container.
+
+**What this does not fix, stated as a limitation.** A repository that asks its own CI to run `git`
+still cannot do it in the pinned image, and that round still reads `FAIL` rather than "this image has
+no git" — the exit-code indistinguishability at `src/verify/engine.ts:397-401` is untouched, on
+purpose, because mapping 127 to `INCONCLUSIVE` would be a `RunResult` contract change with a much
+wider blast radius than this item. The host read is also only as trustworthy as S16-1/S16-2's metadata
+rule, which it reuses rather than re-proves. And this remains one Windows host with one Docker
+Desktop daemon: Linux-host bind mounts, macOS, Windows containers and any other image are still
+unmeasured.
+
+**Reproduction of the *before* reading (host-local, disposable).** `C:\tmp\s16\cwt\repo` is a
+two-commit repository (base `2f9d5fdf80d13ab26acfd3de5ed112b50562923a`) and `C:\tmp\s16\cwt\ws` a
+linked worktree on `mergesutra/probe` with `src/f.js` modified and `src/g.js` untracked.
+`C:\tmp\s16\prod-cwt-probe.mjs` imports the built product
+(`dist/security/repository-runner.js`, `dist/verify/engine.js`, `dist/verify/patch.js`), sets
+`MERGESUTRA_SANDBOX_IMAGE` and `MERGESUTRA_DOCKER_EXECUTABLE`, calls `describePatch`, then calls
+`runVerification({plan, workspace, consent})` with **no `deps`** — so the production repository runner
+and the production patch-identity measurement are both in the path — and the readings above are the
+output in `C:\tmp\s16\prod-cwt-pinned.log` and `C:\tmp\s16\prod-cwt-node22.log`. Those were taken on
+`d95f39b`, before this item's fix, with nothing under `src/` or `tests/` changed; `C:\tmp\s16\prod-cwt-probe2.mjs`
+re-takes the same readings on the fixed tree, and drives production `verifyWorkspace` rather than a
+hand-built plan, so discovery, the plan builder, the repository runner and the patch identity are all
+the shipped ones. Both are fixtures, deliberately not suite tests: they need a Docker daemon and a
+specific image, so they belong in the qualification workflow, not in `npm test`.
+
+*What neither probe claims.* One host, one Docker Desktop daemon (server 29.8.1), Linux containers on
 Windows. It does not show what a Linux host with a bind-mounted worktree does, says nothing about macOS
 or Windows containers, and does not prove that no mount design could work — only that the one shipped
-today does not.
+today was not needed.
 
-**Status: OPEN — DOCUMENTED, NOT FIXED. Issue #33 stays blocked on it.**
+**Status: CLOSED — FIXED, with the residual named above.** Issue #33 is no longer blocked on this
+item; it stays open on the qualification its remaining acceptance criteria still lack — cross-platform
+real Docker runs, the adversarial fixture set, and the full customer workflow under isolation.
+
 
 ## S16-5 — a Stage 16 test asserted a fact about the host's path quoting, and the Windows cells failed
 
@@ -5573,7 +5644,7 @@ one: an assertion that passes only while the host happens not to run the hook.
 `success` on the same SHA — one `sandbox` job, labelled `ubuntu-latest`. So the six-cell source matrix of
 this arc is qualified on all three operating systems and both Node versions; what that reading still does
 not cover is Docker on macOS and Windows, and any sandbox image other than the pinned
-`node@sha256:a4fb14143ee2…` (`S16-4`).
+`node@sha256:a4fb14143ee2…` (the S16-4 residual).
 
 **Evidence for the closing claim.** `tests/verify/patch.test.ts` (+20/−5) — no `src/` change. Hosted
 before-state: run `38744108119`, `https://github.com/Pavithran-R-A/mergesutra/actions/runs/38744108119`;
