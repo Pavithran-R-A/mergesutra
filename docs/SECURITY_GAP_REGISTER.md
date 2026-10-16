@@ -6037,6 +6037,37 @@ preceding head `3fc1d85ab…` had the same 6/6 and the same Docker PASS (`388961
 but over the two-test version of this file, so it is not the evidence for the Stage 11 pair; this
 reading is. The commit that records it changes no test.
 
+**Hosted reading, `2b56a4fb029c18c183da809efcdcc08e710a5bdb` — the head that named the stages in
+§2.2.** Listed from
+`gh run list --commit` for that SHA, not inferred from an earlier run: CI `38911710685` is 6/6
+`success` (jobs `117008911333`, `117008911514`, `117008911577`, `117008911642`, `117008957306`,
+`117008961003`), and each of the six cells again reports `Test Files 163 passed | 3 skipped (166)`
+and names `tests/git/customer-worktree.test.ts (4 tests)` — 766 ms ubuntu/Node 24, 940 ms
+ubuntu/Node 22, 2115 ms macOS/Node 22, 1687 ms macOS/Node 24, 6546 ms Windows/Node 22, 6819 ms
+Windows/Node 24 — with `Tests 2433 passed | 6 skipped (2439)` on ubuntu and `2435 passed | 4 skipped
+(2439)` on Windows and macOS, and both artifact gates at `115 passed (115)` and `14 passed (14)`.
+`Real Docker isolation proof` `38911710825` (job `117008911334`) is `success` on the same SHA: its
+log shows `added 157 packages`, the pinned `node@sha256:a4fb14143ee2…` pulled as
+`Downloaded newer image`, then `SANDBOX_RUNTIME_PROOF: PASS` and `STAGE_6_AND_7_DOCKER_PROOF: PASS`;
+the cell's Git is `2.55.0`. That head changes only prose in `SECURITY_MODEL.md` §2.2, so it adds no
+evidence of its own — it is recorded because a head's green must be its head's green, not its
+parent's.
+
+**Local gates on this tree.** With `--minWorkers=1 --maxWorkers=1`: the suites that read this
+register — `tests/docs`, `tests/security`, `tests/review/context.test.ts`,
+`tests/verify/workspace-check.test.ts` and the three `source-shape` files — → `Test Files 43 passed
+(43)`, `Tests 624 passed (624)` in 214 seconds. `format:check`, `typecheck`, `lint`, `build`,
+`qualify:path-shapes` (`git-discovery=covered`), `verify:package` (`115 passed`) and `test:artifact`
+(`14 passed`) each exit `0`. **Tooling artifact, kept because it produced a false failure:** the
+first pass of that gate sequence invoked `tsc -p tsconfig.json` instead of the package's
+`tsconfig.build.json`; the former's `include` covers `tests`, so it emitted 1 236 extra files into
+`dist/` (`dist/src`, `dist/tests`, `dist/vitest.config.*`, all timestamped inside the failed run) and
+`verify:package` then failed 7 tests across 3 files, reporting those compiled fixtures as shipped
+credential literals and home paths. The release-boundary gate was right and the caller was wrong;
+deleting exactly the 1 236 files that run created, rebuilding with the correct config
+(`dist/` = 472 files) and re-running made both artifact gates exit `0`, and no source file was
+touched.
+
 **What this does not claim.** Stage 9's per-file diff was not driven through production in this
 topology; it resolves the same `resolveTrustedGitDir` gate the four tests here already exercise, and
 what this file shows about the layout is the one fact that read depends on — which is a claim about
