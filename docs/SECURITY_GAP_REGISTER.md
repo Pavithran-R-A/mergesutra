@@ -5215,9 +5215,11 @@ identity moved onto that rule, and the test fixtures moved onto the worktree sha
 creates) and `S16-3` (a container that ran the image's interpreter instead of the program the gate
 named, shipped at `c31a6f8` with no register entry until now) are closed CODE + TEST + DOCUMENT
 below. So are `S16-4` (the customer worktree under real Docker), `S16-5` (a Stage 16 test that asserted
-a fact about this host's path quoting), `S16-6` (the observation) and `S16-7` (the reviewer's diff);
-`S16-8` (Stage 5's reuse question) is the one left open. What Stage 16 will not claim before it measures
-it:
+a fact about this host's path quoting), `S16-6` (the observation), `S16-7` (the reviewer's diff) and
+`S16-8` (Stage 5's reuse question, closed at `635a157`). `S16-9` — the checkout handed to Stage 5 being
+*itself* a linked worktree of another clone, a shape no committed test had ever built — is closed as
+TEST + DOCUMENT, because it found no defect: that customer works, and it is now measured rather than
+assumed. What Stage 16 will not claim before it measures it:
 
 - **A customer worktree driven through real Docker: executed, and it did not work — then fixed, and
   executed again.** `S16-4` below carries both readings. The *before*: the production Stage 7 path
@@ -5934,3 +5936,76 @@ silently counted clean.
 inventory still renders this module's pair call as an open site, because the scanner cannot distinguish
 `git -C <value>` from the trusted argv; the citation there names `src/git/workspace.ts:278` as measured,
 not discovered.
+
+## S16-9 — no test had built the topology where the operator's checkout is itself a linked worktree — CLOSED (TEST + DOCUMENT)
+
+**Finding.** Stage 16 moved every fixture onto the worktree shape Stage 5 really creates, but "the
+worktree shape" meant one thing: a run's workspace nested *inside a plain clone*. The repository the
+run is handed — `primaryRoot`, the human's checkout — was always created by `initRepository`
+(`tests/helpers/git.ts:49`), which runs `git init`. Real `git worktree add` appears outside production
+code in exactly one other place, `tests/lifecycle/observe.test.ts:204`, and there it makes a *sibling
+workspace* inside such a clone. So the question a reviewer-customer asks was never put: what happens
+when the checkout handed to Stage 5 is itself a linked worktree of another clone? That is a normal way
+to work — `git worktree add ../review feature` is how people hold a branch under review without
+disturbing the one they are on — and it puts a second `gitdir:` pointer in the path, so the run's
+metadata would register in the *parent's* `.git`, one directory level further from the workspace than
+S16-1's rule assumes. Three plausible outcomes, and only one of them is acceptable: `git worktree add`
+refusing to nest inside a linked checkout, `requireIgnored` consulting the wrong `.git`, or
+`resolveTrustedGitDir` returning `null` for a workspace whose metadata is honest but deeper than
+expected. The last two would make MergeSutra refuse that customer, which the register would have had
+to call a compatibility failure, not a security win.
+
+**Measured.** None of those happen. Real Git registers the run at `<parent>/.git/worktrees/<runId>` —
+outside the workspace and outside the customer's checkout, so the trusted pair is resolved from a
+directory two levels above anything the run may write, which is *more* removed than the plain-clone
+case, not less. Stage 5 creates the workspace, reports `reused: false`, returns the customer's checkout
+as `toplevel` and `.mergesutra/worktrees/<runId>` as the relative path (the exact pair Stage 11 re-derives
+the workspace from), leaves `git status` clean in both the checkout and the parent, reuses itself on the
+second call, and Stage 7 names an empty patch, then the patch holding one modified and one untracked
+file. The negative control is the plant S16-8 was written to refuse: rewriting the workspace's `.git`
+onto the *customer checkout's own* registration, whose HEAD really is the recorded base, so Git's
+discovery answers the polite question with the base commit. It is refused as unmeasurable, the pointer
+is left exactly as the run wrote it, and the customer's checkout stays measurable.
+
+**Tests.** `tests/git/customer-worktree.test.ts` (2 tests, both real Git, skipped on a host without
+it): `:108` for the create/reuse/measure round, `:167` for the plant. No production code changed — this
+item exists because the case was unproven, and the proof is now in the suite rather than in a probe on
+one host's disk.
+
+*Anti-vacuity, two mutations, each reverted byte-for-byte (verified by an empty `git diff --stat -- src`
+after each):*
+
+- Drop `resolveTrustedGitDir`'s back-pointer comparison (`src/git/workspace-git-dir.ts:68`) →
+  `1 failed | 1 passed (2)`, failing `expected { …(2) } to be null` with the forged workspace resolving
+  to the customer checkout's admin directory. That is the read S16-8 exists to refuse, so the plant is
+  live and the refusal earns its outcome; the positive round stays green, which is the point — the rule
+  is not passing because the layout is exotic.
+- Drop untracked additions from the patch (`src/verify/patch.ts:122`) → `1 failed | 1 passed (2)`,
+  `expected [ 'src/parse.ts' ] to deeply equal [ 'src/extra.ts', 'src/parse.ts' ]`. So the measurement
+  claim is about both kinds of change, not about a file Git was already tracking.
+
+Control on the unmutated tree: `2 passed (2)`.
+
+**Readings on this tree** (`b3dc7a3`, the commit carrying the tests, one worker):
+`tests/git tests/github` → `Test Files 5 passed (5)`, `Tests 57 passed (57)`.
+`tests/verify tests/lifecycle tests/review tests/security` → `Test Files 69 passed | 1 skipped (70)`,
+`Tests 1048 passed | 1 skipped (1049)` in 26.6 minutes. `typecheck`, `lint`, `build`, `format:check`,
+`qualify:path-shapes` (`git-discovery=covered`) and `verify:package` (`115 passed`) each exit `0`;
+`test:artifact` → `14 passed`. The whole-suite sweep is **not** reported as a local reading: `C:` stayed
+at 100 % full (about 124 MB free at the end of the run above) on a machine with one drive, and the four
+directories listed cover every module this item touches. The hosted six-cell reading for this SHA is
+recorded when it lands, not assumed from these numbers.
+
+**What this does not claim.** Stage 9's per-file diff and Stage 11's observation were not driven through
+production in this topology; they resolve the same `resolveTrustedGitDir` gate, and what this file shows
+about the layout is the one fact those two reads depend on — which is a claim about shared code, not a
+substitute for running them. `S16-4`'s real-Docker round used a plain clone as the parent, so the
+bind-mount question for *this* nesting — metadata deeper than the workspace, under a directory the
+customer chose — has not been re-probed in a container. One host, one operating system, one Git version.
+And this says nothing about a customer whose checkout is a worktree of a worktree, or about a workspace
+created inside a submodule; neither is built here or anywhere else in the suite.
+
+**Status: CLOSED (TEST + DOCUMENT).** No product defect was found, so no product code changed and no
+`SECURITY_MODEL.md` rule was rewritten — the model's statement of the rule (`§2.2`, "the host read is
+made through the trusted Git directory") is now known to hold for this layout rather than merely to
+assume it.

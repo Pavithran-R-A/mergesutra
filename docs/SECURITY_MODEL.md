@@ -278,6 +278,13 @@ repository declares, which is a different threat and gets a different boundary.
   (`src/verify/patch.ts:405`, `src/lifecycle/observe.ts:365`,
   `src/review/context.ts:391`, `src/git/workspace.ts:324`). The `-C` reads that
   remain are of the operator's own checkout, chosen before any run exists.
+  The rule is written for one level of indirection — a workspace's pointer into
+  `…/.git/worktrees/<id>` — and it is measured rather than assumed to survive a
+  customer who already works in worktrees: `tests/git/customer-worktree.test.ts`
+  builds a parent clone, makes a linked checkout of it with real Git, and runs
+  Stage 5 and Stage 7 inside *that* checkout, where the run's registration lands
+  in the parent clone rather than beside the operator's `.git`. Register item
+  `S16-9` records that round and its negative control.
 - **Receipts are the only thing that can prove anything, so they are bounded and
   redacted.** A receipt keeps exit code, termination, duration, a 4 KB tail of
   *redacted* stdout/stderr and the sha-256 of the unredacted bytes — the digest
