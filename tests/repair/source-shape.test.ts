@@ -294,11 +294,11 @@ describe('what a repair cycle could ever put in front of a process', () => {
 
     expect(unsafe).toEqual([]);
 
-    // The whole enumeration, listed rather than sampled. Six commands, and every
+    // The whole enumeration, listed rather than sampled. Five commands, and every
     // one of them is git being asked what the workspace holds: the two patch
-    // measurements a repair cycle is built around, the review's per-file diff, and
-    // the one check MergeSutra declares for itself — which Stage 7 now measures on
-    // the host, so `verify/patch.ts` constructs it from the same constant
+    // measurements a repair cycle is built around, and the one check MergeSutra
+    // declares for itself — which Stage 7 now measures on the
+    // host, so `verify/patch.ts` constructs it from the same constant
     // `verify/workspace.ts` puts in the plan. Nothing in a repair's reach
     // constructs a command over anything but `git`, which is why §32's list of
     // fears — publish, wipe, escalate, re-interpret — has nowhere to enter.
@@ -308,8 +308,13 @@ describe('what a repair cycle could ever put in front of a process', () => {
     // under review, and the patch measurement no longer does that: it names the
     // repository through metadata a run cannot write, so the toplevel it needs is
     // already known before a process starts.
+    //
+    // The review's per-file diff left this list for the same reason. It is now the
+    // `--git-dir … --work-tree …` shorthand the next test names, because Stage 9
+    // resolves the pair it will read and refuses before it reads a byte when the
+    // workspace's own `.git` entry cannot be trusted
+    // (SECURITY_GAP_REGISTER.md S16-7).
     expect(closed.map(show)).toEqual([
-      'review/context.ts: git -C value diff --no-ext-diff --no-renames value -- value',
       'verify/patch.ts: git diff --check',
       'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
@@ -319,14 +324,15 @@ describe('what a repair cycle could ever put in front of a process', () => {
     expect([...new Set(closed.map((site) => site.argv[0] ?? ''))]).toEqual(['git']);
   });
 
-  it('leaves the two commands it cannot write out to the mechanisms that check them', async () => {
+  it('leaves the commands it cannot write out to the mechanisms that check them', async () => {
     const sources = await reach();
     const open = constructions(sources).filter((site) => site.open);
 
-    // A spread means an argv this file cannot read, so the two that exist are
-    // named rather than waved through. `verify/patch.ts` is the project's own
-    // `git(run, measured, args)` shorthand passing its parameter along; what it
-    // cannot show here is the subcommand, not the repository. The prefix it does
+    // A spread means an argv this file cannot read, so the three that exist are
+    // named rather than waved through. `review/context.ts` and `verify/patch.ts` are the
+    // project's own
+    // `git(run, measured, args)` shorthand passing their parameter along; what they
+    // cannot show here is the subcommand, not the repository. The prefix they do
     // show is the point — `--git-dir` and `--work-tree` are read from metadata the
     // run could not have written, so Git is told which repository to open instead
     // of discovering one from inside the directory under review. Every caller of
@@ -336,9 +342,10 @@ describe('what a repair cycle could ever put in front of a process', () => {
     // under the execution consent Stage 7 records, and a gate that escapes its
     // declared argv is Stage 7's test to catch, not this one's.
     //
-    // A third spread here would be a command nobody can read off the page, and this
+    // A fourth spread here would be a command nobody can read off the page, and this
     // fails so that the next person decides about it instead of inheriting it.
     expect(open.map(show)).toEqual([
+      'review/context.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
       'verify/command.ts: value (open)',
       'verify/patch.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
     ]);

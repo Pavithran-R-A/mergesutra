@@ -196,23 +196,27 @@ describe('what recovery could ever put in front of a process', () => {
 
     // The whole enumeration, listed rather than sampled. Status measures a workspace and
     // a patch — the recorded base, the current bytes, the identity of the pack on disk —
-    // and asks git what it is looking at. The observer's own two `rev-parse` entries are
-    // how it finds the workspace at all; the `verify/patch.ts` entries are the measurement
-    // it then takes, and that measurement no longer asks git to discover a repository from
-    // inside the directory under review, so it no longer appears here as a `--show-toplevel`.
-    // The `git diff --check` among them is MergeSutra's own gate check, which Stage 7 reads
-    // from the host through the same trusted metadata as the patch identity; a status round
-    // reaches the module that holds it, not the gate round that runs it, so it is listed
-    // here as a read this path can construct and nothing more.
-    // The `review/context.ts` entry arrives through
+    // and asks git what it is looking at. There is exactly one `rev-parse` left in the
+    // observer itself: which commit the workspace stands on. It used to have a second,
+    // `--show-toplevel`, whose job was to let git decide which repository the recorded
+    // directory belongs to; that question is now answered by `resolveTrustedGitDir` in
+    // code, so no answer a rewritten pointer file could produce is asked at all
+    // (SECURITY_GAP_REGISTER.md S16-6). The `verify/patch.ts` entries are the measurement
+    // the observer then takes, and that measurement no longer asks git to discover a
+    // repository from inside the directory under review, so it no longer appears here as a
+    // `--show-toplevel`. The `git diff --check` among them is MergeSutra's own gate check,
+    // which Stage 7 reads from the host through the same trusted metadata as the patch
+    // identity; a status round reaches the module that holds it, not the gate round that
+    // runs it, so it is listed here as a read this path can construct and nothing more.
+    // The `review/context.ts` site arrives through
     // `report/write.ts`: reading a pack's identity reaches the module that assembles a
-    // reviewer's model, which reads a per-file diff. That diff is a read over bytes
-    // already on disk, so it belongs on this list; it is also a reason to keep the list
-    // long enough that the next transitive arrival is noticed here.
+    // reviewer's page, which takes one diff per changed file. That diff used to be
+    // `git -C <workspace>`, an argv this file could read off the page; it is now the same
+    // `--git-dir … --work-tree …` shorthand as the two open sites below, so it is
+    // enumerated there instead (SECURITY_GAP_REGISTER.md S16-7). The arrival through
+    // `report/write.ts` is unchanged, and is why this list names a review module at all.
     expect(closed.map(show).sort()).toEqual([
-      'lifecycle/observe.ts: git rev-parse --show-toplevel',
       'lifecycle/observe.ts: git rev-parse --verify HEAD',
-      'review/context.ts: git -C value diff --no-ext-diff --no-renames value -- value',
       'verify/patch.ts: git diff --check',
       'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
@@ -225,18 +229,23 @@ describe('what recovery could ever put in front of a process', () => {
     const open = constructions(await reachFrom(observerEntries())).filter((site) => site.open);
 
     // A spread means an argv this file cannot fully see, so each one is named rather than
-    // waved through. Three of the four are the project's own git shorthands passing their
+    // waved through. Four of the five are the project's own git shorthands passing their
     // parameters along — the literal commands those helpers are called with are the
-    // enumeration above, and the `verify/patch.ts` one names the repository it will read
-    // instead of letting git find one. `verify/command.ts` is a *gate* whose argv is
+    // enumeration above, and each `--git-dir … --work-tree …` site names the repository
+    // it will read instead of letting git find one: `verify/patch.ts` is the measurement,
+    // `lifecycle/observe.ts` is the observation that now shares its rule, and
+    // `review/context.ts` is the reviewer's per-file diff, which Stage 9 now resolves the
+    // pair for before it reads a byte (SECURITY_GAP_REGISTER.md S16-7).
+    // `verify/command.ts` is a *gate* whose argv is
     // discovered from the repository's own build files, so MergeSutra never wrote a
     // command down; gates run only under the execution consent Stage 7 records, and
-    // status never runs one. A fifth open site, or one in a module the observer newly
+    // status never runs one. A sixth open site, or one in a module the observer newly
     // reaches, is a command nobody can read, and this fails so the next person decides
     // about it rather than inheriting it.
     expect(open.map(show).sort()).toEqual([
-      'lifecycle/observe.ts: git -C value (open)',
+      'lifecycle/observe.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
       'lifecycle/observe.ts: git cat-file -e (open)',
+      'review/context.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
       'verify/command.ts: value (open)',
       'verify/patch.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
     ]);
@@ -390,9 +399,7 @@ describe('what `resume --execute` is not given permission to reach', () => {
       'git/workspace.ts: git rev-parse --verify HEAD',
       'git/workspace.ts: git status --porcelain',
       'git/workspace.ts: git worktree list --porcelain',
-      'lifecycle/observe.ts: git rev-parse --show-toplevel',
       'lifecycle/observe.ts: git rev-parse --verify HEAD',
-      'review/context.ts: git -C value diff --no-ext-diff --no-renames value -- value',
       'verify/patch.ts: git diff --check',
       'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
@@ -409,12 +416,16 @@ describe('what `resume --execute` is not given permission to reach', () => {
     // pass a caller's arguments through, and the callers a resumed run reaches are the
     // literal reads above. A new open site is a command nobody can read off the page, and
     // `tests/repair/source-shape.test.ts` already names `verify/command.ts` as the gate.
+    // The `review/context.ts` site is the reviewer's per-file diff, which moved here from
+    // the closed list when Stage 9 stopped letting git discover the repository it diffs
+    // (SECURITY_GAP_REGISTER.md S16-7).
     expect(open.map(show).sort()).toEqual([
       'git/workspace.ts: git -C value (open)',
       'git/workspace.ts: git -C value (open)',
       'git/workspace.ts: git rev-parse --verify (open)',
-      'lifecycle/observe.ts: git -C value (open)',
+      'lifecycle/observe.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
       'lifecycle/observe.ts: git cat-file -e (open)',
+      'review/context.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
       'verify/command.ts: value (open)',
       'verify/patch.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
     ]);

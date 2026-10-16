@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdir, realpath, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { DEFAULT_LIMITS } from '../../src/implement/limits.js';
 import { resumeAction } from '../../src/cli/resume.js';
 import { EXIT } from '../../src/cli/exit-codes.js';
@@ -155,6 +157,7 @@ async function interruptedLoop(axis: Axis): Promise<StageHarness> {
   expect(loop.summary.steps).toBe(first.length);
   expect(loop.summary[axis]).toBe(EXPECT[axis].spent);
 
+  await makeWorkspaceALinkedWorktree(harness);
   await harness.store.save(
     recordWith(entry.record, {
       implementation: {
@@ -168,24 +171,85 @@ async function interruptedLoop(axis: Axis): Promise<StageHarness> {
 }
 
 /**
- * The fixture's scripted Git, plus the one question Stage 11 asks it.
+ * The workspace this fixture simulated into existence, given the metadata Stage 5
+ * really writes.
+ *
+ * `implementHarness` scripts `git worktree add` and plants the files that answer
+ * would have produced, which leaves a directory with no `.git` in it at all. Stage 11's
+ * observation used to be satisfied by that — it asked Git, through this file's own
+ * scripted runner, what commit the directory stood on, and the runner said yes. Since
+ * `S16-6` it first resolves the workspace's Git directory on the *filesystem*, and a
+ * plain temporary directory has none: the observation refuses, the plan comes back
+ * `RECOVERY_BLOCKED` and the walk whose bounds are under test never runs. That refusal
+ * is the point of `S16-6`, so this file does not argue with it. It hands the run the
+ * layout Stage 5 gives a real run — a pointer file in the workspace, an admin
+ * directory in the primary repository that points back — and the two paths are written
+ * in Git's own form, resolved and slash-separated, because `realpath` on Windows gives
+ * this machine's temporary directories their long form while the fixture was handed the
+ * short one.
+ *
+ * The shape of a genuine linked worktree is proved against real Git in
+ * `tests/lifecycle/observe.test.ts` and `tests/git/workspace.test.ts`; what this file
+ * needs is a workspace that *is* measurable, so the residual can be followed through
+ * the four hops.
+ */
+async function makeWorkspaceALinkedWorktree(harness: StageHarness): Promise<void> {
+  const workspace = await realpath(harness.workspacePath);
+  const admin = path.join(await realpath(harness.root), '.git', 'worktrees', harness.runId);
+  const asGit = (value: string) => `${value.replace(/\\/g, '/')}\n`;
+  await mkdir(admin, { recursive: true });
+  await writeFile(path.join(workspace, '.git'), `gitdir: ${asGit(admin)}`, 'utf8');
+  await writeFile(path.join(admin, 'gitdir'), asGit(path.join(workspace, '.git')), 'utf8');
+}
+
+/**
+ * The fixture's scripted Git, plus the two things Stage 11 asks of it.
  *
  * `answerWorkspaceGit` scripts the commands Stage 5-7 make a workspace with and fails
  * anything else, which is deliberate: a run whose base Git will not vouch for has to be
  * reported as blocked (see `tests/lifecycle/interruption.test.ts`). That is right for a
  * screen and fatal for this file, because a blocked run never reaches the walk whose
  * bounds are under test — the plan comes back `RECOVERY_BLOCKED` and every assertion
- * below then measures a run that did not happen. So *this* file answers the one extra
- * question, for the one drive that needs to get past the observation, and leaves the
+ * below then measures a run that did not happen. So *this* file answers the extra
+ * questions, for the one drive that needs to get past the observation, and leaves the
  * shared fixture — and the blocker test that depends on it — exactly as it found it.
+ *
+ * The first answer is a translation, not a new vouch. `S16-6` made the observation ask
+ * its questions of a directory pair (`--git-dir <admin> --work-tree <workspace>`) rather
+ * than of a repository Git discovers, so the verb is no longer at the index the scripted
+ * fixture reads it from; this hands the same verb to the scripted repository that made
+ * the workspace. The second is the base commit, which a simulated repository cannot
+ * vouch for because it has no commits.
  */
 function gitThatVouchesForTheBase(git: Runner): Runner {
   return async (program, args) => {
-    if (program === 'git' && args.slice(2).join(' ').startsWith('cat-file -e')) {
+    const asked = askedOfRepositoryGit(args);
+    if (program === 'git' && asked.slice(2).join(' ').startsWith('cat-file -e')) {
       return { code: 0, stdout: '', stderr: '' };
     }
-    return git(program, args);
+    return git(program, asked);
   };
+}
+
+/**
+ * The verb a trusted-pair read is asking for, in the shape the scripted fixture reads.
+ *
+ * Two shapes reach a run's Git: Stage 5's `prepareWorkspace` prefixes `-C <directory>`,
+ * and the observation prefixes the resolved pair. Both put the command where
+ * `answerWorkspaceGit` can find it once the global options are set aside, and the
+ * workspace is named back so the fixture's own `-C`-index assumption still holds.
+ */
+function askedOfRepositoryGit(args: readonly string[]): string[] {
+  const [flag, , pairFlag, workTree, locks, ...verb] = args;
+  if (
+    flag === '--git-dir' &&
+    pairFlag === '--work-tree' &&
+    workTree !== undefined &&
+    locks === '--no-optional-locks'
+  ) {
+    return ['-C', workTree, ...verb];
+  }
+  return [...args];
 }
 
 /** `mergesutra resume <run-id> --execute`, with the real Stage 6 behind the dispatcher. */

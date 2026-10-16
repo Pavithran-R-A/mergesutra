@@ -298,27 +298,33 @@ describe('what the product can put in front of Git', () => {
   it('names the sites whose argv it cannot read off the page, across the whole product', async () => {
     const open = constructions(await allSources(SRC)).filter((site: Site) => site.open);
 
-    // Eight, and each is a pass-through rather than a command: the project's own
+    // Nine, and each is a pass-through rather than a command: the project's own
     // git shorthands handing their parameters along, and `verify/command.ts`
     // discovering a gate command from the repository's own build files — the S12-22
     // boundary, which runs only under execution consent and is never a MergeSutra-authored
-    // git call. A ninth open site is a command nobody can read, and this fails so the next
+    // git call. A tenth open site is a command nobody can read, and this fails so the next
     // person decides about it instead of inheriting it.
     //
     // What the pass-throughs are worth, since a hook fires from a directory as well as
-    // from a verb: `intake/local-repo.ts` and the two `git/workspace.ts` sites read the
-    // operator's own checkout, chosen before any run exists, and `lifecycle/observe.ts`
-    // reads the workspace path a run record names. `verify/patch.ts` used to be a third
-    // `-C` discovery; it is now `--git-dir`/`--work-tree` read out of metadata the run
-    // could not have written, because that measurement describes bytes a model authored,
-    // and the repository it opens must not be one of the things those bytes get to pick.
+    // from a verb: `intake/local-repo.ts` and the `git/workspace.ts` sites that name the
+    // primary root read the operator's own checkout, chosen before any run exists — with
+    // one exception this list cannot express, because it renders the same string: the
+    // workspace-commit question at `src/git/workspace.ts:247`, asked of a run's workspace
+    // through `-C` when Stage 5 reuses one. That read is open as `S16-8`. The three sites
+    // that read *through a run's workspace* for its evidence — `verify/patch.ts`,
+    // `lifecycle/observe.ts` and `review/context.ts` — were `-C` discovery until S16-2,
+    // S16-6 and S16-7 respectively: each now names `--git-dir`/`--work-tree` read out of
+    // metadata the run could not have written, because what they describe is bytes a model
+    // authored, and the repository they open must not be one of the things those bytes get
+    // to pick.
     expect(open.map(show).sort()).toEqual([
       'git/workspace.ts: git -C value (open)',
       'git/workspace.ts: git -C value (open)',
       'git/workspace.ts: git rev-parse --verify (open)',
       'intake/local-repo.ts: git -C value (open)',
-      'lifecycle/observe.ts: git -C value (open)',
+      'lifecycle/observe.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
       'lifecycle/observe.ts: git cat-file -e (open)',
+      'review/context.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
       'verify/command.ts: value (open)',
       'verify/patch.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
     ]);

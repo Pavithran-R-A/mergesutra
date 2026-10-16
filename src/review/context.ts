@@ -1,5 +1,6 @@
 import { AppError } from '../core/errors.js';
 import { defaultRunner, type Runner } from '../core/runner.js';
+import { resolveTrustedGitDir, type TrustedGitDir } from '../git/workspace-git-dir.js';
 import {
   openConfinedReader,
   secretContentReason,
@@ -38,8 +39,9 @@ import {
  * were the patch.
  *
  * Reading happens through Stage 5's confined reader and one read-only `git diff`
- * per changed file. Nothing here writes, deletes, or runs anything the run has
- * not already measured.
+ * per changed file, and that diff is asked of the Git metadata this stage resolved
+ * for itself rather than of a repository found inside the workspace. Nothing here
+ * writes, deletes, or runs anything the run has not already measured.
  */
 
 export const REVIEW_CONTEXT_SCHEMA_VERSION = 1;
@@ -224,6 +226,7 @@ export async function assembleReviewContext(
   requireSameBase(patch, base);
   requireDigest(patch);
 
+  const measured = await measureWorkspace(input.workspace);
   const reader = deps.reader ?? (await openConfinedReader(input.workspace));
   const run = deps.run ?? defaultRunner;
   const currency = stalenessOf(verification.patchIdentity, patch.identity);
@@ -242,7 +245,7 @@ export async function assembleReviewContext(
   const patchFiles = await describePatchFiles({
     reader,
     run,
-    workspace: input.workspace,
+    measured,
     baseSha: patch.baseSha,
     patch,
     limits,
@@ -347,10 +350,58 @@ function gateFact(outcome: GateOutcome): ReviewGateFact {
   };
 }
 
+/**
+ * The metadata pair this context will read its diffs through, or a refusal.
+ *
+ * A per-file diff needs a repository, and the workspace's own `.git` entry is one
+ * of the files the run may rewrite, so asking Git to discover the repository from
+ * inside the directory under review would let a rewritten pointer decide which
+ * history and which object store answer — the same failure
+ * `SECURITY_GAP_REGISTER.md` S16-2 measured for the patch identity and S16-6 for
+ * the Stage 11 observation. Stage 9 already measured the patch through this pair
+ * before reaching here, so in production the refusal below is a duplicate of a
+ * guard that already held; it exists because this module is exported, and a later
+ * caller that handed over a patch measured somewhere else would otherwise be
+ * shown a page whose evidence came from a repository the run aimed at.
+ */
+async function measureWorkspace(workspace: string): Promise<TrustedGitDir> {
+  const trusted = await resolveTrustedGitDir(workspace);
+  if (trusted !== null) return trusted;
+  throw new AppError({
+    kind: 'validation',
+    message:
+      `Cannot assemble a review context: ${workspace.slice(0, 200)} has no Git metadata a run could ` +
+      'not have written, so no per-file diff taken from it can be trusted as this run’s patch.',
+    remediation:
+      'Review the workspace MergeSutra prepared for this run (Stage 5 creates it). MergeSutra will not let Git discover a repository from inside the directory under review, because configuration found there can name programs to run.',
+  });
+}
+
+/**
+ * A question asked of the directory pair `measureWorkspace` resolved.
+ *
+ * The pair precedes the subcommand so Git never discovers a repository from inside
+ * the directory under review — one rewritten `.git` pointer would otherwise decide
+ * which object store answers for this run's patch — and `--no-optional-locks` keeps
+ * this module's read-only promise honest against a `git` the run is holding at the
+ * same moment.
+ */
+function git(run: Runner, measured: TrustedGitDir, args: readonly string[]) {
+  return run('git', [
+    '--git-dir',
+    measured.gitDir,
+    '--work-tree',
+    measured.workTree,
+    '--no-optional-locks',
+    ...args,
+  ]);
+}
+
 interface PatchReadingInput {
   readonly reader: ConfinedReader;
   readonly run: Runner;
-  readonly workspace: string;
+  /** The metadata pair this context's diff leg is allowed to read, resolved before any byte. */
+  readonly measured: TrustedGitDir;
   readonly baseSha: string;
   readonly patch: PatchDescription;
   readonly limits: ReviewContextLimits;
@@ -432,18 +483,14 @@ async function trackedContent(
   relativePath: string,
   cap: number,
 ): Promise<PatchContent | Refusal> {
-  const result = await input
-    .run('git', [
-      '-C',
-      input.workspace,
-      'diff',
-      '--no-ext-diff',
-      '--no-renames',
-      input.baseSha,
-      '--',
-      relativePath,
-    ])
-    .catch(() => null);
+  const result = await git(input.run, input.measured, [
+    'diff',
+    '--no-ext-diff',
+    '--no-renames',
+    input.baseSha,
+    '--',
+    relativePath,
+  ]).catch(() => null);
   if (!result || result.code !== 0) {
     return { refusal: 'Git would not produce a diff for it' };
   }

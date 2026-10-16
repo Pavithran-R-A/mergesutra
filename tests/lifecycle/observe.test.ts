@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdir, mkdtemp, readdir, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { defaultRunner, type Runner } from '../../src/core/runner.js';
@@ -193,6 +193,52 @@ describe.skipIf(!AVAILABLE)('the workspace a run recorded', () => {
     // this run's history at all, rather than holding it and having moved on.
     expect(observation.workspace.detail).toMatch(/not the repository/i);
     expect(observation.workspace.currentPatchIdentity).toBeNull();
+  });
+
+  it('refuses a workspace whose own .git pointer was rewritten to a sibling run’s metadata', async () => {
+    const fixture = await reviewedRun(tempDirs);
+    // A second, legitimate Stage 5 workspace in the same repository — the shape a
+    // run finds when a sibling run is working in the same checkout, which is the
+    // ordinary case Stage 5 was designed for.
+    const sibling = path.join(fixture.primaryDir, '.mergesutra', 'worktrees', 'the-other-run');
+    const added = await defaultRunner('git', [
+      '-C',
+      fixture.primaryDir,
+      'worktree',
+      'add',
+      '--detach',
+      sibling,
+      fixture.base,
+    ]);
+    if (added.code !== 0) throw new Error(`git worktree add failed: ${added.stderr}`);
+
+    // The attack is one file written inside the run's own workspace, which the run
+    // may write: its `.git` pointer now names the *sibling's* admin directory, and
+    // that directory's back-pointer names the sibling, so the pair is internally
+    // consistent. Git's discovery follows it, and every question this module asks
+    // by discovery — which workspace is this, what commit, does it hold the base —
+    // is then answered about another run's bytes.
+    const admin = path.join(fixture.primaryDir, '.git', 'worktrees', 'the-other-run');
+    // `rm` then write, not an in-place overwrite: measured on this host, the
+    // pointer file inherits read-only permission for ordinary users while its
+    // *directory* stays writable, so a program that can write in the workspace can
+    // remove the pointer and put another one back. The bytes are not protected; the
+    // trust rule cannot be built on that.
+    await rm(path.join(fixture.workspace, '.git'));
+    await put(fixture.workspace, '.git', `gitdir: ${admin.replace(/\\/g, '/')}\n`);
+
+    const observation = await observe(fixture.record, fixture.runsRoot);
+
+    expect(stateOf(observation)).toBe('UNREADABLE');
+    expect(observation.workspace.observedHead).toBeNull();
+    expect(observation.workspace.currentPatchIdentity).toBeNull();
+    expect(observation.workspace.detail).toMatch(/could not have written/i);
+    // The sibling measures clean, so a reading that reached it would have replaced
+    // this run's real patch with bytes belonging to another run's workspace.
+    expect(observation.verdict.states.review).toBe('UNMEASURABLE');
+    // Refusing is not repairing: the pointer the run wrote is still there.
+    expect(await readFile(path.join(fixture.workspace, '.git'), 'utf8')).toContain('the-other-run');
+    expect(await readdir(sibling)).toContain('README.md');
   });
 
   it('recognises the run’s own workspace and the patch its documents describe', async () => {
@@ -461,18 +507,19 @@ describe.skipIf(!AVAILABLE)('looking changes nothing', () => {
     expect(calls.length).toBeGreaterThan(0);
     for (const argv of calls) {
       expect(argv[0]).toBe('git');
-      // An observation names the repository before the verb, in one of two shapes:
-      // `-C <directory>`, where Git works out which repository that directory
-      // belongs to, and `--git-dir <dir> --work-tree <dir> --no-optional-locks`,
-      // which is the patch measurement opening metadata this run could not have
-      // written and taking no index lock on the way. A third shape would be a
-      // repository the observation did not decide to read.
-      const discovered = argv[1] === '-C';
+      // Every command names the repository *before* the verb, in the one shape that
+      // says which metadata Git may read: `--git-dir <dir> --work-tree <dir>
+      // --no-optional-locks`, the pair `resolveTrustedGitDir` accepted, taking no
+      // index lock on the way. The other shape this file used to allow — `-C
+      // <directory>`, where Git works out for itself which repository a directory
+      // belongs to — is what S16-6 removed from this module, because a pointer file
+      // the run can rewrite then decides which commit and which history the status
+      // screen reports as this run's. A `-C` reappearing here is that regression.
       const measured =
         argv[1] === '--git-dir' && argv[3] === '--work-tree' && argv[5] === '--no-optional-locks';
-      expect(discovered || measured, argv.join(' ')).toBe(true);
-      // The subcommand follows the directory argument in either shape.
-      const subcommand = (discovered ? argv[3] : argv[6]) ?? '';
+      expect(measured, argv.join(' ')).toBe(true);
+      // The subcommand follows the directory arguments.
+      const subcommand = argv[6] ?? '';
       expect(['cat-file', 'diff', 'ls-files', 'rev-parse'], subcommand).toContain(subcommand);
     }
     expect(await statusOf(fixture.workspace, '--untracked-files=all')).toBe(dirtyBefore);
