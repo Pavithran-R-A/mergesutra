@@ -28,7 +28,18 @@ permissions:
 jobs:
   sandbox:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    # One leg per sandbox image the proof is entitled to speak about. Each is a
+    # digest, never a tag: a tag would let the registry decide what was qualified.
+    # 26-alpine is MergeSutra's own pin (and has no git binary); 22 and 24 are the
+    # Debian images a customer is likelier to hand the operator.
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8
+          - node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
+          - node@sha256:14078204b6bb268c107ceff6d3c43f45a888105e5c2b18b14c32b3409d93a1b0
     steps:
       - name: Checkout (no persisted credentials)
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -46,14 +57,16 @@ jobs:
           npm ci
           npm run build
 
-      - name: Preload exact official Node image (outside product runner)
-        run: docker pull node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8
+      - name: Preload the matrix image (outside product runner)
+        run: docker pull ${{ matrix.image }}
 
       - name: Execute malicious fixture inside real isolated container
         run: node scripts/sandbox-runtime-proof.mjs
+        env:
+          MERGESUTRA_RUNTIME_PROOF_IMAGE: ${{ matrix.image }}
 
       - name: Exercise real Stage 6 and Stage 7 Docker routing
         run: node --import tsx scripts/sandbox-stage-proof.mjs
         env:
-          MERGESUTRA_SANDBOX_IMAGE: node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8
+          MERGESUTRA_SANDBOX_IMAGE: ${{ matrix.image }}
           MERGESUTRA_DOCKER_EXECUTABLE: /usr/bin/docker

@@ -8,9 +8,14 @@ import process from 'node:process';
 import { createSandboxedRunner } from '../dist/security/sandbox.js';
 
 // This intentionally uses a real Docker daemon, not a mocked Runner.
-// The workflow preloads this *digest* independently; the product runner
-// refuses missing images instead of pulling a mutable tag.
-const IMAGE = 'node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8';
+// The workflow preloads each *digest* independently; the product runner
+// refuses missing images instead of pulling a mutable tag. The matrix leg names
+// the image under proof, so one harness measures every qualified image; the
+// default stays the repository's own pin so a bare `node scripts/…` run proves it.
+const DEFAULT_IMAGE =
+  'node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8';
+const IMAGE = process.env.MERGESUTRA_RUNTIME_PROOF_IMAGE ?? DEFAULT_IMAGE;
+process.stdout.write(`SANDBOX_RUNTIME_PROOF_IMAGE: ${IMAGE}\n`);
 const root = await mkdtemp(path.join(tmpdir(), 'mergesutra-real-sandbox-'));
 const workspace = path.join(root, 'workspace');
 const sibling = path.join(root, 'sibling');
