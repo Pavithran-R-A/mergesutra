@@ -5453,9 +5453,11 @@ file's existing argv inventory (10 tests) keeps the mount, network, capability a
 where the S14/S15 readings put them.
 
 *What this does not claim.* Pinning the entrypoint makes the container run what was asked for; it does
-not make the program *present* in the image, and no test here runs a real container — the proof that a
-named `git` behaves as expected inside the pinned digest is part of the unexecuted Docker qualification
-named in the Stage 16 status list.
+not make the program *present* in the image, and no test here runs a real container. The real-Docker
+workflow does run one now, and `S16-10` qualifies three digest-pinned images — but no leg of it drives a
+git-native gate, so what these readings still do not show is how a named `git` behaves inside an image
+that actually carries it; the only measured git-in-container reading is `S16-4`'s exit-127 for this
+Alpine pin, which measures the program's absence, not its behaviour.
 
 **Evidence for the closing claim.** `src/security/sandbox.ts` (+10) and
 `tests/security/sandbox.test.ts` (+35) shipped at `c31a6f8`; the green reading above
