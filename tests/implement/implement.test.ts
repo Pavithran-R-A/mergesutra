@@ -560,9 +560,11 @@ describe('the record this stage writes back', () => {
     );
     expect(first.checks.find((check) => check.name === 'Primary checkout')).toBeUndefined();
 
-    // A previous attempt already created this workspace, at the base commit.
+    // A previous attempt already created this workspace, at the base commit — files and
+    // the Git metadata Stage 5 measures it through (`S16-8`), which is what makes it a
+    // workspace the run may be reused rather than a directory the run invented.
     const reused = await harness([finishAction()]);
-    await plantWorkspace(reused.workspacePath);
+    await plantWorkspace(reused);
     const second = await reused.implement();
     expect(second.workspace.reused).toBe(true);
     expect(second.checks.find((check) => check.name === 'Workspace')?.detail).toContain('(reused)');

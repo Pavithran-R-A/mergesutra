@@ -387,9 +387,14 @@ describe('what `resume --execute` is not given permission to reach', () => {
 
     // The full enumeration for the acting half, listed because "identical to Stages
     // 3–10" is only checkable as a set. Seven more than the observer, and all seven are
-    // measurement: the six `git/workspace.ts` reads that find, check and list the worktree
+    // measurement: six reads in `git/workspace.ts` that find, check and list the worktree
     // a resumed loop stands in, and the `git diff --check` in `verify/workspace.ts` that a
-    // gate round wants. Not one of them writes, and nothing here is new to this stage —
+    // gate round wants. Five of the six name the operator's own checkout, which is the
+    // directory `prepareWorkspace` was handed; the `rev-parse --verify HEAD` one is asked
+    // of a run's workspace through the pair Stage 5 resolved, so this rendering no longer
+    // says which of the two shapes built it (`git/workspace.ts` has one helper for both —
+    // see the open list below and SECURITY_GAP_REGISTER.md S16-8).
+    // Not one of them writes, and nothing here is new to this stage —
     // which is the property a later contributor
     // can break with a single added helper, so it is pinned.
     expect(closed.map(show).sort()).toEqual([
@@ -418,8 +423,13 @@ describe('what `resume --execute` is not given permission to reach', () => {
     // `tests/repair/source-shape.test.ts` already names `verify/command.ts` as the gate.
     // The `review/context.ts` site is the reviewer's per-file diff, which moved here from
     // the closed list when Stage 9 stopped letting git discover the repository it diffs
-    // (SECURITY_GAP_REGISTER.md S16-7).
+    // (SECURITY_GAP_REGISTER.md S16-7). The `git/workspace.ts` pair site is the same rule
+    // applied to the workspace-commit question Stage 5 asks before reusing a workspace
+    // (S16-8), and it is the fourth copy of the shape: the `--git-dir`/`--work-tree` sites
+    // are the four reads of a run's own bytes, each resolving the pair outside the
+    // workspace first, and the `-C` sites are reads of the operator's checkout.
     expect(open.map(show).sort()).toEqual([
+      'git/workspace.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
       'git/workspace.ts: git -C value (open)',
       'git/workspace.ts: git -C value (open)',
       'git/workspace.ts: git rev-parse --verify (open)',
