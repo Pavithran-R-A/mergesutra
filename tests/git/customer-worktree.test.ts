@@ -5,10 +5,19 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { defaultRunner } from '../../src/core/runner.js';
 import { prepareWorkspace, WORKTREE_BASE_DIR } from '../../src/git/workspace.js';
 import { resolveTrustedGitDir } from '../../src/git/workspace-git-dir.js';
+import {
+  inspectLocalRepository,
+  type LocalRepositorySnapshot,
+} from '../../src/intake/local-repo.js';
+import { observeRun } from '../../src/lifecycle/observe.js';
 import { isInsideRoot, isSamePath } from '../../src/security/path-safety.js';
+import { createRunRecord, type RunRecord } from '../../src/state/run-record.js';
 import { describePatch } from '../../src/verify/patch.js';
 import { makeFixtureTree } from '../helpers/fixture.js';
 import { hasGit, headOf, initRepository, statusOf } from '../helpers/git.js';
+import { NOW } from '../helpers/plan.js';
+import { recordWith } from '../helpers/review.js';
+import { put, stubImplementation } from '../helpers/verifyRun.js';
 
 /**
  * The customer topology nobody had driven: a repository that is itself a worktree.
@@ -25,12 +34,15 @@ import { hasGit, headOf, initRepository, statusOf } from '../helpers/git.js';
  * the worktree the run is handed. This file is that customer, built by real Git and measured
  * through production code.
  *
- * What is proven here is Stage 5's creation and reuse decision plus Stage 7's patch
- * identity, because those two are the ones whose *contract with the customer* changes with
- * the topology. Stage 9's per-file diff and Stage 11's observation are not driven separately:
- * they resolve the same `resolveTrustedGitDir` gate (S16-2, S16-6, S16-7, S16-8 all call it),
- * and this file shows that gate returns the parent clone's registration for this layout — the
- * one fact those two other reads depend on.
+ * What is proven here is Stage 5's creation and reuse decision, Stage 7's patch
+ * identity and Stage 11's read-only observation, because those are the ones whose
+ * *contract with the customer* changes with the topology: Stage 5 has to be able to
+ * make and re-find the workspace, Stage 7 has to be able to measure it, and Stage 11
+ * has to be able to tell a person about it without letting Git walk out of it. Stage
+ * 9's per-file diff is not driven separately: it resolves the same
+ * `resolveTrustedGitDir` gate those four already call (S16-2, S16-6, S16-7, S16-8),
+ * and this file shows the gate returns the parent clone's registration for this
+ * layout — the one fact that read depends on.
  */
 
 const RUN_ID = 'run-20260924T202442Z-306f6e';
@@ -102,6 +114,49 @@ async function forgePointer(workspace: string, target: string): Promise<void> {
   const file = path.join(workspace, '.git');
   await rm(file, { force: true });
   await writeFile(file, pointer, 'utf8');
+}
+
+/** A root for the run store's packs, which Stage 11 reads alongside the workspace. */
+async function scratchRoot(): Promise<string> {
+  const root = await makeFixtureTree({});
+  created.push(root);
+  return root;
+}
+
+/**
+ * The record a run that stopped after Stage 6 would have filed about this workspace.
+ *
+ * Written through the real constructor and filled with only what such a run has
+ * genuinely measured: `local`, from intake's own read of the customer's checkout, and
+ * the workspace pair from Stage 5's answer. Everything Stage 7 onward would record is
+ * null — which is why `PRESENT`, rather than a comparison with a recorded identity, is
+ * the only honest thing Stage 11 can say here.
+ */
+async function recordOfCustomerRun(
+  local: LocalRepositorySnapshot,
+  baseSha: string,
+  workspace: Awaited<ReturnType<typeof prepareWorkspace>>,
+): Promise<RunRecord> {
+  const shell = createRunRecord({
+    runId: RUN_ID,
+    createdAt: NOW.toISOString(),
+    stage: 'implement',
+    outcome: 'IMPLEMENTED_BY_MODEL',
+    issueRef: null,
+    issue: null,
+    repository: null,
+    base: { sha: baseSha, shortSha: baseSha.slice(0, 10), source: 'local-git' },
+    local,
+    contract: null,
+    checks: [],
+    nextStage: 'VERIFY',
+  });
+  return recordWith(shell, {
+    implementation: stubImplementation(shell, ['AC-001'], baseSha, {
+      relativePath: workspace.relativePath,
+      branch: workspace.branch,
+    }),
+  });
 }
 
 describe('a run workspace inside a customer checkout that is itself a linked worktree', () => {
@@ -199,6 +254,93 @@ describe('a run workspace inside a customer checkout that is itself a linked wor
       );
       // The customer checkout itself is honest metadata, and stays measurable.
       expect(await resolveTrustedGitDir(sibling)).not.toBeNull();
+    },
+    120_000,
+  );
+
+  it.skipIf(!gitAvailable)(
+    'observes it for a person asking for status, and measures the run workspace not the checkout',
+    async () => {
+      const { parent, sibling, baseSha } = await customerWorktree();
+      const prepared = await prepareWorkspace({ primaryRoot: sibling, runId: RUN_ID, baseSha });
+
+      // Intake's own read of the directory this customer would pass to `--repo`, taken
+      // from real Git. The flag is what makes `src/intake/intake.ts` record the
+      // linked-worktree limitation, and until now only a scripted runner had exercised
+      // it; the parent clone is the control that says the flag distinguishes the two
+      // topologies rather than simply being true of everything.
+      const local = await inspectLocalRepository(sibling);
+      expect(local.isLinkedWorktree).toBe(true);
+      expect((await inspectLocalRepository(parent)).isLinkedWorktree).toBe(false);
+
+      const runsRoot = await scratchRoot();
+      const record = await recordOfCustomerRun(local, baseSha, prepared);
+
+      const clean = await observeRun({ record, runsRoot, cwd: sibling });
+      expect(clean.workspace.state).toBe('PRESENT');
+      expect(isSamePath(clean.workspace.path!, prepared.path)).toBe(true);
+      expect(clean.workspace.recordedBaseSha).toBe(baseSha);
+      expect(clean.workspace.observedHead).toBe(baseSha);
+      expect(clean.workspace.recordedPatchIdentity).toBeNull();
+      // Nothing in this run verified, reviewed or published, so the graph says so
+      // rather than letting an unmeasured artifact look current.
+      expect(clean.verdict.states.verification).toBe('ABSENT');
+      expect(clean.workspace.currentPatchIdentity).toBe(
+        (await describePatch({ workspace: prepared.path, baseSha })).identity,
+      );
+
+      await put(
+        prepared.path,
+        'src/parse.ts',
+        'export function parseDate(): Date {\n  return new Date();\n}\n',
+      );
+
+      const moved = await observeRun({ record, runsRoot, cwd: sibling });
+      const workspacePatch = await describePatch({ workspace: prepared.path, baseSha });
+      expect(moved.workspace.currentPatchIdentity).toBe(workspacePatch.identity);
+      expect(moved.workspace.currentPatchIdentity).not.toBe(clean.workspace.currentPatchIdentity);
+      // The customer's own checkout is a clean one at the same base, so its patch
+      // measures something different from the run's. An observation that let Git walk
+      // up out of the workspace would have reported that identity instead — and still
+      // have called itself `PRESENT` at the recorded base, because this checkout really
+      // is standing on it.
+      const checkoutPatch = await describePatch({ workspace: sibling, baseSha });
+      expect(checkoutPatch.identity).not.toBe(workspacePatch.identity);
+      // Reading a status screen never edits the customer's tree.
+      expect(await statusOf(sibling)).toBe('');
+      expect(await statusOf(parent)).toBe('');
+    },
+    120_000,
+  );
+
+  it.skipIf(!gitAvailable)(
+    'tells the person the workspace could not be measured instead of describing the checkout as the run work',
+    async () => {
+      const { sibling, baseSha } = await customerWorktree();
+      const prepared = await prepareWorkspace({ primaryRoot: sibling, runId: RUN_ID, baseSha });
+      const record = await recordOfCustomerRun(
+        await inspectLocalRepository(sibling),
+        baseSha,
+        prepared,
+      );
+      const runsRoot = await scratchRoot();
+
+      // The record points somewhere real before the plant, so an unreadable answer
+      // afterwards cannot be blamed on a path this fixture never built.
+      expect((await observeRun({ record, runsRoot, cwd: sibling })).workspace.state).toBe(
+        'PRESENT',
+      );
+
+      await forgePointer(prepared.path, await adminDirOf(sibling));
+
+      const observed = await observeRun({ record, runsRoot, cwd: sibling });
+      expect(observed.workspace.state).toBe('UNREADABLE');
+      expect(observed.workspace.detail).toMatch(/could not have written/);
+      expect(observed.workspace.observedHead).toBeNull();
+      expect(observed.workspace.currentPatchIdentity).toBeNull();
+      expect(await readFile(path.join(prepared.path, '.git'), 'utf8')).toContain(
+        (await adminDirOf(sibling)).replace(/\\/g, '/'),
+      );
     },
     120_000,
   );

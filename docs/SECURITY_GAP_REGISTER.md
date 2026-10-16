@@ -5242,7 +5242,7 @@ assumed. What Stage 16 will not claim before it measures it:
   The four that mattered when this status was first written — Stage 7's patch identity (`S16-2`), Stage 11's
   observation of the tree (`S16-6`), the reviewer's per-file diff (`S16-7`) and Stage 5's reuse decision
   (`S16-8`) — each resolve the pair before asking anything (`src/verify/patch.ts:137`,
-  `src/lifecycle/observe.ts:204`, `src/review/context.ts:229`, `src/git/workspace.ts:138` and `:193`),
+  `src/lifecycle/observe.ts:204`, `src/review/context.ts:368`, `src/git/workspace.ts:138` and `:193`),
   refuse when it is `null`, and then ask through
   `git --git-dir <admin> --work-tree <workspace> --no-optional-locks …`. The built-in `git diff --check`
   gate stopped being one of these reads in `S16-4`: it is a host measurement of the trusted pair now, not
@@ -5782,7 +5782,7 @@ pair since S16-2 and refuses here, while the per-file diffs printed beside it ca
 had chosen for itself.
 
 **Fix.** `assembleReviewContext` resolves the pair before it opens a reader or a process
-(`src/review/context.ts:229` → `measureWorkspace`, `:366-377`), and the diff leg goes through
+(`src/review/context.ts:229` → `measureWorkspace`, `:367-378`), and the diff leg goes through
 `git(run, measured, args)` at `:389`, which emits
 `--git-dir <admin> --work-tree <workspace> --no-optional-locks diff …` (`:486`). `PatchReadingInput` now
 carries the resolved `TrustedGitDir` instead of a workspace string, so a caller cannot hand this module
@@ -5962,18 +5962,26 @@ case, not less. Stage 5 creates the workspace, reports `reused: false`, returns 
 as `toplevel` and `.mergesutra/worktrees/<runId>` as the relative path (the exact pair Stage 11 re-derives
 the workspace from), leaves `git status` clean in both the checkout and the parent, reuses itself on the
 second call, and Stage 7 names an empty patch, then the patch holding one modified and one untracked
-file. The negative control is the plant S16-8 was written to refuse: rewriting the workspace's `.git`
-onto the *customer checkout's own* registration, whose HEAD really is the recorded base, so Git's
-discovery answers the polite question with the base commit. It is refused as unmeasurable, the pointer
-is left exactly as the run wrote it, and the customer's checkout stays measurable.
+file. Stage 11's read-only observation, given a record carrying intake's own read of that checkout,
+re-derives the same directory, reports `PRESENT` at the recorded base with the head the workspace really
+stands on, and its `currentPatchIdentity` is the same value Stage 7 measures for the same bytes — then
+changes, and stays equal to Stage 7, once a file is written there. Intake's linked-worktree flag is taken
+from real Git for both trees (`true` for the checkout that is a worktree, `false` for its parent), which
+is the fact `src/intake/intake.ts:266` turns into the limitation a reviewer reads. The negative control
+is the plant S16-8 was written to refuse: rewriting the workspace's `.git` onto the *customer checkout's
+own* registration, whose HEAD really is the recorded base, so Git's discovery answers the polite question
+with the base commit. It is refused as unmeasurable, the pointer is left exactly as the run wrote it, and
+the customer's checkout stays measurable; Stage 11 reports that workspace as `UNREADABLE` with the
+"could not have written" reason rather than as missing, and rather than as the `PRESENT` checkout it
+would have looked like if the observation had borrowed the neighbouring registration.
 
-**Tests.** `tests/git/customer-worktree.test.ts` (2 tests, both real Git, skipped on a host without
-it): `:108` for the create/reuse/measure round, `:167` for the plant. No production code changed — this
-item exists because the case was unproven, and the proof is now in the suite rather than in a probe on
-one host's disk.
+**Tests.** `tests/git/customer-worktree.test.ts` (4 tests, all real Git, skipped on a host without it):
+`:163` for the create/reuse/measure round, `:222` for the plant, `:261` for intake's flag plus Stage 11's
+honest observation, `:316` for Stage 11's answer to the plant. No production code changed — this item
+exists because the case was unproven, and the proof is now in the suite rather than in a probe on one
+host's disk.
 
-*Anti-vacuity, two mutations, each reverted byte-for-byte (verified by an empty `git diff --stat -- src`
-after each):*
+*Anti-vacuity, four mutations, each reverted (verified by an empty `git diff --stat -- src` after each):*
 
 - Drop `resolveTrustedGitDir`'s back-pointer comparison (`src/git/workspace-git-dir.ts:68`) →
   `1 failed | 1 passed (2)`, failing `expected { …(2) } to be null` with the forged workspace resolving
@@ -5983,25 +5991,52 @@ after each):*
 - Drop untracked additions from the patch (`src/verify/patch.ts:122`) → `1 failed | 1 passed (2)`,
   `expected [ 'src/parse.ts' ] to deeply equal [ 'src/extra.ts', 'src/parse.ts' ]`. So the measurement
   claim is about both kinds of change, not about a file Git was already tracking.
+- Let Stage 11 borrow a neighbouring registration when the workspace's own cannot be named
+  (`src/lifecycle/observe.ts:204`, `?? await resolveTrustedGitDir(primary)`) → `1 failed | 3 passed (4)`,
+  `expected 'PRESENT' to be 'UNREADABLE'`. That is the status screen telling a person the customer's
+  checkout is the run's workspace, at the recorded base, with a patch — every number true, none of them
+  about this run.
+- Hard-code intake's topology flag off (`src/intake/local-repo.ts:114` → `isLinkedWorktree: false`) →
+  `1 failed | 3 passed (4)`, `expected false to be true`. So the flag is measured from the checkout Git
+  was handed, not asserted because a scripted runner once said so.
 
-Control on the unmutated tree: `2 passed (2)`.
+Control on the unmutated tree: `2 passed (2)`, then `4 passed (4)` after the Stage 11 pair was added.
 
-**Readings on this tree** (`b3dc7a3`, the commit carrying the tests, one worker):
+**Readings on this tree** (`b3dc7a3`, the commit carrying the first two tests, one worker):
 `tests/git tests/github` → `Test Files 5 passed (5)`, `Tests 57 passed (57)`.
 `tests/verify tests/lifecycle tests/review tests/security` → `Test Files 69 passed | 1 skipped (70)`,
 `Tests 1048 passed | 1 skipped (1049)` in 26.6 minutes. `typecheck`, `lint`, `build`, `format:check`,
 `qualify:path-shapes` (`git-discovery=covered`) and `verify:package` (`115 passed`) each exit `0`;
 `test:artifact` → `14 passed`. The whole-suite sweep is **not** reported as a local reading: `C:` stayed
 at 100 % full (about 124 MB free at the end of the run above) on a machine with one drive, and the four
-directories listed cover every module this item touches. The hosted six-cell reading for this SHA is
-recorded when it lands, not assumed from these numbers.
+directories listed cover every module this item touches.
 
-**What this does not claim.** Stage 9's per-file diff and Stage 11's observation were not driven through
-production in this topology; they resolve the same `resolveTrustedGitDir` gate, and what this file shows
-about the layout is the one fact those two reads depend on — which is a claim about shared code, not a
-substitute for running them. `S16-4`'s real-Docker round used a plain clone as the parent, so the
-bind-mount question for *this* nesting — metadata deeper than the workspace, under a directory the
-customer chose — has not been re-probed in a container. One host, one operating system, one Git version.
+**Readings on the Stage 11 tree.** The four files this item touches plus the two suites whose behaviour
+it could disturb, one worker: `tests/git/customer-worktree.test.ts` (4), `tests/intake/local-repo.test.ts`
+(18), `tests/git/workspace.test.ts` (21), `tests/lifecycle/observe.test.ts` (20) → `Test Files 4 passed
+(4)`, `Tests 63 passed (63)` in 189 seconds. `typecheck`, `lint`, `build`, `format:check`,
+`qualify:path-shapes` (`git-discovery=covered`), `verify:package` (`115 passed`) and `test:artifact`
+(`14 passed`) each exit `0`. The whole-suite sweep is **not** reported as a local reading, for the same
+full-disk reason as above; the hosted run for this commit is what closes it, and is recorded only when it
+lands.
+
+**Hosted reading, `3fc1d85ab79bfafcc5880918830b2ee32b5b8ac4`.** CI run `38896143773` is 6/6 green
+(ubuntu / macOS / Windows × Node 22.x / 24.x); every cell reports `Test Files 163 passed | 3 skipped
+(166)` and names `tests/git/customer-worktree.test.ts (2 tests)` passing — so the topology is measured
+against three operating systems' real Git, not one host's. `Real Docker isolation proof`
+(`38896143640`) is green on the same SHA with `SANDBOX_RUNTIME_PROOF: PASS` and
+`STAGE_6_AND_7_DOCKER_PROOF: PASS`. The two Stage 11 tests above are *not* in that reading: they land
+after `3fc1d85`, so their hosted evidence is the run for their own commit, recorded when it lands and
+not assumed from this one.
+
+**What this does not claim.** Stage 9's per-file diff was not driven through production in this
+topology; it resolves the same `resolveTrustedGitDir` gate the four tests here already exercise, and
+what this file shows about the layout is the one fact that read depends on — which is a claim about
+shared code, not a substitute for running it. The Stage 11 pair drives that module's *workspace
+observation*; the `status` and `resume` commands over a real run store in this layout are not.
+`S16-4`'s real-Docker round used a plain clone as the parent, so the bind-mount question for *this*
+nesting — metadata deeper than the workspace, under a directory the customer chose — has not been
+re-probed in a container. One host, one operating system, one Git version for the local readings.
 And this says nothing about a customer whose checkout is a worktree of a worktree, or about a workspace
 created inside a submodule; neither is built here or anywhere else in the suite.
 

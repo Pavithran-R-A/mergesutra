@@ -273,7 +273,7 @@ repository declares, which is a different threat and gets a different boundary.
   S16-7 and S16-8 the three reads that were still discovering after that. Each
   of the four resolves the pair before it asks anything —
   `src/verify/patch.ts:137`, `src/lifecycle/observe.ts:204`,
-  `src/review/context.ts:229` and `src/git/workspace.ts:138` and `:193` — and
+  `src/review/context.ts:368` and `src/git/workspace.ts:138` and `:193` — and
   each then asks through `--git-dir`/`--work-tree`/`--no-optional-locks`
   (`src/verify/patch.ts:405`, `src/lifecycle/observe.ts:365`,
   `src/review/context.ts:391`, `src/git/workspace.ts:324`). The `-C` reads that
