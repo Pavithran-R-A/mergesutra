@@ -5219,7 +5219,10 @@ a fact about this host's path quoting), `S16-6` (the observation), `S16-7` (the 
 `S16-8` (Stage 5's reuse question, closed at `635a157`). `S16-9` — the checkout handed to Stage 5 being
 *itself* a linked worktree of another clone, a shape no committed test had ever built — is closed as
 TEST + DOCUMENT, because it found no defect: that customer works, and it is now measured rather than
-assumed. What Stage 16 will not claim before it measures it:
+assumed. `S16-10` — the real-Docker proof qualified exactly one image, and reading that digest off the
+daemon shows the Alpine image whose missing `git` the docs already describe — is closed CODE + TEST +
+DOCUMENT: three digest-pinned images now carry both proofs. What Stage 16 will not claim before it
+measures it:
 
 - **A customer worktree driven through real Docker: executed, and it did not work — then fixed, and
   executed again.** `S16-4` below carries both readings. The *before*: the production Stage 7 path
@@ -5233,8 +5236,9 @@ assumed. What Stage 16 will not claim before it measures it:
   hooks MergeSutra obeys when it measures. The *after* is the same fixture, the same pinned image and
   the same production entry point with no stubs: the built-in gate `PASS`es, a repository's `npm test`
   executes inside the container, and a patch left with trailing whitespace still `FAIL`s the round with
-  Git's own finding. What remains unmeasured is the rest of the platform matrix (macOS, Windows
-  containers, any image other than the pinned digest), not this behaviour. The rule in
+  Git's own finding. What remains unmeasured is the rest of the platform matrix (macOS and Windows
+  container hosts; a sandbox image other than this one is now qualified on a Linux host by `S16-10`), not
+  this behaviour. The rule in
   `docs/SANDBOX_EXECUTION.md` that such a round must not be reported as a PASS and must not fall back to
   a raw host runner still holds for every command a repository wrote down; the rounds that broke came
   back `FAIL`, never `PASS`, and the round that works now earns its `PASS` by measuring.
@@ -5274,8 +5278,9 @@ assumed. What Stage 16 will not claim before it measures it:
   `node@sha256:a4fb14143ee2…` digest and printing `SANDBOX_RUNTIME_PROOF: PASS` then
   `STAGE_6_AND_7_DOCKER_PROOF: PASS`. Still unmeasured: macOS Docker
   (`scripts/sandbox-runtime-proof.mjs` names `/usr/bin/docker` and
-  `.github/workflows/sandbox-runtime.yml` runs on Ubuntu only, and its single job is labelled
-  `ubuntu-latest`), and any Node 22 or Node 24 *sandbox image*. Issue #33 therefore stays open.
+  `.github/workflows/sandbox-runtime.yml` runs on Ubuntu only — every leg of its matrix is labelled
+  `ubuntu-latest`). The *sandbox image* half of that limitation is measured now: `S16-10` drives both
+  proofs against three digest-pinned images. Issue #33 therefore stays open.
 
 ## S16-1 — a run could author the repository MergeSutra measured it through
 
@@ -5580,8 +5585,8 @@ no git" — the exit-code indistinguishability at `src/verify/engine.ts:397-401`
 purpose, because mapping 127 to `INCONCLUSIVE` would be a `RunResult` contract change with a much
 wider blast radius than this item. The host read is also only as trustworthy as S16-1/S16-2's metadata
 rule, which it reuses rather than re-proves. And this remains one Windows host with one Docker
-Desktop daemon: Linux-host bind mounts, macOS, Windows containers and any other image are still
-unmeasured.
+Desktop daemon: Linux-host bind mounts, macOS and Windows containers are still unmeasured, and the
+other sandbox images `S16-10` qualified were qualified on a Linux hosted runner, not on this host.
 
 **Reproduction of the *before* reading (host-local, disposable).** `C:\tmp\s16\cwt\repo` is a
 two-commit repository (base `2f9d5fdf80d13ab26acfd3de5ed112b50562923a`) and `C:\tmp\s16\cwt\ws` a
@@ -6107,3 +6112,135 @@ created inside a submodule; neither is built here or anywhere else in the suite.
 `SECURITY_MODEL.md` rule was rewritten — the model's statement of the rule (`§2.2`, "the host read is
 made through the trusted Git directory") is now known to hold for this layout rather than merely to
 assume it.
+
+## S16-10 — the real-Docker proof qualified exactly one image, and that image was the one whose gaps the docs already described — CLOSED (CODE + TEST + DOCUMENT)
+
+**Finding.** Every hosted reading quoted in this stage is `SANDBOX_RUNTIME_PROOF: PASS` then
+`STAGE_6_AND_7_DOCKER_PROOF: PASS` after a single `docker pull` of a single digest, and both `S16-4` and
+`S16-9` limit themselves honestly with "any image other than the pinned digest". The limit was narrower
+than it looked. Read that digest off the daemon instead of trusting its name —
+`docker run --rm --network=none --read-only --entrypoint sh node@sha256:a4fb14143ee2… -c 'grep -E
+"^(NAME|VERSION_ID)=" /etc/os-release; command -v git; node --version'`, measured again on this host
+today — and it is `Alpine Linux` `VERSION_ID=3.24.1`, `NODE_VERSION=26.6.0`, created
+`2026-08-04T21:07:52Z`, `linux/amd64`, with no `git` binary present. That is precisely the image
+`docs/SANDBOX_EXECUTION.md` already documents as unqualified for git-native gates. So every PASS the
+Docker workflow ever printed came from the one image whose missing-program behaviour the product had
+already written down, while the images an operator is likelier to be handed — the Debian builds behind
+`node:22` and `node:24`, the two versions this repository's own CI matrix runs on three operating
+systems — had never been executed. The workflow made that state hard to leave: one job, one `docker pull`
+with the digest typed into the step, one hard-coded `const IMAGE` in the harness, and
+`tests/security/sandbox-workflow-policy.test.ts` comparing those two strings with each other. Proving
+that a pull and a constant agree is not the same as proving the pair covers what customers run.
+
+**Fix.** `.github/workflows/sandbox-runtime.yml:36-42` now declares a `fail-fast: false` matrix of three
+digest-pinned images and feeds *both* proofs from the leg (`docker pull ${{ matrix.image }}` at `:61`,
+`MERGESUTRA_RUNTIME_PROOF_IMAGE` at `:66`, `MERGESUTRA_SANDBOX_IMAGE` at `:71`); the job timeout moved
+from 15 to 20 minutes for the extra pulls. `scripts/sandbox-runtime-proof.mjs:15-18` keeps the
+repository's own pin as `DEFAULT_IMAGE` and takes the image under proof from
+`MERGESUTRA_RUNTIME_PROOF_IMAGE`, echoing `SANDBOX_RUNTIME_PROOF_IMAGE: <digest>` before it runs, so a
+bare `node scripts/sandbox-runtime-proof.mjs` still proves the pinned image and each leg proves itself.
+The pin did not change and no product code did: the runner still refuses an image the daemon does not
+already have, and the stage proof still reaches Docker only through
+`src/security/repository-runner.ts:23`.
+
+**Test, RED first.** The guard now reads the matrix as the qualification record: `imageMatrix`
+(`tests/security/sandbox-workflow-policy.test.ts:20-27`) parses the legs, and `violations` requires at
+least two, each matching `^node@sha256:[0-9a-f]{64}$`, the harness default to be one of them, the harness
+to honour the matrix, and each of the pull, the host-side proof and the stage proof to name
+`${{ matrix.image }}` rather than a digest of its own. Before the workflow and harness existed in this
+shape the file measured `3 failed | 4 passed (7)` with violations `fewer than two sandbox images are
+qualified`, `the proof image cannot be set by the matrix`, `the preloaded image does not come from the
+matrix`, `the host-side proof does not run the matrix image` and `the stage proof does not run the matrix
+image` — one failure per rule the fix had to add. After it: `8 passed (8)`, exit `0`, with
+`--minWorkers=1 --maxWorkers=1`.
+
+**Mutations, each restored byte-for-byte.** Three rule deletions, run against the file as committed at
+`14ccdb8`. Removing `matrix.length < 2` → `Tests 1 failed | 7 passed (8)`,
+`AssertionError: expected [] to include 'fewer than two sandbox images are qua…'`. Removing the
+`MERGESUTRA_SANDBOX_IMAGE: ${{ matrix.image }}` rule → `1 failed | 7 passed (8)`,
+`expected [] to include 'the stage proof does not run the matrix image…'`. Removing the
+`MERGESUTRA_RUNTIME_PROOF_IMAGE` rule → `1 failed | 7 passed (8)`,
+`expected [] to include 'the host-side proof does not run the …'`. Each deletion was restored by copying
+the pre-mutation file back; the restored file is
+`sha256:d1d933a6ef47dbb3361cdae090701b0d0fa9947723d479d0733a324742c70fe4`, which is the blob `14ccdb8`
+carries, and the re-run after restoration is the `8 passed (8)` above. Each negative test also asserts
+`not.toEqual(WORKFLOW)` on its own mutation string, so a rule cannot be reported as covered by a
+replacement that never matched.
+
+**Reading — hosted, three legs, on the commit that carries the change.** Run `38934992635`
+(`Real Docker isolation proof`) on `14ccdb82da50ad68bd4e00be39536063bfc51a75` is `success` with three
+jobs, one per image: `sandbox (node@sha256:0e5f90657369…)` job `117088133880`,
+`sandbox (node@sha256:14078204b6bb…)` job `117088134112`, `sandbox (node@sha256:a4fb14143ee2…)` job
+`117088134409`, each `success`. Every leg's log contains `added 157 packages`, one
+`Pulling from library/node`, its own `SANDBOX_RUNTIME_PROOF_IMAGE: <leg digest>` line, then
+`SANDBOX_RUNTIME_PROOF: PASS` and `STAGE_6_AND_7_DOCKER_PROOF: PASS` — so the hostile fixture and the
+production Stage 6 + Stage 7 routing both executed in all three images. The two added digests are what
+those tags serve today, re-derivable with `docker buildx imagetools inspect node:22` →
+`sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8` and `… node:24` →
+`sha256:14078204b6bb268c107ceff6d3c43f45a888105e5c2b18b14c32b3409d93a1b0`; the matrix pins the digests,
+so the claim is about those images and does not drift with the tags.
+
+**Reading — hosted CI on the same commit.** Run `38934992627` (`CI`) on
+`14ccdb82da50ad68bd4e00be39536063bfc51a75` is `success` with all six check cells passing:
+`117088134357` (ubuntu, 22.x), `117088134413` (ubuntu, 24.x), `117088134310` (windows, 22.x),
+`117088134214` (windows, 24.x), `117088134143` (macos, 22.x), `117088134415` (macos, 24.x). Each cell's
+own log ends its deterministic-gate step with `Test Files 163 passed | 3 skipped (166)`; its test total
+is `2436 passed | 6 skipped (2442)` on the two Ubuntu cells and `2438 passed | 4 skipped (2442)` on the
+four macOS/Windows cells. The 2442 collected is identical everywhere and the two-cell difference is the
+pair of platform-conditional blocks, not a differing result: Ubuntu skips the three Windows-only 8.3
+short-name cases in `tests/security/path-confinement-matrix.test.ts`, macOS and Windows skip the one
+POSIX-only case in `tests/intake/home-path.test.ts`. `Verify the shipping artifact's boundaries` reports
+`115 passed (115)` and `Install the packed artifact and run it` reports `14 passed (14)` in every cell.
+The live-model tests (`tests/plan/live.test.ts`, `tests/implement/live.test.ts`,
+`tests/review/live.test.ts`) are skipped in all six, as they require an explicit credential.
+
+**Reading — local gates on the same tree, `14ccdb8`.** One worker unless stated:
+`npx vitest run tests/security/sandbox-workflow-policy.test.ts` → `8 passed (8)`; `npx vitest run
+tests/security --minWorkers=2 --maxWorkers=2` → `Test Files 33 passed (33)`, `Tests 531 passed (531)`,
+exit `0`; `npm run typecheck`, `lint`, `format:check`, `build`, `verify:package`, `test:artifact` each
+exit `0`, with `verify:package` → `Test Files 5 passed (5)` / `Tests 115 passed (115)`,
+`test:artifact` → `1 passed (1)` / `14 passed (14)`, and `dist/` rebuilt to 472 files from
+`tsconfig.build.json`. `npx prettier --check` on the three changed files exits `0`. The earlier
+`tests/plan/source-shape.test.ts` file-name artifact recorded under `S16-9` is not repeated here: this
+item's list was checked against the filesystem before it ran.
+
+**Attempted on this host, and what it actually showed.** Two readings, neither of them a qualification,
+both recorded because they look like one:
+
+- The shipped host-side proof cannot run here. `node scripts/sandbox-runtime-proof.mjs` printed
+  `SANDBOX_RUNTIME_PROOF_IMAGE: node@sha256:a4fb14143ee2…` (the image *is* present in this daemon) and
+  then `AppError: SANDBOX_UNAVAILABLE: selected trusted Docker executable is unavailable. No repository
+  command was executed.`, exit `1` — the harness names `/usr/bin/docker`, which does not exist on Windows.
+  That is the fail-closed behaviour working: no host fallback, no repository command run.
+- The shipped *stage* proof does take an operator-supplied executable, so it was driven here with
+  `MERGESUTRA_DOCKER_EXECUTABLE='C:/Program Files/Docker/Docker/resources/bin/docker.exe'` and
+  `MERGESUTRA_SANDBOX_IMAGE=node@sha256:363e15874946…` (a `node:22` Debian build already in this daemon,
+  `NODE_VERSION=22.23.3`). It executed production Stage 6 and Stage 7 routing, then failed at
+  `scripts/sandbox-stage-proof.mjs:129` with `siblingWrite: true` where the fixture expects `false` —
+  apparently the escape this proof exists to rule out. It is not one. A container-side probe through the
+  same product runner (`C:\tmp\s16\probe-win-path.mjs`, same image, `--rm`) writes to a Windows absolute
+  path *outside* the mount and reports `winPathWrite: true`, while the host reports
+  `host_target_exists=false` for that same path and the container's own `cwd` listing contains a single
+  entry literally named `C:\Users\<account>\AppData\Local\Temp\s1610-probe-…\outside\escaped`. Inside a
+  Linux container, that path is a file name, not a location; the parallel POSIX absolute write was
+  refused with `EACCES` by the read-only root filesystem. So the fixture's host-side assertions assume a
+  Linux host, which is what the workflow provides, and a Windows-host run of it measures the fixture, not
+  the product. It fails closed (`exit 1`, never a `PASS`), so no false claim is reachable — but a green
+  run of this proof on a non-Linux host would have proved nothing either, and is not offered as evidence.
+
+**What this does not claim.** Three legs, one Docker host: every job is `ubuntu-latest`, so the macOS and
+Windows container hosts this stage keeps naming as unmeasured are still unmeasured, and the daemon and
+kernel are GitHub's, not a customer's. The qualification covers the programs the two proofs actually run,
+which are `node` ones; no package inventory of the two Debian images was measured, so nothing here says
+`git` works inside them and nothing says it does not — the exit-127 finding in
+`docs/SANDBOX_EXECUTION.md` stays specific to the Alpine pin. No `git`-native gate was driven through the
+product path in any of the three images, `S16-4`'s and `S16-9`'s worktree-in-container question was not
+re-probed in the new images, and the matrix says nothing about an image a customer picks that is not on
+this list: the answer for one is still "configure the digest, and the runner refuses it if the daemon
+does not already have it".
+
+**Status: CLOSED (CODE + TEST + DOCUMENT).** Product code unchanged: this item moved the *evidence*
+surface, so the rule in `docs/SANDBOX_EXECUTION.md` that a sandboxed `git`-native gate fails closed and
+that MergeSutra never falls back to host execution still reads as `S16-4` left it. What is now measured
+rather than assumed is that the two hostile fixtures pass in the images a `node:22` or `node:24` operator
+would actually be given.
