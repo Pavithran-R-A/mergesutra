@@ -6011,14 +6011,13 @@ Control on the unmutated tree: `2 passed (2)`, then `4 passed (4)` after the Sta
 at 100 % full (about 124 MB free at the end of the run above) on a machine with one drive, and the four
 directories listed cover every module this item touches.
 
-**Readings on the Stage 11 tree.** The four files this item touches plus the two suites whose behaviour
-it could disturb, one worker: `tests/git/customer-worktree.test.ts` (4), `tests/intake/local-repo.test.ts`
+**Readings on the Stage 11 tree.** The files this item's evidence touches or could disturb, one
+worker: `tests/git/customer-worktree.test.ts` (4), `tests/intake/local-repo.test.ts`
 (18), `tests/git/workspace.test.ts` (21), `tests/lifecycle/observe.test.ts` (20) → `Test Files 4 passed
 (4)`, `Tests 63 passed (63)` in 189 seconds. `typecheck`, `lint`, `build`, `format:check`,
 `qualify:path-shapes` (`git-discovery=covered`), `verify:package` (`115 passed`) and `test:artifact`
 (`14 passed`) each exit `0`. The whole-suite sweep is **not** reported as a local reading, for the same
-full-disk reason as above; the hosted run for this commit is what closes it, and is recorded only when it
-lands.
+full-disk reason as above; the hosted reading below is what closes this item.
 
 **Hosted reading, `f2557d16a2e2910a7b8c0ad2bc2414dcb151d3c7` — the commit that carries all four
 tests.** CI run `38905245614` is 6/6 green on that exact SHA (ubuntu / macOS / Windows × Node 22.x /
