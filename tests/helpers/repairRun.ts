@@ -47,6 +47,15 @@ export const GRANTED_AT = '2026-09-25T08:00:00.000Z';
 
 export interface RepairFixture {
   readonly workspace: string;
+  /**
+   * The checkout the workspace hangs off.
+   *
+   * Every stage takes `--repo <path>` as the *primary* root and joins the run's
+   * recorded relative path to it, so a command asked to look at a linked worktree
+   * has to be told where it was made from. Handing it the worktree itself derives a
+   * directory inside the worktree that no run ever created.
+   */
+  readonly primaryDir: string;
   /** Outside the repository: a pack written inside it would join the patch. */
   readonly runsRoot: string;
   readonly store: Awaited<ReturnType<typeof implementedRun>>['prepared']['store'];
@@ -80,7 +89,7 @@ export async function reviewedRun(
     readonly seedFiles?: Record<string, string>;
   } = {},
 ): Promise<RepairFixture> {
-  const { prepared, source, repoDir, base } = await implementedRun(tempDirs);
+  const { prepared, source, repoDir, primaryDir, base } = await implementedRun(tempDirs);
   for (const [file, contents] of Object.entries(options.seedFiles ?? {})) {
     await put(repoDir, file, contents);
   }
@@ -130,6 +139,7 @@ export async function reviewedRun(
 
   return {
     workspace: repoDir,
+    primaryDir,
     runsRoot,
     store: prepared.store,
     record,

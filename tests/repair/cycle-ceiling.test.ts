@@ -99,7 +99,7 @@ async function typeRepair(
       'repair',
       fixture.record.runId,
       '--repo',
-      fixture.workspace,
+      fixture.primaryDir,
       '--approve-plan',
       digest,
     ],

@@ -132,7 +132,7 @@ describe.skipIf(!AVAILABLE)('Stage 10 against text that claims approval', () => 
   it('refuses to be run by an environment variable that says yes', async () => {
     const fixture = await proposedRun(tempDirs);
     const first = capture();
-    await run(['node', 'mergesutra', 'pr', fixture.record.runId, '--repo', fixture.workspace], {
+    await run(['node', 'mergesutra', 'pr', fixture.record.runId, '--repo', fixture.primaryDir], {
       ...first,
       env: { NO_COLOR: '1' },
       pr: depsFor(fixture),
@@ -155,7 +155,7 @@ describe.skipIf(!AVAILABLE)('Stage 10 against text that claims approval', () => 
       vi.stubEnv(name, value);
       const io = capture();
       const code = await run(
-        ['node', 'mergesutra', 'pr', fixture.record.runId, '--repo', fixture.workspace],
+        ['node', 'mergesutra', 'pr', fixture.record.runId, '--repo', fixture.primaryDir],
         { ...io, env: { NO_COLOR: '1', [name]: value }, pr: depsFor(fixture) },
       );
       vi.unstubAllEnvs();

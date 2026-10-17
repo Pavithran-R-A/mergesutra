@@ -192,7 +192,7 @@ describe.skipIf(!AVAILABLE)(
       // ---- `mergesutra pr <run>`: the page, and nothing sent. ----
       const proposed = capture();
       const proposedCode = await run(
-        ['node', 'mergesutra', 'pr', runId, '--repo', fixture.workspace],
+        ['node', 'mergesutra', 'pr', runId, '--repo', fixture.primaryDir],
         { ...proposed, env: { NO_COLOR: '1' }, pr: deps },
       );
       const page = proposed.text();
@@ -228,7 +228,7 @@ describe.skipIf(!AVAILABLE)(
           'pr',
           runId,
           '--repo',
-          fixture.workspace,
+          fixture.primaryDir,
           '--approve',
           'f'.repeat(64),
         ],
@@ -246,7 +246,7 @@ describe.skipIf(!AVAILABLE)(
       // ---- The typed digest: the approval is a local fact, and it is only that. ----
       const approved = capture();
       const approvedCode = await run(
-        ['node', 'mergesutra', 'pr', runId, '--repo', fixture.workspace, '--approve', digest],
+        ['node', 'mergesutra', 'pr', runId, '--repo', fixture.primaryDir, '--approve', digest],
         { ...approved, env: { NO_COLOR: '1' }, pr: deps },
       );
       const screen = approved.text();
@@ -299,7 +299,7 @@ describe.skipIf(!AVAILABLE)(
       await put(fixture.workspace, 'notes.md', 'a person wrote here after the approval\n');
       const moved = capture();
       const movedCode = await run(
-        ['node', 'mergesutra', 'pr', runId, '--repo', fixture.workspace],
+        ['node', 'mergesutra', 'pr', runId, '--repo', fixture.primaryDir],
         { ...moved, env: { NO_COLOR: '1' }, pr: deps },
       );
       expect(movedCode).toBe(EXIT.BLOCKED);

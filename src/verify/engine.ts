@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Runner } from '../core/runner.js';
+import type { RunResult, Runner } from '../core/runner.js';
 import { createRepositoryCommandRunner } from '../security/repository-runner.js';
 import { AppError } from '../core/errors.js';
 import { resolveInsideRoot } from '../security/path-safety.js';
@@ -19,14 +19,14 @@ import {
   type GateResult,
   type Termination,
 } from './receipt.js';
-import { describePatch } from './patch.js';
+import { describePatch, isWorkspaceCheck, runWorkspaceCheck } from './patch.js';
 import type { PlannedGate, VerificationPlan } from './plan.js';
 
 /**
  * Running a verification plan, and recording what came back — Stage 7.
  *
  * This is the only module in MergeSutra that executes a repository's commands,
- * so its shape is built around three things that must not be possible here:
+ * so its shape is built around four things that must not be possible here:
  *
  * - **Running something nobody agreed to.** Every gate is put to
  *   `decideExecution` first, which applies the tool policy before it looks at
@@ -47,6 +47,15 @@ import type { PlannedGate, VerificationPlan } from './plan.js';
  *   its own merits. MergeSutra cleans nothing up: a workspace a test suite
  *   modified is evidence about that suite, and destroying it would be destroying
  *   the only copy of the finding.
+ * - **Asking a repository's command to run outside the boundary.** Everything the
+ *   plan named goes to `runFor`, which builds the runner that isolates it — a
+ *   `git` step in a CI file included, because that step is code under review and
+ *   code under review does not get a host read. The single exception is
+ *   MergeSutra's own whitespace check, which measures the patch and so is read the
+ *   way the patch identity is: on the host, through the Git metadata a run could
+ *   not have written. `isWorkspaceCheck` authorises it by comparing the gate's
+ *   argv with a source constant, so no plan, model answer or repository document
+ *   can name a command that reaches this path.
  *
  * Gates run in plan order, one at a time, and a failure does not stop the ones
  * after it. The repository's checks are independent facts about one diff, and a
@@ -145,6 +154,16 @@ export interface VerifyDeps {
     workspace: string;
     baseSha: string;
   }) => Promise<string | null>;
+  /**
+   * MergeSutra's own check of the workspace, read from the host.
+   *
+   * The default is `runWorkspaceCheck`, which measures the patch through the Git
+   * metadata a run could not have written. It is a dependency for the same reason
+   * the patch identity above is one: it reads this machine rather than a command
+   * this plan named, so a test about gate judgements supplies it instead of
+   * discovering git on a path that was never a repository.
+   */
+  readonly workspaceCheck?: (spec: { workspace: string; timeoutMs?: number }) => Promise<RunResult>;
 }
 
 interface PerGateState {
@@ -180,6 +199,10 @@ export async function runVerification(
       }
     });
 
+  const check =
+    deps.workspaceCheck ??
+    ((spec) => runWorkspaceCheck(spec.workspace, { timeoutMs: spec.timeoutMs }));
+
   const startedAt = now();
   const expected = plan.patchIdentity;
   const observed = await describe({ workspace, baseSha: plan.baseSha });
@@ -205,6 +228,7 @@ export async function runVerification(
         now,
         runFor,
         describe,
+        check,
       }),
     );
   }
@@ -266,9 +290,10 @@ async function runOneGate(
     now: () => Date;
     runFor: (spec: GateExecutionSpec) => Runner;
     describe: (spec: { workspace: string; baseSha: string }) => Promise<string | null>;
+    check: (spec: { workspace: string; timeoutMs?: number }) => Promise<RunResult>;
   },
 ): Promise<GateOutcome> {
-  const { plan, workspace, consent, signal, precondition, state, now } = ctx;
+  const { plan, workspace, consent, signal, precondition, state, now, check } = ctx;
 
   const stopped = stopReason(signal, precondition, state);
   if (stopped) {
@@ -347,7 +372,16 @@ async function runOneGate(
     // `plannedGateSchema` requires at least one argv element, so the program is
     // there; the type just cannot see a schema's promise.
     const [program, ...rest] = gate.argv;
-    const ran = await ctx.runFor({ cwd, timeoutMs: gate.timeoutMs })(program as string, rest);
+    // MergeSutra's own check of the patch is a measurement of the workspace, so it
+    // is measured the way the patch identity is: on the host, through the Git
+    // directory the run could not have authored. A sandbox mounts the workspace and
+    // nothing else, so a Git command dispatched into it cannot see the repository
+    // it is being asked about. Everything that is not this check — including a
+    // repository's own `git` step, which is code under review — still goes to the
+    // runner that isolates it.
+    const ran = isWorkspaceCheck(gate)
+      ? await check({ workspace, timeoutMs: gate.timeoutMs })
+      : await ctx.runFor({ cwd, timeoutMs: gate.timeoutMs })(program as string, rest);
     if (ran.timedOut === true) {
       result = 'INCONCLUSIVE';
       exitCode = null;

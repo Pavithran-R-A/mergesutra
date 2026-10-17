@@ -29,9 +29,12 @@ import {
  * BharatCode credential appears anywhere in this file: nothing here asks a model
  * anything, which is the point of a deterministic engine.
  *
- * The shared `verifyScripted` injects a patch probe that reports "nothing changed",
- * because a test about a gate's exit code has no business discovering git on a fake
- * path.
+ * The shared `verifyScripted` injects the two host reads Stage 7 performs — the
+ * patch identity, which reports "nothing changed", and MergeSutra's own check of
+ * the workspace, which answers from the same command table — because a test about
+ * a gate's exit code has no business discovering git on a fake path. The one test
+ * above does both reads itself, since it is about *which* side of the boundary
+ * each of them runs on.
  */
 
 const OK = SUCCEEDED;
@@ -60,13 +63,29 @@ function entry(run: VerificationRun, gateId: string) {
 }
 
 describe('running the gates a plan names', () => {
-  it('runs a gate MergeSutra wrote itself and records what it reported', async () => {
+  it("measures MergeSutra's own check from the host and never hands it to the sandbox", async () => {
     const plan = planOf([builtinGate({ id: 'VG-001' })]);
-    const calls: string[] = [];
+    const asked: { workspace: string; timeoutMs?: number }[] = [];
 
-    const run = await verifyScripted(plan, calls, { 'git diff --check': OK });
+    const run = await runVerification(
+      { plan, workspace: WORKSPACE },
+      {
+        now: steppingClock(),
+        runFor: () => async () => {
+          throw new Error('a gate MergeSutra wrote itself must not reach the repository runner');
+        },
+        currentPatchIdentity: identitiesProbe([UNCHANGED, UNCHANGED]),
+        workspaceCheck: async (spec) => {
+          asked.push(spec);
+          return OK;
+        },
+      },
+    );
 
-    expect(calls).toEqual(['git diff --check']);
+    // The host read is asked about *this* workspace, on *this* gate's budget: the
+    // measurement is of the patch the plan describes, not of whatever directory a
+    // gate's own cwd happened to name.
+    expect(asked).toEqual([{ workspace: WORKSPACE, timeoutMs: 120_000 }]);
     expect(entry(run, 'VG-001').receipt).toMatchObject({
       result: 'PASS',
       exitCode: 0,

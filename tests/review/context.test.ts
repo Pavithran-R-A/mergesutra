@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { rm } from 'node:fs/promises';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   assembleReviewContext,
@@ -7,8 +9,11 @@ import {
   type ReviewContext,
   type ReviewContextLimits,
 } from '../../src/review/context.js';
+import { defaultRunner } from '../../src/core/runner.js';
+import { resolveTrustedGitDir } from '../../src/git/workspace-git-dir.js';
 import { createRunRecord, type RunRecord } from '../../src/state/run-record.js';
 import { TEST_MODEL } from '../helpers/bharatcode.js';
+import { put } from '../helpers/verifyRun.js';
 import {
   cleanUp,
   hasGit,
@@ -111,6 +116,53 @@ describe.skipIf(!AVAILABLE)('what a review context is made of', () => {
     expect(modified.presentation).toBe('DIFF');
     expect(modified.text).toContain('+');
     expect(modified.text).toContain('throw new Error("empty")');
+  });
+
+  it('asks git for every diff through the pair it resolved, never through the directory under review', async () => {
+    const fixture = await reviewFixture(made);
+    const trusted = await resolveTrustedGitDir(fixture.workspace);
+    expect(trusted, 'the fixture is a worktree MergeSutra can measure').not.toBeNull();
+
+    const calls: string[][] = [];
+    const context = await assembleReviewContext(
+      { record: fixture.record, workspace: fixture.workspace, patch: fixture.patch },
+      {
+        run: async (file, args) => {
+          calls.push([file, ...args]);
+          return defaultRunner(file, args);
+        },
+      },
+    );
+
+    // The diff leg ran, so the loop below is not reading an empty list.
+    expect(context.files.some((patched) => patched.presentation === 'DIFF')).toBe(true);
+    expect(calls.length).toBeGreaterThan(0);
+
+    for (const argv of calls) {
+      expect(argv[0], argv.join(' ')).toBe('git');
+      // The repository is named before the verb, from the pair `resolveTrustedGitDir`
+      // accepted: `--git-dir <admin> --work-tree <workspace> --no-optional-locks`, then
+      // one read-only diff. The shape this replaced was `-C <workspace>`, where Git
+      // works out for itself which repository a directory belongs to — so a `.git`
+      // pointer the run can rewrite would decide which object store a reviewer's
+      // evidence came from (SECURITY_GAP_REGISTER.md S16-7).
+      expect(argv.slice(1, 5), argv.join(' ')).toEqual([
+        '--git-dir',
+        trusted?.gitDir,
+        '--work-tree',
+        trusted?.workTree,
+      ]);
+      expect(argv[5], argv.join(' ')).toBe('--no-optional-locks');
+      expect(argv.slice(6), argv.join(' ')).toEqual([
+        'diff',
+        '--no-ext-diff',
+        '--no-renames',
+        fixture.patch.baseSha,
+        '--',
+        expect.any(String),
+      ]);
+      expect(argv.includes('-C'), argv.join(' ')).toBe(false);
+    }
   });
 
   it('shows a new untracked file whole, and says that it is new', async () => {
@@ -270,6 +322,30 @@ describe.skipIf(!AVAILABLE)('what a review context refuses to describe', () => {
       }),
     );
     expect(error.message).toMatch(/digest/i);
+  });
+
+  it('refuses a workspace whose own .git pointer was rewritten to the human’s checkout', async () => {
+    const fixture = await reviewFixture(made);
+    // The workspace holds one file that decides which repository Git discovers from
+    // that directory, and a run can rewrite it. Aimed at the human's checkout, the
+    // per-file diffs a reviewer is shown are the human's own uncommitted bytes —
+    // evidence about a change this run never made, authored by the run itself.
+    // Stage 7's measurement already refuses this workspace; the diff leg here used to
+    // read through Git's discovery, so the two questions could be answered from two
+    // different repositories (`docs/SECURITY_GAP_REGISTER.md` S16-7).
+    const primary = path.resolve(fixture.workspace, '..', '..', '..');
+    await put(primary, 'src/parse.ts', 'export const HUMAN_OWN_EDIT_9dc4 = 1;\n');
+    await rm(path.join(fixture.workspace, '.git'));
+    await put(fixture.workspace, '.git', `gitdir: ${primary.replace(/\\/g, '/')}/.git\n`);
+
+    const error = await failure(
+      assembleReviewContext({
+        record: fixture.record,
+        workspace: fixture.workspace,
+        patch: fixture.patch,
+      }),
+    );
+    expect(error.message).toMatch(/no Git metadata a run could not have written/i);
   });
 
   it('says the Stage 7 receipts are stale when the patch has already moved', async () => {

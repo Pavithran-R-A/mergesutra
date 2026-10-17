@@ -5,6 +5,7 @@ import { AppError } from '../core/errors.js';
 import { defaultRunner, type Runner } from '../core/runner.js';
 import { decideTool } from '../process/tool-policy.js';
 import { assertSafePathSegment, isCaseInsensitivePlatform } from '../security/path-safety.js';
+import { resolveTrustedGitDir, type TrustedGitDir } from './workspace-git-dir.js';
 
 /**
  * Giving a run its own workspace — Stage 5.
@@ -31,7 +32,12 @@ import { assertSafePathSegment, isCaseInsensitivePlatform } from '../security/pa
  *   option MergeSutra gets to choose.
  * - It is idempotent: preparing the same run twice returns the same workspace,
  *   and a workspace that is not at the recorded base SHA is refused rather than
- *   reset.
+ *   reset. The commit a standing workspace is on is asked through
+ *   `resolveTrustedGitDir`, never by letting Git discover the repository from the
+ *   workspace: a workspace an earlier run left behind is a directory whose `.git`
+ *   entry that run could rewrite, and discovery would hand the reuse decision — and
+ *   every later read of this workspace — to bytes a model wrote
+ *   (SECURITY_GAP_REGISTER.md S16-8).
  *
  * And the part the security model insists on: a worktree is isolation for
  * *clarity*, not a sandbox. Git shares one object database between every
@@ -129,7 +135,16 @@ export async function prepareWorkspace(
 
   const registered = await registeredWorktrees(run, root);
   if (registered.has(await comparable(workspace))) {
-    const existing = await headAt(run, workspace);
+    const measured = await resolveTrustedGitDir(workspace);
+    if (measured === null) {
+      throw refusal(
+        `a workspace for run ${runId} is registered in this repository, but MergeSutra cannot name ` +
+          'Git metadata for it that the run could not have written',
+        'Re-create that worktree yourself with `git worktree add`, or remove the directory if you ' +
+          'are sure it is stale, then re-run.',
+      );
+    }
+    const existing = await headAt(run, measured);
     if (existing === baseSha) {
       return {
         path: await realOr(workspace),
@@ -175,7 +190,16 @@ export async function prepareWorkspace(
       created.stderr || created.stdout,
     );
   }
-  const at = await headAt(run, workspace);
+  const measuredAfterAdd = await resolveTrustedGitDir(workspace);
+  if (measuredAfterAdd === null) {
+    throw refusal(
+      `git created ${relativePath} without Git metadata outside the workspace, which is the only ` +
+        'kind a run may be measured through',
+      'Report this as a bug: a run workspace is a linked worktree whose HEAD and index live in ' +
+        'the repository, not a checkout carrying its own.',
+    );
+  }
+  const at = await headAt(run, measuredAfterAdd);
   if (at !== baseSha) {
     throw refusal(
       `the workspace was created at ${bound(at ?? 'an unreadable commit')} instead of the base ${baseSha.slice(0, 12)}`,
@@ -243,8 +267,15 @@ async function registeredWorktrees(run: Runner, root: string): Promise<Set<strin
   return found;
 }
 
-async function headAt(run: Runner, directory: string): Promise<string | null> {
-  const head = await git(run, directory, ['rev-parse', '--verify', 'HEAD']);
+/**
+ * Which commit the workspace stands on, asked of the metadata pair Stage 5 resolved.
+ *
+ * `null` means the workspace cannot be described, which is why both callers refuse
+ * rather than treating it as "not the base": the answer they act on decides whether
+ * a run gets this directory.
+ */
+async function headAt(run: Runner, measured: TrustedGitDir): Promise<string | null> {
+  const head = await git(run, measured, ['rev-parse', '--verify', 'HEAD']);
   const sha = head.stdout.trim().toLowerCase();
   return head.code === 0 && SHA_PATTERN.test(sha) ? sha : null;
 }
@@ -274,8 +305,29 @@ async function comparable(value: string): Promise<string> {
   return isCaseInsensitivePlatform() ? trimmed.toLowerCase() : trimmed;
 }
 
-function git(run: Runner, cwd: string, args: readonly string[]) {
-  return run('git', ['-C', cwd, ...args]);
+/**
+ * Ask Git, of one of two things.
+ *
+ * A `string` is a directory MergeSutra was *given* — the operator's own checkout,
+ * chosen before any run exists — so `-C` asks it plainly. A {@link TrustedGitDir} is
+ * a directory pair resolved from a run's workspace (`src/git/workspace-git-dir.ts`),
+ * and it comes before the subcommand so Git never discovers a repository from the
+ * workspace's own `.git` entry: one rewritten pointer file would otherwise choose
+ * which repository this answer, and every later read of this workspace, comes from.
+ * `--no-optional-locks` keeps a measurement from taking the index lock a run's own
+ * `git` invocation is holding, the same promise `src/verify/patch.ts` makes.
+ */
+function git(run: Runner, where: string | TrustedGitDir, args: readonly string[]) {
+  return typeof where === 'string'
+    ? run('git', ['-C', where, ...args])
+    : run('git', [
+        '--git-dir',
+        where.gitDir,
+        '--work-tree',
+        where.workTree,
+        '--no-optional-locks',
+        ...args,
+      ]);
 }
 
 function bound(value: string): string {

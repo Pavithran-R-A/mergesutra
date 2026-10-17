@@ -2,6 +2,7 @@ import { riskOf } from '../../src/process/tool-policy.js';
 import type { RunResult, Runner } from '../../src/core/runner.js';
 import { runVerification, type VerificationRun } from '../../src/verify/engine.js';
 import { scopeDigest, type ExecutionConsent } from '../../src/verify/consent.js';
+import { WORKSPACE_CHECK } from '../../src/verify/patch.js';
 import type { PlannedGate, VerificationPlan } from '../../src/verify/plan.js';
 
 /**
@@ -126,6 +127,13 @@ export function identitiesProbe(values: readonly (string | null)[]) {
  * The engine, the consent decision and the receipts are all genuinely involved;
  * only the processes are scripted, so a test here measures judgement rather than
  * what happens to be installed on the machine.
+ *
+ * MergeSutra's own check of the patch is scripted from the same table under the
+ * command it is defined to be (`git diff --check`), because it is a host read and
+ * `WORKSPACE` here was never a repository. What the read is *asked* is a real
+ * question, so tests that care about it supply their own `workspaceCheck` instead
+ * of using this helper; tests that the check never reached the sandbox runner
+ * depend on this helper leaving `calls` alone.
  */
 export async function verifyScripted(
   plan: VerificationPlan,
@@ -141,12 +149,18 @@ export async function verifyScripted(
     if (!response) throw new Error(`the engine ran a command nobody scripted: ${key}`);
     return response;
   };
+  const builtIn = WORKSPACE_CHECK.join(' ');
   return runVerification(
     { plan, workspace: WORKSPACE, consent, signal: undefined },
     {
       now: steppingClock(),
       runFor: () => runner,
       currentPatchIdentity: identitiesProbe(identities),
+      workspaceCheck: async () => {
+        const response = commands[builtIn];
+        if (!response) throw new Error(`the engine measured a check nobody scripted: ${builtIn}`);
+        return response;
+      },
     },
   );
 }

@@ -80,7 +80,7 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
     const io = capture();
 
     const code = await run(
-      ['node', 'mergesutra', 'pr', fixture.record.runId, '--repo', fixture.workspace],
+      ['node', 'mergesutra', 'pr', fixture.record.runId, '--repo', fixture.primaryDir],
       { ...io, env: {}, pr: depsFor(fixture) },
     );
 

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runPlanStage } from '../../src/plan/plan.js';
@@ -321,11 +321,39 @@ export interface StageHarness {
   ) => Promise<ImplementStageResult>;
 }
 
+/**
+ * The verb a scripted repository should read, whatever shape asked for it.
+ *
+ * Two shapes reach a run's Git. Stage 5's `prepareWorkspace` prefixes `-C <directory>`,
+ * which puts the command where these fixtures read it from. Since `S16-8` its one
+ * workspace read — the commit the directory stands on — goes to a resolved pair
+ * (`--git-dir <admin> --work-tree <workspace> --no-optional-locks`), because the
+ * pointer Git would discover from the workspace is a file the run may rewrite; and
+ * since `S16-6` Stage 11's observation asks the same pair. This hands the same verb
+ * to the scripted repository that made the workspace, naming the workspace back so
+ * the `-C`-index assumption below still holds. It is a translation, not a new vouch:
+ * nothing here decides that a workspace is measurable — that is the product's
+ * filesystem question, and this helper answers it by planting what `git worktree add`
+ * really leaves behind (see `plantWorkspace`).
+ */
+export function askedOfRepositoryGit(args: readonly string[]): string[] {
+  const [flag, , pairFlag, workTree, locks, ...verb] = args;
+  if (
+    flag === '--git-dir' &&
+    pairFlag === '--work-tree' &&
+    workTree !== undefined &&
+    locks === '--no-optional-locks'
+  ) {
+    return ['-C', workTree, ...verb];
+  }
+  return [...args];
+}
+
 export function answerWorkspaceGit(
   argv: readonly string[],
   state: { readonly root: string; readonly workspacePath: string },
 ): RunResult {
-  const sub = argv.slice(2).join(' ');
+  const sub = askedOfRepositoryGit(argv).slice(2).join(' ');
   const ok = (stdout: string): RunResult => ({ code: 0, stdout, stderr: '' });
   const no = (stderr: string): RunResult => ({ code: 1, stdout: '', stderr });
   if (sub.startsWith('rev-parse --show-toplevel')) return ok(`${state.root}\n`);
@@ -344,26 +372,57 @@ export function answerWorkspaceGit(
 /**
  * The git command a recorded call actually asked for.
  *
- * `prepareWorkspace` prefixes every invocation with `-C <directory>`, while a
- * model-authored check arrives as the bare argv it named — so the verb is at a
- * different index depending on who asked, and reading it from a fixed position
- * would silently sort refusals into paths.
+ * `prepareWorkspace` prefixes its reads with `-C <directory>`, Stage 5's workspace-commit
+ * read and Stage 11's observation prefix theirs with the resolved pair, and a
+ * model-authored check arrives as the bare argv it named — so the verb sits at a
+ * different index depending on who asked, and reading it from a fixed position would
+ * silently sort refusals into paths.
  */
 export function gitCommand(argv: readonly string[]): string {
   const afterProgram = argv[0] === 'git' ? argv.slice(1) : argv;
-  const afterCwd = afterProgram[0] === '-C' ? afterProgram.slice(2) : afterProgram;
-  return afterCwd.join(' ');
+  const asked = askedOfRepositoryGit(afterProgram);
+  return (asked[0] === '-C' ? asked.slice(2) : asked).join(' ');
 }
 
+/** What a workspace needs to be findable by the code that plants it. */
+export interface WorkspaceLocation {
+  readonly root: string;
+  readonly workspacePath: string;
+  readonly runId: string;
+}
+
+/**
+ * The directory and the metadata one `git worktree add` really produces.
+ *
+ * Files alone used to be enough: every workspace question this fixture answers went to
+ * the scripted Git, so a temporary directory could stand for a worktree. Since `S16-8`
+ * Stage 5 first asks the *filesystem* whether this workspace has Git metadata the run
+ * could not have written, and a directory with no `.git` in it is not a workspace it may
+ * measure — `prepareWorkspace` refuses, and the 30 failures that finding caused here were
+ * that refusal, not a loop defect. So the plant writes what Git writes: a pointer file in
+ * the workspace and an admin directory in the primary repository that names it back. Both
+ * paths are in Git's own form, resolved and slash-separated, because `realpath` gives this
+ * machine's temporary directories their long form while the fixture was handed the short
+ * one. The shape of a genuine linked worktree is proved against real Git in
+ * `tests/git/workspace.test.ts` and `tests/lifecycle/observe.test.ts`; this is the same
+ * layout, planted so a simulated stage can be measured at all.
+ */
 export async function plantWorkspace(
-  dir: string,
+  location: WorkspaceLocation,
   files: Record<string, string> = {},
 ): Promise<void> {
+  const dir = location.workspacePath;
   for (const [relative, contents] of Object.entries({ ...WORKSPACE_FILES, ...files })) {
     const target = path.join(dir, relative);
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, contents, 'utf8');
   }
+  const workspace = await realpath(dir);
+  const admin = path.join(await realpath(location.root), '.git', 'worktrees', location.runId);
+  const asGit = (value: string) => `${value.replace(/\\/g, '/')}\n`;
+  await mkdir(admin, { recursive: true });
+  await writeFile(path.join(workspace, '.git'), `gitdir: ${asGit(admin)}`, 'utf8');
+  await writeFile(path.join(admin, 'gitdir'), asGit(path.join(workspace, '.git')), 'utf8');
 }
 
 export async function implementHarness(
@@ -388,7 +447,7 @@ export async function implementHarness(
     const answer = answerWorkspaceGit(args, { root, workspacePath });
     // The one answer that creates something: the worktree appears with its files.
     if (answer.code === 0 && args.slice(2).join(' ').startsWith('worktree add')) {
-      await plantWorkspace(workspacePath, options.files);
+      await plantWorkspace({ root, workspacePath, runId }, options.files);
     }
     return answer;
   };

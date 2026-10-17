@@ -1,4 +1,5 @@
 import { toIssueDocument } from '../../src/github/schemas.js';
+import { targetOf } from '../../src/pr/branch.js';
 import { buildEvidencePack } from '../../src/report/pack.js';
 import { writeEvidencePack } from '../../src/report/write.js';
 import { recordWith } from './review.js';
@@ -20,11 +21,12 @@ import type { RunRecord } from '../../src/state/run-record.js';
  *   reviewer can open, so the fixture has to have one. It is written from the same
  *   record the store holds, by Stage 8's real renderer, so the identity the stage
  *   reads back is the identity a person reading `report.md` would compute.
- * - **A branch of its own.** `stubImplementation` says `main` because Stage 7 never
- *   reads the field, and Stage 5's real worktree is on `mergesutra/<run id>`. Left
- *   at `main` the run would be refused for proposing a pull request into itself, so
- *   the fixture states the branch a real run has — and a test that wants the
- *   refusal says so explicitly.
+ * - **A branch of its own.** Stage 5's worktree is on `mergesutra/<run id>`, and the
+ *   fixture record says the same. Left on the repository's default branch the run
+ *   would be refused for proposing a pull request into itself, so the ordinary
+ *   fixture states the branch a real run has — and a test that wants the refusal
+ *   says so, with `onTargetBranch`, which takes the name from the record's own
+ *   target rather than hard-coding one.
  * - **The issue it came from.** Stage 1's intake is what normally records an issue;
  *   this fixture's chain starts from a repository. The page has to carry that
  *   identity, so it is attached through the real record constructor and the real
@@ -80,7 +82,9 @@ export async function proposedRun(
   const record = recordWith(reviewed.record, {
     issueRef: FIXTURE_ISSUE,
     issue: FIXTURE_ISSUE_DOCUMENT,
-    ...(options.workOnTargetBranch ? {} : { implementation: onItsOwnBranch(reviewed.record) }),
+    implementation: options.workOnTargetBranch
+      ? onTargetBranch(reviewed.record)
+      : onItsOwnBranch(reviewed.record),
     ...(options.criterionNeedsAHuman && reviewed.record.evidence
       ? {
           evidence: {
@@ -108,12 +112,36 @@ export async function proposedRun(
 
 /** What Stage 5's worktree really is called, and on which base it sits. */
 export function onItsOwnBranch(record: RunRecord): ImplementationRecord {
-  const implementation = record.implementation;
-  if (!implementation) {
-    throw new Error('the fixture run has no implementation record to place on a branch');
-  }
+  const implementation = implementationOf(record);
   return {
     ...implementation,
     workspace: { ...implementation.workspace, branch: `mergesutra/${record.runId}` },
   };
+}
+
+/**
+ * The run sitting on the branch it would merge into — the shape Stage 10 refuses.
+ *
+ * The name is read out of the same record fields the stage reads (`targetOf`), so
+ * this cannot drift into a fixture that puts the run on some branch that happens
+ * not to be the target, and then wonders why nothing was blocked.
+ */
+export function onTargetBranch(record: RunRecord): ImplementationRecord {
+  const implementation = implementationOf(record);
+  const target = targetOf({
+    repository: record.repository,
+    local: record.local,
+    base: record.base,
+  });
+  return {
+    ...implementation,
+    workspace: { ...implementation.workspace, branch: target.branch },
+  };
+}
+
+function implementationOf(record: RunRecord): ImplementationRecord {
+  if (!record.implementation) {
+    throw new Error('the fixture run has no implementation record to place on a branch');
+  }
+  return record.implementation;
 }

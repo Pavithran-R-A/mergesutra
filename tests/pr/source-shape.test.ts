@@ -129,21 +129,31 @@ describe('what a publication stage could ever put in front of a process', () => 
     expect(unsafe).toEqual([]);
 
     // The whole enumeration, listed rather than sampled. A publication run measures
-    // the workspace twice at most — once for the patch, once for the base it sits on
-    // — and asks git what it is looking at. Nothing else in the stage's reach builds
-    // a command at all, which is why there is nowhere for a push to enter.
+    // the workspace at most — the patch, and the commit it sits on — and asks git
+    // about a repository it has already been told the location of. Nothing else in
+    // the stage's reach builds a command at all, which is why there is nowhere for a
+    // push to enter.
     //
-    // The first entry is Stage 9's, reached transitively: `state/run-record.ts` and
+    // The first arrival is Stage 9's, reached transitively: `state/run-record.ts` and
     // the pack layer import the review and repair documents, so the walk arrives at
     // the review context assembler and the per-file diff it reads a reviewer's model.
-    // That diff is a read over bytes already on disk, which is why it belongs on this
-    // list rather than being excepted from it — but it is a reason to keep the list
-    // long enough that the next transitive arrival is noticed here.
+    // That diff no longer appears below: it used to be `git -C <workspace>`, an argv
+    // this file could read off the page, and it is now the `--git-dir … --work-tree …`
+    // shorthand enumerated in the next test, because Stage 9 will not let git discover
+    // a repository from the directory under review
+    // (SECURITY_GAP_REGISTER.md S16-7). The arrival itself — and so the reason this
+    // list names a review module at all — is unchanged, and is a reason to keep the
+    // list long enough that the next transitive arrival is noticed here.
+    //
+    // `git diff --check` arrived as the next one. Stage 7 measures its own check of a
+    // patch on the host now, through the Git directory a run could not have written,
+    // and the command it builds for that lives in `verify/patch.ts` — which a
+    // publication run reaches the same way it reaches the review diff. It is the same
+    // read the stage always meant, over the same work tree, and it is still a read.
     expect(closed.map(show).sort()).toEqual([
-      'review/context.ts: git -C value diff --no-ext-diff --no-renames value -- value',
+      'verify/patch.ts: git diff --check',
       'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
-      'verify/patch.ts: git rev-parse --show-toplevel',
       'verify/patch.ts: git rev-parse HEAD',
     ]);
     expect([...new Set(closed.map((site) => site.argv[0] ?? ''))]).toEqual(['git']);
@@ -153,21 +163,27 @@ describe('what a publication stage could ever put in front of a process', () => 
     const open = constructions(await reachFrom(entries())).filter((site) => site.open);
 
     // A spread means an argv this file cannot read, so each one is named rather than
-    // waved through. `verify/patch.ts` is the project's own `git(run, dir, args)`
-    // shorthand passing its parameter along; every caller of it that a publication
-    // run reaches is literal, which is what lets the list above count as complete.
+    // waved through. `verify/patch.ts` and `review/context.ts` are the project's own
+    // `git(run, measured, args)` shorthand passing their parameter along; the unreadable
+    // part is the subcommand, while the repository each will open is fixed on the page as
+    // `--git-dir` and `--work-tree` read from metadata a run could not write — Stage 7's
+    // measurement and Stage 9's per-file review diff both refuse before they read a byte
+    // if that pair cannot be resolved. Every caller of the shorthand that a publication
+    // run reaches is literal, which is what lets the list
+    // above count as complete.
     // `verify/command.ts` is a *gate*: its argv is discovered from the repository's
     // own build files, so MergeSutra never wrote a command down. Gates run only under
     // the execution consent Stage 7 records, and Stage 10 never runs one — it reads
     // the receipts Stage 7 left. A gate that escaped its declared argv is Stage 7's
     // test to catch, and `tests/repair/source-shape.test.ts` already names this site.
     //
-    // A third open site, or one in a module Stage 10 newly reached, would be a
+    // A fourth open site, or one in a module Stage 10 newly reached, would be a
     // command nobody can read off the page, and this fails so that the next person
     // decides about it rather than inheriting it.
     expect(open.map(show).sort()).toEqual([
+      'review/context.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
       'verify/command.ts: value (open)',
-      'verify/patch.ts: git -C value (open)',
+      'verify/patch.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
     ]);
   });
 

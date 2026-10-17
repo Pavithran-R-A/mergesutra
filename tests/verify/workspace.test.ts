@@ -89,6 +89,15 @@ function repositoryIds(plan: { gates: readonly { id: string; provenance: { sourc
     .map((gate) => gate.id);
 }
 
+/** What this round's run reported for MergeSutra's own check of the patch. */
+function builtInReceipt(round: Awaited<ReturnType<typeof verify>>) {
+  const gate = round.plan.gates.find((entry) => entry.provenance.source === 'MERGESUTRA_BUILTIN');
+  if (!gate) throw new Error('a Stage 7 plan always carries the built-in workspace check');
+  const outcome = round.run.gates.find((entry) => entry.gateId === gate.id);
+  if (!outcome) throw new Error(`the round reported nothing for ${gate.id}`);
+  return outcome.receipt;
+}
+
 describe.skipIf(!AVAILABLE)('one verification round over a workspace', () => {
   it('plans and judges the patch that is actually there, from a contract and a directory', async () => {
     const fixture = await implementedRun(tempDirs);
@@ -119,7 +128,15 @@ describe.skipIf(!AVAILABLE)('one verification round over a workspace', () => {
 
     const round = await verify(fixture, {}, gates);
 
-    expect(gates.calls).toEqual(['git diff --check']);
+    // MergeSutra's own check still measured the patch — on the host, through the
+    // Git metadata this workspace points at — and the isolated runner was asked
+    // for nothing, which is the whole point of running no repository command.
+    expect(gates.calls).toEqual([]);
+    expect(builtInReceipt(round)).toMatchObject({
+      result: 'PASS',
+      exitCode: 0,
+      termination: 'EXITED',
+    });
     expect(round.run.result).toBe('BLOCKED');
     expect(round.consent).toBeNull();
     expect(round.checks.find((check) => check.name === 'Execution consent')).toMatchObject({
@@ -143,8 +160,17 @@ describe.skipIf(!AVAILABLE)('one verification round over a workspace', () => {
     expect(round.evidence.verification).toBe('PASS');
     expect(round.evidence.contributionReady).toBe(false);
     for (const gate of round.plan.gates) {
-      expect(gates.calls, gate.command).toContain(gate.argv.join(' '));
+      // Two boundaries, and a gate can only be on one of them: what the operator
+      // named is dispatched to the runner that isolates it, and what MergeSutra
+      // wrote itself is measured on the host — so its command must never appear in
+      // the dispatch log, whatever a plan or a CI file claims about it.
+      if (gate.provenance.source === 'MERGESUTRA_BUILTIN') {
+        expect(gates.calls, gate.command).not.toContain(gate.argv.join(' '));
+      } else {
+        expect(gates.calls, gate.command).toContain(gate.argv.join(' '));
+      }
     }
+    expect(builtInReceipt(round)).toMatchObject({ result: 'PASS', termination: 'EXITED' });
     expect(round.evidence.criteria.some((entry) => entry.status === 'PASS')).toBe(true);
   });
 
@@ -184,7 +210,11 @@ describe.skipIf(!AVAILABLE)('one verification round over a workspace', () => {
       gates,
     );
 
-    expect(gates.calls).toEqual(['git diff --check']);
+    // A stale yes stops the repository's commands and nothing else: the runner
+    // heard no command at all, while MergeSutra's own measurement of this patch
+    // — the read that needs no consent because no repository named it — still ran.
+    expect(gates.calls).toEqual([]);
+    expect(builtInReceipt(round)).toMatchObject({ result: 'PASS', termination: 'EXITED' });
     expect(round.run.result).toBe('BLOCKED');
     const stale = round.run.gates.filter(
       (gate) => gate.code === 'BLOCKED_REPO_EXECUTION_CONSENT_STALE',

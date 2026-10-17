@@ -4,6 +4,7 @@ import { resumeAction } from '../../src/cli/resume.js';
 import { EXIT } from '../../src/cli/exit-codes.js';
 import { loopBudgetOf } from '../../src/lifecycle/budget.js';
 import {
+  askedOfRepositoryGit,
   checkAction,
   finishAction,
   implementHarness,
@@ -155,6 +156,9 @@ async function interruptedLoop(axis: Axis): Promise<StageHarness> {
   expect(loop.summary.steps).toBe(first.length);
   expect(loop.summary[axis]).toBe(EXPECT[axis].spent);
 
+  // The workspace this drive created is measurable on the filesystem: since `S16-8` the
+  // shared fixture plants the Git metadata a real `git worktree add` leaves behind, so
+  // neither Stage 5's reuse question nor Stage 11's observation has to be argued past.
   await harness.store.save(
     recordWith(entry.record, {
       implementation: {
@@ -168,23 +172,32 @@ async function interruptedLoop(axis: Axis): Promise<StageHarness> {
 }
 
 /**
- * The fixture's scripted Git, plus the one question Stage 11 asks it.
+ * The fixture's scripted Git, plus the two things Stage 11 asks of it.
  *
  * `answerWorkspaceGit` scripts the commands Stage 5-7 make a workspace with and fails
  * anything else, which is deliberate: a run whose base Git will not vouch for has to be
  * reported as blocked (see `tests/lifecycle/interruption.test.ts`). That is right for a
  * screen and fatal for this file, because a blocked run never reaches the walk whose
  * bounds are under test — the plan comes back `RECOVERY_BLOCKED` and every assertion
- * below then measures a run that did not happen. So *this* file answers the one extra
- * question, for the one drive that needs to get past the observation, and leaves the
+ * below then measures a run that did not happen. So *this* file answers the extra
+ * questions, for the one drive that needs to get past the observation, and leaves the
  * shared fixture — and the blocker test that depends on it — exactly as it found it.
+ *
+ * The first answer is a translation, not a new vouch. `S16-6` made the observation ask
+ * its questions of a directory pair (`--git-dir <admin> --work-tree <workspace>`) rather
+ * than of a repository Git discovers, and `S16-8` moved Stage 5's workspace-commit read
+ * the same way, so the verb is no longer at the index the scripted fixture reads it from;
+ * `askedOfRepositoryGit` in `tests/helpers/implement.ts` hands the same verb to the
+ * scripted repository that made the workspace. The second answer is the base commit, which
+ * a simulated repository cannot vouch for because it has no commits.
  */
 function gitThatVouchesForTheBase(git: Runner): Runner {
   return async (program, args) => {
-    if (program === 'git' && args.slice(2).join(' ').startsWith('cat-file -e')) {
+    const asked = askedOfRepositoryGit(args);
+    if (program === 'git' && asked.slice(2).join(' ').startsWith('cat-file -e')) {
       return { code: 0, stdout: '', stderr: '' };
     }
-    return git(program, args);
+    return git(program, asked);
   };
 }
 
