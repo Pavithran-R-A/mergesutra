@@ -14,8 +14,10 @@
  *
  * Field names are the ones the daemon reports, measured against a live
  * container: `HostConfig.NanoCpus` (not `NanoCPUs`), the bind in both
- * `Mounts[].Destination` and `HostConfig.Mounts[].Target`, the resolved digest in
- * `Image` and the requested reference in `Config.Image`.
+ * `Mounts[].Destination` and `HostConfig.Mounts[].Target`, the requested
+ * reference in `Config.Image`. `Image` is the container’s image ID, and the two
+ * stores measured for this product spell that ID differently, which is why the
+ * caller hands it to `imageIdentitiesFrom` instead of a predicted digest.
  */
 
 import { Buffer } from 'node:buffer';
@@ -88,6 +90,45 @@ function sameHostPath(reported, expected) {
 }
 
 export { sameHostPath };
+
+const DIGEST_IDENTITY = /^sha256:[0-9a-f]{64}$/;
+
+/**
+ * The digest identities the *host* holds for an image, read from its own
+ * `docker image inspect` record.
+ *
+ * A container record names the image it started as an ID, and the two image
+ * stores measured for this product use different IDs for the same pinned
+ * reference. A classic-store daemon (GitHub's `ubuntu-latest` runners) records
+ * the config digest of the platform manifest behind the index: pulling
+ * `node@sha256:a4fb1414…` yields the `linux/amd64` manifest `sha256:e9188593…`
+ * whose config is `sha256:0b1b606a…`, and that last digest is what `Image`
+ * carried in hosted run 39048507268. This Windows Docker Desktop host, on the
+ * containerd store, records the pulled index digest itself
+ * (`/c/tmp/s16/s1611-proof-*.log`). Requiring the reference's own digest in
+ * `Image` therefore certified an honest daemon as an escape on one host and a
+ * lie on the other.
+ *
+ * What the boundary actually needs is: the daemon must have started an image the
+ * host identifies under the pinned reference. That set is read here, from the
+ * host's record, so the check stays host-derived. A tag is not an identity, so
+ * non-digest entries are dropped and an empty result makes the boundary check
+ * fail closed rather than have nothing to compare.
+ *
+ * @param {unknown} imageRecord one decoded `docker image inspect` object
+ * @returns {string[]} digest identities, in record order, deduplicated
+ */
+export function imageIdentitiesFrom(imageRecord) {
+  const reported = Array.isArray(imageRecord?.RepoDigests) ? imageRecord.RepoDigests : [];
+  const identities = [];
+  for (const candidate of [imageRecord?.Id, ...reported]) {
+    const digest = String(candidate ?? '')
+      .split('@')
+      .pop();
+    if (DIGEST_IDENTITY.test(digest) && !identities.includes(digest)) identities.push(digest);
+  }
+  return identities;
+}
 
 function hasOption(options, wanted) {
   return options
@@ -316,7 +357,12 @@ export function containerBoundaryViolations(record, expectation) {
   } else if (requestedImage !== expectation.image) {
     add('IMAGE_MATCH', `${requestedImage} is not the pinned image ${expectation.image}`);
   }
-  if (record.Image !== expectation.imageDigest) {
+  const identities = Array.isArray(expectation.imageIdentities)
+    ? expectation.imageIdentities.filter((identity) => DIGEST_IDENTITY.test(String(identity)))
+    : [];
+  if (identities.length === 0) {
+    add('IMAGE_MATCH', 'the host reported no digest identity for the pinned image');
+  } else if (!identities.includes(String(record.Image))) {
     add('IMAGE_MATCH', `the daemon started ${String(record.Image)}`);
   }
 

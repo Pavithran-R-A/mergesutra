@@ -14,6 +14,7 @@ import {
   containerBoundaryViolations,
   escapeCanaryHits,
   escapeLandingViolations,
+  imageIdentitiesFrom,
   sameHostPath,
   splitLanding,
 } from './lib/container-boundary.mjs';
@@ -166,7 +167,6 @@ socket.setTimeout(2000, finish);
   const workspaceReal = realpathSync(workspace);
   const expectation = {
     image: IMAGE,
-    imageDigest: IMAGE.split('@')[1],
     workspace: workspaceReal,
     sandboxRoot: '/workspace',
     file: 'node',
@@ -220,13 +220,25 @@ socket.setTimeout(2000, finish);
       1,
       `exactly one live container must carry this run's workspace mount; found ${matches.length} of ${ids.length}`,
     );
-    const violations = containerBoundaryViolations(matches[0], expectation);
+    // The container record names the image it started by its ID, and the two
+    // image stores measured for this product give the same pinned reference
+    // different IDs — the pulled digest on this Windows daemon, the platform
+    // manifest's config digest on a classic-store runner. So the identities are
+    // read from this host's own image record instead of predicted from the
+    // reference string: an empty read is reported as a violation, not a pass.
+    const hostImage = JSON.parse(await docker(['image', 'inspect', IMAGE]))[0];
+    const imageIdentities = imageIdentitiesFrom(hostImage);
+    const violations = containerBoundaryViolations(matches[0], {
+      ...expectation,
+      imageIdentities,
+    });
     containerId = String(matches[0].Id).slice(0, 12);
     const envNames = (matches[0].Config?.Env ?? []).map((entry) => entry.split('=')[0]).sort();
     process.stdout.write(
       [
         `SANDBOX_BOUNDARY_CONTAINER_ID: ${containerId}`,
         `SANDBOX_BOUNDARY_RECORDS: inspected=${inspected} matched=1`,
+        `SANDBOX_BOUNDARY_IMAGE_IDENTITY: ${imageIdentities.join(',') || '(none)'}`,
         `SANDBOX_BOUNDARY_ENV_NAMES: ${envNames.join(',')}`,
         `SANDBOX_BOUNDARY_VIOLATIONS: ${violations.length === 0 ? 'none' : violations.join(' | ')}`,
       ].join('\n') + '\n',

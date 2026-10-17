@@ -15,8 +15,13 @@ const runChild = promisify(execFile);
 // S16-11) with only the bind source replaced by a Linux-shaped workspace path.
 // Every key name here is the name the daemon actually reports: `NanoCpus` is
 // spelled that way, the mount appears in both `Mounts[].Destination` and
-// `HostConfig.Mounts[].Target`, and the image digest lives in `Image` while the
-// requested reference lives in `Config.Image`.
+// `HostConfig.Mounts[].Target`, and the requested reference lives in
+// `Config.Image`. `Image` is the container's image ID, and the two stores
+// measured here spell that identity differently: this Windows host's
+// containerd-store daemon records the pulled digest (`sha256:363e1587…`, see
+// /c/tmp/s16/s1611-proof-*.log), while GitHub's classic-store runner records the
+// pinned index's `linux/amd64` manifest config digest (`sha256:0b1b606a…` for
+// `sha256:a4fb1414…`, hosted run 39048507268).
 const HONEST = {
   Id: 'c92eb6d1dc7ff5829f5f5950c86c35fb460c001e4bb5fbfebf5604ea43a7fa2e',
   Path: 'node',
@@ -81,7 +86,11 @@ const HONEST = {
 
 const EXPECTATION = {
   image: 'node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7',
-  imageDigest: 'sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7',
+  // The identities the host's own `docker image inspect` reports for that
+  // reference. On this containerd-store daemon the image ID *is* the pulled
+  // digest, so the list has one entry; a classic-store daemon adds the config
+  // digest too, which is the case `honest-classic-store-image-id` below plants.
+  imageIdentities: ['sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7'],
   workspace: '/run/mergesutra/workspace',
   sandboxRoot: '/workspace',
   file: 'node',
@@ -295,6 +304,53 @@ const CASES: readonly Case[] = [
     set: [['Image', 'sha256:1111111111111111111111111111111111111111111111111111111111111111']],
   },
   {
+    // The hosted reading that broke the first certified run: a classic-store
+    // daemon records the pinned index's amd64 config digest as the image ID, not
+    // the pulled digest. Both values come from the registry for the repository's
+    // own Alpine pin (index sha256:a4fb1414… → config sha256:0b1b606a…).
+    name: 'honest-classic-store-image-id',
+    expectation: {
+      image: 'node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8',
+      imageIdentities: [
+        'sha256:0b1b606ab95a0ef4f8d683de41bc2af43f8399d7d7984ca81a17cb1cb58c85b6',
+        'sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8',
+      ],
+    },
+    set: [
+      ['Image', 'sha256:0b1b606ab95a0ef4f8d683de41bc2af43f8399d7d7984ca81a17cb1cb58c85b6'],
+      [
+        'Config.Image',
+        'node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8',
+      ],
+    ],
+  },
+  {
+    name: 'image-identities-unreadable',
+    expectation: { imageIdentities: [] },
+  },
+  {
+    // A second, also-digest-pinned reference that is not the one under proof: the
+    // identity list accepts it, so only the comparison against the pinned image
+    // can refuse it.
+    name: 'different-pinned-reference',
+    expectation: {
+      imageIdentities: ['sha256:2222222222222222222222222222222222222222222222222222222222222222'],
+    },
+    set: [
+      ['Image', 'sha256:2222222222222222222222222222222222222222222222222222222222222222'],
+      [
+        'Config.Image',
+        'node@sha256:2222222222222222222222222222222222222222222222222222222222222222',
+      ],
+    ],
+  },
+  {
+    name: 'image-identities-not-digest-shaped',
+    expectation: {
+      imageIdentities: ['docker.io/library/node:22', 'sha256:short'],
+    },
+  },
+  {
     name: 'entrypoint-reinterpretation',
     set: [
       ['Path', 'sh'],
@@ -408,10 +464,40 @@ const WALK = {
   ],
 };
 
+// One `docker image inspect` record per image store, using the field names the
+// daemon reports. These are what the runtime proof reads on the host to say
+// *which identities the pinned reference has here*, instead of predicting that
+// the container record’s `Image` must equal the digest inside the reference.
+const IMAGE_CASES = [
+  {
+    name: 'classic-store',
+    record: {
+      Id: 'sha256:0b1b606ab95a0ef4f8d683de41bc2af43f8399d7d7984ca81a17cb1cb58c85b6',
+      RepoDigests: [
+        'docker.io/library/node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8',
+      ],
+    },
+  },
+  {
+    name: 'containerd-store',
+    record: {
+      Id: 'sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7',
+      RepoDigests: [
+        'docker.io/library/node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7',
+      ],
+    },
+  },
+  {
+    name: 'no-digest-identity',
+    record: { Id: 'node:22', RepoDigests: ['docker.io/library/node:22'] },
+  },
+];
+
 interface HarnessOutput {
   verdicts: Record<string, string[]>;
   raw: Record<string, string[]>;
   envNames: Record<string, string[]>;
+  identities: Record<string, string[] | undefined>;
   landing: Record<string, string[] | undefined>;
   walk: { hits: string[]; insideMount: string[]; outsideMount: string[] } | undefined;
 }
@@ -449,8 +535,16 @@ const apply = (target, dotted, value) => {
 const verdicts = {};
 const raw = {};
 const envNames = {};
+const identities = {};
 const landing = {};
 const codes = (failures) => failures.map((line) => line.split(':')[0]);
+for (const entry of input.images) {
+  if (typeof lib.imageIdentitiesFrom !== 'function') {
+    identities[entry.name] = undefined;
+    continue;
+  }
+  identities[entry.name] = lib.imageIdentitiesFrom(entry.record);
+}
 for (const entry of input.landing) {
   if (typeof lib.escapeLandingViolations !== 'function') {
     landing[entry.name] = undefined;
@@ -523,7 +617,7 @@ for (const testCase of input.cases) {
   const env = (record.Config && record.Config.Env) || [];
   envNames[testCase.name] = env.map((assignment) => assignment.split('=')[0]);
 }
-process.stdout.write(JSON.stringify({ verdicts, raw, envNames, landing, walk }));
+process.stdout.write(JSON.stringify({ verdicts, raw, envNames, identities, landing, walk }));
 `;
 
 let harness: HarnessOutput;
@@ -537,6 +631,7 @@ beforeAll(async () => {
     JSON.stringify({
       honest: HONEST,
       expectation: EXPECTATION,
+      images: IMAGE_CASES,
       landing: LANDING_CASES,
       walk: WALK,
       cases: CASES.map((testCase) => ({
@@ -569,6 +664,12 @@ const verdict = (name: string): string[] => {
 const rawLines = (name: string): string[] => {
   const recorded = harness.raw[name];
   if (!recorded) throw new Error(`the harness recorded no raw output for ${name}`);
+  return recorded;
+};
+
+const identitiesOf = (name: string): string[] => {
+  const recorded = harness.identities[name];
+  if (!recorded) throw new Error(`the harness read no image identities for ${name}`);
   return recorded;
 };
 
@@ -631,6 +732,38 @@ describe('the checker that reads the daemon record, not the container’s own wo
   it('names an image the daemon did not start from the pinned digest', () => {
     expect(verdict('mutable-tag-image')).toEqual(['IMAGE_PINNED']);
     expect(verdict('different-digest')).toEqual(['IMAGE_MATCH']);
+  });
+
+  it('accepts the image ID each image store records for the pinned digest', () => {
+    expect(verdict('honest')).toEqual([]);
+    expect(verdict('honest-classic-store-image-id')).toEqual([]);
+  });
+
+  it('refuses to certify an identity the host could not read back for the pin', () => {
+    expect(verdict('image-identities-unreadable')).toEqual(['IMAGE_MATCH']);
+    expect(verdict('image-identities-not-digest-shaped')).toEqual(['IMAGE_MATCH']);
+    // The reader must be told the host read failed, not that the daemon started
+    // some other image — the two need different fixes.
+    expect(rawLines('image-identities-unreadable').join('\n')).toContain('no digest identity');
+    expect(rawLines('image-identities-not-digest-shaped').join('\n')).toContain(
+      'no digest identity',
+    );
+  });
+
+  it('names a digest-pinned reference that is not the image under proof', () => {
+    expect(verdict('different-pinned-reference')).toEqual(['IMAGE_MATCH']);
+    expect(rawLines('different-pinned-reference').join('\n')).toContain('is not the pinned image');
+  });
+
+  it('reads the pinned image identities from the host record for either store', () => {
+    expect(identitiesOf('classic-store')).toEqual([
+      'sha256:0b1b606ab95a0ef4f8d683de41bc2af43f8399d7d7984ca81a17cb1cb58c85b6',
+      'sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8',
+    ]);
+    expect(identitiesOf('containerd-store')).toEqual([
+      'sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7',
+    ]);
+    expect(identitiesOf('no-digest-identity')).toEqual([]);
   });
 
   it('names a container whose program is not the one the gate asked to run', () => {
