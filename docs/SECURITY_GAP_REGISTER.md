@@ -6225,14 +6225,18 @@ both recorded because they look like one:
   `host_target_exists=false` for that same path and the container's own `cwd` listing contains a single
   entry literally named `C:\Users\<account>\AppData\Local\Temp\s1610-probe-…\outside\escaped`. Inside a
   Linux container, that path is a file name, not a location; the parallel POSIX absolute write was
-  refused with `EACCES` by the read-only root filesystem. So the fixture's host-side assertions assume a
-  Linux host, which is what the workflow provides, and a Windows-host run of it measures the fixture, not
-  the product. It fails closed (`exit 1`, never a `PASS`), so no false claim is reachable — but a green
+  refused with `EACCES` by the read-only root filesystem. So the fixture's host-side assertions assumed a
+  Linux host, which is what the workflow provides, and a Windows-host run of it measured the fixture, not
+  the product. It failed closed (`exit 1`, never a `PASS`), so no false claim was reachable — but a green
   run of this proof on a non-Linux host would have proved nothing either, and is not offered as evidence.
+  That reading describes the fixture as `S16-10` left it; `S16-11` below is the change that makes the
+  Windows-host run measure the boundary rather than the fixture's own path semantics.
 
 **What this does not claim.** Three legs, one Docker host: every job is `ubuntu-latest`, so the macOS and
-Windows container hosts this stage keeps naming as unmeasured are still unmeasured, and the daemon and
-kernel are GitHub's, not a customer's. The qualification covers the programs the two proofs actually run,
+Windows container hosts this stage keeps naming as unmeasured were still unmeasured by it, and the daemon
+and kernel are GitHub's, not a customer's. `S16-11` has since brought a Windows Docker Desktop host into
+the reading for both proofs; macOS is still unmeasured, and the two Debian digests on that host are not
+the two this item qualified. The qualification covers the programs the two proofs actually run,
 which are `node` ones; no package inventory of the two Debian images was measured, so nothing here says
 `git` works inside them and nothing says it does not — the exit-127 finding in
 `docs/SANDBOX_EXECUTION.md` stays specific to the Alpine pin. No `git`-native gate was driven through the
@@ -6246,3 +6250,285 @@ surface, so the rule in `docs/SANDBOX_EXECUTION.md` that a sandboxed `git`-nativ
 that MergeSutra never falls back to host execution still reads as `S16-4` left it. What is now measured
 rather than assumed is that the two hostile fixtures pass in the images a `node:22` or `node:24` operator
 would actually be given.
+
+## S16-11 — both real-Docker proofs asked the container whether it had escaped — CLOSED (CODE + TEST + DOCUMENT)
+
+**Finding.** `S16-4`'s and `S16-10`'s claims are claims about a container, and both fixtures decided them
+from the container's own account of itself. `scripts/sandbox-runtime-proof.mjs` deep-equaled the JSON its
+fixture printed and read `siblingWrite: false` out of that match; `scripts/sandbox-stage-proof.mjs`
+asserted `report.siblingWrite === false` the same way. A guest's boolean says only that a `writeFileSync`
+call returned — it cannot say where the bytes went, and it is written by the very code the sandbox exists
+to confine. Driven on this host against the daemon it actually has
+(`MERGESUTRA_RUNTIME_PROOF_DOCKER` pointed at the Windows `docker.exe`, the pinned Alpine digest, nothing
+stubbed), the proof failed exactly there: `AssertionError … + siblingWrite: true, - siblingWrite: false`
+at the then-`scripts/sandbox-runtime-proof.mjs:221`. A probe of the same image through the same mount
+(`C:\tmp\s16\s1611-classify.json`) showed what that word had come to mean. The guest's `cwd` is
+`/workspace`, and the path it was told to escape to —
+`C:\Users\<account>\AppData\Local\Temp\s1611-classify-…\sibling\escape.txt` — is not an absolute path
+inside a Linux guest: it resolved *relative to the working directory*, so the write succeeded. The
+container's own listing then contained an entry literally named after that path (7 bytes), the host's
+sibling directory still held only `original.txt`, `siblingEscapeExists` was `false`, and the two
+genuinely absolute writes (`/etc/…` and `../…`) came back `EROFS` from the read-only root filesystem. The
+bytes never left the mount, so the container had not escaped — and neither proof could say so, because on
+a Linux host that boolean means "did not write" and on a Windows host it means "wrote inside the mount",
+while the only host-side reads were two directory listings of files the fixture had never been told about.
+A fixture whose escape claim is decided by the escapee reports a boundary it has not measured.
+
+The second gap sat beside the first. `sandboxDockerArgv` builds the flags MergeSutra *asks* for, and
+nothing in either proof read back the container the daemon *created*: which host paths it was handed,
+which environment variables reached it, whether the recorded limits, mounts, entrypoint and identity were
+the ones that argv claims.
+
+**Fix.** `scripts/lib/container-boundary.mjs` is new and holds the two outside reads, with no command
+execution in it — the header at `:1-19` says so, because that is what lets a unit test hand it a tampered
+record and a planted directory. `containerBoundaryViolations` (`:221`) turns one decoded
+`docker inspect` element plus the caller's intended boundary into `CODE: detail` lines over 27 codes
+(`NETWORK_MODE`, `MOUNT_COUNT`, `MOUNT_SOURCE`, `PROGRAM_PINNED`, `IMAGE_MATCH`, `USER_UNPRIVILEGED`,
+`ENV_CANARY_LEAK`, `TMPFS_OPTIONS`, …) and refuses anything that is not a record at all
+(`RECORD_UNREADABLE`, `:225-227`).
+`escapeCanaryHits` (`:123`) walks the host's own filesystem and returns the regular files whose *entire*
+content equals the escape canary; symlinked entries are neither read nor descended into (`:129`, and
+`W1` below shows what following one does), and a file is opened only when its size equals the canary's
+(`:133`), so a hostile fixture cannot make the host read its whole tree. `splitLanding` (`:156`) decides
+containment by resolving each hit against the bound directory (`:162`) rather than by comparing prefixes,
+and `escapeLandingViolations` (`:193`) draws the conclusion from the two buckets plus the guest's report:
+`LANDING_OUTSIDE_MOUNT`, `LANDING_UNACCOUNTED`, `LANDING_UNSOLICITED`. `sameHostPath` (`:83`, exported at
+`:90`) is the piece a Windows host needs — the daemon reports the bind source in its 8.3 short form, so a
+component shaped `<prefix>~<digits>` matches the compressed long name case-insensitively while any other
+component must match exactly.
+
+`scripts/sandbox-runtime-proof.mjs` now blocks its fixture until the host has finished looking: the guest
+writes its self-report to `/workspace/ready.json` (`:124`) and then spins until the host writes
+`/workspace/release` (`:127`, `:239`), which is the only way a live container can be inspected. The host
+finds *its own* container — `docker ps --filter ancestor=<digest>`, then `docker inspect` each id, keeping
+records whose `/workspace` mount resolves to this run's real workspace (`:195-217`) — and refuses unless
+exactly one matches (`:218`). `boundary` starts as `RECORD_UNREADABLE` so a failed outside phase cannot
+pass quietly (`:181`). The guest's `hostPathWrite` is then read *apart* from the self-report match
+(`:246-253`) and joined with the walk in the landing block (`:275-288`), which prints
+`SANDBOX_ESCAPE_LANDING: hostPathWrite=… insideMount=… outsideMount=…` and the verdict before it asserts.
+`scripts/sandbox-stage-proof.mjs` carries the same fix, adapted to a proof that hands the container two
+owned directories rather than one: canary `:26`, fixture write `:67`/`:74-75`, the guest's claims
+separated from its write-report `:135-137`, the two host listings `:138-144`, the two walks `:153-159`,
+the verdict and its assertion `:160-175`.
+
+**Test, RED first.** `tests/security/container-boundary-rules.test.ts` is new: 29 tests in three describes
+— the record checker (`:575`, 16), the landing accounting (`:669`, 6), the host walk (`:711`, 7). It
+drives the shipped module from a real child Node process (`:419-423` explains why: vitest's loader cannot
+resolve an absolute path containing spaces, and the honest reading is the shipped file answering, not a
+re-implementation inside the test). The walk plants its tree for real (`:392-409`): a confined hit at two
+depths, a `sibling/` hit outside the mount, `workspaceish/` to catch a prefix test that decides
+containment by string comparison, an `alias` link out of the mount and a `loop` link back to the walked
+root, and two files sized to defeat a matcher that is weaker than the whole bytes —
+`contains-but-longer.txt` (the canary plus more) and `same-length-other-bytes.txt` (`:400`, the canary's
+own length with a different last byte).
+
+Three RED readings, each produced by an executed edit and each restored byte-for-byte before the next:
+- with the record checker not yet written, the harness cannot import it —
+  `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…\scripts\lib\container-boundary.mjs'`,
+  `Tests 15 skipped (15)`. One of its own shape errors then showed (`1 failed | 14 passed (15)`: the test
+  compared a bare code against the `CODE: detail` line) before the file reached `16 passed (16)`.
+- with `escapeLandingViolations` unexported, `6 failed | 16 passed (22)`, every failure
+  `Error: the harness recorded no landing verdict for <case>`; restored, `22 passed (22)`.
+- with `escapeCanaryHits` and `splitLanding` unexported, `6 failed | 22 passed (28)`, every failure
+  `Error: the harness ran no landing walk`; restored, `28 passed (28)`. The tree that carries the
+  same-length control measures `29 passed (29)`.
+
+**Mutations, each restored byte-for-byte.** Nineteen single-expression mutations of
+`scripts/lib/container-boundary.mjs` at `b3f92a112b952db0…`, each driven through
+`tests/security/container-boundary-rules.test.ts` with `--minWorkers=1 --maxWorkers=1`, each reverted by
+copying the pre-mutation file back and re-hashing it. The control run before the first mutation and after
+the last was `29 passed (29)` on both sides, and the lib finished at `b3f92a112b952db0…`
+(`/c/tmp/s16/mut-all-final.log`). Sixteen killed. The labels are that log's case names: `R1`-`R6` are the
+record checker, `L1`-`L4` the landing predicate, `W1`-`W9` the host walk.
+Record checker (`R1` canary-value check removed) → `2 failed | 27 passed (29)`; (`R2`) 8.3 short-name
+tolerance removed → `1 failed | 28 passed`; (`R3`) mount-source check removed → `1 failed`; (`R4`)
+privileged-name rule removed → `1 failed`; (`R5`) network-mode rule removed → `1 failed`; (`R6`)
+running-check removed → `1 failed`.
+Landing predicate: (`L1`) `LANDING_OUTSIDE_MOUNT` removed → `3 failed | 26 passed (29)`; (`L2`) the same rule relabelled
+to `LANDING_UNACCOUNTED` → `3 failed | 26 passed` (a separate driver, because the shipped file formats that
+call across lines — the first pattern matched zero times and was corrected against the real bytes, pattern
+hits `1`, before it killed; `/c/tmp/s16/mut-L2.log`); (`L3`) `LANDING_UNSOLICITED` removed → `1 failed`;
+(`L4`) `LANDING_UNACCOUNTED` widened so a confined write counts as unaccounted → `2 failed | 27 passed`.
+Host walk: (`W1`) descending into a planted link → `exit=1` with `29 skipped (29)` — the walk dies inside a
+fixture the container controls, `Error: ELOOP: too many symbolic links encountered, scandir
+'…\workspace\loop\workspace\loop\…\alias'`, so no case can report at all; (`W5`) labels keeping the host
+separator → `2 failed | 27 passed`; (`W6`) not descending → `3 failed | 26 passed`; (`W7`) dropping the content
+comparison while keeping the size bound → `3 failed | 26 passed`; (`W8`) dropping both guards and leaving a
+substring test → `3 failed | 26 passed`; (`W9`) equality weakened to substring alone → `3 failed | 26 passed`.
+**Three of the nineteen survived and are recorded as survivals.** Weakening equality to a substring *while
+keeping the size bound* (`W2`) and dropping the size bound *while keeping the equality* (`W3`) both left
+`29 passed (29)` because neither is a classifier change: a file whose size equals the canary's cannot
+*contain* it without *being* it, and the `same-length-other-bytes.txt` control is refused by its content,
+not by its length — so `W2` is the same program as the shipped one and `W3` changes only how many bytes the
+host reads. `W4` (call a hit that resolves absolute against the mount confined) also survived, and honestly
+so: on a single-volume host a hit can never be absolute relative to the mount, so that half of the
+disjunction is unreachable here and unqualified by these tests. `W7`-`W9` are what carry the weight of the
+three: they show the content comparison, not the size bound and not the path shape, is what classifies.
+
+An earlier reading of the same arc is corrected here. Eleven walk mutations were first run against
+`fabdc143f98b416f…`, which is the lib one edit before the shipped bytes — the diff is the added
+`import { Buffer } from 'node:buffer';` at `:21`, used at `:124` for the canary's byte length; the
+classifier itself is byte-identical. Those cases were then re-measured on `b3f92a112b952db0…` as the `W`
+series above, and the register now cites only the re-measured numbers.
+
+**Live anti-vacuity on the shipped proofs, each restored byte-for-byte.** Five mutations of the proof and
+lib bytes listed above, each executed against the real daemon on this host with the pinned Alpine digest,
+each reverted and re-hashed to `b3f92a112b952db0…` / `2d2c53aff18c83a0…`, and both proofs re-run green
+afterwards. Swapping the two buckets in `splitLanding` → the runtime proof comes back `exit=1` with
+`SANDBOX_ESCAPE_LANDING: hostPathWrite=true insideMount=0 outsideMount=1` and
+`LANDING_OUTSIDE_MOUNT: … workspace/CUsers…siblingescape.txt | LANDING_UNACCOUNTED`: the file that really
+is inside the mount is named, in the wrong bucket. Discarding the stage proof's inside-mount bucket →
+`exit=1`, `hostPathWrite=true insideMount=1 outsideMount=0`, `LANDING_UNACCOUNTED`. Planting the canary in
+the host's sibling directory after the container exits → `exit=1`,
+`LANDING_OUTSIDE_MOUNT: … sibling/planted-by-mutation` — and it still fires with the sibling *listing*
+assertion deleted, which is the proof that the claim no longer rests on that listing. Planting a file that
+is not the canary there instead → `exit=1` at the listing assertion
+(`the sibling directory must stay as the host left it`), which is the proof the listing still has teeth.
+The restored bytes give `SANDBOX_RUNTIME_PROOF: PASS` and `STAGE_6_AND_7_DOCKER_PROOF: PASS`, both
+`exit=0`.
+
+**Third gap, found while certifying this one: the proof could be changed without starting the proof.**
+`.github/workflows/sandbox-runtime.yml` fires on a `paths:` filter, and both of its filters named seven
+files — the two proof scripts, `src/security/sandbox.ts`, `src/implement/loop.ts`, `src/verify/engine.ts`,
+`src/security/repository-runner.ts` and the workflow itself. The fix above added a new file to that arc,
+`scripts/lib/container-boundary.mjs`, which is now the code that decides whether a container escaped, and
+four more the proofs load: `src/verify/consent.ts`, `src/process/tool-policy.ts`,
+`tests/helpers/implement.ts`, `tests/helpers/plan.ts`. None of them was in the filter, so a commit that
+edited the boundary checker itself — or deleted a rule from it — would neither start the Docker proof in a
+pull request nor on `main`. The proof that exists to say something about the sandbox boundary was one file
+rename away from never running again.
+
+Both lists now carry the same twelve entries, with a comment naming the guard that keeps them honest, and
+`tests/security/sandbox-proof-trigger-policy.test.ts` (5 tests) derives the required set from the import
+statements in the two proof scripts rather than from a list a person maintains: `../dist/X.js` maps to
+`src/X.ts`, `../tests/…` to `tests/…`, `./lib/…` to `scripts/lib/…`, any other shape throws rather than
+being skipped, and a mapped file that does not exist fails the test. Its five expectations are: every file a
+proof imports appears in the `pull_request` filter; the `push` filter names the same set, so `main` is
+covered exactly like a PR; every listed path exists on disk; `workflow_dispatch` is still there; and the
+matrix holds exactly three entries, each matching `node@sha256:` followed by 64 hex characters. The rule is
+deliberately one hop deep — every module a proof loads *directly* must trigger it, while transitive product
+reach stays the ordinary CI matrix's job; claiming more here would make the filter unmaintainable and this
+test a rubber stamp.
+
+**Its RED, and its mutations.** The first run of the guard failed for a reason it had to be told about
+rather than worked around: `Error: scripts/sandbox-runtime-proof.mjs imports ../dist/security/sandbox.js,
+which maps to src/security/sandbox.js.ts — no such file`, `Tests no tests` — the `dist`-to-`src` mapping
+forgot to swap the extension, so the guard was not yet looking at real files (`/c/tmp/s16/trigger-red.log`).
+With the mapping corrected and the filter untouched, it produced the gap itself:
+`AssertionError: expected [ …(6) ] to deeply equal []`, `1 failed | 4 passed (5)`, the received array naming
+`scripts/lib/container-boundary.mjs` twice (before the required set was deduplicated, because both proofs
+import it) plus `src/process/tool-policy.ts`, `src/verify/consent.ts`, `tests/helpers/implement.ts` and
+`tests/helpers/plan.ts` (`/c/tmp/s16/trigger-red2.log`). Adding the entries and deduplicating gives
+`5 passed (5)` (`/c/tmp/s16/trigger-green.log`).
+
+Seven mutations, each reverted byte-for-byte and re-hashed (workflow `aee69187d9650c03…`, runtime proof
+`ea7f80568b17d566…` verified after every case), all seven killed, and the whole set re-run on the final test
+bytes `239804d825cd8370…` after the gate's typecheck pass rewrote the guard: dropping
+`scripts/lib/container-boundary.mjs` from both filters → `1 failed | 4 passed (5)`; dropping
+`src/verify/consent.ts` from the `push` list only → `1 failed | 4 passed`; replacing one digest pin with the
+mutable `node:22` tag → `1 failed | 4 passed`; deleting `workflow_dispatch` → `1 failed | 4 passed`; naming
+a file that does not exist → `2 failed | 3 passed` (the missing-path test and the coverage test together);
+giving the runtime proof a new direct import the filter has not been told about → `1 failed | 4 passed`;
+rewriting one entry in double quotes, a shape the indentation parser does not claim →
+`2 failed | 3 passed` (`/c/tmp/s16/tp-final2.log`).
+
+**Reading — local real Docker, on a Windows host.** Each leg below names the
+container it inspected, so the legs are six separate live containers, not one re-read: with
+`MERGESUTRA_RUNTIME_PROOF_DOCKER` / `MERGESUTRA_DOCKER_EXECUTABLE` set to this host's `docker.exe`, the
+runtime proof and the stage proof each ran on the repository's Alpine pin
+(`node@sha256:a4fb14143ee2…`) and on the two Node images already in this daemon —
+`node@sha256:363e15874946…` (`NODE_VERSION=22.23.3`) and `node@sha256:64af3819f927…` (`NODE_VERSION=24.21.0`).
+All six legs `exit=0`. Every runtime leg prints `SANDBOX_BOUNDARY_RECORDS: inspected=1 matched=1`,
+`SANDBOX_BOUNDARY_VIOLATIONS: none` and a delivered-environment line
+(`CI,HOME,NODE_VERSION,PATH,XDG_CONFIG_HOME,npm_config_cache` on the Alpine pin, with `YARN_VERSION` added
+in the two Debian builds); every leg of both proofs prints
+`SANDBOX_ESCAPE_LANDING: hostPathWrite=true insideMount=1 outsideMount=0` then `…_VERDICT: accounted`, and
+`SANDBOX_RUNTIME_PROOF: PASS` / `STAGE_6_AND_7_DOCKER_PROOF: PASS`. So the same fixture that could not run
+here under `S16-10` now measures, and says *where* its escape bytes are: one file inside the mount it was
+handed, none outside it, the sibling and host-only directories unchanged.
+
+**What those six local legs do not cover, stated because the timing does not let it be waved away.** They
+were driven at 14:06–14:07 local, after the three-leg reading at 13:59 and before the live-mutation harness
+at 14:19, and two files in the arc were edited in that window. Both diffs are recorded rather than glossed.
+The library before that edit was `fabdc143f98b416f…`, retained at `/c/tmp/s16/lib-walk-mut.bak`; against the
+shipped `b3f92a112b952db0…` the difference is one hunk, `20a21`, the added
+`import { Buffer } from 'node:buffer';` — whose only use at `:124` already read `Buffer.byteLength(canary)`
+through Node's global of the same object. The stage proof has two candidate versions for that moment:
+`c90a5c604e5b0a63…`, retained at `/c/tmp/s16/stage-proof-flip.bak` as it stood at 13:56, and the shipped
+`2d2c53aff18c83a0…`, and the log set does not say which one the 14:06 containers loaded. That gap is closed
+by comparing the two: between them there are exactly four hunks and none of them is executable — an unused
+`splitLanding` import removed, one comment line reworded, and two expressions re-wrapped by prettier — so
+the assertions those legs ran are the committed ones whichever version was on disk. The register still calls
+the hosted run the reading of the committed bytes, for two reasons: it is the one that starts from the pushed
+tree rather than from a working copy, and file timestamps could not have resolved the version question on
+their own — Node's `copyFileSync` on Windows goes through `CopyFile`, which carries the source's
+modification time across, so a restored file shows when its backup was made, not when it was put back. The
+hosted three-image result for the SHA pushed below is recorded here once it returns. Re-running the Windows
+legs on the committed bytes is an open item, not a completed one: this host's volume is at 99 % full and
+Docker Desktop's service is stopped, so the daemon has to be started by the operator before any fresh local
+leg can be claimed.
+
+**Document.** `docs/SANDBOX_EXECUTION.md` told an operator that the fixture's host-side assertions
+"assume a Linux host" and that a Windows-host run "is not a qualification of anything either"; that
+limitation is what this item removed, so the bullet now states where the landing decision is made and
+what counts as an escape. The image bullet said no image had been qualified on a Windows Docker host and
+the launch list asked for Windows legs; both now say which legs exist and which do not — the Windows
+leg's two Debian digests are that daemon's, not the hosted pair's, macOS is still unqualified, and the
+guide now also says those Windows logs are one edit behind the committed files rather than leaving the
+reader to assume otherwise, and names which files that edit touched. A new bullet states the trigger rule
+itself: the Docker proof starts only on a file its `paths:` filter names, the guard test derives that filter
+from the proofs' imports, and a proof that gains a direct import has to add it to both lists in the same
+change. `docs/SECURITY_MODEL.md`'s §6 sandbox bullet used to end at the container's own rules; it now says
+the boundary is not certified by asking the container — the fixtures hold the self-report apart from the
+verdict, and the host decides it from the `docker inspect` record plus a walk of its own filesystem — and
+carries the Windows point that a `C:\…` argument inside a Linux guest is a relative *filename*, not a host
+write, which is exactly the confusion the old boolean could not express. The same bullet also stops calling
+the delivered environment "exactly four variables": four is the count of `--env` assignments
+`src/security/sandbox.ts:113-116` makes, while the host-measured record shows the container also carries
+`PATH` and the image's own `NODE_VERSION` / `YARN_VERSION`, so the bullet now says what is assigned and what
+is read back.
+
+**What this does not claim.** It is still one Docker host, and its kernel, file-share and daemon are
+Docker Desktop's, not a customer's; macOS is unmeasured by anything in this stage. The three images here
+are the three *this daemon holds*: `node@sha256:a4fb14143ee2…` is the repository's pin, but the two Debian
+digests are not today's `node:22` / `node:24` manifest digests (re-derivable right now with
+`docker buildx imagetools inspect node:22` → `sha256:0e5f90657369…`, whose `linux/amd64` manifest is
+`sha256:c4d5523090a8…`), so nothing here says the hosted matrix's two added images behave like these. The
+record checker reads the fields the daemon gives it and cannot detect a daemon that lies — a compromised
+container runtime remains outside this arc, as `docs/SANDBOX_EXECUTION.md` has always said. The walk covers
+only the directories each proof owns; a write to a host path outside both trees is caught by the
+sibling/host-only listings, not by the walk, and the walk follows no link, which is the containment rule
+and also means a canary hidden behind a planted link is deliberately *not* read. `path.isAbsolute` in
+`splitLanding` is untested on this host (`W4` above, and it survived its mutation for exactly that reason).
+The trigger guard is one hop deep: it proves every module a proof loads *directly* names itself in the
+filter, and says nothing about a change that reaches a proof only through a second import, which stays the
+ordinary CI matrix's coverage. Finally, none of this is evidence about a customer's
+`git`-native gate: the programs executed inside these containers are `node` ones, and `S16-4`'s fail-closed
+reading for a repository's own `git` step is untouched.
+
+**Local gates on the tree this item commits.** `npm run check` — `format:check && lint && typecheck && build
+&& test`, one run, no concurrent suite — returned `exit=0` with `Test Files 165 passed | 3 skipped (168)`
+and `Tests 2472 passed | 4 skipped (2476)` (`/c/tmp/s16/sweep-committed-final.log`, npm's own status taken
+from `/c/tmp/s16/sweep-committed-final.exit`, which the driver wrote from `$?` immediately after
+`npm run check` and not from anything downstream of a pipe; free space before and after is in
+`/c/tmp/s16/sweep-committed-final.disk`, and the log contains no ENOSPC). The three skipped files are
+`tests/plan/live.test.ts`,
+`tests/implement/live.test.ts` and `tests/review/live.test.ts`, all gated on `MERGESUTRA_LIVE_BHARATCODE=1`
+plus a model key and so skipped by design on this host, and the fourth skipped test is the
+`it.skipIf(process.platform === 'win32')` case in `tests/intake/home-path.test.ts`; nothing here added a
+skip. Three earlier sweeps of this same tree
+failed and are recorded rather than hidden: the first died in `format:check` because the new guard test was
+not prettier-formatted, the second in `eslint .` because five regexes in that file spelled leading
+indentation as literal spaces (`no-regex-spaces`), and the third in `tsc --noEmit` because its
+`noUncheckedIndexedAccess` reading of the capture groups the guard extracts was never narrowed — all three
+were defects in the test added by this item, not product failures, and all three were fixed in the test
+rather than by weakening it. `npm run verify:package` → `exit=0`, `115 passed (115)`; `npm run test:artifact`
+→ `exit=0`, `14 passed (14)`; `npm run qualify:path-shapes` → `exit=0`, with
+`temp-root=C:\ spaces=covered separator-input=forward-slash-on-Windows home-userprofile=covered
+git-discovery=covered gh-discovery=covered`.
+
+**Status: CLOSED (CODE + TEST + DOCUMENT).** The boundary these fixtures report is now decided from the
+host side and corroborated from the daemon's side, on a Windows Docker host as well as a Linux one, which
+is what `S16-10` had to leave as a fixture limitation, and the proof can no longer be changed without
+starting it. The hosted reading for the SHA that carries this change is appended below once CI and the
+three-leg Docker proof return on it.

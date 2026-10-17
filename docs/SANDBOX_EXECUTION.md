@@ -44,11 +44,14 @@ it does not recognise (measured on the pinned digest, a gate that asked for
 - The controlled real Docker adversarial fixture proves a specific Linux
   host-only secret, sibling-write, token-environment and loopback-network
   boundary. It does not prove every possible escape, other operating systems,
-  or security against an actively compromised Docker daemon. Its host-side
-  assertions also assume a Linux host: on a Windows host running Linux containers, the container
-  creates a file whose *name* is the Windows path and leaves the host directory untouched, so the
-  sibling-write check reports `true` and the proof exits non-zero. That fails closed instead of
-  passing falsely, but it is not a qualification of anything either.
+  or security against an actively compromised Docker daemon. Whether the bytes used for an escape
+  attempt reached the host is decided by a host-side walk of the directories the run owns, not by the
+  container's own report: on a Windows host running Linux containers the planted path is not an
+  absolute path inside the guest at all, so the write succeeds and lands as a *file named* after that
+  path inside the one directory the container was handed. Confinement permits that, and both proofs
+  now say so (`SECURITY_GAP_REGISTER.md` S16-11) instead of exiting non-zero on a word the guest
+  controls. An escape is only what the walk finds outside the bound directory, or a landing the host
+  cannot account for against what the guest reported.
 - Worktrees store Git metadata outside the single-mounted directory, and that is now measured rather
   than assumed. A linked worktree's `.git` is a pointer to an absolute host path; inside a container
   that path is not mounted, so Git resolves it against the container root. Driven through the
@@ -84,15 +87,32 @@ it does not recognise (measured on the pinned digest, a gate that asked for
   container are `node` ones. Sandbox-backed execution is therefore qualified for `node` commands and
   unqualified for git-native ones. Three digest-pinned images are qualified now — the repository's own
   Alpine pin plus the current `node:22` and `node:24` Debian digests — each against both hostile fixtures
-  on a Linux Docker host (`S16-10` in `SECURITY_GAP_REGISTER.md`); no image has been qualified against a
-  macOS or Windows Docker host.
+  on a Linux Docker host (`S16-10` in `SECURITY_GAP_REGISTER.md`), and the same three against both on a
+  Windows Docker Desktop host (`S16-11`); no image has been qualified against a macOS Docker host. The
+  Windows leg's two Debian digests are the ones that daemon holds, not today's `node:22` / `node:24`
+  manifest digests, so that leg says nothing about whether the hosted pair behaves the same way. Those
+  Windows legs also ran a few minutes before the last edits in this arc: one added
+  `import { Buffer } from 'node:buffer';` line in `scripts/lib/container-boundary.mjs`, whose use already
+  read the same global, and four non-executable hunks in `scripts/sandbox-stage-proof.mjs` (an unused
+  import, one reworded comment, two prettier re-wraps). Neither changes what those legs asserted, but the
+  run that starts from the pushed tree is the
+  hosted one, so treat the hosted matrix as the qualification and the Windows logs as corroboration
+  (`S16-11` in `SECURITY_GAP_REGISTER.md` records the diff and the open re-run).
+- The Docker proof starts only on a file its `paths:` filter names, and
+  `tests/security/sandbox-proof-trigger-policy.test.ts` derives that filter from the import statements
+  in `scripts/sandbox-runtime-proof.mjs` and `scripts/sandbox-stage-proof.mjs`. So if a proof gains a
+  direct import — a new shared security helper, a new test helper — the pull request that adds it must
+  also add it to both `paths:` lists, or that test fails locally and the proof never gets to run.
+  The rule is one hop deep on purpose; a change that reaches a proof only through a second import is
+  the ordinary CI matrix's job.
 - Unit tests may inject a trusted fixture runner to exercise scenario logic;
   that dependency-injection seam is **not** a product-level opt-out switch.
 - Repository-controlled commands are distinct from MergeSutra-owned GitHub
   read transports. Any new execution path must be added to the threat-model
   inventory and exercised against the actual sandbox before release.
 - First customer release still requires controlled tests across Node 22/24 on
-  Windows and macOS Docker hosts (the Ubuntu-host legs now run a three-image digest matrix), a
+  a macOS Docker host (the Ubuntu-host legs now run a three-image digest matrix, and both proofs have
+  run on the three images this Windows daemon holds), a
   representative task benchmark, actual remote draft-PR
   publication and honest failure reporting.
 

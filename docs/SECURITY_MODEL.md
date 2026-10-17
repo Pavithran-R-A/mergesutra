@@ -228,11 +228,21 @@ repository declares, which is a different threat and gets a different boundary.
   `MERGESUTRA_SANDBOX_IMAGE` or no absolute `MERGESUTRA_DOCKER_EXECUTABLE` it
   throws `SANDBOX_UNAVAILABLE` and executes nothing, and no product flag swaps in
   a host runner. The container's own rules — one bind mount of the workspace,
-  `--network=none`, dropped capabilities, a read-only root filesystem, an
-  environment of exactly four variables so no host credential is even offered to
-  the gate, and a Docker client configuration the launch owns rather than
+  `--network=none`, dropped capabilities, a read-only root filesystem, four
+  `--env` assignments and no inherited host environment, so no host credential is even offered to the
+  gate (`src/security/sandbox.ts:113-116`; the container still
+  carries `PATH` and whatever the pinned image bakes in, which is exactly the line the host now reads
+  back rather than assumes), and a Docker client configuration the launch owns rather than
   inherits — are `docs/SANDBOX_EXECUTION.md`'s, and the child never sees the
-  BharatCode or GitHub credentials (§6). What the container does *not* do is make
+  BharatCode or GitHub credentials (§6). Those rules are not certified by asking
+  the container whether it obeyed them: the two proof fixtures hold their
+  self-report apart from the verdict, and `scripts/lib/container-boundary.mjs`
+  decides the escape claim from the host, by reading the `docker inspect` record
+  the daemon actually created and walking the host's own filesystem for the bytes
+  the container wrote. A guest's boolean says a `writeFileSync` returned; it
+  cannot say where the bytes landed, and on a Windows host a planted `C:\…` path
+  is a *relative file name* inside a Linux guest, so the write can succeed and
+  still be confined. What the container does *not* do is make
   the workspace trustworthy: its one writable mount is the directory under review,
   so a gate can still change the bytes being measured. That is why the patch
   identity is re-described after every gate and a gate that left the tree changed
