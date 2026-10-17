@@ -52,6 +52,15 @@ it does not recognise (measured on the pinned digest, a gate that asked for
   now say so (`SECURITY_GAP_REGISTER.md` S16-11) instead of exiting non-zero on a word the guest
   controls. An escape is only what the walk finds outside the bound directory, or a landing the host
   cannot account for against what the guest reported.
+  The same rule covers which image the container started: the proof reads the identities this host holds for
+  the pinned reference out of its own `docker image inspect` record and requires the container's image ID to
+  be one of them, instead of expecting the container to report the digest written inside the reference. The
+  two are not the same number. A classic-store daemon (GitHub's `ubuntu-latest` runners) records the config
+  digest of the `linux/amd64` manifest behind the index; a containerd-store daemon (Docker Desktop with the
+  containerd image store) records the index digest it was given. `IMAGE_MATCH` therefore now means "this
+  daemon started something the host does not identify under your pin" — or "the host could not read an
+  identity back", which the message says in so many words — and never means "your digest is spelled in
+  another store's form".
 - Worktrees store Git metadata outside the single-mounted directory, and that is now measured rather
   than assumed. A linked worktree's `.git` is a pointer to an absolute host path; inside a container
   that path is not mounted, so Git resolves it against the container root. Driven through the
@@ -91,13 +100,23 @@ it does not recognise (measured on the pinned digest, a gate that asked for
   Windows Docker Desktop host (`S16-11`); no image has been qualified against a macOS Docker host. The
   Windows leg's two Debian digests are the ones that daemon holds, not today's `node:22` / `node:24`
   manifest digests, so that leg says nothing about whether the hosted pair behaves the same way. Those
-  Windows legs also ran a few minutes before the last edits in this arc: one added
-  `import { Buffer } from 'node:buffer';` line in `scripts/lib/container-boundary.mjs`, whose use already
-  read the same global, and four non-executable hunks in `scripts/sandbox-stage-proof.mjs` (an unused
-  import, one reworded comment, two prettier re-wraps). Neither changes what those legs asserted, but the
-  run that starts from the pushed tree is the
-  hosted one, so treat the hosted matrix as the qualification and the Windows logs as corroboration
-  (`S16-11` in `SECURITY_GAP_REGISTER.md` records the diff and the open re-run).
+  Windows legs also ran a lib a few edits behind the one shipping now. Two of those edits were inert: one
+  added `import { Buffer } from 'node:buffer';` line in `scripts/lib/container-boundary.mjs`, whose use
+  already read the same global, and four non-executable hunks in `scripts/sandbox-stage-proof.mjs` (an unused
+  import, one reworded comment, two prettier re-wraps). The third is not inert, and says so here: the Windows
+  legs passed an `IMAGE_MATCH` rule that compared the container's image ID to the digest inside the pinned
+  reference, and that rule is the one replaced above. On a containerd-store host like the one those logs came
+  from the two spellings coincide, so their outcome for the image is the same under either rule — but no
+  Windows leg has been re-run on the shipping bytes, because that host's Docker daemon is stopped and its
+  volume is at 99 % full. The run that starts from the pushed tree is therefore the hosted one, so treat the
+  hosted matrix as the qualification and the Windows logs as corroboration
+  (`S16-11` in `SECURITY_GAP_REGISTER.md` records the diffs, the hosted failure that found this rule, and the
+  open local re-run). And one limit that is pure timing, so it is stated rather than left to be inferred:
+  the repaired rule has not run against any daemon at all yet. The only real daemons this field has been
+  read from are GitHub's classic-store runners on the tree whose equality rule failed all three legs, and
+  this host's containerd store on the bytes before the repair. Neither of those is evidence about the
+  replacement, so until a hosted run returns green on a tree carrying it, the sentence above about three
+  qualified images rests on legs that did not contain this check.
 - The Docker proof starts only on a file its `paths:` filter names, and
   `tests/security/sandbox-proof-trigger-policy.test.ts` derives that filter from the import statements
   in `scripts/sandbox-runtime-proof.mjs` and `scripts/sandbox-stage-proof.mjs`. So if a proof gains a

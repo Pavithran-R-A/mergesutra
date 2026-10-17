@@ -239,7 +239,15 @@ repository declares, which is a different threat and gets a different boundary.
   self-report apart from the verdict, and `scripts/lib/container-boundary.mjs`
   decides the escape claim from the host, by reading the `docker inspect` record
   the daemon actually created and walking the host's own filesystem for the bytes
-  the container wrote. A guest's boolean says a `writeFileSync` returned; it
+  the container wrote. Which image the container started is read the same way, from
+  the host's own `docker image inspect` record, because the two image stores measured
+  for this product spell the same pinned reference's image ID differently — a
+  classic-store daemon records the platform manifest's config digest, a containerd-store
+  daemon records the index digest it was handed. Predicting one of those from the
+  reference string certified an honest daemon as an escape on GitHub's runners, so the
+  rule now asks whether the container's image ID is among the identities this host
+  reports for the pin, and an identity the host cannot read back is a violation rather
+  than a pass. A guest's boolean says a `writeFileSync` returned; it
   cannot say where the bytes landed, and on a Windows host a planted `C:\…` path
   is a *relative file name* inside a Linux guest, so the write can succeed and
   still be confined. What the container does *not* do is make
