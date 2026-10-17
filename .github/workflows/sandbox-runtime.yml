@@ -1,14 +1,24 @@
 name: Real Docker isolation proof
 
 on:
+  # Both lists are the same set on purpose: the proof is the only hosted reading that says anything
+  # about the sandbox boundary, so a change reaching main must start it exactly like a change in a PR.
+  # tests/security/sandbox-proof-trigger-policy.test.ts derives these entries from the import
+  # statements in the two proof scripts, so a new shared security helper cannot join the proof
+  # without joining the filter that starts it.
   pull_request:
     paths:
       - 'src/security/sandbox.ts'
       - 'scripts/sandbox-runtime-proof.mjs'
       - 'scripts/sandbox-stage-proof.mjs'
+      - 'scripts/lib/container-boundary.mjs'
       - 'src/implement/loop.ts'
       - 'src/verify/engine.ts'
+      - 'src/verify/consent.ts'
+      - 'src/process/tool-policy.ts'
       - 'src/security/repository-runner.ts'
+      - 'tests/helpers/implement.ts'
+      - 'tests/helpers/plan.ts'
       - '.github/workflows/sandbox-runtime.yml'
   push:
     branches: [main]
@@ -16,9 +26,14 @@ on:
       - 'src/security/sandbox.ts'
       - 'scripts/sandbox-runtime-proof.mjs'
       - 'scripts/sandbox-stage-proof.mjs'
+      - 'scripts/lib/container-boundary.mjs'
       - 'src/implement/loop.ts'
       - 'src/verify/engine.ts'
+      - 'src/verify/consent.ts'
+      - 'src/process/tool-policy.ts'
       - 'src/security/repository-runner.ts'
+      - 'tests/helpers/implement.ts'
+      - 'tests/helpers/plan.ts'
       - '.github/workflows/sandbox-runtime.yml'
   workflow_dispatch:
 
