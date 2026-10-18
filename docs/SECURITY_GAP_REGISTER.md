@@ -6729,9 +6729,9 @@ returned `exit=0`, `13 passed (13)` across both files (`/c/tmp/s16/final-policy.
 `/c/tmp/s16/final-policy.exit`). The chain closed by hashing the seven files this item touches, and the four
 that carry the fix are `container-boundary.mjs 25dfbaf1…`, `sandbox-runtime-proof.mjs 27844fc0…`,
 `sandbox-stage-proof.mjs 2d2c53af…` (unchanged) and `container-boundary-rules.test.ts 14f48392…`. That
-`25dfbaf1…` is the same value the mutation runs recorded as both `LIB_BASE` and `LIB_FINAL`, so the twelve
-killed cases and the four disclosed survivals were driven against the file this item ships, not against a
-byte that has since moved.
+`25dfbaf1…` is the same value the mutation runs recorded as both `LIB_BASE` and `LIB_FINAL`, so the sixteen
+killed cases and the three disclosed survivals of the nineteen-case sweep were driven against the file this
+item ships, not against a byte that has since moved.
 
 **The hosted reading on `5ad3516`, one docs commit ahead of the repair.** Both workflows started from that
 head, and every job in both — six CI cells and three Docker legs — checked out GitHub's synthetic merge
@@ -6755,6 +6755,23 @@ and both Windows cells, `2474 passed | 6 skipped (2480)` on both Ubuntu cells. T
 every cell are the live real-model tests, which no hosted cell runs; the two extra skips on Ubuntu are the
 platform-conditional cases inside `tests/security/path-confinement-matrix.test.ts`, skipped rather than
 passed there. The log for that run contains no `ENOSPC`, no worker crash and no failed assertion.
+
+**The hosted reading on `b14b3bc`, the head this register entry ships on.** Again both workflows started
+from the head and every job in both checked out GitHub's synthetic merge commit — `03ae65160231c616992670025386afed5ca6ccbf`,
+which is `b14b3bc…` merged into `71af1b062e3ddcb3…`, the same commit in all nine jobs, so the code bytes
+measured are identical to the repair commit's. `Real Docker isolation proof` run `39095423320`
+(https://github.com/Pavithran-R-A/mergesutra/actions/runs/39095423320) is three `success` legs on an
+`ubuntu-24.04` (`24.04.5`) runner: per leg, the pinned `SANDBOX_RUNTIME_PROOF_IMAGE` and `SANDBOX_IMAGE`, a
+`SANDBOX_BOUNDARY_CONTAINER_ID`, the same two-entry identity set as above (`0b1b606ab95a…`/`a4fb14143ee2…`,
+`8f3dff419363…`/`0e5f90657369…`, `03905f546fa8…`/`14078204b6bb…`), `inspected=1 matched=1`,
+`SANDBOX_BOUNDARY_VIOLATIONS: none`, `SANDBOX_ESCAPE_LANDING: hostPathWrite=false insideMount=0
+outsideMount=0` and `accounted` for both hostile fixtures, and both `PASS` lines. The environment reading is
+unchanged: seven names on the Debian legs, six on Alpine. `CI` run `39095423313`
+(https://github.com/Pavithran-R-A/mergesutra/actions/runs/39095423313) is six `success` cells with the same
+totals as the `5ad3516` run — `165 passed | 3 skipped (168)` files, `115 passed (115)`, `14 passed (14)`,
+`2476 passed | 4 skipped (2480)` on the macOS and Windows cells and `2474 passed | 6 skipped (2480)` on the
+Ubuntu cells — and a scan of its 938,731-byte log for `ENOSPC`, `no space left`, `heap out of memory`,
+`FATAL ERROR` and worker crash returns no match.
 
 **Status: CLOSED (CODE + TEST + DOCUMENT).** The boundary these fixtures report is now decided from the
 host side and corroborated from the daemon's side, on a Windows Docker host as well as a Linux one, which
