@@ -6756,17 +6756,18 @@ every cell are the live real-model tests, which no hosted cell runs; the two ext
 platform-conditional cases inside `tests/security/path-confinement-matrix.test.ts`, skipped rather than
 passed there. The log for that run contains no `ENOSPC`, no worker crash and no failed assertion.
 
-**The hosted reading on `b14b3bc`, the head this register entry ships on.** Again both workflows started
-from the head and every job in both checked out GitHub's synthetic merge commit — `03ae65160231c616992670025386afed5ca6ccbf`,
-which is `b14b3bc…` merged into `71af1b062e3ddcb3…`, the same commit in all nine jobs, so the code bytes
-measured are identical to the repair commit's. `Real Docker isolation proof` run `39095423320`
+**The hosted reading on `b14b3bc`, the head that carried these pages before the commit that adds this
+paragraph.** Both workflows started from that head, and every job in both — six CI cells and three Docker
+legs — checked out GitHub's synthetic merge commit `03ae65160231c616992670025386afed5ca6ccbf`, which is
+`b14b3bc…` merged into `71af1b062e3ddcb3…`, so the code bytes measured are identical to the repair commit's.
+`Real Docker isolation proof` run `39095423320`
 (https://github.com/Pavithran-R-A/mergesutra/actions/runs/39095423320) is three `success` legs on an
 `ubuntu-24.04` (`24.04.5`) runner: per leg, the pinned `SANDBOX_RUNTIME_PROOF_IMAGE` and `SANDBOX_IMAGE`, a
 `SANDBOX_BOUNDARY_CONTAINER_ID`, the same two-entry identity set as above (`0b1b606ab95a…`/`a4fb14143ee2…`,
 `8f3dff419363…`/`0e5f90657369…`, `03905f546fa8…`/`14078204b6bb…`), `inspected=1 matched=1`,
-`SANDBOX_BOUNDARY_VIOLATIONS: none`, `SANDBOX_ESCAPE_LANDING: hostPathWrite=false insideMount=0
-outsideMount=0` and `accounted` for both hostile fixtures, and both `PASS` lines. The environment reading is
-unchanged: seven names on the Debian legs, six on Alpine. `CI` run `39095423313`
+`SANDBOX_BOUNDARY_VIOLATIONS: none`, `SANDBOX_ESCAPE_LANDING: hostPathWrite=false insideMount=0 outsideMount=0`
+and `SANDBOX_ESCAPE_LANDING_VERDICT: accounted` for both hostile fixtures, and both `PASS` lines. The
+environment reading is unchanged: seven names on the Debian legs, six on Alpine. `CI` run `39095423313`
 (https://github.com/Pavithran-R-A/mergesutra/actions/runs/39095423313) is six `success` cells with the same
 totals as the `5ad3516` run — `165 passed | 3 skipped (168)` files, `115 passed (115)`, `14 passed (14)`,
 `2476 passed | 4 skipped (2480)` on the macOS and Windows cells and `2474 passed | 6 skipped (2480)` on the
