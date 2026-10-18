@@ -6580,14 +6580,41 @@ the delivered environment "exactly four variables": four is the count of `--env`
 `PATH` and the image's own `NODE_VERSION` / `YARN_VERSION`, so the bullet now says what is assigned and what
 is read back.
 
+**Hosted reading on the SHA that carries the repair.** Both workflows ran on
+`5579a75fa9f1e84ad879c53eadfdac9c070ca7db` (the register and guides on top of the repair commit `f851595…`).
+Each run reports `headSha` = that value, and every job of both runs checked out GitHub's synthetic PR merge
+commit `ae8001f7c0881d51cf9f0f6d6508bedb962a8a31` — each printed `HEAD is now at ae8001f Merge 5579a75… into
+71af1b0…` — so what was measured is the head's bytes merged onto `main`, and the two SHAs are not the same
+object. That distinction is worth naming on an item about image identity. `Real Docker isolation proof` run
+[39051920854](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39051920854) → `success`, all three
+legs, each printing the host-read set and then the verdict: the Alpine pin
+`node@sha256:a4fb14143ee2…` reported `SANDBOX_BOUNDARY_IMAGE_IDENTITY: sha256:0b1b606ab95a0ef4…,
+sha256:a4fb14143ee2…`, the `node:22` pin reported `sha256:8f3dff4193637723…, sha256:0e5f90657369…` and the
+`node:24` pin reported `sha256:03905f546fa8c284…, sha256:14078204b6bb…`. The first digest of each pair is
+precisely the value `IMAGE_MATCH` called an escape in run `39048507268`; read as part of the host's set it is
+what a classic-store daemon honestly records, and all three legs then printed
+`SANDBOX_BOUNDARY_RECORDS: inspected=1 matched=1` and `SANDBOX_BOUNDARY_VIOLATIONS: none`. The landing half is
+measured alongside and did not move: `SANDBOX_ESCAPE_LANDING: hostPathWrite=false insideMount=0
+outsideMount=0` with `SANDBOX_ESCAPE_LANDING_VERDICT: accounted`, twice per leg — the runtime proof and the
+stage proof — then `SANDBOX_RUNTIME_PROOF: PASS` and `STAGE_6_AND_7_DOCKER_PROOF: PASS` in all three legs,
+the stage-proof step having run on every leg rather than being skipped as it was in the failing run. `CI` run
+[39051920817](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39051920817) → `success` in all six
+cells: `2476 passed | 4 skipped (2480)` on each Windows and macOS cell and
+`2474 passed | 6 skipped (2480)` on each ubuntu cell (the two extra are the platform-gated cases), and
+`115 passed (115)` plus `14 passed (14)` — packaging and the installed artifact — in every cell. Logs kept at
+`/c/tmp/s16/host-docker-5579a75.log`, its payload distilled to `/c/tmp/s16/host-docker-5579a75-evidence.txt`,
+and `/c/tmp/s16/host-ci-5579a75.log`.
+
 **What this does not claim.** It is still one Docker host, and its kernel, file-share and daemon are
-Docker Desktop's, not a customer's; macOS is unmeasured by anything in this stage, and nothing in `S16-11R`
-ran there either. Two of this item's live readings are one lib behind the committed bytes: the six Windows
+Docker Desktop's, not a customer's; no macOS Docker host has been measured by anything in this stage, and
+nothing in `S16-11R` ran on one either — the hosted reading above has macOS CI cells, and those run the test
+suite, never a container. Two of this item's live readings are one lib behind the committed bytes: the six Windows
 legs and the five live proof mutations above were driven against `b3f92a112b952db0…`, and the lib committed
 below changes only its header, `imageIdentitiesFrom` and the `IMAGE_MATCH` rule, so the *landing* half of
 those readings is the shipped code's while the *image-identity* half has never been exercised against a live
-daemon on this host. The hosted three legs are the only place the fixed rule has run against a real classic
-store, and that reading is below. The three images here
+daemon on this host. The fixed rule has now run against real daemons in exactly one of the two stores — the
+hosted legs below, which are all classic-store `ubuntu-latest` runners — and never against a live
+containerd-store daemon, because the Windows legs that would supply that have not been re-run. The three images here
 are the three *this daemon holds*: `node@sha256:a4fb14143ee2…` is the repository's pin, but the two Debian
 digests are not today's `node:22` / `node:24` manifest digests (re-derivable right now with
 `docker buildx imagetools inspect node:22` → `sha256:0e5f90657369…`, whose `linux/amd64` manifest is
@@ -6649,5 +6676,7 @@ host side and corroborated from the daemon's side, on a Windows Docker host as w
 is what `S16-10` had to leave as a fixture limitation, and the proof can no longer be changed without
 starting it. What is closed is the reading `S16-11R` repairs: the image-identity rule now fails closed in
 both stores, and the hosted run that found the false positive is the evidence for that. The hosted reading
-for the SHA that carries the repair is appended below once CI and the three-leg Docker proof return on it,
-and until they do the fixed rule has run against a real daemon only on GitHub's classic-store runners.
+on the SHA that carries the repair has now landed, and it is the paragraph above: three Docker legs and six
+CI cells, all `success`, each leg printing the container's image ID inside the host-read identity set. What
+that reading does not supply is a containerd-store daemon — every hosted leg is a classic-store
+`ubuntu-latest` runner — and it supplies no macOS container at all.

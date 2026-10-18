@@ -111,12 +111,23 @@ it does not recognise (measured on the pinned digest, a gate that asked for
   volume is at 99 % full. The run that starts from the pushed tree is therefore the hosted one, so treat the
   hosted matrix as the qualification and the Windows logs as corroboration
   (`S16-11` in `SECURITY_GAP_REGISTER.md` records the diffs, the hosted failure that found this rule, and the
-  open local re-run). And one limit that is pure timing, so it is stated rather than left to be inferred:
-  the repaired rule has not run against any daemon at all yet. The only real daemons this field has been
-  read from are GitHub's classic-store runners on the tree whose equality rule failed all three legs, and
-  this host's containerd store on the bytes before the repair. Neither of those is evidence about the
-  replacement, so until a hosted run returns green on a tree carrying it, the sentence above about three
-  qualified images rests on legs that did not contain this check.
+  open local re-run). That first sentence is now dated, so here is the reading that supersedes it: run
+  [39051920854](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39051920854) reported
+  `headSha` = `5579a75`, the first pushed tree carrying the replaced rule, and all three legs passed. Each
+  leg printed two host-read identities — the config digest the daemon records as the image ID, and the
+  pinned index digest — `sha256:0b1b606ab95a0ef4…` beside the Alpine pin, `sha256:8f3dff4193637723…`
+  beside the `node:22` pin, `sha256:03905f546fa8c284…` beside `node:24`, each with
+  `SANDBOX_BOUNDARY_RECORDS: inspected=1 matched=1`, `SANDBOX_BOUNDARY_VIOLATIONS: none`,
+  `SANDBOX_ESCAPE_LANDING: hostPathWrite=false insideMount=0 outsideMount=0` per hostile fixture,
+  `SANDBOX_ESCAPE_LANDING_VERDICT: accounted`, and both
+  `SANDBOX_RUNTIME_PROOF: PASS` and `STAGE_6_AND_7_DOCKER_PROOF: PASS`. So the three qualified images
+  above now rest on legs that do contain this check, and on the store whose spelling it exists to
+  survive: every hosted leg is a classic-store runner, which is exactly where the old equality rule
+  broke. What that run does not say: the fixed rule has still never been read from a live
+  containerd-store daemon, where `Id` *is* the pulled digest and the identity set collapses to one entry.
+  That shape is the default `EXPECTATION` fixture in `tests/security/container-boundary-rules.test.ts`,
+  and the unit tests cover it; no daemon has. macOS is unmeasured for anything that needs a Docker host —
+  the macOS CI cells run the test suite, not these proofs.
 - The Docker proof starts only on a file its `paths:` filter names, and
   `tests/security/sandbox-proof-trigger-policy.test.ts` derives that filter from the import statements
   in `scripts/sandbox-runtime-proof.mjs` and `scripts/sandbox-stage-proof.mjs`. So if a proof gains a
