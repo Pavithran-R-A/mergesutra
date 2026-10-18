@@ -105,13 +105,10 @@ it does not recognise (measured on the pinned digest, a gate that asked for
   already read the same global, and four non-executable hunks in `scripts/sandbox-stage-proof.mjs` (an unused
   import, one reworded comment, two prettier re-wraps). The third is not inert, and says so here: the Windows
   legs passed an `IMAGE_MATCH` rule that compared the container's image ID to the digest inside the pinned
-  reference, and that rule is the one replaced above. On a containerd-store host like the one those logs came
-  from the two spellings coincide, so their outcome for the image is the same under either rule — but no
-  Windows leg has been re-run on the shipping bytes, because that host's Docker daemon is stopped and its
-  volume is at 99 % full. The run that starts from the pushed tree is therefore the hosted one, so treat the
-  hosted matrix as the qualification and the Windows logs as corroboration
-  (`S16-11` in `SECURITY_GAP_REGISTER.md` records the diffs, the hosted failure that found this rule, and the
-  open local re-run). That first sentence is now dated, so here is the reading that supersedes it: run
+  reference, and that rule is the one replaced above. On a containerd-store host the two spellings coincide,
+  so the image verdict there is the same under either rule — and that host has now been measured on the
+  shipping bytes, not only on the older ones (`S16-11` in `SECURITY_GAP_REGISTER.md` records the diffs, the
+  hosted failure that found this rule, and both local readings). Here is each reading in turn. Run
   [39051920854](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39051920854) reported
   `headSha` = `5579a75`, the first pushed tree carrying the replaced rule, and all three legs passed. Each
   leg printed two host-read identities — the config digest the daemon records as the image ID, and the
@@ -123,11 +120,21 @@ it does not recognise (measured on the pinned digest, a gate that asked for
   `SANDBOX_RUNTIME_PROOF: PASS` and `STAGE_6_AND_7_DOCKER_PROOF: PASS`. So the three qualified images
   above now rest on legs that do contain this check, and on the store whose spelling it exists to
   survive: every hosted leg is a classic-store runner, which is exactly where the old equality rule
-  broke. What that run does not say: the fixed rule has still never been read from a live
-  containerd-store daemon, where `Id` *is* the pulled digest and the identity set collapses to one entry.
-  That shape is the default `EXPECTATION` fixture in `tests/security/container-boundary-rules.test.ts`,
-  and the unit tests cover it; no daemon has. macOS is unmeasured for anything that needs a Docker host —
-  the macOS CI cells run the test suite, not these proofs.
+  broke. The other store is now read from a daemon as well, on this machine: Docker Desktop `29.8.1`
+  (`docker info` → `Storage Driver: overlayfs`, `driver-type: io.containerd.snapshotter.v1`) ran both proofs
+  against each of the three digests its store holds — `node@sha256:a4fb14143ee2…`, the repository's own pin,
+  and `node@sha256:363e15874946…` / `node@sha256:64af3819f927…` — six legs, every one `exit=0`, each printing
+  `SANDBOX_BOUNDARY_IMAGE_IDENTITY: ` followed by the pulled digest alone, because on this store `Id` *is*
+  that digest and the identity set the host reads back collapses to one entry, then
+  `SANDBOX_BOUNDARY_RECORDS: inspected=1 matched=1`, `SANDBOX_BOUNDARY_VIOLATIONS: none` and both `PASS`
+  lines. The landing line moves with the host, not with the rule: these legs print
+  `hostPathWrite=true insideMount=1 outsideMount=0` where every hosted leg prints
+  `hostPathWrite=false insideMount=0 outsideMount=0`, because a Windows `C:\…\sibling\escape.txt` is an
+  ordinary relative file name inside a Linux guest, so the write succeeds and the bytes land in the mount the
+  container was handed — confined, and accounted as confined by the host's own walk. Still unmeasured: macOS,
+  for anything that needs a Docker host — the macOS CI cells run the test suite, not these proofs — and the
+  two Debian digests on this host are not the hosted matrix's `node:22` / `node:24` pins, so nothing here
+  says those two behave like the Alpine one on a containerd store.
 - The Docker proof starts only on a file its `paths:` filter names, and
   `tests/security/sandbox-proof-trigger-policy.test.ts` derives that filter from the import statements
   in `scripts/sandbox-runtime-proof.mjs` and `scripts/sandbox-stage-proof.mjs`. So if a proof gains a

@@ -5285,11 +5285,15 @@ measures it:
   `.github/workflows/sandbox-runtime.yml` runs on Ubuntu only — every leg of its matrix is labelled
   `ubuntu-latest`). The *sandbox image* half of that limitation is measured now: `S16-10` drives both
   proofs against three digest-pinned images, and `S16-11`'s host-side verdict plus `S16-11R`'s host-read
-  identity set ran green on all three legs of hosted run `39051920854`, whose `headSha` is `5579a75`. What
-  that leaves unmeasured is specific, not rhetorical: no macOS container at all, and no live
-  containerd-store daemon since the repair — the hosted legs are all classic-store runners, so the store
-  where the image ID *is* the pulled digest is covered only by unit fixtures, and this host's Windows
-  Docker Desktop legs have not been re-run on the shipping bytes. Issue #33 therefore stays open.
+  identity set ran green on all three legs of hosted run `39051920854`, whose `headSha` is `5579a75`, and the
+  shipping bytes were then measured again on this host's own Docker Desktop daemon: six legs — both proofs
+  against each of the three digests that store holds — all `exit=0`, each printing the container's image ID
+  read back from the host's `docker image inspect` record plus `SANDBOX_BOUNDARY_VIOLATIONS: none`, and seven
+  live proof mutations driven on the same bytes, each killed and each restored byte-identical. What that
+  leaves unmeasured is one thing, not three: no macOS container at all. Both image stores have now been read
+  from a live daemon — the hosted legs are classic-store runners that report two identities per pin, this
+  host's containerd-store daemon reports one — so the store where the image ID *is* the pulled digest is no
+  longer a unit-fixture-only claim. Issue #33 therefore stays open.
 
 ## S16-1 — a run could author the repository MergeSutra measured it through
 
@@ -6414,8 +6418,29 @@ The restored bytes give `SANDBOX_RUNTIME_PROOF: PASS` and `STAGE_6_AND_7_DOCKER_
 `25dfbaf107c5edb3…`, and diffed against those bytes it changes only the file header, the new
 `imageIdentitiesFrom` and the `IMAGE_MATCH` rule — `escapeCanaryHits`, `splitLanding` and
 `escapeLandingViolations` are byte-identical — so the landing verdicts those mutations produced are still
-the shipped code's verdicts. They have not been re-run on the committed bytes: the daemon is needed for
-them, and it is off (see the open items below).
+the shipped code's verdicts.
+
+**The same arc driven again on the committed bytes, with two cases added.** The daemon is up on this host,
+so all of it was re-run against `25dfbaf107c5edb3…` / `27844fc0f7a55128…` / `2d2c53aff18c83a0…`
+(`/c/tmp/s16/mut-committed.log`, per-case logs in `/c/tmp/s16/mut-committed/`). Seven mutations, each applied
+with a pattern that must hit exactly once, each run against the real daemon with the repository's pinned
+digest, each restored by copy and re-hashed to the value captured before the edit
+(`RESTORE … same=yes` for all seven, `FINAL_LIB/RUN/STA` equal to the three bases, `git status --porcelain`
+empty for the three files), and both proofs re-run afterwards on the restored bytes:
+`CONTROL-runtime exit=0` → `SANDBOX_RUNTIME_PROOF: PASS`, `CONTROL-stage exit=0` →
+`STAGE_6_AND_7_DOCKER_PROOF: PASS`. The five from the paragraph above, on the shipping bytes: swap the two
+buckets in `splitLanding` → `exit=1`, `hostPathWrite=true insideMount=0 outsideMount=1`,
+`LANDING_OUTSIDE_MOUNT: … workspace/CUsers…siblingescape.txt | LANDING_UNACCOUNTED`; discard the stage
+proof's inside-mount bucket → `exit=1`, `insideMount=1 outsideMount=0`, `LANDING_UNACCOUNTED`; plant the
+canary in the host's sibling directory after the container exits → `exit=1`,
+`LANDING_OUTSIDE_MOUNT: … sibling/planted-by-mutation`; the same plant with the sibling *listing* assertion
+deleted → `exit=1` with that same line, which is the proof the escape claim does not rest on the listing; and
+plant bytes that are not the canary there instead → `exit=1` at `the sibling directory must stay as the host
+left it`, which is the proof the listing still has teeth. The two new cases force the host walk's buckets
+empty at the call site — both buckets in the runtime proof, both in the stage proof — and each comes back
+`exit=1` with `LANDING_UNACCOUNTED: the write returned but the host found no copy of those bytes`, so the
+verdict cannot be reached by a walk that found nothing. Six of the seven fail at the landing assertion
+itself, not in a setup step, and every one of them names the file the host actually found.
 
 **Third gap, found while certifying this one: the proof could be changed without starting the proof.**
 `.github/workflows/sandbox-runtime.yml` fires on a `paths:` filter, and both of its filters named seven
@@ -6479,9 +6504,29 @@ handed, none outside it, the sibling and host-only directories unchanged. Those 
 pre-`imageIdentitiesFrom` lib and printed no `SANDBOX_BOUNDARY_IMAGE_IDENTITY` line. That also says something
 about this daemon: they passed the old equality rule, which can only happen if it records `Image` as the
 pulled index digest — the containerd-store spelling, and exactly why the same tree was green here and red on
-GitHub's classic-store runners. The new rule's *live* behaviour on this host has not been re-measured, and
-cannot be until the daemon is started: what is measured here is the unit test's transcription of both stores'
-records, plus the hosted run that used to fail.
+GitHub's classic-store runners. **The new rule's live behaviour on this host has now been measured, on the
+committed bytes** — see the next paragraph, which is the reading that closes it.
+
+**The same three images, driven again on this host after the repair, with the identity line present.** The
+daemon was started by the operator and the two proofs were run against the file hashes this item ships
+(`25dfbaf107c5edb3…` before and after, `/c/tmp/s16/local-containerd-runtime.log`,
+`/c/tmp/s16/local-containerd-stage.log`, `/c/tmp/s16/local-debian-{runtime,stage}-*.log`). Six legs, all
+`exit=0`: `node@sha256:a4fb14143ee2…`, `node@sha256:363e15874946…` and `node@sha256:64af3819f927…` each
+printed `SANDBOX_BOUNDARY_RECORDS: inspected=1 matched=1`, then
+`SANDBOX_BOUNDARY_IMAGE_IDENTITY: ` followed by *the pulled digest itself* — `sha256:a4fb14143ee2…` for the
+Alpine pin, `sha256:363e15874946…`, `sha256:64af3819f927…` for the two Debian builds — and
+`SANDBOX_BOUNDARY_VIOLATIONS: none`. That is the case this register said had no daemon behind it: on a
+containerd-store daemon (`docker info` → `Storage Driver: overlayfs`, `driver-type:
+io.containerd.snapshotter.v1`, server `29.8.1`, `OS: Docker Desktop`, `arch x86_64`) the identity set the
+host reads back collapses to one entry, because the image ID *is* the index the reference names, whereas
+every hosted leg reports two. The rule passes both shapes without either store being predicted. The landing
+half moved with the host, not with the rule: these legs print
+`SANDBOX_ESCAPE_LANDING: hostPathWrite=true insideMount=1 outsideMount=0` where the Linux legs print
+`hostPathWrite=false insideMount=0 outsideMount=0`, because a Windows-host `C:\…\sibling\escape.txt` is a
+*relative file name* inside a Linux guest, so the write succeeds and the bytes land in the mount the
+container was handed — confined, and accounted as confined. What these six legs do not supply is the hosted
+matrix's own two Debian pins: the digests this store holds are not today's `node:22` / `node:24` manifests,
+and that distinction is kept in "What this does not claim" below.
 
 **What those six local legs do not cover, stated because the timing does not let it be waved away.** They
 were driven at 14:06–14:07 local, after the three-leg reading at 13:59 and before the live-mutation harness
@@ -6495,16 +6540,21 @@ through Node's global of the same object. The stage proof has two candidate vers
 `2d2c53aff18c83a0…`, and the log set does not say which one the 14:06 containers loaded. That gap is closed
 by comparing the two: between them there are exactly four hunks and none of them is executable — an unused
 `splitLanding` import removed, one comment line reworded, and two expressions re-wrapped by prettier — so
-the assertions those legs ran are the committed ones whichever version was on disk. The register still calls
-the hosted run the reading of the committed bytes, for two reasons: it is the one that starts from the pushed
-tree rather than from a working copy, and file timestamps could not have resolved the version question on
-their own — Node's `copyFileSync` on Windows goes through `CopyFile`, which carries the source's
+the assertions those legs ran are the committed ones whichever version was on disk. While that ambiguity
+stood the register called the hosted run the reading of the committed bytes, for two reasons: it starts from
+the pushed tree rather than from a working copy, and file timestamps could not have resolved the version
+question on their own — Node's `copyFileSync` on Windows goes through `CopyFile`, which carries the source's
 modification time across, so a restored file shows when its backup was made, not when it was put back. The
-hosted three-image result for the SHA pushed below is `**S16-11R**` underneath, and it did not come back
-green the first time. Re-running the Windows
-legs on the committed bytes is an open item, not a completed one: this host's volume is at 99 % full and
-Docker Desktop's service is stopped, so the daemon has to be started by the operator before any fresh local
-leg can be claimed.
+second reason is gone now: the re-run above hashed each of the three files before the first case and after
+the last, and the mutation driver below re-hashes after every single case, so the bytes those legs loaded
+are recorded rather than inferred. The first reason is not: the hosted run still starts from the pushed
+tree, and both readings now say the same thing. The hosted three-image result for the SHA pushed below is
+`**S16-11R**` underneath, and it did not come back green the first time. What the earlier version of this
+paragraph called an open
+item — re-running the Windows legs on the committed bytes, blocked because this host's volume was at 99 %
+full and Docker Desktop's service was stopped — is closed: the operator started the daemon, free space stood
+at `4.4G`–`4.7G` on `C:` across every leg (`df` recorded at the start and end of the driver), and the six
+legs above are the result. No fresh local leg is now outstanding.
 
 **S16-11R — the pushed tree failed the hosted proof, and the rule that failed was the checker's own
 assumption.** `8bdbe4f5dc0fe274…` (the commit that carried everything above) went to
@@ -6617,13 +6667,14 @@ and `/c/tmp/s16/host-ci-5579a75.log`.
 **What this does not claim.** It is still one Docker host, and its kernel, file-share and daemon are
 Docker Desktop's, not a customer's; no macOS Docker host has been measured by anything in this stage, and
 nothing in `S16-11R` ran on one either — the hosted reading above has macOS CI cells, and those run the test
-suite, never a container. Two of this item's live readings are one lib behind the committed bytes: the six Windows
-legs and the five live proof mutations above were driven against `b3f92a112b952db0…`, and the lib committed
-below changes only its header, `imageIdentitiesFrom` and the `IMAGE_MATCH` rule, so the *landing* half of
-those readings is the shipped code's while the *image-identity* half has never been exercised against a live
-daemon on this host. The fixed rule has now run against real daemons in exactly one of the two stores — the
-hosted legs below, which are all classic-store `ubuntu-latest` runners — and never against a live
-containerd-store daemon, because the Windows legs that would supply that have not been re-run. The three images here
+suite, never a container. The caveat that two of this item's live readings were one lib behind the committed
+bytes is closed: the six Windows legs and the seven live proof mutations have each been driven again against
+`25dfbaf107c5edb3…`, so both halves of those readings — the landing classification and the image identity —
+are the shipped code's. The fixed rule has now run against real daemons in *both* stores: the hosted legs
+below, every one a classic-store `ubuntu-latest` runner that reports two identities per pin, and this host's
+containerd-store daemon, which reports one. What is still single is the machine: every local leg here is one
+Docker Desktop installation on one Windows volume, and the two Debian digests that store holds are not the
+hosted matrix's pins. The three images here
 are the three *this daemon holds*: `node@sha256:a4fb14143ee2…` is the repository's pin, but the two Debian
 digests are not today's `node:22` / `node:24` manifest digests (re-derivable right now with
 `docker buildx imagetools inspect node:22` → `sha256:0e5f90657369…`, whose `linux/amd64` manifest is
@@ -6686,6 +6737,9 @@ is what `S16-10` had to leave as a fixture limitation, and the proof can no long
 starting it. What is closed is the reading `S16-11R` repairs: the image-identity rule now fails closed in
 both stores, and the hosted run that found the false positive is the evidence for that. The hosted reading
 on the SHA that carries the repair has now landed, and it is the paragraph above: three Docker legs and six
-CI cells, all `success`, each leg printing the container's image ID inside the host-read identity set. What
-that reading does not supply is a containerd-store daemon — every hosted leg is a classic-store
-`ubuntu-latest` runner — and it supplies no macOS container at all.
+CI cells, all `success`, each leg printing the container's image ID inside the host-read identity set. Every
+hosted leg is a classic-store `ubuntu-latest` runner, so the other store had to be read from somewhere else,
+and it now has been: the same rule passed on this host's containerd-store daemon, on the bytes this item
+ships, with the identity set collapsing to the pulled digest, and its landing classification showing the
+Windows-host shape the Linux legs cannot produce. What remains unmeasured is a macOS container — no leg of
+any workflow in this stage starts one.
