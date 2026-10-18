@@ -6231,7 +6231,9 @@ both recorded because they look like one:
   `MERGESUTRA_DOCKER_EXECUTABLE='C:/Program Files/Docker/Docker/resources/bin/docker.exe'` and
   `MERGESUTRA_SANDBOX_IMAGE=node@sha256:363e15874946…` (a `node:22` Debian build already in this daemon,
   `NODE_VERSION=22.23.3`). It executed production Stage 6 and Stage 7 routing, then failed at
-  `scripts/sandbox-stage-proof.mjs:129` with `siblingWrite: true` where the fixture expects `false` —
+  the then-`scripts/sandbox-stage-proof.mjs:129` (that assertion is at `:139` on the shipping bytes, with the
+  same read split across `:136-137` after S16-11 moved `siblingWrite` out of the deep-equal) with
+  `siblingWrite: true` where the fixture expects `false` —
   apparently the escape this proof exists to rule out. It is not one. A container-side probe through the
   same product runner (`C:\tmp\s16\probe-win-path.mjs`, same image, `--rm`) writes to a Windows absolute
   path *outside* the mount and reports `winPathWrite: true`, while the host reports
@@ -6730,6 +6732,29 @@ that carry the fix are `container-boundary.mjs 25dfbaf1…`, `sandbox-runtime-pr
 `25dfbaf1…` is the same value the mutation runs recorded as both `LIB_BASE` and `LIB_FINAL`, so the twelve
 killed cases and the four disclosed survivals were driven against the file this item ships, not against a
 byte that has since moved.
+
+**The hosted reading on `5ad3516`, one docs commit ahead of the repair.** Both workflows started from that
+head, and every job in both — six CI cells and three Docker legs — checked out GitHub's synthetic merge
+commit `cd6679caef4e4eebdb9d84a14bf7596d38fa98f1`, which is `5ad3516…` merged into `71af1b062e3ddcb3…`;
+`headSha` in the run metadata is the head, not what was measured. `Real Docker isolation proof` run
+`39094405955` (https://github.com/Pavithran-R-A/mergesutra/actions/runs/39094405955) finished with all three
+legs `success` on an `Ubuntu 24.04.5 LTS` host. Each leg printed a two-entry identity set — the `linux/amd64`
+config digest followed by the pulled index digest: `0b1b606ab95a…`/`a4fb14143ee2…`,
+`8f3dff419363…`/`0e5f90657369…`, `03905f546fa8…`/`14078204b6bb…` — then
+`SANDBOX_BOUNDARY_RECORDS: inspected=1 matched=1`, `SANDBOX_BOUNDARY_VIOLATIONS: none`,
+`SANDBOX_ESCAPE_LANDING: hostPathWrite=false insideMount=0 outsideMount=0`,
+`SANDBOX_ESCAPE_LANDING_VERDICT: accounted`, `SANDBOX_RUNTIME_PROOF: PASS` and
+`STAGE_6_AND_7_DOCKER_PROOF: PASS`. The container environment is seven names on the two Debian legs
+(`CI,HOME,NODE_VERSION,PATH,XDG_CONFIG_HOME,YARN_VERSION,npm_config_cache`) and six on the Alpine one, which
+drops `YARN_VERSION`; the rule reads the names it is given rather than a predicted set, so the difference is
+a property of the image, not of the checker. `CI` run `39094405956`
+(https://github.com/Pavithran-R-A/mergesutra/actions/runs/39094405956) finished with all six cells `success`,
+each reporting `Test Files 165 passed | 3 skipped (168)` for the sweep plus `115 passed (115)` and
+`14 passed (14)` for the packaging and artifact gates: `2476 passed | 4 skipped (2480)` on both macOS cells
+and both Windows cells, `2474 passed | 6 skipped (2480)` on both Ubuntu cells. The three skipped files in
+every cell are the live real-model tests, which no hosted cell runs; the two extra skips on Ubuntu are the
+platform-conditional cases inside `tests/security/path-confinement-matrix.test.ts`, skipped rather than
+passed there. The log for that run contains no `ENOSPC`, no worker crash and no failed assertion.
 
 **Status: CLOSED (CODE + TEST + DOCUMENT).** The boundary these fixtures report is now decided from the
 host side and corroborated from the daemon's side, on a Windows Docker host as well as a Linux one, which
