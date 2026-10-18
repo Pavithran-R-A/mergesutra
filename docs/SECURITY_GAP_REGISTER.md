@@ -5221,7 +5221,11 @@ a fact about this host's path quoting), `S16-6` (the observation), `S16-7` (the 
 TEST + DOCUMENT, because it found no defect: that customer works, and it is now measured rather than
 assumed. `S16-10` — the real-Docker proof qualified exactly one image, and reading that digest off the
 daemon shows the Alpine image whose missing `git` the docs already describe — is closed CODE + TEST +
-DOCUMENT: three digest-pinned images now carry both proofs. What Stage 16 will not claim before it
+DOCUMENT: three digest-pinned images now carry both proofs. So are `S16-11` — the boundary was decided
+from inside the container, so the thing under proof was the one reporting whether it escaped — and
+`S16-11R`, the repair found by the first hosted run of `S16-11`'s own rule: the image identity is now read
+from the host's `docker image inspect` record as a set, because the two image stores spell that ID
+differently and the old equality test called a classic store's honest record an escape. What Stage 16 will not claim before it
 measures it:
 
 - **A customer worktree driven through real Docker: executed, and it did not work — then fixed, and
@@ -5280,7 +5284,12 @@ measures it:
   (`scripts/sandbox-runtime-proof.mjs` names `/usr/bin/docker` and
   `.github/workflows/sandbox-runtime.yml` runs on Ubuntu only — every leg of its matrix is labelled
   `ubuntu-latest`). The *sandbox image* half of that limitation is measured now: `S16-10` drives both
-  proofs against three digest-pinned images. Issue #33 therefore stays open.
+  proofs against three digest-pinned images, and `S16-11`'s host-side verdict plus `S16-11R`'s host-read
+  identity set ran green on all three legs of hosted run `39051920854`, whose `headSha` is `5579a75`. What
+  that leaves unmeasured is specific, not rhetorical: no macOS container at all, and no live
+  containerd-store daemon since the repair — the hosted legs are all classic-store runners, so the store
+  where the image ID *is* the pulled digest is covered only by unit fixtures, and this host's Windows
+  Docker Desktop legs have not been re-run on the shipping bytes. Issue #33 therefore stays open.
 
 ## S16-1 — a run could author the repository MergeSutra measured it through
 
