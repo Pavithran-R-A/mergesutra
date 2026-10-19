@@ -7043,4 +7043,35 @@ home-userprofile=covered git-discovery=covered gh-discovery=covered`; `verify:pa
 `Test Files 5 passed (5)`, `Tests 115 passed (115)`; `test:artifact` `exit=0`, `14 passed (14)`. Each status
 was taken from `echo name=$?` written directly after the command, never from a pipeline. The home-path
 boundary suite alone, run first on the repaired file, was `exit=0`, `19 passed (19)` — the same 19 that failed
-everywhere before the scrub.
+everywhere before the scrub. The register prose added on top of that tree was then re-measured against the 13
+suites that read it: `npx vitest run --minWorkers=1 --maxWorkers=2 <those 13 files>` → `exit=0`,
+`13 passed (13)`, `235 passed (235)`.
+
+**The eight journeys, re-run on the shipped bytes.** Because this stage's own lesson was that a reading can
+predate the bytes it certifies, the customer harness was run again after the repair rather than cited from
+before it: `node scripts/customer-workflow-qualification.mjs` → `CUSTOMER_EXIT=0`,
+`CUSTOMER_WORKFLOW_PASS scenarios=8 notPass=0`, and the per-scenario record in
+`.mergesutra/customer-qualification/summary.json` (started `2026-10-19T08:08:15Z`) shows all eight
+verdicts `PASS` with `damage=[]` ×8 and `secrets=[]` ×8. The scrub changed a comment, and the journeys confirm
+the harness still measures what it claimed to measure on the bytes that carry the scrub.
+
+**Hosted certification on the commit that carries the repair.** CI run
+[39220616904](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39220616904) on `752eff9` — six cells,
+all `success`, every one checking out the same synthetic merge commit `22c5b14 Merge 752eff9… into 71af1b06…`:
+`Test Files 165 passed | 3 skipped (168)` in each, plus `5 passed (5)` for the packaging boundary and
+`1 passed (1)` for the installed artifact; `2478 passed | 4 skipped (2482)` on both macOS cells and both
+Windows cells, `2476 passed | 6 skipped (2482)` on both Ubuntu cells — the same two platform-conditional skips
+Stage 16 accounted for. A scan of the 967,665-byte log for `ENOSPC`, `no space left`, `heap out of memory`,
+`FATAL ERROR` and `worker crash` returns no match. The Real Docker isolation proof run
+[39220616889](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39220616889) on the same SHA passed in
+all three legs, each on its digest pin (`node@sha256:a4fb1414…`, `…0e5f9065…`, `…14078204…`) with a
+distinct `SANDBOX_BOUNDARY_CONTAINER_ID`, the two-entry host-read identity set, `inspected=1 matched=1`,
+`VIOLATIONS: none`, `hostPathWrite=false insideMount=0 outsideMount=0` and `VERDICT: accounted` for both
+hostile fixtures in both jobs, and `SANDBOX_RUNTIME_PROOF: PASS` plus `STAGE_6_AND_7_DOCKER_PROOF: PASS`.
+
+**What this item is evidence about, and what it is not.** It is evidence that the published tree carries no
+developer home identity, that the gate which enforces that covers `scripts/` (it fired there on real bytes),
+and that the Stage 17 qualification survives its own harness being edited. It is not evidence that prose edits
+are safe to leave unmeasured — the opposite: the reason this existed is that a comment was written after the
+reading that certified it. S17-6's not-verified list is unchanged by this item: macOS containers, the
+git-native customer gate, model quality and the hosted journey leg are still not covered.
