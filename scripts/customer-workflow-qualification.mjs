@@ -5,6 +5,7 @@ import { mkdtemp, cp, readFile, readdir, rm, open, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import { setTimeout, clearTimeout } from 'node:timers';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import {
@@ -20,6 +21,8 @@ import {
   rederiveProductPatchIdentity,
   trackedSnapshot,
 } from './lib/customer-environment.mjs';
+import { leaked, relativePosix, sanitize } from './lib/customer-evidence.mjs';
+import { CUSTOMER_SCENARIOS, ORACLE_MUST_PASS } from './lib/customer-gate-summary.mjs';
 import { runCustomerOracle } from './lib/customer-oracle.mjs';
 import { digestForPath, startScriptedGateway } from './lib/scripted-gateway.mjs';
 
@@ -55,23 +58,13 @@ const EXPORT_ROOT = path.join(ROOT, '.mergesutra', 'customer-qualification');
 const DEFAULT_IMAGE =
   'node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7';
 const SCRIPTED_MODEL = 'scripted-customer-model';
-const SCENARIOS = [
-  'journey',
-  'failed-assertion',
-  'interruption',
-  'repair',
-  'stale-patch',
-  'forged-metadata',
-  'no-sandbox',
-  'repeated',
-];
 
 const requested = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
-const only = requested.length > 0 ? requested : SCENARIOS;
-const unknown = only.find((name) => !SCENARIOS.includes(name));
+const only = requested.length > 0 ? requested : CUSTOMER_SCENARIOS;
+const unknown = only.find((name) => !CUSTOMER_SCENARIOS.includes(name));
 if (unknown) {
   process.stderr.write(
-    `unknown scenario: ${unknown}\nusage: node scripts/customer-workflow-qualification.mjs [${SCENARIOS.join('|')}]\n`,
+    `unknown scenario: ${unknown}\nusage: node scripts/customer-workflow-qualification.mjs [${CUSTOMER_SCENARIOS.join('|')}]\n`,
   );
   process.exitCode = 64;
 }
@@ -200,11 +193,34 @@ const OPERATOR_BY = 'Stage 17 qualification operator';
  */
 const AC5_WRAPPED_TAIL = 'five-line change, not a new library.';
 
+/**
+ * What this record may be trusted to certify.
+ *
+ * Stage 17 wrote a verdict with no identity attached to it, which was fine while a
+ * human ran it on their own machine and quoted the SHA in a report. A hosted gate
+ * reads a file off disk, and a file off disk can be last week's: the commit under
+ * test, the container the repository gates ran in and the customer history the run
+ * was cloned from all have to be in the record or the verdict belongs to something
+ * else. An unreadable HEAD is recorded as empty rather than guessed, so the gate
+ * refuses the evidence instead of inventing an identity for it.
+ */
+function runIdentity() {
+  const head = git(['rev-parse', 'HEAD'], ROOT, { allowFailure: true });
+  return {
+    revision: head.exitCode === 0 ? head.stdout.trim() : '',
+    platform: process.platform,
+    nodeVersion: process.version,
+    sandboxImage: sandboxImage(),
+    fixtureBaseSha: CUSTOMER_BASE_SHA,
+  };
+}
+
 async function runRequested(names) {
   mkdirSync(EXPORT_ROOT, { recursive: true });
   const summary = {
     startedAt: new Date().toISOString(),
     mergeSutraVersion: version(),
+    identity: runIdentity(),
     scenarios: [],
   };
   let failed = 0;
@@ -258,22 +274,18 @@ const SCENARIO_RUNNERS = {
 };
 
 /**
- * The scenarios that end with the customer's issue actually solved.
+ * Run one scenario in a disposable workspace, then decide from the evidence.
  *
- * A run that recovers from an interruption or a repair is only worth reporting if
- * the bytes it lands on are correct — a recovery that returns a still-broken patch
- * is a failure with extra steps. The three that deliberately stop early
- * (`failed-assertion`, `stale-patch`, `forged-metadata`, `no-sandbox`) are judged
- * on the stop, and their oracle rows are recorded, not required.
+ * Which journeys must also satisfy the independent oracle is stated in
+ * `lib/customer-gate-summary.mjs`, next to the rule that reads it.
  */
-const ORACLE_MUST_PASS = ['journey', 'interruption', 'repair', 'repeated'];
-
 async function runScenario(name) {
   const root = await mkdtemp(path.join(tmpdir(), `mergesutra-s17-${name}-`));
   const logRoot = path.join(EXPORT_ROOT, name);
   const clearedExport = await removeTree(logRoot);
   mkdirSync(logRoot, { recursive: true });
   const journal = createJournal(logRoot);
+  let outcome;
 
   try {
     const environment = await buildCustomerEnvironment({
@@ -321,7 +333,7 @@ async function runScenario(name) {
         ? [`the independent oracle rejected the final bytes: ${oracleFailures(oracle)}`]
         : []),
     ];
-    return {
+    outcome = {
       scenario: name,
       verdict: problems.length === 0 ? 'PASS' : 'FAIL',
       reason: result.ok ? result.reason : result.reason || 'failed',
@@ -334,15 +346,33 @@ async function runScenario(name) {
       productStateFiles: exported.length,
       secrets,
     };
+    return outcome;
   } finally {
     // A disposable directory this script created, left behind on a disk with
-    // gigabytes free, is this harness's problem, not the product's — so it is
-    // said out loud rather than hidden by a swallowed error.
+    // gigabytes free, is this harness's problem, not the product's. It is said
+    // out loud in the evidence, and a scenario that leaks its own workspace
+    // cannot be certified PASS — the hosted job has to bound its disk use, and
+    // a claim of cleanup that no reader can check is not cleanup.
     const cleanup = await removeTree(root);
     if (!cleanup.ok) {
       process.stderr.write(
         `warning: disposable workspace not removed: ${root} (${cleanup.remaining} file(s) left, ${cleanup.lastError})\n`,
       );
+    }
+    if (outcome) {
+      // Only the count and the error shape. The workspace path itself is under
+      // the developer's home directory on some hosts, and this JSON is published.
+      outcome.cleanup = {
+        removed: cleanup.ok,
+        remaining: cleanup.remaining,
+        lastError: cleanup.lastError,
+      };
+      if (!cleanup.ok) {
+        outcome.problems.push(
+          `this harness left ${cleanup.remaining} file(s) of its own disposable workspace behind (${cleanup.lastError})`,
+        );
+        outcome.verdict = 'FAIL';
+      }
     }
   }
 }
@@ -442,7 +472,7 @@ async function scanEvidence(logRoot) {
     } catch {
       continue;
     }
-    if (leaked(text)) found.push(path.relative(logRoot, file).replaceAll('\\', '/'));
+    if (leaked(text)) found.push(relativePosix(logRoot, file));
   }
   return found;
 }
@@ -1581,26 +1611,47 @@ async function invoke(journal, environment, label, args, options = {}) {
  *
  * Nothing here pipes the output through another command: `spawnSync().status` is
  * the number the process exited with, which is the only number this report quotes.
+ *
+ * A stage that never returns one is killed at the deadline and recorded with no
+ * exit code. That is deliberate: a hosted job's `timeout-minutes` would otherwise
+ * be the only bound, and a run that hung in `implement` would end as "the runner
+ * was cancelled", which names no stage and attributes the hang to nothing.
  */
 function runCli(journal, environment, label, args, options = {}) {
   return new Promise((resolve) => {
     const child = spawnCli(environment, args, options);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+    }, stageDeadlineMs());
     collect(child).then((run) => {
+      clearTimeout(timer);
+      const observed = timedOut ? { ...run, exitCode: null } : run;
       journal.record({
         label,
         argv: ['mergesutra', '--json', ...args],
         cwd: environment.workspace,
-        ...run,
+        timedOut,
+        deadlineMs: stageDeadlineMs(),
+        ...observed,
       });
       resolve({
-        exitCode: run.exitCode,
-        signal: run.signal,
-        stdout: run.stdout,
-        stderr: run.stderr,
-        json: parseJson(run.stdout),
+        exitCode: observed.exitCode,
+        signal: observed.signal,
+        stdout: observed.stdout,
+        stderr: observed.stderr,
+        timedOut,
+        json: parseJson(observed.stdout),
       });
     });
   });
+}
+
+/** The bound on one stage, from the job that needs it, or the measured local default. */
+function stageDeadlineMs() {
+  const configured = Number(process.env.MERGESUTRA_STAGE_DEADLINE_MS ?? '');
+  return Number.isFinite(configured) && configured > 0 ? configured : 300_000;
 }
 
 /**
@@ -1934,7 +1985,13 @@ function createJournal(logRoot) {
         stdout: sanitize(entry.stdout),
         stderr: sanitize(entry.stderr),
       };
-      stages.push({ label: entry.label, exitCode: entry.exitCode, signal: entry.signal ?? null });
+      stages.push({
+        label: entry.label,
+        exitCode: entry.exitCode,
+        signal: entry.signal ?? null,
+        timedOut: entry.timedOut === true,
+        deadlineMs: entry.deadlineMs ?? 0,
+      });
       writeEvidence(path.join(logRoot, `${name}.log`), renderLog(safe));
     },
     note(name, text) {
@@ -1957,9 +2014,33 @@ function createJournal(logRoot) {
       writeEvidence(path.join(logRoot, name), JSON.stringify(payload, null, 2) + '\n');
     },
     exitCodes() {
-      return stages.map((stage) => `${stage.label}=${String(stage.exitCode)}`);
+      return stages.map((stage) => `${stage.label}=${statusCode(stage)}`);
     },
   };
+}
+
+/**
+ * The number the child exited with, or the reason there isn't one — said in the
+ * published row, not left for the reader to infer from a bare `null`.
+ *
+ * Three kinds of `null` look identical in JSON and mean completely different things.
+ * A killed process is a real observation: the interruption journey SIGKILLs a live
+ * `implement` on purpose, `close` reports the signal, and the scenario's own verdict
+ * requires the kill and the recovery that follows it. A stage that outlived its
+ * deadline is a bound that failed, and a `null` with neither a signal nor a deadline
+ * behind it is a child this harness never saw finish. The hosted gate in
+ * `scripts/lib/customer-gate-summary.mjs` tells those three apart by this suffix, so
+ * the distinction has to be written here or the gate would refuse the genuine
+ * interruption record and accept a hung stage.
+ */
+function statusCode(stage) {
+  const code = stage.exitCode;
+  if (typeof code === 'number') return String(code);
+  if (stage.timedOut === true) return `null(timed out after ${String(stage.deadlineMs)}ms)`;
+  if (typeof stage.signal === 'string' && stage.signal !== '') {
+    return `null(killed:${stage.signal})`;
+  }
+  return 'null';
 }
 
 function writeEvidence(file, text) {
@@ -1977,6 +2058,7 @@ function renderLog(entry) {
     `argv=${JSON.stringify(entry.argv ?? entry.args ?? [])}`,
     `exit=${String(entry.exitCode)}`,
     `signal=${entry.signal ?? ''}`,
+    `timedOut=${String(entry.timedOut ?? false)} of ${String(entry.deadlineMs ?? 0)}ms`,
     '',
     '[stdout]',
     entry.stdout ?? '',
@@ -1985,33 +2067,6 @@ function renderLog(entry) {
     entry.stderr ?? '',
     '',
   ].join('\n');
-}
-
-const SECRET_PATTERNS = [
-  /\bbc_live_[A-Za-z0-9_-]{8,}/g,
-  /\bsk-[A-Za-z0-9_-]{8,}/g,
-  /\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{10,}/g,
-  /\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*/gi,
-];
-
-function sanitize(text) {
-  let out = String(text ?? '');
-  for (const pattern of SECRET_PATTERNS) out = out.replace(pattern, '[REDACTED]');
-  return out;
-}
-
-/**
- * Does this text carry the shape of a credential?
- *
- * Patterns, not values: the harness must not learn which token the operator happens
- * to have in its environment, only that something token-shaped reached the evidence
- * this qualification writes out.
- */
-function leaked(text) {
-  return SECRET_PATTERNS.some((pattern) => {
-    pattern.lastIndex = 0;
-    return pattern.test(text);
-  });
 }
 
 /* --------------------------------------------------------------------- verdicts */

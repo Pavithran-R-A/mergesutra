@@ -1,0 +1,239 @@
+name: Customer workflow release gate
+
+# Stage 18 takes Stage 17's eight customer journeys out of the developer's shell and
+# makes them a release gate. The harness, the gate that reads its record, and the step
+# that sanitizes its evidence are all already in this repository — this file is the
+# part that had never existed: a machine nobody controls, running them on the bytes a
+# pull request proposes to merge.
+#
+# What it deliberately does NOT have, in the order that matters:
+#
+# - no privileged pull-request trigger. The qualification runs the code from the pull
+#   request, so it must run with the rights of the pull request, not the base
+#   repository's.
+# - no repository-secret reference of any kind. There is nothing here worth stealing:
+#   the model is a scripted loopback gateway, the customer repository is a public
+#   fixture, and the only credential the job is handed is its own ephemeral read-only
+#   token, which `gh` needs to raise rate limits and which the product strips from its
+#   own logs (`src/github/gh-client.ts`) before any of it reaches evidence.
+# - no permission beyond reading the repository. The job's rights are declared at the
+#   bottom of this block, and the checkout keeps the Actions token out of the runner's
+#   Git config so no later step can use it by accident.
+#
+# Networking is split, because the two kinds of traffic are not equally trustworthy.
+# The bootstrap traffic this job allows — `npm ci`, `docker pull`, `git clone` of the
+# fixture, `gh issue view` — reads public, pinned, version-controlled bytes over the
+# network on the host. The customer's own commands do not get that. Repository gates
+# run inside `src/security/sandbox.ts`, which passes `--network=none --pull=never
+# --cap-drop=ALL --read-only --pids-limit=64 --memory=512m --cpus=1`, so nothing a
+# repository can make the CLI execute can reach a network, a registry, or the host's
+# Docker socket. A change to that file is in the trigger list below for exactly that
+# reason.
+#
+# Bounding is split the same way. Execution time is bounded twice: `timeout-minutes`
+# kills the whole job, and `MERGESUTRA_STAGE_DEADLINE_MS` kills one hung CLI stage and
+# records which one, so a hang names a stage instead of naming the runner. Process
+# count is bounded per container by `--pids-limit`, and measured here by the container
+# leak check at the end. Disk is measured here before and after, and bounded per file
+# by the artifact step.
+#
+# The pull request trigger is deliberately unfiltered. A path filter would make this
+# check arrive only for pull requests that happen to touch the list, and a required
+# check that never arrives blocks every other merge with "Expected — never run". So
+# every pull request runs it, and the `push` trigger to main carries the derived list
+# instead: `tests/security/customer-workflow-policy.test.ts` builds that list from the
+# files the three commands import, refuses an entry that names nothing on disk, and
+# refuses a path filter on the pull request trigger.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/customer-workflow.yml'
+      - 'scripts/customer-gate-verify.mjs'
+      - 'scripts/customer-evidence-bundle.mjs'
+      - 'scripts/customer-workflow-qualification.mjs'
+      - 'scripts/lib/customer-environment.mjs'
+      - 'scripts/lib/customer-evidence.mjs'
+      - 'scripts/lib/customer-gate-summary.mjs'
+      - 'scripts/lib/customer-oracle.mjs'
+      - 'scripts/lib/scripted-gateway.mjs'
+      - 'src/security/sandbox.ts'
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  customer-workflows:
+    name: eight customer journeys, hosted
+    runs-on: ubuntu-latest
+    # Eight journeys took about four minutes on a warm developer machine. A cold
+    # runner adds an install, a build and an image pull, so this is a wide margin on
+    # purpose: the point of the number is that a run that stops making progress dies
+    # as a named job failure rather than as a hung required check.
+    timeout-minutes: 45
+    env:
+      # The digest the harness names as its default, written out here so the image the
+      # job preloads and the image the customer journeys run in cannot quietly differ.
+      # `customer-gate-verify.mjs` refuses a record that names another image.
+      MERGESUTRA_SANDBOX_IMAGE: node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
+      MERGESUTRA_DOCKER_EXECUTABLE: /usr/bin/docker
+      MERGESUTRA_STAGE_DEADLINE_MS: '420000'
+      GH_TOKEN: ${{ github.token }}
+      NO_COLOR: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          # The record binds the revision it was produced from, and the release-boundary
+          # suites re-derive history from the checkout they are run in.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.x'
+          # No dependency cache between runs: a gate that claims this checkout produced
+          # this evidence must not be able to reach a directory an earlier run left.
+          package-manager-cache: false
+
+      - name: Name the run's own window and revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "MERGESUTRA_GATE_NOT_BEFORE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "MERGESUTRA_GATE_REVISION=$(git rev-parse HEAD)"
+          } >> "$GITHUB_ENV"
+          # On a pull_request event `github.sha` is the synthetic merge commit GitHub
+          # built for the check, which exists in no branch. The record the gate certifies
+          # is bound to the revision checked out above, so both numbers are printed and
+          # only one of them is claimed as the tested commit.
+          echo "tested revision (checked out): $(git rev-parse HEAD)"
+          echo "event sha (github.sha): ${{ github.sha }}"
+          echo "pull request head sha: ${{ github.event.pull_request.head.sha || 'not a pull_request event' }}"
+          echo "ref: ${{ github.ref }}"
+
+      - name: Preflight the tools the journeys actually need
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in git gh docker node npm; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              echo "$tool is not on PATH; the customer journeys cannot run" >&2
+              exit 78
+            fi
+          done
+          git --version
+          gh --version | head -1
+          node --version
+          npm --version
+          docker version --format 'server {{ .ServerVersion }}'
+          echo "image digest this job will preload: ${MERGESUTRA_SANDBOX_IMAGE}"
+
+      - name: Preload the sandbox image by immutable digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$MERGESUTRA_SANDBOX_IMAGE"
+          # `--pull=never` inside the sandbox means this is the only fetch. Reading the
+          # resolved id back proves the digest the job names is the content on disk.
+          docker image inspect --format 'resolved {{ .Id }}' "$MERGESUTRA_SANDBOX_IMAGE"
+
+      - name: Install and build the CLI the customer would run
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Record the resources this job started with
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "containers-before=$(docker ps -q | wc -l | tr -d ' ')" | tee "$RUNNER_TEMP/baseline.env"
+          df -k "${TMPDIR:-/tmp}" | tee -a "$RUNNER_TEMP/baseline.env"
+
+      - name: Run the eight customer journeys through the compiled CLI
+        shell: bash
+        run: node scripts/customer-workflow-qualification.mjs
+
+      - name: Certify the record independently of the harness
+        # Runs even when the journeys above fail, because this is the step that has to
+        # explain a failure. A run that exits 1 without naming which claim failed is a
+        # green-adjacent mystery; the gate reads the record's bytes and says what it
+        # refuses to certify.
+        if: always()
+        shell: bash
+        env:
+          MERGESUTRA_GATE_SUMMARY: ${{ github.workspace }}/.mergesutra/customer-qualification/summary.json
+        run: |
+          set -euo pipefail
+          MERGESUTRA_GATE_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          MERGESUTRA_GATE_SANDBOX_IMAGE="$MERGESUTRA_SANDBOX_IMAGE" \
+            node scripts/customer-gate-verify.mjs
+
+      - name: Bundle sanitized evidence for upload
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          MERGESUTRA_GATE_EXPORT_ROOT="${{ github.workspace }}/.mergesutra/customer-qualification" \
+          MERGESUTRA_GATE_ARTIFACT_ROOT="$RUNNER_TEMP/customer-evidence" \
+            node scripts/customer-evidence-bundle.mjs
+
+      - name: Upload the sanitized artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: customer-workflows-${{ github.run_id }}
+          path: ${{ runner.temp }}/customer-evidence
+          # `error`, not the default `warn`: an upload step that found nothing is a
+          # required check that reported success without evidence.
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Refuse a run that leaked a container, a workspace or the fixture's history
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          problems=0
+          say() { echo "  - $1" >&2; problems=$((problems + 1)); }
+          baseline_containers="$(sed -n 's/^containers-before=//p' "$RUNNER_TEMP/baseline.env")"
+          now_containers="$(docker ps -q | wc -l | tr -d ' ')"
+          if [ "$now_containers" -gt "$baseline_containers" ]; then
+            say "$((now_containers - baseline_containers)) container(s) this job started are still running"
+            docker ps --format '{{.ID}} {{.Image}} {{.Status}}' >&2
+          fi
+          # Only the directories this harness names, and only the ones it created. The
+          # runner's own temp tree is not this job's to prune.
+          leftover="$(find "${TMPDIR:-/tmp}" "$RUNNER_TEMP" -maxdepth 1 -name 'mergesutra-s17-*')"
+          if [ -n "$leftover" ]; then
+            say "a disposable customer workspace survived the run:"
+            printf '%s\n' "$leftover" >&2
+          fi
+          # The fixture is shared, so "nothing was mutated" is read back from the remote
+          # rather than assumed from the absence of a push step. A remote this job cannot
+          # read is its own finding: the journeys above would then have been qualified
+          # against history nobody can name.
+          if advertised="$(git ls-remote --exit-code https://github.com/Pavithran-R-A/mergesutra-e2e-fixture.git refs/heads/main)"; then
+            advertised="$(printf '%s\n' "$advertised" | cut -f1)"
+            if [ "$advertised" != '6f3a0adb17389b93fd76b95c21a1c9eb7b161998' ]; then
+              say "the customer fixture's main branch is at $advertised, not the base SHA these journeys are written against"
+            fi
+          else
+            say "the customer fixture's main branch could not be read back, so no remote mutation was ruled out"
+            advertised='unreadable'
+          fi
+          if [ "$problems" -gt 0 ]; then
+            echo "CUSTOMER_WORKFLOW_BOUNDS_FAIL $problems problem(s)" >&2
+            exit 1
+          fi
+          echo "CUSTOMER_WORKFLOW_BOUNDS_PASS containers=$now_containers fixture_main=$advertised"
