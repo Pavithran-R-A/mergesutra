@@ -134,7 +134,13 @@ jobs:
           gh --version | head -1
           node --version
           npm --version
-          docker version --format 'server {{ .ServerVersion }}'
+          docker version --format '{{ .Server.Version }}' > "$RUNNER_TEMP/docker_version.txt" || :
+          server_version="$(cat "$RUNNER_TEMP/docker_version.txt" 2>/dev/null)" || :
+          if [ -z "$server_version" ]; then
+            echo "the Docker daemon is unreachable; the customer journeys cannot run" >&2
+            exit 78
+          fi
+          echo "docker daemon version: $server_version"
           echo "image digest this job will preload: ${MERGESUTRA_SANDBOX_IMAGE}"
 
       - name: Preload the sandbox image by immutable digest
@@ -206,7 +212,12 @@ jobs:
           set -euo pipefail
           problems=0
           say() { echo "  - $1" >&2; problems=$((problems + 1)); }
-          baseline_containers="$(sed -n 's/^containers-before=//p' "$RUNNER_TEMP/baseline.env")"
+          if [ -f "$RUNNER_TEMP/baseline.env" ]; then
+            baseline_containers="$(sed -n 's/^containers-before=//p' "$RUNNER_TEMP/baseline.env")"
+          else
+            say "the baseline step wrote no baseline.env, so no container count was measured"
+            baseline_containers=0
+          fi
           now_containers="$(docker ps -q | wc -l | tr -d ' ')"
           if [ "$now_containers" -gt "$baseline_containers" ]; then
             say "$((now_containers - baseline_containers)) container(s) this job started are still running"

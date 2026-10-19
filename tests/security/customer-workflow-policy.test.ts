@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -354,6 +355,38 @@ function violations(text: string, harness = HARNESS, gateCli = GATE_CLI): string
   if (!/-maxdepth 1 -name 'mergesutra-s17-\*'/.test(text)) {
     problems.push('the run does not look for the workspaces it created');
   }
+
+  // The job's first hosted run died one second in, before a single journey ran: `docker version`
+  // answers `.Server.Version` and has no flat `.ServerVersion`, so the step exited on a template
+  // error and every step after it produced a cascade that named no cause. Asking the daemon what
+  // version it is remains the job's only look at Docker before it commits to a container, so it
+  // has to be a preflight finding with a name — not a formatting accident, and not a blank
+  // version the step prints and then trusts. These read the commands the step runs, not the
+  // prose around them: a comment that recites the fix is not a fix.
+  const versionRead = /docker version --format '([^']*)'/.exec(
+    commands.find((line) => /^docker version\b/.test(line)) ?? '',
+  )?.[1];
+  if (versionRead === undefined) {
+    problems.push('the preflight never asks the Docker daemon which version it is running');
+  } else if (!versionRead.includes('{{ .Server.Version }}')) {
+    problems.push(
+      `the preflight reads the daemon version as "${versionRead}", which the Docker version template does not answer`,
+    );
+  }
+  if (!commands.some((line) => /\[ -z "\$server_version" \]/.test(line))) {
+    problems.push(
+      'the preflight uses a daemon version it never checks, so an unreachable daemon is a template error rather than a refusal',
+    );
+  }
+  // The bounds step is the job's answer to "did this leave a container, a workspace, or a
+  // changed fixture behind". Its baseline is written by a step that can fail, and on this run it
+  // did: a `sed` error against a file that was never written is not a bounds verdict — it is the
+  // absence of one, and it has to be said as its own problem.
+  if (!commands.some((line) => /\[ -f "\$RUNNER_TEMP\/baseline\.env" \]/.test(line))) {
+    problems.push(
+      'the bounds step reads a baseline it never checks for, so an early failure ends the job in a sed error instead of a verdict',
+    );
+  }
   return problems;
 }
 
@@ -365,6 +398,56 @@ function stepOf(text: string, needle: string): string | null {
   const next = text.indexOf('\n      - name:', at);
   if (start < 0) return null;
   return text.slice(start, next < 0 ? text.length : next);
+}
+
+/**
+ * The `--format` templates the job asks Docker for, as argv that replays them.
+ *
+ * This exists because a template error is invisible until the step runs where a daemon does:
+ * `.ServerVersion` parsed, printed an empty version and exited 1 on the hosted runner, which is
+ * a way to fail a release gate that names nothing about the failure. Each template is replayed
+ * against the Docker this repository is developed with, and the counts are compared — a
+ * `docker … --format` shape this builder does not name has to surface as an uncovered line
+ * rather than as a green run.
+ */
+function dockerProbes(
+  text: string,
+): { argv: string[]; label: string; needsImage: boolean; expectsVersion: boolean }[] {
+  const image = /MERGESUTRA_SANDBOX_IMAGE: (\S+)/.exec(text)?.[1] ?? '';
+  const commands = runCommands(text);
+  const probes: { argv: string[]; label: string; needsImage: boolean; expectsVersion: boolean }[] =
+    [];
+  const shapes = [
+    { match: /\bdocker version --format '([^']*)'/, argv: ['docker', 'version'], version: true },
+    {
+      match: /\bdocker image inspect --format '([^']*)'/,
+      argv: ['docker', 'image', 'inspect'],
+      version: false,
+    },
+    { match: /\bdocker ps --format '([^']*)'/, argv: ['docker', 'ps'], version: false },
+  ] as const;
+  for (const line of commands) {
+    for (const shape of shapes) {
+      const template = shape.match.exec(line)?.[1];
+      if (template === undefined) continue;
+      probes.push({
+        argv: [
+          ...shape.argv,
+          '--format',
+          template,
+          ...(line.includes('MERGESUTRA_SANDBOX_IMAGE') ? [image] : []),
+        ],
+        label: `docker ${shape.argv.slice(1).join(' ')} --format '${template}'`,
+        needsImage: line.includes('MERGESUTRA_SANDBOX_IMAGE'),
+        expectsVersion: shape.version,
+      });
+    }
+  }
+  return probes;
+}
+
+function dockerFormatLines(text: string): string[] {
+  return runCommands(text).filter((line) => /\bdocker\b[^|]*--format/.test(line));
 }
 
 describe('the hosted customer gate enforces what it claims', () => {
@@ -500,6 +583,33 @@ describe('the hosted customer gate enforces what it claims', () => {
     );
     expect(violations(WORKFLOW.replace('CUSTOMER_WORKFLOW_BOUNDS_PASS', 'echo done'))).toContain(
       'the run records no bounds verdict',
+    );
+  });
+
+  it('refuses a preflight whose Docker version template is the one the daemon does not answer', () => {
+    const stale = WORKFLOW.replace('{{ .Server.Version }}', '{{ .ServerVersion }}');
+    expect(stale).not.toEqual(WORKFLOW);
+    expect(violations(stale)).toContain(
+      'the preflight reads the daemon version as "{{ .ServerVersion }}", which the Docker version template does not answer',
+    );
+    const missing = WORKFLOW.replace(
+      /\bif \[ -z "\$server_version" \]; then[\s\S]*?\n\s*fi\n/,
+      'echo "(no guard)"\n',
+    );
+    expect(missing).not.toEqual(WORKFLOW);
+    expect(violations(missing)).toContain(
+      'the preflight uses a daemon version it never checks, so an unreachable daemon is a template error rather than a refusal',
+    );
+  });
+
+  it('refuses a bounds step that reads a baseline file it never checks for', () => {
+    const unguarded = WORKFLOW.replace(
+      /\bif \[ -f "\$RUNNER_TEMP\/baseline\.env" \]; then[\s\S]*?\n\s*fi\n/,
+      'baseline_containers=0\n          fi\n',
+    );
+    expect(unguarded).not.toEqual(WORKFLOW);
+    expect(violations(unguarded)).toContain(
+      'the bounds step reads a baseline it never checks for, so an early failure ends the job in a sed error instead of a verdict',
     );
   });
 
@@ -646,4 +756,76 @@ describe('the record the hosted gate reads is the record the harness writes', ()
     expect(BUNDLE_CLI).toContain('scrubHost(sanitize(text))');
     expect(BUNDLE_CLI).toContain('if (holdsHostPath(text)) homeSurvived.push(relative);');
   });
+});
+
+describe('the Docker format templates the job uses are valid against the daemon', () => {
+  const probes = dockerProbes(WORKFLOW);
+  const formatLines = dockerFormatLines(WORKFLOW);
+
+  // Structural: the probe builder covers every `docker … --format` command in the workflow.
+  // A --format line that is not covered would mean a template nobody replayed before the gate ran.
+  it('builds a probe for every --format line and omits none', () => {
+    expect(probes.length).toBeGreaterThanOrEqual(3);
+    expect(probes.length).toBe(formatLines.length);
+  });
+
+  it('names the docker version template the daemon actually answers', () => {
+    const versionProbe = probes.find((p) => p.expectsVersion);
+    expect(versionProbe).toBeDefined();
+    expect(versionProbe?.argv).toContain('{{ .Server.Version }}');
+  });
+
+  it('names the image-inspect probe and marks it as needing the pinned image', () => {
+    const inspect = probes.find((p) => p.argv[1] === 'image');
+    expect(inspect).toBeDefined();
+    expect(inspect?.needsImage).toBe(true);
+  });
+
+  it('names the docker ps probe and marks it as not needing an image', () => {
+    const ps = probes.find((p) => p.argv[1] === 'ps');
+    expect(ps).toBeDefined();
+    expect(ps?.needsImage).toBe(false);
+  });
+
+  // Anti-vacuity: removing each template from the workflow removes its probe.
+  it('loses the version probe when the preflight docker version command is removed', () => {
+    const stripped = WORKFLOW.replace(
+      /\bdocker version --format '[^']*' > "\$RUNNER_TEMP[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*\n/,
+      '          echo "(preflight version skipped)"\n',
+    );
+    expect(stripped).not.toEqual(WORKFLOW);
+    expect(dockerProbes(stripped).find((p) => p.expectsVersion)).toBeUndefined();
+  });
+
+  it('loses the image-inspect probe when the preload step is removed', () => {
+    const stripped = WORKFLOW.replace(
+      /\bdocker image inspect --format '[^']*'[^\n]*/,
+      'docker images "$MERGESUTRA_SANDBOX_IMAGE"',
+    );
+    expect(stripped).not.toEqual(WORKFLOW);
+    expect(dockerProbes(stripped).find((p) => p.argv[1] === 'image')).toBeUndefined();
+  });
+
+  // Live: replay the version template against the Docker this repository develops with.
+  // This is the exact template that killed the first hosted run; a successful replay here
+  // proves the shipped YAML asks for a field the daemon answers.
+  const daemon = spawnSync('docker', ['version', '--format', '{{ .Server.Version }}'], {
+    encoding: 'utf8',
+    timeout: 5_000,
+  });
+  const dockerAvailable = daemon.status === 0 && (daemon.stdout ?? '').trim() !== '';
+
+  it.skipIf(!dockerAvailable)(
+    'replays the docker version template against the local daemon and gets a non-empty version',
+    () => {
+      expect(daemon.stdout.trim()).toMatch(/^\d+\.\d+/);
+    },
+  );
+
+  it.skipIf(dockerAvailable)(
+    'records that Docker is not available so the live version proof was skipped',
+    () => {
+      expect(true).toBe(true);
+    },
+  );
 });
