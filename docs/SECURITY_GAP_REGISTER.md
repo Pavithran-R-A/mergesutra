@@ -6814,8 +6814,10 @@ final bytes in `/c/tmp/s17-customer-rerun.log` (`CUSTOMER_WORKFLOW_PASS scenario
 home-userprofile=covered git-discovery=covered gh-discovery=covered`); `verify:package` → `exit=0`,
 `115 passed (115)`; `test:artifact` → `exit=0`, `14 passed (14)`. Two genuine customer defects surfaced by
 these journeys and repaired here are S17-1 and S17-2; the rest of this section is S17-3 (a qualification gap
-that is correct behaviour, recorded), S17-4 (the journey table itself), S17-5 (the no-damage proof) and
-S17-6 (the boundaries Stage 17 measured and did not cross).
+that is correct behaviour, recorded), S17-4 (the journey table itself), S17-5 (the no-damage proof),
+S17-6 (the boundaries Stage 17 measured and did not cross) and S17-7 (a leak this stage shipped and its
+hosted gate caught). Read the certification numbers above as the reading of 12:56–13:12, not as a certificate
+for the commit they describe — S17-7 records the difference, and the repaired bytes carry their own reading.
 
 What Stage 17 does not claim is listed together in S17-6, and it is not short: no macOS container ran, a
 customer repository's own `git` gate in-container is still the S16-4 limitation, the scripted gateway means
@@ -6988,5 +6990,57 @@ opened, no issue was commented on." Remote publication remains issue #34's scope
   would have deleted that pinned image (a tag does not protect it from `-a`), and `--volumes` would have
   destroyed 228 anonymous volumes of unknown ownership — including the 8 live supabase containers another
   session was running at the time. The default prune reclaimed 18 MB; the recovery that mattered was the
-  daemon restart itself. After it, `npm run check`, the eight journeys, and the three gates were re-run on the
-  final bytes and produced every number in this section.
+  daemon restart itself. After it, `npm run check`, the eight journeys, and the three gates were re-run and
+  produced every number in this section. That reading is genuine for the bytes it measured, and it was not
+  the shipped bytes — which is S17-7, recorded there rather than quietly amended into this one.
+
+## S17-7 — the shipped Stage 17 tree carried the author's home directory — CLOSED (CODE + DOCUMENT)
+
+**The defect.** `scripts/customer-workflow-qualification.mjs` explained in a comment why a registered worktree
+path must be compared only after a filesystem round trip, and illustrated the point with this machine's two
+spellings of the developer's own home directory — the volume's 8.3 alias and the long form of the user's name.
+That is precisely what Stage 13.0 forbids. `tests/security/home-path-boundary.test.ts:244` scans every tracked
+file, `tests/` included, and the 8.3 form is matched anywhere rather than only in a path position
+(`tests/helpers/homePathScan.ts:38`, collected at `:137` as `owner-short`) because an alias only ever appears
+inside a path. The prose was not behaviour, and prose publishes: GitHub serves the tracked tree.
+
+**The reading that missed it.** S17-6's post-`ENOSPC` re-run measured real bytes and reported what it saw: in
+`/c/tmp/s17-check-rerun.log` the sweep started 12:56:13, printed
+`✓ tests/security/home-path-boundary.test.ts (19 tests) 1681ms` and finished `165 passed | 3 skipped (168)`
+files. The committed tree is `72779e4`, written at 13:12. So the harness comment carrying the leak was added
+in the gap between the certification reading and the commit, and the suite totals expose nothing about it —
+no test was added in that window, so both states read 2,482 tests across 168 files. Only the per-test outcome
+separates `2478 passed | 4 skipped` from `1 failed | 2477 passed | 4 skipped`. A count is not a certificate,
+and here the instrument that caught it was not the local one.
+
+**Hosted proof of the leak.** CI run
+[39217807406](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39217807406) on `72779e4` failed all
+six cells — `macos-latest`, `windows-latest` and `ubuntu-latest` at Node 22.x and 24.x — and every one of them
+reported the identical result: `Test Files 1 failed | 164 passed | 3 skipped (168)`, `FAIL
+tests/security/home-path-boundary.test.ts`, with the assertion naming
+`scripts/customer-workflow-qualification.mjs:2197 owner-short [OWNER]`. One cause, six cells, nothing else
+red. The Real Docker isolation proof on that same SHA, run
+[39217807397](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39217807397), completed `success`, so
+the boundary proofs were never in question — only the published tree's hygiene was.
+
+**The repair.** [scripts/customer-workflow-qualification.mjs:2196-2200](../scripts/customer-workflow-qualification.mjs)
+now names the two spellings by their kind — "the volume's 8.3 short form and the long form of the owner's own
+name" — and quotes neither. No executed byte changed: the diff is four comment lines inside `worktreeDamage`,
+and `runResidue`, `longPath` and the comparison that follows are untouched. The file goes
+`8eb3f10263b5…` → `69ccefbfd5d7…` (sha256, first 12).
+
+**Why there is no new test.** The rule that caught this already existed, already covered `scripts/`, and is
+already inside `npm run check`, `verify:package` and every hosted cell. The leak is its own positive control;
+adding a second fixture for a guard that just fired on real bytes would test the fixture. What this item
+changes in method is the claim, not the coverage: the stage's certification reading must be taken on the
+bytes being committed, which is the same rule S16 recorded as "the final SHA needs its own run", broken here
+anyway, and caught by the machine rather than by the author.
+
+**Local gates on the repaired bytes** — `npm run check` (`format:check && lint && typecheck && build && test`)
+`exit=0`, `Test Files 165 passed | 3 skipped (168)`, `Tests 2478 passed | 4 skipped (2482)`;
+`qualify:path-shapes` `exit=0` with `platform=win32 spaces=covered separator-input=forward-slash-on-Windows
+home-userprofile=covered git-discovery=covered gh-discovery=covered`; `verify:package` `exit=0`
+`Test Files 5 passed (5)`, `Tests 115 passed (115)`; `test:artifact` `exit=0`, `14 passed (14)`. Each status
+was taken from `echo name=$?` written directly after the command, never from a pipeline. The home-path
+boundary suite alone, run first on the repaired file, was `exit=0`, `19 passed (19)` — the same 19 that failed
+everywhere before the scrub.

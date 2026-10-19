@@ -2194,9 +2194,10 @@ function customerDamage(before, after, environment) {
 function worktreeDamage(before, after, environment) {
   const problems = [];
   // Git canonicalises the path it registers, so on Windows the same directory can
-  // be spelled two ways (`…\PAVITH~1\…` and `…\Pavithran R A\…`). Both sides of
-  // this comparison go through the filesystem first; comparing the strings as they
-  // were typed would call a run's own worktree "registered outside this run".
+  // be spelled two ways: the volume's 8.3 short form and the long form of the
+  // owner's own name. Both sides of this comparison go through the filesystem
+  // first; comparing the strings as they were typed would call a run's own
+  // worktree "registered outside this run".
   const runResidue = `${longPath(normalizePath(environment.workspace))}/.mergesutra/worktrees/`;
   const byPath = new Map(after.map((entry) => [longPath(entry.path), entry]));
   const seen = new Set(before.map((entry) => longPath(entry.path)));
