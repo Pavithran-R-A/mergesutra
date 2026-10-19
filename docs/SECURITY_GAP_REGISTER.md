@@ -6786,3 +6786,207 @@ and it now has been: the same rule passed on this host's containerd-store daemon
 ships, with the identity set collapsing to the pulled digest, and its landing classification showing the
 Windows-host shape the Linux legs cannot produce. What remains unmeasured is a macOS container — no leg of
 any workflow in this stage starts one.
+
+## Register status, Stage 17
+
+Stage 17 answers the one question every earlier stage deflected: not "does this part behave", but "does an
+ordinary customer get all the way through the product". It is the qualification of issue #33 item 4 — a real
+Git repository with a linked-worktree topology, driven through the whole documented stage order by the
+compiled CLI as a child process, with acceptance decided by an oracle that lives outside the workspace the
+model can write. It is deliberately one execution path measured end to end, not a collection of individually
+green units.
+
+The method, in the words the measurements are built to keep. A disposable clone of
+`Pavithran-R-A/mergesutra-e2e-fixture` at base `6f3a0adb17389b93fd76b95c21a1c9eb7b161998`; the working
+checkout is itself a linked worktree (`customer-wt` of `customer`), which is the topology no earlier fixture
+built (S16-9 established its shape, this stage runs the product through it). The model is replaced by a
+scripted HTTP endpoint on loopback, so the run is reproducible and spends no API credit — which qualifies
+the *workflow* and says nothing about the *model*. The repository's own gates run in the required sandbox
+against the pinned `node@sha256:363e15874946…` image; an exit code is read from the process, never from a
+pipeline, and a refusal is recorded as a refusal. The harness is
+`scripts/customer-workflow-qualification.mjs` with `scripts/lib/{customer-environment,customer-oracle,scripted-gateway}.mjs`.
+
+Eight scenarios, each a separate run, each `PASS`, each with `damage=[]` and `secrets=[]` — measured on the
+final bytes in `/c/tmp/s17-customer-rerun.log` (`CUSTOMER_WORKFLOW_PASS scenarios=8 notPass=0`,
+`CUSTOMER_EXIT=0`). The certification around them: `npm run check` → `exit=0`, `165 passed | 3 skipped
+(168)` files and `2478 passed | 4 skipped (2482)` tests (`/c/tmp/s17-check-rerun.log`); `qualify:path-shapes`
+→ `exit=0` (`temp-root=C:\ spaces=covered separator-input=forward-slash-on-Windows
+home-userprofile=covered git-discovery=covered gh-discovery=covered`); `verify:package` → `exit=0`,
+`115 passed (115)`; `test:artifact` → `exit=0`, `14 passed (14)`. Two genuine customer defects surfaced by
+these journeys and repaired here are S17-1 and S17-2; the rest of this section is S17-3 (a qualification gap
+that is correct behaviour, recorded), S17-4 (the journey table itself), S17-5 (the no-damage proof) and
+S17-6 (the boundaries Stage 17 measured and did not cross).
+
+What Stage 17 does not claim is listed together in S17-6, and it is not short: no macOS container ran, a
+customer repository's own `git` gate in-container is still the S16-4 limitation, the scripted gateway means
+there is zero evidence about model quality here, the harness is not wired into any hosted workflow, and the
+`pr` stage created a local reviewable candidate and pushed nothing.
+
+## S17-1 — a wrapped acceptance bullet reached the contract truncated — CLOSED (CODE + TEST)
+
+**Defect.** `criteriaFromIssue` in `src/contract/derive.ts` turned each markdown list bullet into one
+criterion by reading a single source line. The real fixture issue #1 wraps AC-5 — "…this is a five-line
+change, not a new library." — onto an indented continuation line, so the contract stored only the leading
+clause and silently dropped the second sentence of a customer's acceptance criterion. Nothing else in the
+chain noticed: the plan, the prompts and the report all faithfully carried the truncated obligation onward.
+
+**RED, then the product fix.** `tests/contract/derive.test.ts` adds
+`keeps a list item that wraps onto an indented continuation line whole`, which failed before the change —
+AC-5 came back without "five-line change, not a new library." The fix adds `isContinuation()` at
+`src/contract/derive.ts:88` (a line that opens with whitespace, is not a list item, is not inside a fence,
+and is not a heading or a `**` lead-in), tracks `openItem` across the scan (`:149`, set at `:169`, reset at
+`:154/:161/:165/:174`), and appends a continuation to the last statement at `:177-179`. A blank line or a
+heading closes the open item, so a paragraph that merely follows a list is not glued onto it.
+
+**GREEN on the same real topology.** In the journey run the contract's criteria now read, verbatim,
+`AC-5 package.json still declares no dependencies and no devDependencies — this is a five-line change, not a
+new library.` — the wrapped tail present, with AC-1…AC-4 and the operator AC-6 unchanged around it.
+
+## S17-2 — a workspace a killed run left on disk was reported NOT_CREATED — CLOSED (CODE + TEST)
+
+**Defect.** `observeWorkspace` trusted the run record and nothing else. `implement` creates the Stage 5
+worktree before it records that it did, so a run killed between those two moments — SIGKILL after the second
+served model call, in the interruption scenario — leaves a real workspace on disk that the record never
+claims. The old observation returned `NOT_CREATED`, which is not merely unhelpful to `resume`, it is wrong:
+it describes as absent the exact directory `resume` has to reason about.
+
+**RED, then the product fix.** `tests/lifecycle/observe.test.ts` adds
+`names the workspace a killed run left on disk without ever recording it` (it creates the expected
+workspace directory, drops a file in it, and asserts both the new state and its path), and widens the
+closed-vocabulary guard with `PRESENT_UNRECORDED`. The fix stats the expected path directly
+(`src/lifecycle/observe.ts:188`, `path.join(primary, WORKTREE_BASE_DIR, record.runId)`) when the record
+claims nothing, and returns `PRESENT_UNRECORDED` at `:192` with a detail line that says what this is — a
+workspace left by an interrupted run — rather than a bare state word. A directory it cannot read at all
+still reports `NOT_CREATED` for the lifecycle verdict (`:205-207`) but now says so, distinguishing "absent"
+from "unreadable". `WORKTREE_BASE_DIR` is duplicated module-local at `observe.ts:64`, not imported from
+`src/git/workspace.ts`, because `tests/lifecycle/source-shape.test.ts` forbids the lifecycle graph from
+reaching that module (the same reason S16-6 kept Git discovery out of here); the duplication is documented
+at `:57` with the exact-value guarantee the test holds.
+
+**GREEN on the same real topology.** The interruption scenario now reads
+`statusWorkspaceState=PRESENT_UNRECORDED` with `statusExit=0`, `workspaceExistsAfterKill=true`,
+`lockPresentAfterKill=false`, then `resume-preview=0` → `resume-execute=3` and a `VERIFICATION_PASS` verify.
+The read-only `status` sees the orphaned workspace; the preview is offered; only an explicitly consented
+resume runs it; the killed round's bytes were never presented as a completed implementation.
+
+## S17-3 — only the operator route can mint a PASS/VERIFIED criterion — CLOSED (TEST + DOCUMENT)
+
+The journey's criterion verdicts are `AC-1…AC-5 NOT_AVAILABLE/MANUAL_REVIEW_REQUIRED gateIds=[]` and
+`AC-6 PASS/VERIFIED gateIds=["VG-001"]`. That asymmetry is correct, and this records it so a reader does
+not misread five manual criteria as a broken evidence matcher. Criteria derived from the issue body are
+`manual` by design — the contract records what the repository declares and MergeSutra adds no requirement of
+its own (the `derive.ts` ordering issue → repository → injected) — so a manual criterion has no gate to bind
+to and the honest verdict is `NOT_AVAILABLE`. The only route that yields a bound, machine-checked criterion
+is the operator route, `mergesutra contract <run> --criterion "<statement>" --check "npm test" --by
+"<name or role>"` (`humanCriteria` at `src/cli/contract.ts:368`), which produced AC-6's
+`verificationPlan {kind:'test', command:'npm test', source:'MERGESUTRA_ADDITIONAL'}` and its `PASS/VERIFIED`
+mapping onto VG-001. Note the numbering the operator route does *not* renumber AC-1…AC-5: the injected
+criterion becomes AC-6.
+
+The plan-accountability `INCONCLUSIVE` seen on an earlier attempt was **not** a product defect and is not
+counted here: it was a harness defect — the scripted planner recited AC-1…AC-5 without claiming them — fixed
+in the harness's `criteriaListedInPlanPrompt()`/`planResponder()` so the scripted planner now states four
+criteria and the loop ends `FINISH`. The product's refusal-to-pass-a-plan-with-a-named-gap worked; the
+fixture was made honest instead.
+
+## S17-4 — the eight customer journeys through the production CLI — CLOSED (TEST + DOCUMENT)
+
+Per-stage exit codes are read from the child process. `journey` is the full `doctor…pr` order; the negative
+scenarios reuse the stages they need.
+
+- **journey — PASS.** `doctor=0 issue=0 inspect=0 contract=0 plan=0 consent-probe=1 implement=3
+  verify-noconsent=4 verify-consent=0 review=3 status=0 report=3 pr=3 pr-approve=3`. Issue carried
+  `Pavithran-R-A/mergesutra-e2e-fixture#1`, `linkedWorktree=true`; implementation
+  `COMPLETED_BY_MODEL`/`IMPLEMENTED_BY_MODEL`; verify `VERIFICATION_PASS`; independent (Git-measured) patch
+  `750a540e…` over `src/slugify.js, test/slugify.test.js` (42 diff lines); MergeSutra's recorded patch
+  identity equals its re-derivation (`a5aeea65…` == `a5aeea65…`, `patchIdentityCurrent=true`), precondition
+  `MATCHED`; the two identities are different digests by construction (Git's own byte view vs MergeSutra's
+  canonical one), which is the point of measuring twice. `publicationDigest=c2fc717f…`. The
+  `consent-probe=1` and `verify-noconsent=4` are the intended refusals before consent, not crashes.
+- **failed-assertion — PASS.** A gate that genuinely fails must produce a failed outcome, not a green one.
+  `VG-001=FAIL exit=1`, verify `VERIFICATION_FAIL` (`verify-with-consent=1`); every criterion stayed
+  unmet. This is the scenario that would pass a product that fakes success — so scenario 1 reaching the end
+  is what makes it mean something.
+- **interruption — PASS.** See S17-2: SIGKILL, read-only `status`, consented `resume`.
+- **repair — PASS.** `review=3 REVIEW_RECORDED`, two findings `RF-001/RF-002 VALID_REPAIR_CANDIDATE`,
+  `repairPlanDigest=50292c9d…`. An unapproved repair is refused without executing (`unapprovedRepairExit=3,
+  unapprovedRepairExecuted=false`); a *forged* approval is refused as `STALE` and leaves the patch unchanged
+  (`forgedApprovalExit=3, forgedExecuted=false, forgedPatchUnchanged=true`); only the digest-bound approval
+  runs (`approvedRepairExit=3 REPAIR_APPLIED`, `WITHIN_PLANNED_SCOPE`, termination `FINISH`), and the genuine
+  re-verify that follows is `reVerifyExit=0 VERIFICATION_PASS`.
+- **stale-patch — PASS.** After a clean verify and a `report`, the patch was edited by hand: identity moved
+  `750a540e…` → `0a1578ae…`, `statusWorkspaceState=PRESENT_PATCH_CHANGED`, `statusPatchComparison=STALE`,
+  `statusStale=true`. The candidate was recorded before the edit (`pr-before-edit=3`,
+  `candidateReadiness=NOT_READY_FOR_PUBLICATION`, `candidateDigest=31d2ed0d…`); after the edit `pr=4
+  PR_PUBLICATION_BLOCKED`, reusing the old approval is `4`, and a forged approval is `4`. A stale patch
+  invalidates both the evidence and the approval bound to it.
+- **forged-metadata — PASS.** Baseline: a consented verify on the real workspace passes untouched
+  (`baselineExit=0`, `baselinePatchIdentity=a9b158d3…`). Three forgeries were then attempted. Pointing the
+  run's own workspace, and a variant pointing it at its parent, both refuse: `statusWorkspaceState=UNREADABLE`,
+  `verifyExit=1`, no round recorded, and the refusal names the reason — the directory has no Git metadata a
+  run could not itself have written, so its repository is not trustworthy to measure (and MergeSutra will not
+  let Git discover a repository from inside the directory under review, because config found there can name
+  programs to run). The primary-checkout forgery is left unmoved and the honest verify still passes on the
+  real workspace; every pointer came back byte-for-byte (`restored: exact=true` for all three).
+- **no-sandbox — PASS.** With the sandbox deliberately unavailable, verify is `exit=3
+  VERIFICATION_INCONCLUSIVE`: the refusal names `SANDBOX_UNAVAILABLE` and says no repository command
+  executed, `repositoryGatesExecuted=[]`, `repositoryGateExitCodes=["VG-001=null"]`,
+  `hostNpmCacheEntries=[]`, and the only command that ran is the host-side built-in
+  `git diff --check` (`executedArgv`). There is no host fallback to find. (One honest wording limit —
+  `remediationSaysNoHostFallback=false` — is recorded in S17-6.)
+- **repeated — PASS.** A second run through the same fixture lost no customer file (tracked files
+  `5 → 5`, `lostFiles=[]`), the patch was unchanged by the second run
+  (`patchUnchangedBySecondRun=true`, same two files), it inherited no consent (`consentInherited=false`, and
+  a verify without consent is again `4`), and the run store grew to 4 records without duplicating
+  unauthorized work.
+
+## S17-5 — no customer damage across every scenario — CLOSED (TEST + DOCUMENT)
+
+Every scenario snapshot tracked bytes, branch, HEAD, dirty state, the worktree registration and the shared
+Git metadata before and after, and every one returned `damage=[]` — nothing moved outside the run's own
+workspace. The credential scan found `secrets=[]` in each generated evidence export, and the release-boundary
+scan that counts tracked files keeps its single named control. The acceptance oracle lives outside the
+directory the implementation stage can write. The `pr` stage's final act is a local reviewable candidate —
+`pr-approve` records a `PR_CANDIDATE_RECORDED` at exit 3 and pushes nothing; this is corroborated by the
+report's own limitation line, "No remote mutation was attempted: nothing was pushed, no pull request was
+opened, no issue was commented on." Remote publication remains issue #34's scope, not this stage's.
+
+## S17-6 — boundaries Stage 17 measured and did not cross — NOT VERIFIED / by design
+
+- **Model quality: none measured.** The scripted gateway stands in for the model, so every green verdict
+  above is a statement about the workflow and about the product's honesty, and none is evidence about
+  BharatCode/Qwen. No API credit was spent, by instruction. The real-model benchmark is issue #35.
+- **macOS sandbox isolation: NOT VERIFIED.** No journey leg and no local scenario started a container on
+  macOS; the real-Docker readings here are this host's Windows Docker Desktop plus the earlier hosted
+  classic-store Linux legs.
+- **A customer repository's own `git`-native gate in the sandbox: still the S16-4 limitation, not passing.**
+  The fixture's gates are `node` programs; nothing here executed a repository-authored `git` step inside the
+  container, so the git-native gate is recorded separately and not silently counted as qualified.
+- **`PRESERVE_ASSERTIONS` repair guard: NOT exercised here.** The whole-file-replacement guard at
+  `src/implement/loop.ts:606-613` never fired in any journey — no scenario replaced a test-like file wholesale
+  — so this stage is no evidence that guard trips; its own unit coverage remains elsewhere.
+- **The host-side built-in `git diff --check` is a measurement, not acceptance.** VG-002 binds to no
+  criterion (`gateBindings: VG-002 git diff --check -> []` in every run); it runs on the host by design
+  (S16-4) and a reviewer must read it as a workspace check, never as evidence that a criterion passed.
+- **`--json` omits the no-host-fallback policy sentence.** Measured `remediationSaysNoHostFallback=false`:
+  the `--json` refusal carries the reason and "No repository command was executed." but the "MergeSutra never
+  falls back to host execution" remediation line reaches only the screen path (`src/cli/program.ts:517`). The
+  behaviour (no fallback) is proven by the empty executed-gate set; only the machine-readable wording is
+  thinner than the human-readable one. Recorded, not fixed — the fallback is absent regardless.
+- **The harness is a local script, not a hosted artifact.** The eight journeys run on this Windows host's
+  Docker Desktop and are not wired into any GitHub Actions workflow. What is hosted-covered is the unit
+  suite, `verify:package` and `test:artifact` under `npm run check` / CI; the end-to-end journey evidence is
+  local and must be read as such until a hosted leg runs it.
+- **The disk event, recorded rather than hidden.** The first attempt at this certification chain died in
+  `ENOSPC` (C: at 100 %, 0 bytes) mid-`npm run check`, surfacing `AppError: Cannot prepare a workspace: git
+  could not create the workspace (255)` and 5 failing files — a host resource failure, not a product failure,
+  and not counted as a result. Reclaiming space needed a user-approved `docker system prune`, but the full
+  volume had wedged the Docker daemon itself (`docker version` never answering), so the daemon first had to
+  be restarted — a shared-host action taken only on explicit approval, which stops other containers. Before
+  pruning, the pinned `node@sha256:363e1587…` image (untagged by a digest pull, and so a plain-prune casualty)
+  was tagged `mergesutra-qualified-node:pin-363e1587`. Only the default prune scope was taken: `prune -a`
+  would have deleted that pinned image (a tag does not protect it from `-a`), and `--volumes` would have
+  destroyed 228 anonymous volumes of unknown ownership — including the 8 live supabase containers another
+  session was running at the time. The default prune reclaimed 18 MB; the recovery that mattered was the
+  daemon restart itself. After it, `npm run check`, the eight journeys, and the three gates were re-run on the
+  final bytes and produced every number in this section.

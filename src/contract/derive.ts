@@ -72,6 +72,28 @@ const LIST_ITEM = /^\s*(?:[-*]\s*\[[ xX]\]\s*|[-*]\s+|\d+[.)]\s+)(\S.*?)\s*$/;
 const NOT_A_CRITERION =
   /^[\s>*_~-]*$|^(?:see|link|ref|example|e\.?g\.?|note|screenshot|stack\s?trace|log|cc|thanks|todo)\b|^\W*(?:https?:\/\/|\.{3}$)/i;
 
+/**
+ * Whether a line carries on the list item above it.
+ *
+ * GitHub wraps an acceptance list at about eighty columns, and the wrapped half
+ * is indented — so a line-by-line scan cuts a criterion mid-sentence and the
+ * contract hands the planner, the implementer and the reviewer an obligation that
+ * nobody can evaluate. Stage 17's customer fixture (`Pavithran-R-A/mergesutra-e2e-fixture`
+ * issue #1) lost "five-line change, not a new library" this way, leaving
+ * "… devDependencies — this is a" as criterion AC-5.
+ *
+ * A fence is not a continuation: an issue that puts an example under an item
+ * would otherwise have its code folded into the obligation.
+ */
+function isContinuation(line: string): boolean {
+  return (
+    /^[ \t]+\S/.test(line) &&
+    !LIST_ITEM.test(line) &&
+    !/^[ \t]*(?:```|~~~)/.test(line) &&
+    !/^[ \t]*(?:#{1,6}\s+|\*\*)/.test(line)
+  );
+}
+
 export function deriveAcceptanceCriteria(input: DeriveInput): AcceptanceContract {
   const criteria: Draft[] = [];
   const limitations: string[] = [];
@@ -123,22 +145,38 @@ function criteriaFromIssue(issue: IssueProse | null, limitations: string[]): Dra
   const lines = [...(issue.body ?? '').split('\n'), ...issueLinesFromComments(issue)];
   const statements: string[] = [];
   let inAcceptanceSection = false;
+  /** Whether the last line accepted was a list item a continuation can extend. */
+  let openItem = false;
 
   for (const line of lines) {
     if (ACCEPTANCE_HEADING.test(line)) {
       inAcceptanceSection = true;
+      openItem = false;
       continue;
     }
     if (/^\s*(#{1,6}\s+|\*\*)\s*\S/.test(line) && !ACCEPTANCE_HEADING.test(line)) {
       // Any other heading closes the acceptance section: a list two headings
       // later belongs to something else.
       inAcceptanceSection = false;
+      openItem = false;
     }
     const item = line.match(LIST_ITEM)?.[1];
-    if (!item) continue;
-    if (inAcceptanceSection || /\[[ xX]\]/.test(line)) {
-      if (NOT_A_CRITERION.test(item) || item.length < 4) continue;
-      statements.push(item);
+    if (item) {
+      openItem = false;
+      if (inAcceptanceSection || /\[[ xX]\]/.test(line)) {
+        if (NOT_A_CRITERION.test(item) || item.length < 4) continue;
+        statements.push(item);
+        openItem = true;
+      }
+      continue;
+    }
+    if (/^\s*$/.test(line)) {
+      openItem = false;
+      continue;
+    }
+    if (openItem && isContinuation(line)) {
+      const last = statements.at(-1);
+      if (last) statements[statements.length - 1] = `${last} ${line.trim()}`;
     }
   }
 

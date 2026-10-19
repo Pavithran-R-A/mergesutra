@@ -51,9 +51,28 @@ import { lifecycleStaleness, type LifecycleFacts, type LifecycleVerdict } from '
  *   state that is not `PRESENT_MATCHED` says why in `detail`.
  */
 
+/**
+ * Where Stage 5 prepares a run's workspace, spelled again here on purpose.
+ *
+ * `src/git/workspace.ts` exports `WORKTREE_BASE_DIR` with exactly this value, and
+ * importing it would drag every command that module can construct into this one —
+ * which is the proof `tests/lifecycle/source-shape.test.ts` exists to keep. The
+ * customer journey in `scripts/customer-workflow-qualification.mjs` kills a real
+ * `implement` and reads this state back, so a drift between the two spellings
+ * fails there rather than quietly turning this state off.
+ */
+const WORKTREE_BASE_DIR = '.mergesutra/worktrees';
+
 export const WORKSPACE_STATES = [
   /** The run never prepared one: there is no implementation record to point at. */
   'NOT_CREATED',
+  /**
+   * The run recorded nothing, and yet a directory sits where its workspace would
+   * be. Stage 5 adds the worktree before Stage 6 writes the record that claims it,
+   * so a run killed in that window leaves a real, Git-registered checkout that no
+   * document of the run names.
+   */
+  'PRESENT_UNRECORDED',
   /** It claimed one, and the path it claimed is not there. */
   'MISSING',
   /** There is a directory, but neither Git nor this tool can tell what it is. */
@@ -155,9 +174,48 @@ async function observeWorkspace(
 ): Promise<WorkspaceObservation> {
   const implementation = record.implementation;
   if (!implementation) {
-    // No loop record means no workspace was ever claimed. Asking Git about the
-    // recorded path anyway would let a run that stopped at planning look like one
-    // whose worktree had been deleted, which is a much worse thing to tell a human.
+    // The run claimed no workspace, which used to be the whole answer. Stage 17
+    // measured the case where it is not: Stage 5 adds a worktree and Stage 6 writes
+    // the record that names it, so an `implement` killed in between leaves a real
+    // checkout Git has registered on a branch of this run's very name, while the
+    // record says nothing. Saying "never prepared a workspace" about that directory
+    // sends a customer to look for residue that is standing under their nose.
+    //
+    // The directory is found by the one convention Stage 5 writes it under, beside
+    // the store this observation already reads, and only `stat`ed: no Git, so no
+    // reading of metadata a run could have rewritten, and nothing created.
+    const primary = path.resolve(input.repo ?? record.local?.toplevel ?? input.cwd);
+    const where = path.join(primary, WORKTREE_BASE_DIR, record.runId);
+    const presence = await presenceOf(where);
+    if (presence === 'HERE') {
+      return {
+        state: 'PRESENT_UNRECORDED',
+        path: where,
+        recordedBaseSha: record.base?.sha ?? null,
+        observedHead: null,
+        currentPatchIdentity: null,
+        recordedPatchIdentity: null,
+        detail:
+          `Nothing in this run's record claims a workspace, but a directory left it on disk at ` +
+          `${bound(where)}. That is what an interrupted \`implement\` looks like after it prepared ` +
+          'a worktree and before it recorded one. This observation only looked at the name: the ' +
+          'bytes are unread, and MergeSutra will not verify or remove them.',
+      };
+    }
+    if (presence === 'UNKNOWN') {
+      return {
+        state: 'NOT_CREATED',
+        path: null,
+        recordedBaseSha: record.base?.sha ?? null,
+        observedHead: null,
+        currentPatchIdentity: null,
+        recordedPatchIdentity: null,
+        detail:
+          'This run has no implementation record, so it never prepared a workspace of its own, ' +
+          `and ${bound(where)} could not be read to check whether one is there anyway.`,
+      };
+    }
+    // No loop record and no directory: nothing was ever prepared.
     return {
       state: 'NOT_CREATED',
       path: null,

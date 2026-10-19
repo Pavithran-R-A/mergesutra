@@ -111,6 +111,28 @@ describe.skipIf(!AVAILABLE)('the workspace a run recorded', () => {
     expect(observation.verdict.states.verification).toBe('ABSENT');
   });
 
+  it('names the workspace a killed run left on disk without ever recording it', async () => {
+    const prepared = await contractBackedRun(tempDirs);
+    const runsRoot = await scratch('mergesutra-observe-runs-');
+    // Stage 17 measured this on a real customer worktree: `implement` adds the
+    // worktree and then writes its record, so a run killed between the two owns a
+    // directory Git has registered while its record claims nothing.
+    const where = path.resolve(
+      prepared.record.local?.toplevel ?? runsRoot,
+      '.mergesutra',
+      'worktrees',
+      prepared.record.runId,
+    );
+    await mkdir(where, { recursive: true });
+    await put(where, 'src/slugify.js', 'export function slugify(v) { return v }\n');
+
+    const observation = await observe(prepared.record, runsRoot);
+
+    expect(stateOf(observation)).toBe('PRESENT_UNRECORDED');
+    expect(observation.workspace.path).toBe(where);
+    expect(observation.workspace.detail).toMatch(/left it on disk|interrupted/i);
+  });
+
   it('reports a workspace that is not there, and does not create it on the way', async () => {
     const fixture = await reviewedRun(tempDirs);
     // The repository the run worked in has moved, or someone removed its
@@ -311,6 +333,7 @@ describe.skipIf(!AVAILABLE)('the workspace a run recorded', () => {
         'PRESENT',
         'PRESENT_MATCHED',
         'PRESENT_PATCH_CHANGED',
+        'PRESENT_UNRECORDED',
         'UNREADABLE',
       ].sort(),
     );
