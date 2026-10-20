@@ -7140,7 +7140,15 @@ clock was coarser than the record it was bounding, so it refused a current artif
 workflow itself and what it declares; S18-7 is a count discrepancy that turned out to be two true numbers
 about different instruments; S18-8 is the thing this stage could not do for itself — the gate runs on every
 pull request, but no branch rule yet *requires* its result. S18-9 lists what Stage 18 does not claim, and it
-starts with the scripted gateway: none of this is evidence about a model.
+starts with the scripted gateway: none of this is evidence about a model. S18-10 maps the eight ways Step 4 of
+the brief required this gate to go red onto the tests that fire on them, and carries the workflow's own run
+history — five runs, three failures, two successes — which is also the correction to one count in S18-9.
+
+*(Dated note, same stage: "the shipped bytes" above means `0aaee73`, the commit that wrote the gate. The head has
+moved twice since, once to write this section (`e99eb53`, whose own three hosted runs are the fifth row of
+S18-10's table and whose CI and Docker readings are in the PR's verification block) and once for S18-10 itself,
+which will be certified by its own runs rather than by these. No paragraph above is restated as current for a
+later head; that is the convention this whole ledger runs on.)*
 
 ## S18-1 — the journeys now run on a machine nobody controls — CLOSED (CODE + TEST)
 
@@ -7501,6 +7509,74 @@ document.
   no suppression, correct step order, correct digests, correct bindings) and it cannot prove that Actions
   honours the file. That half is what the hosted runs in S18-6 are for, and it is why this stage ran four
   failing hosted attempts before claiming anything.
+  *(Dated correction, 2026-10-20, measured in S18-10: "four" is wrong. The workflow's own run history answers
+  three failing attempts and two passing ones. The sentence above is left as written because it was the count
+  this stage believed when it wrote it; S18-10 carries the query and the full list, and is the reading to use.)*
 - **Derived history is re-derived, not inherited.** `fetch-depth: 0` and `package-manager-cache: false` mean
   the release-boundary suites see this checkout's real history; a cached dependency directory or a shallow
   clone would have let an earlier run answer for this one.
+
+## S18-10 — the eight ways this gate was told to go red, each mapped to the test that fires — CLOSED (measured + DOCUMENT)
+
+**Why this section exists.** Stage 18's brief Step 4 asked for "test the test": eight named ways the hosted gate
+must refuse, rather than a count of guard files. A count with no list behind it is not a scope, so each case is
+recorded here with the test that plants it and the line that test sits on today. All eight were measured in the
+same reading as the rest of this section's work: the five guard suites — `workflow-policy.test.ts` 24,
+`customer-workflow-policy.test.ts` 35 (1 of them skipped), `customer-gate-summary-rules.test.ts` 12,
+`customer-evidence-rules.test.ts` 16, `customer-gate-verify.test.ts` 6, i.e. 93 across
+`tests/security/` — read
+`5 passed (5)` files / `92 passed | 1 skipped (93)` tests at `VITEST_EXIT=0`, 2026-10-20 12:01:49 +05:30; the
+policy file read alone, re-run for this section, reads `34 passed | 1 skipped (35)` at `VITEST_EXIT=0`,
+13:02:43 +05:30 — the one skip being the Docker-availability pair S18-2 describes, of which exactly one branch
+is skipped whichever way the host answers.
+
+| the case the brief named | where it fires | what the planted record looks like |
+|---|---|---|
+| a scenario is omitted | `customer-gate-summary-rules.test.ts:432` | a summary missing one of the eight, plus the same test's duplicated, invented and non-list variants; `:422` names the eight documented journeys and refuses any other set |
+| a failure is relabeled `PASS` | `customer-gate-summary-rules.test.ts:441` | a scenario record whose own verdict field says `PASS` while the run's stage results say otherwise |
+| the independent oracle is disabled | `customer-gate-summary-rules.test.ts:457` | `oracle` switched off or shrunk, and the companion assertion that a *refusal* scenario is not over-constrained by the same rule |
+| a checkout is damaged | `customer-gate-summary-rules.test.ts:446` | a `PASS` carrying a non-empty `damage` list — the before/after snapshot the harness writes around every scenario |
+| a canary secret enters an artifact | `customer-gate-summary-rules.test.ts:446`, `customer-evidence-rules.test.ts:245`, `:296` | a credential-shaped span in the summary, one planted in raw evidence and redacted on the way out, one that survives redaction and makes the bundler refuse the upload |
+| the process exits without a final result | `customer-gate-summary-rules.test.ts:466`, `:471`, `:496`, `customer-gate-verify.test.ts:157` | an exit code not read from a process, a deadline standing in for a kill, the gate's own inputs unconfigured, and a named artifact that is missing or not readable JSON |
+| evidence could have come from another run | `customer-gate-summary-rules.test.ts:489`, `customer-gate-verify.test.ts:131`, and `checkFreshness` at `scripts/lib/customer-gate-summary.mjs:287` | a record bound to another revision/image/fixture, a summary from a different commit, and a `finishedAt` outside the window the job read |
+| repo-controlled code escapes Docker | **not this gate** — `scripts/lib/container-boundary.mjs`, whose own planted-failure suite is `tests/security/container-boundary-rules.test.ts` (900 lines), and the hosted `Real Docker isolation proof` legs that run it | the escape verdict is read from the daemon's `docker inspect` record and the host's filesystem, outside the container, so the guest's own word cannot settle it |
+
+**The escape case is recorded as covered elsewhere, not claimed here.** Stage 18's gate certifies *workflow*
+evidence: it reads a summary the harness wrote and refuses it unless every field the claim depends on is present
+and current. Whether repository-controlled code can leave a container is a different question with a different
+instrument, built in S16-11/S16-11R and run by a different workflow — the three legs in
+[39385021288](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39385021288) on this stage's head each
+print `SANDBOX_ESCAPE_LANDING: hostPathWrite=false insideMount=0 outsideMount=0` and
+`SANDBOX_ESCAPE_LANDING_VERDICT: accounted`, and that is where the evidence for this row lives. Wiring the
+escape proof into the customer gate instead would have made one program certify another program's subject.
+
+**The count of failing attempts, read from the API rather than from memory.** S18-9's last-but-one bullet says
+"four failing hosted attempts". `gh api
+repos/Pavithran-R-A/mergesutra/actions/workflows/customer-workflow.yml/runs` answers five runs for this
+workflow in total:
+
+| run | id | head | created | conclusion |
+|---|---|---|---|---|
+| 1 | [39243268605](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39243268605) | `f07d0bf` | 2026-10-19T11:15:00Z | failure |
+| 2 | [39247291675](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39247291675) | `14504a2` | 2026-10-19T11:48:19Z | failure |
+| 3 | [39378637341](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39378637341) | `bc816d7` | 2026-10-20T06:07:51Z | failure |
+| 4 | [39379727810](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39379727810) | `0aaee73` | 2026-10-20T06:19:39Z | success |
+| 5 | [39385021366](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39385021366) | `e99eb53` | 2026-10-20T07:12:35Z | success |
+
+So: **three** failing attempts, not four. The four that was true is the number of hosted runs it took to reach
+the first green one (S18's status line says "four hosted runs and three repairs", and that sentence is correct —
+it was the neighbouring sentence that drifted by one by counting the green run as an attempt).
+`actions/runs?per_page=100&status=failure` filtered to this stage's five head SHAs returns 3 rows and 3 distinct
+run IDs, all three of them this workflow: CI and the Docker proof never went red on a Stage 18 commit. That is
+the reading to cite from now on.
+
+**Two things the artifact's own bytes said, recorded because a verifier will hit them.** `summary.json` in the
+published tree has exactly five top-level keys — `identity`, `mergeSutraVersion`, `scenarios`, `startedAt`,
+`finishedAt` — so the revision, platform, Node, sandbox image and fixture base are read from
+`identity.*`, not from the top level; and each entry of `scenarios` names itself with the key `scenario`, not
+`name`. Reading those two fields wrongly produces an empty answer that looks like a missing claim. All eight
+scenario records re-read from this head's artifact are `verdict PASS` with `problems`, `damage` and `secrets`
+each of length 0 and `cleanup {"removed":true,"remaining":0,"lastError":null}`. The runner's Node also moved
+between run 4 and run 5 — `v24.21.0` in the older artifact, `v24.22.0` in this one — with identical per-cell test
+totals, so a `nodeVersion` difference across SHAs is GitHub's image, not a change to this branch, and must not be
+read as one.
