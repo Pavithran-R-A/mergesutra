@@ -46,12 +46,12 @@ function fakeRemote(): {
       async pushBranch(input) {
         calls.push('pushBranch');
         pushes.push(input);
-        return { branch: input.branch };
+        return { branch: input.branch, commitSha: 'd'.repeat(40) };
       },
       async createPullRequest(input) {
         calls.push('createPullRequest');
         requests.push(input);
-        return { url: 'https://github.com/projectbharat/datekit/pull/1' };
+        return { url: 'https://github.com/projectbharat/datekit/pull/1', number: 1, draft: true };
       },
     },
   };
@@ -94,7 +94,7 @@ describe('the seam a publication would go through', () => {
     ]);
   });
 
-  it('hands the pusher a branch and a directory, and nothing that could overwrite history', async () => {
+  it('hands the pusher the approved bytes and a directory, and nothing that could overwrite history', async () => {
     const candidate = candidateFor();
     const fake = fakeRemote();
 
@@ -105,7 +105,18 @@ describe('the seam a publication would go through', () => {
       remote: fake.remote,
     });
 
-    expect(fake.pushes).toEqual([{ directory: WORKSPACE, branch: candidate.proposedBranch }]);
+    // The transport gets the identity of the patch the human approved, not merely a
+    // directory it is trusted to interpret. It re-measures before it sends anything.
+    expect(fake.pushes).toEqual([
+      {
+        directory: WORKSPACE,
+        repository: candidate.repository,
+        branch: candidate.proposedBranch,
+        baseSha: candidate.baseSha,
+        patchIdentity: candidate.patchIdentity,
+        runId: candidate.runId,
+      },
+    ]);
   });
 
   it('touches nothing when no human has approved', async () => {
@@ -150,19 +161,32 @@ describe('the seam a publication would go through', () => {
 });
 
 describe('what a request cannot carry', () => {
+  const push = {
+    directory: WORKSPACE,
+    repository: 'projectbharat/datekit',
+    branch: 'mergesutra/x',
+    baseSha: 'a'.repeat(40),
+    patchIdentity: 'b'.repeat(64),
+    runId: 'run-20260925T000000Z-pack001',
+  };
+
   it('refuses a push that asks to force anything', () => {
-    expect(() =>
-      parsePushBranchInput({ directory: WORKSPACE, branch: 'mergesutra/x', force: true }),
-    ).toThrow(/force/i);
+    expect(() => parsePushBranchInput({ ...push, force: true })).toThrow(/force/i);
   });
 
   it('refuses a push that names a refspec rather than a branch', () => {
     expect(() =>
       parsePushBranchInput({
-        directory: WORKSPACE,
+        ...push,
         branch: 'mergesutra/x:refs/heads/main',
       }),
     ).toThrow(/branch/i);
+  });
+
+  it('refuses a push with no measured patch identity to send', () => {
+    expect(() => parsePushBranchInput({ ...push, patchIdentity: 'the latest changes' })).toThrow(
+      /patch identity/i,
+    );
   });
 
   it('refuses a pull request that also asks to merge, to review or to assign', () => {
@@ -203,7 +227,14 @@ describe('the remote production actually has', () => {
 
   it('refuses to push, and says no remote is configured rather than pretending it did', async () => {
     const failure = await unavailableRemote()
-      .pushBranch({ directory: WORKSPACE, branch: 'mergesutra/x' })
+      .pushBranch({
+        directory: WORKSPACE,
+        repository: 'projectbharat/datekit',
+        branch: 'mergesutra/x',
+        baseSha: 'a'.repeat(40),
+        patchIdentity: 'b'.repeat(64),
+        runId: 'run-20260925T120000Z-abcdef',
+      })
       .then(() => null)
       .catch((error: unknown) => error);
 

@@ -1,6 +1,6 @@
 import { realpathSync } from 'node:fs';
 import { AppError, isAppError } from '../core/errors.js';
-import { defaultRunner, githubReadRunner, type Runner } from '../core/runner.js';
+import { defaultRunner, githubApiRunner, type Runner } from '../core/runner.js';
 import { GhCliGitHubSource, type GitHubSource } from '../github/gh-client.js';
 import type { CommitRef, IssueDocument, RepositoryIdentity } from '../github/types.js';
 import { describeFindings } from '../security/injection-scan.js';
@@ -77,7 +77,7 @@ export async function runIntake(
   // Preserve the old injected-run behavior for tests/embedders that supplied one
   // runner for every subprocess, but production GitHub reads must use the
   // credential-preserving read boundary introduced by S14-9.
-  const githubRun = deps.githubRun ?? deps.run ?? githubReadRunner;
+  const githubRun = deps.githubRun ?? deps.run ?? githubApiRunner;
   const github = deps.github ?? new GhCliGitHubSource({ run: githubRun });
   const store = deps.store ?? createFileRunStore(defaultRunStoreRoot(deps.cwd));
   const checks: RunCheck[] = [];

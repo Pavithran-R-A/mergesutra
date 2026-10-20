@@ -388,7 +388,11 @@ function prStageResult(run: Run): PrStageResult {
     candidate: stored,
     digest,
     decision,
+    publication: null,
+    recordedPublication: null,
     published: false,
+    publishRequested: false,
+    publicationFailure: null,
     record: run.record,
     recordFile: null,
     checks: [

@@ -40,8 +40,9 @@ general tutorial; `README.md` is that, and where the two disagree the screens pr
 model from `BHARATCODE_MODEL`: the plan and the patch would then have been written by two
 different models, and the evidence pack would not say so clearly enough to be worth reading.
 
-**There is no other variable to set.** Nothing in this build reads a switch that opens remote
-publication; that sentence was false in this repository's own manual until S14-6 removed it.
+**There is no other variable to set.** No environment variable opens remote publication; the
+only publication switch is the `--publish` flag described in §2, and the chain in §4 does not use
+it.
 
 **One cheaper way to spend a key, and what it does not buy.** `npm run test:live`
 (`package.json:55`) is the suite's own live mode: it sets an enable flag itself
@@ -103,12 +104,14 @@ and refuses if the advertised head moves while the clone is being made. The task
 criteria that each resolve to a command exit code. Issue #8 is the task; the criteria are the contract;
 nothing about the run depends on anyone's opinion.
 
-**The end of this chain is a page, not a pull request.** `src/pr/publisher.ts:98`
-(`unavailableRemote()`) is the publication transport this build ships, and both of its methods —
-push a branch, open a request — refuse whatever was approved before them. No flag, environment
-value or digest reaches a remote. A successful live run therefore ends with a complete evidence
-pack and a rendered PR page, and the pull request itself is opened by hand, by a person, in the
-fixture repository, outside this tool.
+**The chain in §4 ends at a page; opening a draft request is a separate, human-approved act.**
+`mergesutra pr <run-id> --approve <digest>` records a yes for exactly the page on screen and sends
+nothing. `mergesutra pr <run-id> --publish`, run afterwards, is the second act: it re-decides the
+digest, re-measures the patch, pushes the approved patch and opens a **draft** pull request through
+the operator's own `gh` login. It never merges. The hosted harness never passes `--publish` and
+deletes its scratch clone when it finishes, so a publication demonstration needs a persistent clone
+and the manual chain below. A live run that stops before `--publish` is a complete evidence pack,
+a rendered page and a digest — not a pull request.
 
 ## 3. Before the first command
 
@@ -219,9 +222,13 @@ node dist/bin.js pr <run-id> --repo <fixture-clone> --approve <64-hex publicatio
 Read the document the digest names before typing it. `repair` is the only command that edits, and
 it edits against the frozen plan you approved — a digest copied from another run, or from a patch
 that has since moved, will not match, and the command will say so instead of working. `pr`'s
-approval records that a human said yes to that page; it does not publish, because §2's transport
-refuses. Both are lowering-only knobs elsewhere: `--max-*-cycles` may reduce a budget and may not
-raise one above the printed ceiling.
+approval records that a human said yes to that page; it does not itself publish. The remote act is
+a second invocation, `node dist/bin.js pr <run-id> --repo <fixture-clone> --publish`, which asks
+GitHub through your own `gh` login to push the approved patch and open a **draft** pull request. It
+re-decides the digest, re-measures the workspace before sending, and records the draft's URL and
+number on the run; it never merges. If it fails after the branch was pushed, exit `4` says the
+remote may have changed — inspect it before retrying. Both are lowering-only knobs elsewhere:
+`--max-*-cycles` may reduce a budget and may not raise one above the printed ceiling.
 
 ## 7. If a step fails
 

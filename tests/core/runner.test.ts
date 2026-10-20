@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import {
   createRunner,
   defaultRunner,
-  githubReadRunner,
+  githubApiRunner,
   isCredentialEnvName,
   safeRun,
   type Runner,
@@ -251,7 +251,7 @@ describe('the environment a started command receives', () => {
     await withEnv('GH_TOKEN', SENTINEL, async () => {
       await withEnv('OPENROUTER_API_KEY', SENTINEL, async () => {
         await withEnv('NPM_TOKEN', SENTINEL, async () => {
-          const result = await githubReadRunner(NODE, [
+          const result = await githubApiRunner(NODE, [
             '-e',
             'process.stdout.write(JSON.stringify({gh:process.env.GH_TOKEN,' +
               'openrouter:process.env.OPENROUTER_API_KEY ?? "ABSENT",' +
@@ -270,7 +270,7 @@ describe('the environment a started command receives', () => {
 
   it('preserves GitHub authentication only for the dedicated owned read runner', async () => {
     await withEnv('GH_TOKEN', SENTINEL, async () => {
-      const result = await githubReadRunner(NODE, ['-e', readEnv('GH_TOKEN')]);
+      const result = await githubApiRunner(NODE, ['-e', readEnv('GH_TOKEN')]);
 
       expect(result.code).toBe(0);
       expect(result.stdout).toBe(SENTINEL);
@@ -279,7 +279,7 @@ describe('the environment a started command receives', () => {
 
   it('still strips the BharatCode credential from the dedicated GitHub read runner', async () => {
     await withEnv('BHARATCODE_API_KEY', SENTINEL, async () => {
-      const result = await githubReadRunner(NODE, ['-e', readEnv('BHARATCODE_API_KEY')]);
+      const result = await githubApiRunner(NODE, ['-e', readEnv('BHARATCODE_API_KEY')]);
 
       expect(result.code).toBe(0);
       expect(result.stdout).toBe('ABSENT');

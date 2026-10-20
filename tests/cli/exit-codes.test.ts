@@ -63,6 +63,7 @@ describe('exit codes for Stage 7 outcomes', () => {
       'REPAIR_BLOCKED',
       'PR_CANDIDATE_RECORDED',
       'PR_APPROVED_LOCAL',
+      'PR_DRAFT_OPENED',
       'PR_PUBLICATION_BLOCKED',
     ] as const satisfies readonly RunOutcome[];
     for (const outcome of all) {
@@ -75,29 +76,35 @@ describe('exit codes for Stage 7 outcomes', () => {
 });
 
 /**
- * Stage 10 ends a run without ending it in the way a script hopes for. Nothing it
- * can do changes anything on GitHub, so none of its outcomes has earned exit 0: the
- * candidate is a proposal, the approval is a human's yes about a proposal, and both
- * mean the next step belongs to somebody else — a publisher that does not exist in
- * this build. `PR_PUBLICATION_BLOCKED` exits 4 because the run stopped with an
- * approval on file that cannot be obeyed, which is the news a wrapper has to see.
+ * Stage 10 ends in one of four ways, and only one of them is the command doing what
+ * it was asked. A candidate is a proposal (3), an approval with no remote attempt is
+ * a local decision (3), and a refusal or a failed attempt exits 4. `PR_DRAFT_OPENED`
+ * exits 0 because GitHub reported a draft — not because something merged, and not
+ * because a page was reviewed. A script that reads 0 as "the change landed" would be
+ * wrong about this product; a script that reads it as "the draft this command was
+ * asked to open exists" is right.
  */
 describe('exit codes for Stage 10 publication outcomes', () => {
   it('never exits 0 for a candidate, however complete its evidence reads', () => {
     expect(code('PR_CANDIDATE_RECORDED')).toBe(EXIT.INCONCLUSIVE);
   });
 
-  it('exits 3 when a human has approved and nothing has been published', () => {
+  it('exits 3 when a human has approved and no draft was opened', () => {
     expect(code('PR_APPROVED_LOCAL')).toBe(EXIT.INCONCLUSIVE);
+  });
+
+  it('exits 0 only when GitHub reported a draft, because that is all it can claim', () => {
+    expect(code('PR_DRAFT_OPENED')).toBe(EXIT.OK);
   });
 
   it('exits 4 when publication could not have gone ahead at all', () => {
     expect(code('PR_PUBLICATION_BLOCKED')).toBe(EXIT.BLOCKED);
   });
 
-  it('does not treat a local approval as the old success code', () => {
+  it('does not treat a local approval as the success code', () => {
     expect(code('PR_APPROVED_LOCAL')).not.toBe(EXIT.OK);
     expect(code('PR_APPROVED_LOCAL')).not.toBe(EXIT.ERROR);
+    expect(code('PR_DRAFT_OPENED')).not.toBe(code('PR_APPROVED_LOCAL'));
   });
 });
 

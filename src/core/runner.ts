@@ -189,13 +189,14 @@ export function createRunner(options: RunnerOptions = {}): Runner {
 }
 
 /**
- * Dedicated runner for MergeSutra-owned GitHub reads.
+ * Dedicated runner for MergeSutra-owned GitHub API calls.
  *
  * It still strips the BharatCode credential, but preserves GitHub authentication
- * so `gh api --method GET` and `gh auth status` can use an environment-backed
- * login. Do not use this runner for repository/workspace commands.
+ * so `gh api` — reads by intake and doctor, the write that opens an approved draft
+ * pull request — can use an environment-backed login. Do not use this runner for
+ * repository/workspace commands.
  */
-export const githubReadRunner: Runner = createRunnerWithEnvFilter({}, withoutModelCredentialEnv);
+export const githubApiRunner: Runner = createRunnerWithEnvFilter({}, withoutModelCredentialEnv);
 
 /** The default production runner: bounded, hidden console on Windows, argv only. */
 export const defaultRunner: Runner = createRunner();

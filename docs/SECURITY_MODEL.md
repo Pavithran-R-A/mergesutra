@@ -566,19 +566,22 @@ counter-claim, it is met with a shape that has no field for it:
 - **The boundary is on the screen, on every path.** Each outcome — including the one
   where a person has just typed the right digest — ends
   `HUMAN APPROVAL RECORDED` / `NO HUMAN APPROVAL RECORDED`, then `REMOTE PUBLICATION NOT
-  ENABLED`, then `NO REMOTE CHANGE HAS BEEN MADE.` `published` is the type-level literal
-  `false` and `prUrl` exists nowhere in the build; there is no exit `0` to read as
-  "a PR was made".
+  ATTEMPTED` when this invocation asked no remote, or `DRAFT PULL REQUEST OPENED` when
+  `--publish` did open one, then the matching last line (`NO REMOTE CHANGE HAS BEEN MADE.`
+  or `NOT MERGED — MERGING IS A HUMAN ACT IN GITHUB.`). `published` is true only when a
+  draft result was recorded, and the result schema admits no merge, reviewer or
+  auto-merge field.
 - **Two guards that behaviour cannot show are taken from source.**
   `tests/pr/boundaries.test.ts` scans the specifiers of every module on the production
   path and fails if the stage can reach the seam, a runner, a writer or a client;
   `tests/pr/source-shape.test.ts` enumerates the argv arrays the stage's closure can
   construct — its only commands are the measurements that read — classifies them with
   the production risk oracle, and pins the result. `publisher.ts` is in the
-  no-hands group precisely because it declares the interface and returns the one
-  refusal, `unavailableRemote()`, which throws on both of its two methods; and the fake
+  no-hands group precisely because it declares the interface and re-decides the digest in
+  `publish()`; the GitHub transport lives in its own module, imported only by the
+  `--publish` path in `src/cli/pr.ts`, and the fake
   transport in `tests/pr/publisher.test.ts` proves the seam is real in the other
-  direction too, so "disabled" is not indistinguishable from "never wired".
+  direction too, so "not requested" is not indistinguishable from "never wired".
 - **What the oracle names, and what it cannot:** `src/process/tool-policy.ts` classifies
   by what a command does, so `gh …` is `REMOTE_MUTATION`, `curl`, `wget`, `nc` and the
   bare package runners are `NETWORK`, `npm publish` (and its pnpm/yarn spellings) is
@@ -588,11 +591,11 @@ counter-claim, it is met with a shape that has no field for it:
   A stage that built one of those argv arrays would be refused by the oracle, not only by
   the enumeration above. What no oracle can name is a *bespoke* program that reaches the
   network under an ordinary-looking command (`node scripts/deploy.js`), so the argv
-  enumeration and the import boundary stay the primary defence, and the reason nothing
-  publishes is bigger than either:
-  MergeSutra has never made a commit, so there is nothing to push; a real pull request
-  would mean committing an operator's tree on their behalf, which no approval in this
-  build claims to cover.
+  enumeration and the import boundary stay the primary defence. The remote act that does
+  exist is narrow and separately approved: only `src/cli/pr.ts` constructs the GitHub
+  transport, only when `--publish` is passed, and only after `--approve <digest>` recorded
+  a yes for the exact page; it pushes one branch and opens a draft request through the
+  operator's own `gh` login, and it never merges.
 
 ### 2.6 The resumed stage (Stage 11)
 
@@ -1441,19 +1444,19 @@ delete unrelated branches, or `git clean` the user's primary repo. Use dedicated
 branches/worktrees, record the exact base SHA, and require human approval for
 any remote change.
 
-- **A page is not a publication.** `mergesutra pr` creates, renames, pushes and
-  deletes no branch and commits nothing; it reads two branch names out of Git
-  facts an earlier stage recorded and *proposes* one string derived from the run
-  id. `pushBranch` takes no force parameter to set, and a publication request that
-  arrives with a `force`, a refspec, an `autoMerge` or a `deleteBranch` field fails
-  the strict schema at the boundary before any transport could obey it — which is
-  twice moot in this build: the only transport the module defines is
-  `unavailableRemote()`, which throws, and no production module imports the publisher
-  at all, so there is no caller that could hand over any transport. That leaves
-  "require human approval for any
-  remote change" holding trivially rather than by vigilance: there is no remote
-  change this command can ask for. What Stage 10 does take from this section's
-  earlier stages is the branch-name rule, and tightens it — the ref alphabet is a
+- **A page is not a publication, and approval is not the act that publishes.**
+  `mergesutra pr` without `--publish` creates, renames, pushes and deletes no branch and
+  commits nothing; it reads two branch names out of Git facts an earlier stage recorded and
+  *proposes* one string derived from the run id. `pushBranch` takes no force parameter to
+  set, and a publication request that arrives with a `force`, a refspec, an `autoMerge` or
+  a `deleteBranch` field fails the strict schema at the boundary before any transport could
+  obey it. The remote act is a second invocation, `--publish`, after `--approve <digest>`:
+  only `src/cli/pr.ts` constructs the GitHub transport; `publish()` re-decides the digest at
+  the seam; `pushBranch` re-measures the patch before sending; the transport pushes one
+  branch and opens a **draft** pull request through the operator's own `gh` login. There is
+  no force, no refspec, no merge and no reviewer field in it, and merging is a human act in
+  GitHub. What Stage 10 does take from this section's earlier stages is the branch-name
+  rule, and tightens it — the ref alphabet is a
   list of what is allowed, because Git accepts `fix; rm -rf /` as a name and a name
   that will be typed near a shell should not survive that.
 - Stage 9R holds this at the moment it is most tempting to break. A cycle that

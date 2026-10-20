@@ -1,5 +1,5 @@
 import { AppError, kindForStatus, type AppErrorKind } from '../core/errors.js';
-import { githubReadRunner, type Runner } from '../core/runner.js';
+import { githubApiRunner, type Runner } from '../core/runner.js';
 import { isSafePathSegment } from '../security/path-safety.js';
 import { defaultRedactor, type Redactor } from '../security/redaction.js';
 import { toIssueDocument, toRepositoryIdentity, commitPayloadSchema } from './schemas.js';
@@ -38,7 +38,7 @@ export class GhCliGitHubSource implements GitHubSource {
   private readonly redactor: Redactor;
 
   constructor(deps: GhClientDeps = {}) {
-    this.run = deps.run ?? githubReadRunner;
+    this.run = deps.run ?? githubApiRunner;
     this.redactor = deps.redactor ?? defaultRedactor;
   }
 

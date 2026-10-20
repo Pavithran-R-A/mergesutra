@@ -210,7 +210,7 @@ describe.skipIf(!AVAILABLE)(
       // as the absence it is: nothing was agreed to, nothing was sent, nothing moved.
       expect(closingLines(page)).toEqual([
         'NO HUMAN APPROVAL RECORDED',
-        'REMOTE PUBLICATION NOT ENABLED',
+        'REMOTE PUBLICATION NOT ATTEMPTED',
         'NO REMOTE CHANGE HAS BEEN MADE.',
       ]);
       expect(page).not.toMatch(/PR CREATED|published to|pull request is open/i);
@@ -258,7 +258,7 @@ describe.skipIf(!AVAILABLE)(
       // screen, in order, are what a person takes away from the command.
       expect(closingLines(screen)).toEqual([
         'HUMAN APPROVAL RECORDED',
-        'REMOTE PUBLICATION NOT ENABLED',
+        'REMOTE PUBLICATION NOT ATTEMPTED',
         'NO REMOTE CHANGE HAS BEEN MADE.',
       ]);
       expect(screen).not.toMatch(/PR CREATED|CONTRIBUTION_READY|AI APPROVED|LGTM/i);

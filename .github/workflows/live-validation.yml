@@ -71,12 +71,20 @@ jobs:
     needs: no-key-chain
     if: github.ref == 'refs/heads/main' && inputs.run_live == true
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The driver enforces its own 25-minute deadline on model work. This wider job
+    # ceiling covers the install, build, digest preload and no-spend boundary proof
+    # that must all finish before the first model request is allowed to start.
+    timeout-minutes: 45
     permissions:
       contents: read
     env:
       GH_TOKEN: ${{ github.token }}
       NO_COLOR: '1'
+      # The image and engine the product's repository runner must use. The proof step
+      # below preloads and measures this same digest; a repository command never runs
+      # on the host, and never sees the model credential.
+      MERGESUTRA_SANDBOX_IMAGE: node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
+      MERGESUTRA_DOCKER_EXECUTABLE: /usr/bin/docker
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -100,6 +108,52 @@ jobs:
             exit 78
           fi
 
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify the configured Docker engine answers
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -x "$MERGESUTRA_DOCKER_EXECUTABLE" ]; then
+            echo "the configured Docker executable is not an executable file: $MERGESUTRA_DOCKER_EXECUTABLE" >&2
+            echo "no model request was sent" >&2
+            exit 78
+          fi
+          if ! server_version="$("$MERGESUTRA_DOCKER_EXECUTABLE" version --format '{{ .Server.Version }}' 2>/dev/null)"; then
+            echo "the Docker daemon did not answer 'docker version'; no model request was sent" >&2
+            exit 78
+          fi
+          if [ -z "$server_version" ]; then
+            echo "the Docker daemon returned an empty version; no model request was sent" >&2
+            exit 78
+          fi
+          echo "docker daemon version: $server_version"
+
+      - name: Preload the sandbox image by immutable digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "$MERGESUTRA_SANDBOX_IMAGE" =~ ^node@sha256:[0-9a-f]{64}$ ]]; then
+            echo "the sandbox image is not digest-pinned: $MERGESUTRA_SANDBOX_IMAGE" >&2
+            echo "no model request was sent" >&2
+            exit 78
+          fi
+          "$MERGESUTRA_DOCKER_EXECUTABLE" pull "$MERGESUTRA_SANDBOX_IMAGE"
+          # The sandbox starts with --pull=never, so this is the only fetch. Reading the
+          # resolved image back proves the named digest is the content on disk.
+          "$MERGESUTRA_DOCKER_EXECUTABLE" image inspect --format 'resolved {{ .Id }}' "$MERGESUTRA_SANDBOX_IMAGE"
+
+      - name: Prove the sandbox boundary without a model call
+        shell: bash
+        env:
+          MERGESUTRA_RUNTIME_PROOF_IMAGE: node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
+          MERGESUTRA_RUNTIME_PROOF_DOCKER: /usr/bin/docker
+        run: node scripts/sandbox-runtime-proof.mjs
+
       - name: Verify selected model is in the authenticated catalog
         shell: bash
         env:
@@ -122,9 +176,6 @@ jobs:
           console.log(`Catalog models: ${ids.join(', ') || '<none>'}`);
           if (!ids.includes(model)) process.exit(79);
           NODE
-
-      - name: Install
-        run: npm ci
 
       - name: Audit shipped dependencies
         run: npm audit --omit=dev --audit-level=high
