@@ -7150,6 +7150,9 @@ S18-10's table and whose CI and Docker readings are in the PR's verification blo
 which will be certified by its own runs rather than by these. No paragraph above is restated as current for a
 later head; that is the convention this whole ledger runs on.)*
 
+*(Second dated note, same day: that certification exists — it is S18-11, the reading of `8b4ae79`, the commit that
+wrote S18-10. The forward-looking sentence above is left in the past tense it was written in.)*
+
 ## S18-1 — the journeys now run on a machine nobody controls — CLOSED (CODE + TEST)
 
 **What was added, measured.** `.github/workflows/customer-workflow.yml` (265 lines, 13 declared steps) plus
@@ -7580,3 +7583,99 @@ each of length 0 and `cleanup {"removed":true,"remaining":0,"lastError":null}`. 
 between run 4 and run 5 — `v24.21.0` in the older artifact, `v24.22.0` in this one — with identical per-cell test
 totals, so a `nodeVersion` difference across SHAs is GitHub's image, not a change to this branch, and must not be
 read as one.
+
+## S18-11 — the commit that wrote the eight-case map got its own hosted reading — CLOSED (measured)
+
+**Why this section exists.** `8b4ae7960789dda8ae88ee1db530d3b460afef52` ships S18-10 and nothing else: one file,
+`docs/SECURITY_GAP_REGISTER.md`, +77/−1, no executed byte. A ledger entry cannot certify the commit that carries it,
+so that head was re-run rather than re-read. CI, the Docker proof and the customer gate all started on it between
+`2026-10-20T07:40:28Z` and `07:40:30Z` on the `pull_request` event, each checking out GitHub's synthetic merge commit
+`32d2b39cec712a6e5779d7edf53216af9184b01b` over base `71af1b062e3ddcb3329044712e225c75654bb654` — an object no branch
+contains, which is why the record binds to it and not to the head.
+
+**What it measured, in three runs.**
+
+- CI [39388064475](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39388064475) — all six cells `success`,
+  started `07:40:30Z` (Ubuntu, Windows) and `07:40:36Z` (macOS), finished between `07:42:27Z` and `07:51:11Z`. Every
+  cell reports `Test Files 169 passed | 3 skipped (172)`; `Tests 2546 passed | 5 skipped (2551)` on both macOS cells
+  and both Windows cells and `2544 passed | 7 skipped (2551)` on both Ubuntu cells; the packaging boundary
+  `5 passed (5)` files / `115 passed (115)`; the installed artifact `1 passed (1)` / `14 passed (14)`. That is the
+  same reading as `0aaee73` and `e99eb53`, file for file and skip for skip. The 965,177-byte combined log swept for
+  `ENOSPC`, `no space left`, `heap out of memory`, `FATAL ERROR`, `worker crash`, `Failed Files`, `\d+ failed`,
+  `Unhandled` and `ERR_PNPM|ERR_ENOENT|ERR_ASSERT` returns 0 matches on all nine patterns.
+- Real Docker [39388064443](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39388064443) — three legs
+  `success`, one per qualified image (`node@sha256:0e5f9065…`, `node@sha256:14078204…`, `node@sha256:a4fb1414…`).
+  Each leg prints `SANDBOX_BOUNDARY_RECORDS: inspected=1 matched=1`, `SANDBOX_BOUNDARY_VIOLATIONS: none`, two hostile
+  fixtures each with `SANDBOX_ESCAPE_LANDING: hostPathWrite=false insideMount=0 outsideMount=0` and
+  `SANDBOX_ESCAPE_LANDING_VERDICT: accounted`, and both `SANDBOX_RUNTIME_PROOF: PASS` and
+  `STAGE_6_AND_7_DOCKER_PROOF: PASS`.
+- Customer gate [39388064459](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39388064459) — one job,
+  `eight customer journeys, hosted`, `07:40:30Z` → `07:41:53Z` (83 s). The harness printed `SCENARIO journey: PASS`
+  at `07:41:09`, `failed-assertion` `07:41:14`, `interruption` `07:41:19`, `repair` `07:41:26`, `stale-patch`
+  `07:41:32`, `forged-metadata` `07:41:38`, `no-sandbox` `07:41:42`, `repeated` `07:41:48`, then
+  `CUSTOMER_WORKFLOW_PASS scenarios=8 notPass=0` at `07:41:48.211Z`. The separate certifying step read that record at
+  `07:41:48.272Z` — **62 ms** after its own `finishedAt 2026-10-20T07:41:48.210Z` — and printed
+  `CUSTOMER_GATE_PASS scenarios=8`; then `CUSTOMER_EVIDENCE_PASS files=259` at `07:41:48.592Z`, and last
+  `CUSTOMER_WORKFLOW_BOUNDS_PASS containers=0 fixture_main=6f3a0adb17389b93fd76b95c21a1c9eb7b161998` at
+  `07:41:50.793Z`. Those 62 ms are S18-5's repair working on a run it was not written for: with the old
+  second-precision read the two timestamps would have landed in the same second and the gate would have refused a
+  current artifact as stale, which is exactly the failure that made run 3 red. The harness step's own environment
+  named `MERGESUTRA_GATE_REVISION=32d2b39c…`, `MERGESUTRA_GATE_NOT_BEFORE=2026-10-20T07:40:35.261Z`,
+  `MERGESUTRA_STAGE_DEADLINE_MS=420000` and the pinned `MERGESUTRA_SANDBOX_IMAGE`; the only credential present is the
+  job's own ephemeral read-only token, which Actions masks as `***` in its own log.
+
+**The artifact, read back after the run rather than quoted from the job that made it.**
+`customer-workflows-39388064459`, ID 12248441376, 644,046 bytes, GitHub's own zip digest
+`sha256:85025ec0f2a2add70ce1931ff47f6f31774c20d751a2a64914dab87f60f2a2a7`; extracted tree 243 files over 2,687,437
+bytes in eight scenario directories plus `summary.json` — again 259 written and 243 published, the 16 named in S18-7.
+Its identity block, from those bytes: `revision 32d2b39cec712a6e5779d7edf53216af9184b01b`, `platform linux`,
+`nodeVersion v24.22.0`,
+`sandboxImage node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7`,
+`fixtureBaseSha 6f3a0adb17389b93fd76b95c21a1c9eb7b161998`, `startedAt 2026-10-20T07:41:02.565Z`, `finishedAt
+2026-10-20T07:41:48.210Z`. All eight scenario records read `verdict PASS` with `problems`, `damage` and `secrets` each
+of length 0 and `cleanup {"removed":true,"remaining":0,"lastError":null}`. The shipped instrument — the `leaked()`
+patterns at scripts/lib/customer-evidence.mjs:44 together with the owner-name-in-path, runner-work-directory and
+Windows-profile regexes the bundler itself uses — reads over those 243 files
+`files=243 unreadable=0 owner_in_path=0 runner_work_files=0 windows_users_files=0 credential_shaped_files=0`, and the
+four planted control shapes put through the same patterns all four match, so the zeros are a measurement rather than a
+blind reader.
+
+**Reproduction measured, not asserted.** `e99eb53`'s published tree and this one both hold 243 files; 170 path names
+are shared, 116 of those differ in content, and 73 paths per side are unique because the product writes its own state
+under run-stamped names. Every difference is the run's identity, not the product's behaviour: the disposable
+workspace's random suffix, the `run-<UTC>-<6 hex>` identifiers, the millisecond timestamps, the scripted gateway's
+ephemeral loopback port, and the `duration_ms` values inside the fixture's own test output — which also move the
+12-hex digest prefixes computed over that output. Normalise those shapes and the two `summary.json` files, 1,377 lines
+each, differ on **2 lines**, and both of those are the same worktree name spelled with this run's stamp. That is the
+property S18-10's "evidence could have come from another run" rule depends on: had the two records been byte-identical,
+no freshness check could have told them apart and a green row would have been re-usable across revisions. A run that
+reproduced exactly would be a run that did not happen.
+
+**The run count moved, so it is re-stated.** S18-10's table has five rows because that was the API's answer when that
+reading was taken. `customer-workflow.yml` now has six:
+[39243268605](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39243268605) failure,
+[39247291675](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39247291675) failure,
+[39378637341](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39378637341) failure,
+[39379727810](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39379727810) success,
+[39385021366](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39385021366) success,
+[39388064459](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39388064459) success — three red, three green.
+"Four hosted runs to reach the first green one" in the status paragraph is still the right count of attempts; the
+number of gate runs says nothing on its own about quality, and both readings stay because each was true when taken.
+
+**And the customer repository, re-read after all of it.** `env -i git ls-remote
+https://github.com/Pavithran-R-A/mergesutra-e2e-fixture.git` answers
+`6f3a0adb17389b93fd76b95c21a1c9eb7b161998` for both `HEAD` and `refs/heads/main`, with no credential helper in the
+environment and nothing in the URL — the fixture is readable anonymously, which is what Stage 18 needed and the only
+thing the visibility flip was for. Unauthenticated API metadata: `private=false`, `visibility=public`,
+`default_branch=main`, `pushed_at=2026-10-04T13:16:49Z` (unchanged since before this stage existed, so no push was
+made to obtain a green row), `updated_at=2026-10-20T05:47:50Z` — still the only field the flip moved, and it precedes
+the first hosted clone of that fixture at `06:19:39Z`. History is still 2 commits, `6f3a0adb1738…` over `a0bf82b5fb…`.
+Issue #1 is still `open` with `updated_at=2026-10-04T13:17:13Z` and all five acceptance criteria present, including
+the AC-5 sentence about a five-line change rather than a new library that S17-1 was about, so the oracle's input was
+not edited either. PR #44 remains `open` and unmerged; security issue #33 remains `open`.
+
+**What this section does not claim.** It adds no behaviour: with no executed byte changed, it re-derives the existing
+verdicts on the head that carries the map and nothing more. It does not close S18-8 — the gate still arrives on every
+pull request and still no branch rule *requires* its result, which remains an operator settings action. And it is not
+the last word: the commit that carries this section gets its own three hosted runs, read back the same way, per the
+convention the two dated notes above record.
