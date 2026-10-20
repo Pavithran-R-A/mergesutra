@@ -9,6 +9,7 @@ const WORKFLOW = readFileSync(
   'utf8',
 );
 const DRIVER = readFileSync(path.join(ROOT, 'scripts', 'e2e-validation.mjs'), 'utf8');
+const README = readFileSync(path.join(ROOT, 'README.md'), 'utf8');
 const LIVE_RULES = readFileSync(
   path.join(ROOT, 'scripts', 'lib', 'live-qualification.mjs'),
   'utf8',
@@ -88,19 +89,64 @@ describe('the controlled live-validation workflow', () => {
     const modelStep = live.slice(live.indexOf('- name: Run the bounded real-model chain'));
     expect(modelStep).toContain('BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}');
     expect(modelStep).toContain('BHARATCODE_MODEL: ${{ inputs.model }}');
-    // Below the transport's own ceiling, not above it. Node's fetch (undici) aborts a
-    // non-streaming request that never answers at ~300s with UND_ERR_HEADERS_TIMEOUT,
-    // whichever way this setting is configured — proved locally in
-    // scratch/undici-headers-timeout-probe.mjs (rejected at 306985ms with
-    // ourSignalAborted: false). Run 39460563729 therefore spent 304.5s and reported a
-    // network failure while BHARATCODE_TIMEOUT_MS said 540000. A cap set at exactly
-    // 300000 loses that race nondeterministically (run 39445715858 reported a timeout,
-    // the same wall of time), so the live job sets one below it: the app timer wins,
-    // and the failure names the budget that was actually reached. The driver still
-    // kills every command at its share of the 25-minute wall clock, so this cannot
-    // lengthen the chain.
+    // Below the transport's own ceiling, not above it. Node's fetch aborts a
+    // non-streaming request whose answer never starts at ~300s with
+    // UND_ERR_HEADERS_TIMEOUT, whichever way this setting is configured — the completion
+    // request sends no `stream` flag, so the response headers arrive only when the whole
+    // answer is ready and this cap can never be the thing that waits longer. Proved
+    // offline on this host: a local listener that accepts a connection and never answers,
+    // Node 24 `fetch`, this variable set above the bound — rejected at about 306s with the
+    // abort reason still our own sentinel unused. Run 39460563729 filled 304.5s of step
+    // time with a network failure while this said 540000. A cap at exactly 300000 loses
+    // that race nondeterministically (run 39445715858 reported the same wall of time as a
+    // timeout), so the live job sets one below it and the failure names the budget
+    // reached. The driver runs the chain against the 25-minute wall clock: it will not
+    // start a command once the clock is spent and gives each one the time left on it.
     expect(modelStep).toContain("BHARATCODE_TIMEOUT_MS: '290000'");
     expect(modelStep).toContain("BHARATCODE_MAX_RETRIES: '0'");
+  });
+
+  it('states the transport bound instead of promising a cap it cannot honour', () => {
+    // The defect this catches is the one shipped in PR #46: a comment here and a claim in
+    // README.md that a larger per-request cap buys patience, when the transport settles a
+    // non-streaming request at ~300s regardless. Both files make the promise — prose in
+    // README, configuration plus comment in the workflow — so both are swept together.
+    const prose = `${WORKFLOW}\n${README}`;
+    // The bound has to be stated where the variable is documented, not merely somewhere:
+    // a README that mentions ~300 s in one place and promises an unlimited cap in the
+    // bullet itself is the document that misled the operator.
+    const bullet = README.split(/\n(?=\/\* |- \*\*`)/).find((entry) =>
+      entry.includes('BHARATCODE_TIMEOUT_MS'),
+    );
+    expect(bullet, 'README documents BHARATCODE_TIMEOUT_MS in its own bullet').toBeDefined();
+    expect(bullet).toContain('300 s');
+    // The live job's own value is the only configured one, and it sits under the bound.
+    const configured = prose.match(/BHARATCODE_TIMEOUT_MS:\s*'?(\d+)/g) ?? [];
+    expect(configured).toHaveLength(1);
+    expect(configured[0]).toContain('290000');
+    // Any other figure written as a number of milliseconds is a budget promised above
+    // the bound. Run and probe IDs are not followed by `ms`, so they do not trip this.
+    for (const digits of prose.replace(/'290000'/g, '').match(/\b(\d{5,})\s*ms\b/g) ?? []) {
+      const ms = Number(digits.replace(/\D/g, ''));
+      expect(ms, `${digits} is promised above the transport bound`).toBeLessThan(300_000);
+    }
+    // The same mistake written in seconds instead of milliseconds.
+    expect(prose).not.toMatch(/\b[4-9]\d0-second|[5-9]\d0\s*s\b/);
+  });
+
+  it('describes the wall clock the way the driver actually enforces it', () => {
+    // The live step's comment tells the operator what happens when the 25 minutes run out.
+    // It used to say each command is killed at "its share" of the clock, which is not what
+    // the driver does: it refuses to start a command after the deadline and gives each
+    // running one the whole time still left. A promise about the clock is only worth what
+    // the code behind it is worth, so both halves are pinned here.
+    expect(DRIVER).toMatch(
+      /if \(mode === 'live' && Date\.now\(\) - startedAt >= LIVE_DEADLINE_MS\)/,
+    );
+    expect(DRIVER).toMatch(
+      /timeout: Math\.min\(options\.timeoutMs \?\? remainingMs\(\), remainingMs\(\)\)/,
+    );
+    expect(`${WORKFLOW}\n${DRIVER}`).not.toMatch(/its share of the \S+-minute wall clock/);
   });
 
   it('configures the production sandbox image and absolute Docker path for the chain', () => {

@@ -108,23 +108,51 @@ const TIMEOUT_REASON: { readonly mergesutra: 'timeout' } = { mergesutra: 'timeou
  * timeout was reported to the operator as `Could not reach BharatCode: fetch failed`,
  * which is consistent with a dead hostname, a dropped TLS session and a gateway that
  * accepted the connection and never answered. Those need different fixes, and the
- * four words cannot tell them apart. The cause is flattened to one bounded line: it
- * can come from a socket, so it is not trusted to be short or free of newlines.
+ * four words cannot tell them apart.
+ *
+ * Both halves come off somebody else's connection, so both are held to one line and
+ * a length of our choosing — the CLI sink escapes what can steer a terminal and lets a
+ * newline through, and an operator's report should not become a socket's transcript.
+ * Each half is bounded on its own, not the string after joining them: a chatty
+ * headline must not be able to crowd out the cause code, which is the whole diagnosis.
  */
 function transportDetail(error: unknown): string {
-  const headline = error instanceof Error ? error.message : String(error);
+  const own = error instanceof Error ? error.message : describeForeign(error);
+  const headline = oneLine(own, 160);
   const cause = error instanceof Error ? error.cause : undefined;
-  if (cause === undefined) return headline;
-  const parts =
-    cause instanceof Error
-      ? [cause.name, (cause as { code?: string }).code, cause.message]
-      : [typeof cause, String(cause)];
-  const oneLine = parts
-    .filter(Boolean)
-    .join(' ')
-    .replace(/[\r\n]+/g, ' ')
-    .slice(0, 240);
-  return oneLine === '' ? headline : `${headline} (cause: ${oneLine})`;
+  const detail = cause === undefined ? '' : oneLine(describeForeign(cause), 240);
+  return detail === '' ? headline : `${headline} (cause: ${detail})`;
+}
+
+/** Collapse a foreign string to one bounded line. Truncation is expected, not an error. */
+function oneLine(value: string, limit: number): string {
+  return value.replace(/[\r\n]+/g, ' ').slice(0, limit);
+}
+
+/**
+ * A short, safe name for something a connection handed back.
+ *
+ * `String()` of a plain object is `[object Object]`, which names nothing — and printing
+ * that object's *values* is how a request payload, headers included, can end up on a
+ * screen. So a bare object is described by its key names, which say what it was without
+ * saying what was in it.
+ */
+function describeForeign(value: unknown): string {
+  if (value instanceof Error) {
+    return [value.name, (value as { code?: string }).code, value.message].filter(Boolean).join(' ');
+  }
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && value !== null) {
+    const keys = Object.keys(value).slice(0, 8);
+    return keys.length === 0 ? 'object' : `object with keys ${keys.join(', ')}`;
+  }
+  return String(value);
+}
+
+/** The undici error code one level below a `TypeError: fetch failed`, if there is one. */
+function causeCode(error: unknown): string | undefined {
+  const cause = error instanceof Error ? error.cause : undefined;
+  return cause instanceof Error ? (cause as { code?: string }).code : undefined;
 }
 
 export class HttpBharatCodeClient implements BharatCodeClient {
@@ -345,10 +373,28 @@ export class HttpBharatCodeClient implements BharatCodeClient {
     }
     return new AppError({
       kind: 'network',
-      message: `Could not reach BharatCode: ${this.redactor.text(transportDetail(error))}`,
+      message: `Could not reach BharatCode: ${this.redactor.text(
+        `${transportDetail(error)}${this.transportWait(error)}`,
+      )}`,
       retryable: true,
       cause: error,
     });
+  }
+
+  /**
+   * How long this side was prepared to wait, appended only when the transport is the
+   * party that stopped waiting for headers.
+   *
+   * The two waits are different numbers and the reader has to be able to tell them
+   * apart: run 39460563729 configured 540000ms and was answered at 304.5s by
+   * `UND_ERR_HEADERS_TIMEOUT`, and a message quoting only the configured budget would
+   * have said the run gave up five and a half minutes early. It did not. The transport
+   * gave up, and this repository cannot raise that bound without a dispatcher of its
+   * own, which would be a new runtime dependency.
+   */
+  private transportWait(error: unknown): string {
+    if (causeCode(error) !== 'UND_ERR_HEADERS_TIMEOUT') return '';
+    return `; the configured per-request budget was ${this.config.timeoutMs}ms, which the transport did not reach`;
   }
 
   async listModels(): Promise<ModelList> {

@@ -22,6 +22,15 @@ const completionBody = {
   model: 'bc-large',
 };
 
+/**
+ * A credential-shaped value that matches none of the global secret patterns.
+ *
+ * `TEST_KEY` is shaped like an `sk-...` key, so the redactor's pattern list masks it
+ * whether or not the client ever registered the configured key. Anything that has to
+ * prove *key-aware* masking has to use a value only the registration can know.
+ */
+const UNSHAPED_KEY = 'Qz7Hn2Wp9Tr4Xk8B';
+
 describe('BharatCodeClient.listModels', () => {
   it('parses a valid OpenAI-style model list', async () => {
     const { fetch, calls } = fakeFetch([
@@ -222,22 +231,28 @@ describe('Retry policy (deterministic, offline)', () => {
     // Node's fetch reports every socket-layer failure as `TypeError: fetch failed` and puts
     // the reason in `cause`. Run 39460563729 lost a paid plan request to a ~300 s transport
     // headers timeout and the whole evidence trail was the four words "fetch failed", which
-    // is indistinguishable from a dead endpoint. The cause has to survive into the message.
+    // is indistinguishable from a dead endpoint. The cause has to survive into the message —
+    // and the key inside it has to be masked by *registration*, not by shape, or this proves
+    // nothing about the client that seeds the redactor with its own configured key.
     const transportFailure = Object.assign(new TypeError('fetch failed'), {
-      cause: Object.assign(new Error(`Headers Timeout Error while sending ${TEST_KEY}`), {
+      cause: Object.assign(new Error(`Headers Timeout Error while sending ${UNSHAPED_KEY}`), {
         name: 'HeadersTimeoutError',
         code: 'UND_ERR_HEADERS_TIMEOUT',
       }),
     });
     const { fetch } = fakeFetch([transportFailure]);
     const client = createBharatCodeClient({
-      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      config: baseConfig({
+        apiKey: UNSHAPED_KEY,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
       fetch,
     });
     const err = await client.complete({ messages: [] }).catch((e) => e);
     expect(err.kind).toBe('network');
     expect(err.message).toContain('UND_ERR_HEADERS_TIMEOUT');
-    expect(err.message).not.toContain(TEST_KEY);
+    expect(err.message).not.toContain(UNSHAPED_KEY);
+    expect(err.message).toContain('[REDACTED]');
   });
 
   it('still reports a transport failure that carries no cause', async () => {
@@ -248,7 +263,107 @@ describe('Retry policy (deterministic, offline)', () => {
     });
     const err = await client.complete({ messages: [] }).catch((e) => e);
     expect(err.kind).toBe('network');
-    expect(err.message).toContain('fetch failed');
+    // The whole message, not a substring: `fetch failed` is inside the broken version of
+    // the helper too (`fetch failed (cause: undefined undefined)`), and an error screen
+    // that invents a cause the transport never sent is its own misdiagnosis.
+    expect(err.message).toBe('Could not reach BharatCode: fetch failed');
+  });
+
+  it('holds one socket-said line to one bounded line', async () => {
+    // `transportDetail` flattens and truncates because the text it handles comes off a
+    // connection: a peer can put a newline where an operator's report expects a sentence,
+    // and can keep talking for thousands of characters. Both halves of that rule have to
+    // cover the message the transport actually wrote, not only the cause underneath it —
+    // `fetch failed` itself is somebody else's string on Node, and `terminalSafeText` at
+    // the CLI sink deliberately lets a newline through.
+    const chatter = 'y'.repeat(5000);
+    const transportFailure = Object.assign(
+      new TypeError(`fetch failed\r\nsecond line ${chatter}`),
+      {
+        cause: Object.assign(new Error(`Headers Timeout Error\n${chatter}`), {
+          name: 'HeadersTimeoutError',
+          code: 'UND_ERR_HEADERS_TIMEOUT',
+        }),
+      },
+    );
+    const { fetch } = fakeFetch([transportFailure]);
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.message).not.toMatch(/[\r\n]/);
+    expect(err.message).not.toContain(chatter);
+    expect(err.message).toContain('UND_ERR_HEADERS_TIMEOUT');
+  });
+
+  it('names a rejection that is not an Error by its keys, never [object Object]', async () => {
+    // A fetch that rejects with a bare object is reachable — `controller.abort(value)`
+    // hands the value back untouched, and a mocked or future transport can do the same.
+    // `String()` of that is `[object Object]`, which names nothing, and printing the
+    // *values* of somebody else's object is how a request payload ends up on a screen.
+    // Keys carry the diagnosis; the values do not get to travel.
+    // Keys carry the diagnosis; the values do not get to travel. `fakeFetch` only ever
+    // throws Errors, so this rejection is made here, exactly as Node makes it.
+    const fetch: FetchLike = async () => {
+      throw { endpoint: 'https://bharatcode.test/api/model/v1/chat/completions', attempt: 1 };
+    };
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).not.toContain('[object Object]');
+    expect(err.message).toContain('endpoint');
+    expect(err.message).not.toContain('chat/completions');
+  });
+
+  it('names the configured cap when the transport times out on its own', async () => {
+    // The one failure an operator has to be able to price. When Node's fetch gives up on
+    // a request that never answered, the reader's next question is whether this side's
+    // budget fired — and a message that shows only the cause leaves 540000 and 60000
+    // indistinguishable. So the cap is reported next to the transport's own code, without
+    // claiming which of the two stopped the wait.
+    const transportFailure = Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('Headers Timeout Error'), {
+        name: 'HeadersTimeoutError',
+        code: 'UND_ERR_HEADERS_TIMEOUT',
+      }),
+    });
+    const { fetch } = fakeFetch([transportFailure]);
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 741000,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('UND_ERR_HEADERS_TIMEOUT');
+    expect(err.message).toContain('741000ms');
+  });
+
+  it('does not quote the cap for a failure that was never a wait', async () => {
+    const { fetch } = fakeFetch([
+      Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1'), {
+          name: 'ConnectError',
+          code: 'ECONNREFUSED',
+        }),
+      }),
+    ]);
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 741000,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.message).toContain('ECONNREFUSED');
+    expect(err.message).not.toContain('741000ms');
   });
 });
 
