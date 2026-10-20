@@ -1137,8 +1137,8 @@ INFO          Readiness · pack-current              The evidence pack (ec444253
 WARN          Readiness · human-approved            No approval has been given for this proposal, so nothing is ready to publish.
 INFO          Publication proposal                  Parser accepts invalid empty dates — mergesutra/run-…-999999 into main (projectbharat/datekit); patch c7f550c24007…, evidence pack ec44425340cd…, body 3385 characters. Digest 269328f231a3…
 WARN          Publication approval                  No approval has been given for this candidate, so nothing will be published. Read the page above and run `mergesutra pr run-20260925T090000Z-999999 --approve 269328f231a3…` to record that you approved exactly it.
-INFO          Publication next step                 Every fact this stage reads is current, so the page above is the page a human is asked about. To agree to exactly it: `mergesutra pr run-20260925T090000Z-999999 --approve <digest>`. No branch was pushed and no pull request was opened: this build has no publication remote, so an approval here records a decision and performs no action.
-INFO          Publication boundary                  No branch was pushed and no pull request was opened: this build has no publication remote, so an approval here records a decision and performs no action.
+INFO          Publication next step                 Every fact this stage reads is current, so the page above is the page a human is asked about. To agree to exactly it: `mergesutra pr run-20260925T090000Z-999999 --approve <digest>`. No branch was pushed and no pull request was opened: --publish was not passed, so this command assembled a page and recorded a decision without performing a remote action.
+INFO          Publication boundary                  No branch was pushed and no pull request was opened: --publish was not passed, so this command assembled a page and recorded a decision without performing a remote action.
 
 Run         run-20260925T090000Z-999999
 Outcome     PR_CANDIDATE_RECORDED
@@ -1175,7 +1175,7 @@ The page a reviewer would read
    naming the same digest… then the last three lines of the screen, on every path:)
 
 NO HUMAN APPROVAL RECORDED
-REMOTE PUBLICATION NOT ENABLED
+REMOTE PUBLICATION NOT ATTEMPTED
 NO REMOTE CHANGE HAS BEEN MADE.
 ```
 
@@ -1194,12 +1194,18 @@ Page        mergesutra/run-20260925T090000Z-999999 → main (projectbharat/datek
 …the same page again, printed in full, because the approval is of the page and not
    of a summary of it…
 
-Next        HUMAN_APPROVED_FOR_PR — a human approved digest 269328f231a3… for this run, and the page is filed. No branch was pushed and no pull request was opened: this build has no publication remote, so an approval here records a decision and performs no action.
+Next        HUMAN_APPROVED_FOR_PR — a human approved digest 269328f231a3… for this run, and the page is filed. To ask GitHub for a draft pull request: `mergesutra pr run-…-999999 --publish`. No branch was pushed and no pull request was opened: --publish was not passed, so this command assembled a page and recorded a decision without performing a remote action.
 
 HUMAN APPROVAL RECORDED
-REMOTE PUBLICATION NOT ENABLED
+REMOTE PUBLICATION NOT ATTEMPTED
 NO REMOTE CHANGE HAS BEEN MADE.
 ```
+
+`--publish` is the second, separate act. Run alone it changes nothing; run after an
+approval for the page on screen, it asks the transport to push the approved patch and open a
+**draft** pull request through your own `gh` login. It re-decides the digest and re-measures the
+patch before sending, records the draft's URL and number on the run, and never merges. A later
+`pr` read reports that recorded draft as history and sends nothing again.
 
 What those screens are and are not:
 
@@ -1452,13 +1458,13 @@ What those screens are and are not:
   half-finished patch it left. An interrupted review keeps its attempt count.
   `tests/lifecycle/interruption.test.ts` walks every stage boundary this build can be cut
   at and reads the record and the workspace back on both sides.
-- **Nothing reaches a remote, and nothing is approved on the way there.** The full capture
-  starts no push, fetch, `gh`, publish or deploy process — read from the fixture's own gate
-  log. That claim is about what these commands can do, not about what the checkout happens to
-  have: `origin` is now configured for this repository, and no command in this build reaches
-  it. `publication.remote` stays `NOT_ATTEMPTED_BY_THIS_BUILD`, and no flag or
-  environment value changes that: the publisher this build ships refuses both of its
-  methods (`src/pr/publisher.ts`).
+- **Nothing in the capture reaches a remote, and the capture is not a publication.** The full
+  capture starts no push, fetch, `gh`, publish or deploy process — read from the fixture's own gate
+  log. That claim is about `status`, `resume` and a plain `pr`; `publication.remote` stays
+  `NOT_ATTEMPTED_BY_THIS_BUILD` for them. The one remote act this build offers is a separate
+  command, `mergesutra pr <run> --publish`, run after a typed approval of the page; it pushes the
+  approved patch and opens a **draft** pull request through the operator's own `gh` login, and it
+  never merges. No environment value selects it, and no path in this capture reaches it.
 - **Exit codes.** A preview exits `0` for having described a plan, and that `0` is about
   the command, not the run. An executed resume returns the outcome the stage filed — `0`
   only for `VERIFICATION_PASS`, `3` for a review, pack or candidate that was recorded, `4`
@@ -1677,10 +1683,13 @@ each capped, and `mergesutra implement --help` prints the caps.
 Two other names shape the screens and are not BharatCode configuration: `NO_COLOR`
 turns colour off when it is set to anything non-empty, and `FORCE_COLOR=0` turns it
 off for a run inside a harness that claims a terminal anyway
-(`src/cli/render.ts:39-44`). There is **no** variable that turns remote publication
-on. The transport this build ships is `unavailableRemote()`
-(`src/pr/publisher.ts`), whose push and open methods both refuse whatever precedes
-them, so no environment value, flag or approval reaches a remote.
+(`src/cli/render.ts:39-44`). There is **no environment variable** that turns remote
+publication on. The only switch is the `--publish` flag on `mergesutra pr`, and it acts
+only after `--approve <digest>` has recorded a yes for the exact page on screen: the
+transport is constructed only in that one CLI path (`src/cli/pr.ts`), the digest is
+re-decided at the seam (`src/pr/publisher.ts`), the patch is re-measured before bytes are
+sent, one branch is pushed, and a **draft** pull request is opened through the operator's
+own `gh` login. It never merges; merging is a human act in GitHub.
 
 ## Verification model
 

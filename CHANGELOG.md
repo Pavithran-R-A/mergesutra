@@ -6,6 +6,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — an approved page can become a draft pull request
+
+`mergesutra pr` could prepare and locally approve a page but had no remote: the only transport
+`src/pr/publisher.ts` defined was `unavailableRemote()`. A second, separate act now exists:
+after `--approve <digest>` records a yes for exactly the page on screen, `pr <run-id> --publish`
+constructs `src/pr/github-publisher.ts` and asks GitHub, through the operator's own `gh` login,
+to push the approved patch and open a **draft** pull request.
+
+The boundary is re-checked at the seam, not trusted from the CLI: `publish()` re-runs
+`decidePublication` before any transport call, and `pushBranch` re-describes the workspace and
+refuses if the patch identity moved. The transport uses the Git Data API (blob → tree → commit →
+ref) and `POST /pulls` with `draft: true`; the strict request schemas have no force, refspec,
+auto-merge, reviewer or delete field, and a request whose `draft` is not `true` is refused. No
+token is placed in argv, a URL or a request body; authentication is the operator's existing `gh`
+login. The run record stores the draft's `url`, `number`, `draft` and `publishedAt` beside the
+approval that authorized it, and a later read reports a recorded draft as history without sending
+anything again.
+
+Tests: `tests/pr/github-publisher.test.ts` (the exact `gh api` calls and their order, refusals and
+digest/patch re-checks), `tests/cli/pr.test.ts` (success, no-approval, push failure and later-read
+paths), `tests/pr/record.test.ts` (strict result schema, including refusal of `draft: false` and
+non-https URLs) and `tests/pr/boundaries.test.ts` (only the `--publish` CLI path imports the
+transport). No live draft pull request has been opened by this tree at the time of writing; the
+controlled demonstration is a separate, human-approved step.
+
 ### Fixed — Stage 14 qualification: a run ended on a tally meant to be a streak
 
 Twenty-two controlled real-model attempts of this release produced a sanitized artifact, twelve of them

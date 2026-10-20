@@ -1228,6 +1228,10 @@ security pass, not aspirations.
 
 ## ADR-054 — Human approval is digest-bound to a PublicationCandidate, and approval is not remote capability
 
+*(Superseded in part by ADR-069: the "no transport, no result" half no longer describes
+the build. The digest bind, the strict candidate shape and the separation of the yes
+from the act all remain in force.)*
+
 - **Decision:** Stage 10 freezes one document — `PublicationCandidate`
   (`src/pr/candidate.ts`) — and a human's yes is only ever about that document's
   digest. The shape is `.strict()` and carries no verdict field: no `approved`, no
@@ -2006,3 +2010,36 @@ security pass, not aspirations.
   job; and two upstream refusals do a different kind of work — `path-safety.ts:111` refuses a path
   with a control in its name, and `lock-state.ts:105` prints an unprintable lock host as `a name
   this build will not print` instead of escaping it.
+
+## ADR-069 — Publication is a second invocation, and the transport is narrower than a general GitHub client
+
+- **Decision:** `mergesutra pr <run> --publish` is a separate command from `--approve`, and it
+  is the only production path that constructs the GitHub transport
+  (`src/pr/github-publisher.ts`). `publish()` (in `src/pr/publisher.ts`) re-runs
+  `decidePublication()` against the recorded candidate, and `pushBranch` re-describes the
+  workspace with Stage 7's `describePatch` and refuses if the patch identity moved. The
+  transport speaks only Git Data API shapes it needs: read the base commit, create blobs
+  base64-encoded, create a tree with `base_tree` and `sha: null` deletions, create a commit
+  parented on the recorded base SHA, create the branch ref (surfacing `422 already exists`
+  rather than forcing), then create a pull request with exactly `{title, body, head, base,
+  draft: true}`. Authentication is the operator's own `gh` login through the existing runner;
+  no token is read from the environment or placed in argv, a request body or a URL. A
+  successful result is recorded as exactly `{draft: true, number, publishedAt, url}` and the
+  schema admits it only beside an approval whose digest matches.
+- **Reason:** The earlier absence was structural, but draft publication is a product
+  requirement. Keeping it in a second invocation preserves the property ADR-054 established —
+  a yes to a page is not the hands that publish it — while letting the record finally say what
+  happened. Re-deciding at the seam means a stale approval cannot send, and re-measuring the
+  patch means a workspace that moved after approval cannot be published as if it had not.
+- **Alternatives:** publishing inside `--approve` (folds the act into the yes); a token
+  environment variable (duplicates a secret and puts publication permission in the wrong
+  scope); a generic REST or `gh` pass-through behind the seam (a shape that can call anything
+  is not a capability for one pull request); force/refspec or auto-merge fields (neither is
+  claimed or needed).
+- **Consequence:** `pr/stage.ts` still cannot publish, and plain `pr` now prints
+  `REMOTE PUBLICATION NOT ATTEMPTED`; `--publish` without an approval sends nothing and says
+  the same. Success prints `DRAFT PULL REQUEST OPENED` / `NOT MERGED — MERGING IS A HUMAN ACT
+  IN GITHUB.`; a later read reports a recorded draft as history without re-sending. A failure
+  after a push exits 4 and says to inspect the remote before retrying. No live draft pull
+  request had been opened by this tree when this ADR was written; the controlled demonstration
+  is a separate, human-approved step.

@@ -225,11 +225,11 @@ export function formatPr(input: PrStageResult, renderer: Renderer): string {
   } else if (result.publicationFailure) {
     lines.push(renderer.heading('REMOTE PUBLICATION FAILED'));
     lines.push(renderer.heading('THE REMOTE MAY HAVE CHANGED — INSPECT IT BEFORE RETRYING.'));
-  } else if (result.publishRequested) {
-    lines.push(renderer.heading('REMOTE PUBLICATION NOT ATTEMPTED'));
-    lines.push(renderer.heading('NO REMOTE CHANGE HAS BEEN MADE.'));
   } else {
-    lines.push(renderer.heading('REMOTE PUBLICATION NOT ENABLED'));
+    // Both ways of arriving here — no --publish, and --publish without an approval —
+    // asked no remote for anything. The capability exists; this invocation did not
+    // use it, and the screen says that rather than implying publication is disabled.
+    lines.push(renderer.heading('REMOTE PUBLICATION NOT ATTEMPTED'));
     lines.push(renderer.heading('NO REMOTE CHANGE HAS BEEN MADE.'));
   }
   return lines.join('\n');

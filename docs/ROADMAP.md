@@ -751,8 +751,10 @@ it.
       `createPullRequest`, and there is no `request()`, `endpoint` or `command()` that
       could carry anything else. Both requests are re-validated through strict schemas at
       that boundary, so a `force`, a refspec, an `autoMerge` or a reviewer list fails
-      there. The only transport this build ships is `unavailableRemote()`, which throws,
-      and `publish()` re-decides the digest before it hands anything over. A fake
+      there. Stage 10 shipped only `unavailableRemote()`, which throws, and `publish()`
+      re-decides the digest before it hands anything over; the release sprint later
+      added a GitHub transport in its own module, constructed only by the `--publish`
+      path of `src/cli/pr.ts` after a typed approval. A fake
       transport in `tests/pr/publisher.test.ts` proves the seam can carry a publication —
       otherwise "disabled" would be indistinguishable from "unwired".
 - [x] No stage after a review has to be re-run to look at a page, and no stage is run in
@@ -766,9 +768,11 @@ it.
       candidate and the yes beside it (**v9**, nullable and defaulted so older records
       still read). The stored pair is checked on the way in: an approval that names
       another candidate's digest makes the whole record unreadable rather than becoming
-      history, and there is no result field at all — no URL, no timestamp, no
-      `prUrl` anywhere in the build. A run's record can say a human approved a proposal;
-      only a publisher that does not exist could say more.
+      history, and Stage 10 had no result field at all — no URL, no timestamp, no
+      `prUrl` anywhere in the build. A run's record could say a human approved a
+      proposal; only a publisher that did not exist could say more. *(The release
+      sprint added a result beside the yes: exactly `draft: true`, number, `publishedAt`
+      and an https URL, written only after a transport sent it — and still no merge.)*
 - [x] Two guards that cannot be shown by behaviour are taken from source:
       `tests/pr/boundaries.test.ts` holds the import-side rule that the production path
       cannot reach the seam, a runner, a writer or a client, and
@@ -781,18 +785,24 @@ it.
 - [x] `tests/pr/hero.test.ts` walks a repaired run to the boundary: `pr <run>` shows the
       candidate, a wrong digest is refused with both numbers named, the exact digest
       persists a local approval with `published: false` and no URL, and every path ends
-      `HUMAN APPROVAL RECORDED` / `REMOTE PUBLICATION NOT ENABLED` /
-      `NO REMOTE CHANGE HAS BEEN MADE.` `MERGESUTRA_HERO_CAPTURE=1` over that test prints
+      `HUMAN APPROVAL RECORDED` / `REMOTE PUBLICATION NOT ATTEMPTED` /
+      `NO REMOTE CHANGE HAS BEEN MADE.` (Stage 10's wording was "NOT ENABLED"; the
+      release sprint changed it once `--publish` existed, so the screen names what the
+      invocation did not do rather than claiming a capability is absent.) `MERGESUTRA_HERO_CAPTURE=1` over that test prints
       the screen the README quotes.
 - [x] 181 tests for the stage — 173 across twelve files in `tests/pr/` and 8 in
       `tests/cli/pr.test.ts` — none of which needs a credential, a network or a remote.
       `npm run check` is green at this stage's close; the measured totals are in the
       CHANGELOG entry.
-- [x] **Not done, and stated as a gap:** nothing is published, and the reason is larger
-      than a missing flag — MergeSutra has never made a commit, so the work it describes
-      is uncommitted bytes in a linked worktree and the evidence pack is Git-ignored. A
-      real pull request means committing somebody's tree on their behalf, which no
-      approval in this build claims to cover. Re-running `mergesutra report` after an
+- [x] **Not done at Stage 10's close, and stated as a gap:** nothing was published, and
+      the reason was larger than a missing flag — MergeSutra has never made a commit, so
+      the work it describes is uncommitted bytes in a linked worktree and the evidence
+      pack is Git-ignored. A real pull request means committing somebody's tree on their
+      behalf, which no approval in this build claims to cover. *(The release sprint's
+      `--publish` closes part of this: it builds one commit from the recorded base whose
+      tree carries the approved files' re-measured contents, then opens a draft through
+      the operator's own `gh` login. Whether the patch itself is committed in the
+      workspace is still not claimed.)* Re-running `mergesutra report` after an
       approval changes the pack identity and so expires that yes; the digest is honest
       about it and `STALE` says so with both numbers. The readiness word is not
       `CONTRIBUTION_READY`, and `.mergesutra` is still not committed. `gh`, `npm` and
