@@ -6824,6 +6824,15 @@ customer repository's own `git` gate in-container is still the S16-4 limitation,
 there is zero evidence about model quality here, the harness is not wired into any hosted workflow, and the
 `pr` stage created a local reviewable candidate and pushed nothing.
 
+*(Dated correction, Stage 18: two of those five were true when written and are no longer true. The harness is
+now wired into a hosted workflow — `.github/workflows/customer-workflow.yml`, triggered on every pull request
+and on the derived push paths — and it has run there, with the eight journeys certified on GitHub-hosted
+runners; see S18-1 and S18-6. The `pr`-stage sentence below it stays true: the hosted leg publishes evidence,
+not a merge candidate, and it pushes nothing to any customer repository. The other three — macOS containers,
+the git-native customer gate, model quality — are re-stated as still un-covered in S18-9. The paragraphs below
+are left exactly as Stage 17 wrote them, including the two claims this note supersedes, because they are the
+reading of the bytes that commit carried.)*
+
 ## S17-1 — a wrapped acceptance bullet reached the contract truncated — CLOSED (CODE + TEST)
 
 **Defect.** `criteriaFromIssue` in `src/contract/derive.ts` turned each markdown list bullet into one
@@ -6979,6 +6988,12 @@ opened, no issue was commented on." Remote publication remains issue #34's scope
   Docker Desktop and are not wired into any GitHub Actions workflow. What is hosted-covered is the unit
   suite, `verify:package` and `test:artifact` under `npm run check` / CI; the end-to-end journey evidence is
   local and must be read as such until a hosted leg runs it.
+  *(Dated correction, Stage 18: superseded for the hosted leg. A hosted workflow now runs the same eight
+  journeys — S18-1 — and has certified them on GitHub-hosted runners across three passing runs, with the
+  per-cell counts, artifact identity and step-ordered verdicts in S18-6. What this bullet still gets right is
+  the distinction: before Stage 18 the journey evidence was local-only, and the reason it had to be read that
+  way is exactly why the hosted leg exists. Reading the sentence above as current would be a Stage 17 error;
+  reading it as Stage 17's honest limit, stated before the leg was built, is what it is.)*
 - **The disk event, recorded rather than hidden.** The first attempt at this certification chain died in
   `ENOSPC` (C: at 100 %, 0 bytes) mid-`npm run check`, surfacing `AppError: Cannot prepare a workspace: git
   could not create the workspace (255)` and 5 failing files — a host resource failure, not a product failure,
@@ -7075,3 +7090,417 @@ and that the Stage 17 qualification survives its own harness being edited. It is
 are safe to leave unmeasured — the opposite: the reason this existed is that a comment was written after the
 reading that certified it. S17-6's not-verified list is unchanged by this item: macOS containers, the
 git-native customer gate, model quality and the hosted journey leg are still not covered.
+
+*(Dated correction, Stage 18: the last of those four — the hosted journey leg — is no longer uncovered.
+`.github/workflows/customer-workflow.yml` now runs the eight journeys on a GitHub-hosted runner, and
+run [39379727810](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39379727810) is the hosted reading.
+See `## Register status, Stage 18` and S18-6. The other three — macOS containers, the git-native customer
+gate, model quality — are still exactly as written here, and are re-stated as un-covered in S18-9.)*
+
+## Register status, Stage 18
+
+Stage 18 closes the one Stage 17 limitation that was a release risk rather than a scope line: the eight
+customer journeys existed only as a script on the developer's Windows host, started by the developer, and
+certified by the developer's own reading of the developer's own log. It moves them onto a machine nobody
+controls, running against the bytes a pull request proposes to merge, with the record read back afterwards by
+a second program that the harness neither writes nor can persuade. No product source changed in this stage:
+every shipped byte is a workflow, a gate, an evidence bundler, or a test of those three.
+
+The method, in the words the measurements are built to keep. `pull_request` (unfiltered) and `push` to `main`
+(derived path list) start `Customer workflow release gate`, whose single job is named `eight customer journeys,
+hosted` and runs on `ubuntu-latest` with `permissions: contents: read`, `persist-credentials: false`,
+`package-manager-cache: false`, three full-SHA-pinned actions, `timeout-minutes: 45` and
+`MERGESUTRA_STAGE_DEADLINE_MS=420000` — one bound for the job, one for a hung CLI stage, so a hang names a
+stage instead of naming the runner. The repository's own gates run in the same required sandbox Stage 17 used,
+whose flags are read from source rather than from a comment (`--pull=never --network=none --cap-drop=ALL
+--read-only --pids-limit=64 --memory=512m --cpus=1` at src/security/sandbox.ts:98-105), against the image
+`node@sha256:363e15874946…` that the job preloads by digest and the sandbox is forbidden to pull. There is no
+repository-secret reference anywhere in the file; the only credential the job is handed is its own ephemeral
+read-only token. Then three separate programs pass judgement on the record: the harness (`scripts/customer-
+workflow-qualification.mjs`), the gate that refuses to certify it (`scripts/customer-gate-verify.mjs` with
+`scripts/lib/customer-gate-summary.mjs`, 346 lines of named refusal families), and the bounds step that counts
+containers, workspaces and the fixture's remote history after everything else.
+
+The reading of the shipped bytes. Head `0aaee73d1178a515b3709bbf7b33d603517ad156`, `pull_request` event, all
+three workflows started `2026-10-20T06:19:39Z`: CI run
+[39379727792](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39379727792) success in all six cells,
+Real Docker run [39379727805](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39379727805) success in
+all three legs, and customer gate run
+[39379727810](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39379727810) success with
+`CUSTOMER_WORKFLOW_PASS scenarios=8 notPass=0`, `CUSTOMER_GATE_PASS scenarios=8` and
+`CUSTOMER_WORKFLOW_BOUNDS_PASS containers=0 fixture_main=6f3a0adb17389b93fd76b95c21a1c9eb7b161998`. Every
+per-cell test count, every step line and the artifact's own identity block are in S18-6.
+
+Getting there took four hosted runs and three repairs, each named by what it measured rather than by what it
+was meant to do: S18-2 (the preflight asked the Docker daemon for a field it does not answer), S18-3 (the
+repair for that shipped a second shell suppression form the policy regex could not see), S18-4 (a private
+customer fixture made the gate unrunnable, and the only credential-free repair was to make the fixture
+public — the operator-authorized visibility flip, with the history audit that preceded it), S18-5 (the gate's
+clock was coarser than the record it was bounding, so it refused a current artifact as stale). S18-1 is the
+workflow itself and what it declares; S18-7 is a count discrepancy that turned out to be two true numbers
+about different instruments; S18-8 is the thing this stage could not do for itself — the gate runs on every
+pull request, but no branch rule yet *requires* its result. S18-9 lists what Stage 18 does not claim, and it
+starts with the scripted gateway: none of this is evidence about a model.
+
+## S18-1 — the journeys now run on a machine nobody controls — CLOSED (CODE + TEST)
+
+**What was added, measured.** `.github/workflows/customer-workflow.yml` (265 lines, 13 declared steps) plus
+`scripts/customer-gate-verify.mjs` (100), `scripts/lib/customer-gate-summary.mjs` (346),
+`scripts/customer-evidence-bundle.mjs` (132), `scripts/lib/customer-evidence.mjs` (224), and four test files:
+`tests/security/customer-workflow-policy.test.ts` (895 lines, 35 tests, 16 mutation guards each re-asserting
+`expect(x).not.toEqual(WORKFLOW)`), `tests/security/customer-gate-summary-rules.test.ts` (501, 12),
+`tests/security/customer-gate-verify.test.ts` (183, 6), `tests/security/customer-evidence-rules.test.ts`
+(346, 16). `package.json` gained `qualify:customer` and `verify:customer-gate`; `CONTRIBUTING.md` gained one
+line; `tests/security/workflow-policy.test.ts` was widened by 8 lines to cover the new file.
+
+**The trigger is unfiltered on `pull_request`, deliberately, and that is a tested property.** A path filter
+would make this check arrive only for pull requests that happen to touch the list, and a required check that
+never arrives blocks every other merge with "Expected — never run". So every pull request runs it, and the
+`push` trigger to `main` carries the derived list instead: `customer-workflow-policy.test.ts` builds that list
+from the files the three commands import, refuses an entry that names nothing on disk, and refuses a path
+filter on the pull-request trigger. This is the failure mode Stage 18's own first draft nearly shipped, so it
+is pinned as a rule rather than left as a comment.
+
+**What the job refuses to have.** No `pull_request_target`, no `workflow_run` privilege, no repository secret,
+no permission above `contents: read`, no cache an earlier run could leave behind, and no `docker pull` inside
+the sandbox. The revisions are named three ways because they are three different objects: on a `pull_request`
+event `github.sha` is the synthetic merge commit GitHub built for the check, which exists in no branch, and
+the record the gate certifies is bound to the revision the checkout produced. Measured on the green run, step
+4 printed `tested revision (checked out): 0a1067c880e5e220a867803f50c2cfa6b4f9308a`, `event sha (github.sha):
+0a1067c880e5e220a867803f50c2cfa6b4f9308a`, `pull request head sha:
+0aaee73d1178a515b3709bbf7b33d603517ad156`, `ref: refs/pull/44/merge` — one tested revision claimed, two
+printed, none conflated.
+
+**Two programs judge the record, and neither trusts the other.** The certification step and the bundling step
+both carry `if: always()`, because they are the steps that have to explain a failure — a run that exits 1
+without naming which claim failed is a green-adjacent mystery. `customer-gate-verify.mjs` treats every missing
+binding as a failure rather than a rule it can skip: no `MERGESUTRA_GATE_REVISION` is "cannot bind this
+evidence to the checked-out commit", no `MERGESUTRA_GATE_NOT_BEFORE` is "evidence written before it could
+pass". The upload step sets `if-no-files-found: error` — the default `warn` is a required check that reported
+success without evidence — and retention is 14 days.
+
+## S18-2 — the hosted preflight asked the Docker daemon for a field it does not answer — CLOSED (CODE + TEST)
+
+**Defect, and the run that proved it.** The first hosted attempt, run
+[39243268605](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39243268605) on `f07d0bf`, died at step
+5 (`Preflight the tools the journeys actually need`) with the daemon's own words:
+
+```
+template: version:1:10: executing "version" at <.ServerVersion>: can't evaluate field ServerVersion in type system.versionInfo
+```
+
+and exit 1. Step 13 then failed in cascade with `sed: can't read /home/runner/work/_temp/baseline.env: No such
+file or directory`, exit 2 — the bounds step had no baseline because the job had never reached the step that
+writes one.
+
+**Root cause.** `docker version --format` evaluates its template against `system.versionInfo`, whose server
+half is nested: `{{ .Server.Version }}`. The flat `{{ .ServerVersion }}` spelling belongs to `docker info`. The
+template was written from the shape of the *value wanted* rather than from the shape of the *API answered*,
+which is how this survives every local reading — the developer's shell never ran that line, because the
+preflight existed only inside the workflow this stage was adding.
+
+**Fix, and the test that keeps it.** `14504a2` corrected the template and added a baseline-read guard so a
+missing `baseline.env` is a named finding instead of a `sed` abort. The regression is live rather than textual:
+`customer-workflow-policy.test.ts:882` `replays the docker version template against the local daemon and gets a
+non-empty version` spawns `docker version --format '{{ .Server.Version }}'` and requires `^\d+\.\d+`, and it is
+paired at `:889` with a test that records the skip when Docker is absent, so the suite can never report a
+silent pass on the machine that cannot run it. The green hosted reading answers the question the template
+exists to answer: step 5 printed `docker daemon version: 28.0.4`.
+
+## S18-3 — the repair for that shipped a second suppression form the policy could not see — CLOSED (CODE + TEST)
+
+**Defect.** `14504a2`, the commit that fixed the template, wrote the preflight's two Docker reads as
+
+```
+docker version --format '{{ .Server.Version }}' > "$RUNNER_TEMP/docker_version.txt" || :
+server_version="$(cat "$RUNNER_TEMP/docker_version.txt" 2>/dev/null)" || :
+```
+
+`|| :` suppresses a failing left-hand side exactly as `|| true` does — under `set -e` both make the statement
+succeed whatever happened — and it defeated the whole-text rule meant to forbid it, which at the time read
+`/continue-on-error|\|\|\s*true\b|--privileged|--network=host|docker\.sock/`. The rule could see the shape it
+was written for and not the shape that arrived. A dead daemon would have printed an empty version and the job
+would have continued, which is precisely the silent-green class the rule exists to prevent.
+
+**History, measured rather than remembered.** `git log -S'|| true' -- .github/workflows/customer-workflow.yml`
+returns **0 commits**: that spelling appeared in in-session drafts of this file and never in a tracked byte.
+`git log -S'|| :' -- .github/workflows/customer-workflow.yml` returns exactly the two that matter — `14504a2`
+added it, `bc816d7` removed it. The committed offence was the second form, and the guard missed it.
+
+**Operator correction, kept because it generalises.** The instruction was that the second form suppresses
+failures just like the first, that the existing regex-based policy test does not detect it, that the fix must
+use explicit `if`/failure handling that refuses an unavailable Docker daemon, that tests must prove **both**
+suppression forms are rejected, and that a security policy must not be evaded by using alternate shell syntax.
+That last clause is the reason this item is in the register at all: the first instinct was to widen the regex,
+which is necessary but not sufficient — the file also has to stop needing suppression.
+
+**Fix.** `bc816d7` replaced both reads with one handling that fails loudly, taking advantage of the fact that
+`set -e` is disabled inside an `if` predicate so a failing command substitution is a finding the step can name
+rather than a shell abort with no cause:
+
+```
+if ! server_version="$(docker version --format '{{ .Server.Version }}' 2>/dev/null)"; then
+  echo "the Docker daemon did not answer 'docker version'; the customer journeys cannot run" >&2
+  exit 78
+fi
+if [ -z "$server_version" ]; then … exit 78; fi
+printf '%s\n' "$server_version" > "$RUNNER_TEMP/docker_version.txt"
+```
+
+Two refusals, not one: a daemon that answers successfully *with nothing* is not a daemon that works. The value
+is captured before the file is written, so the write is no longer a redirect whose failure could be silenced.
+`exit 78` (`EX_CONFIG`) matches the tool-availability refusals above it, so every preflight death says "the
+configuration of this runner is wrong" rather than "a command returned non-zero".
+
+**Guard, widened on both sides.** The rule now reads
+`/continue-on-error|\|\|\s*true\b|\|\|\s*:|--privileged|--network=host|docker\.sock/`, and
+`customer-workflow-policy.test.ts:653` `refuses a preflight that suppresses a failing command with either ||
+true or || :` mutates the shipped YAML into each form and requires a violation for each (guards at `:663` and
+`:671`), closing with `expect(WORKFLOW).not.toMatch(/\|\|\s*(true\b|:)/)`. Both mutation cases carry the
+anti-vacuity assertion that the mutated text differs from the shipped text. Measured current state: **0**
+occurrences of either literal in the workflow. One trap worth recording: the comment explaining all this
+originally *quoted* the forbidden literals, which in a whole-text regex would have made the file fail its own
+guard while being correct — prose is not policy, in either direction. The shipped comment names them by kind
+("two shell-OR suppression forms").
+
+## S18-4 — a private customer fixture made the gate unrunnable, and the credential-free repair was visibility — CLOSED (OPERATOR + DOCUMENT)
+
+**Defect, in the run's own words.** Run
+[39247291675](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39247291675) on `14504a2` got through
+the preflight and died three times over. Step 9 emitted eight identical lines, one per journey:
+
+```
+- the customer repository is not readable; qualification cannot continue
+```
+
+Step 10 then reported `CUSTOMER_GATE_FAIL 9 problem(s)` — eight `scenario … verdict is ERROR, not PASS`, plus
+the clock finding that S18-5 names on its own — and step 13's read-back of the fixture failed as
+`fatal: could not read Username for 'https://github.com': No such device or address`, giving
+`CUSTOMER_WORKFLOW_BOUNDS_FAIL 1 problem(s)` with the sub-finding `the customer fixture's main branch could
+not be read back, so no remote mutation was ruled out`.
+
+**Root cause.** `GITHUB_TOKEN` is scoped to the repository that owns the workflow. It cannot read a *different*
+private repository, and on a hosted runner with no TTY, an unauthenticated HTTPS clone fails exactly that way.
+The brief forbids adding a PAT or any privileged workflow secret, and this stage's own rule forbids a
+repository secret in the file at all — so the options were: hand the gate a credential (refused), point it at
+a public repository somebody else owns (refused — the fixture is this project's), or make this fixture public.
+Nothing in the product changed: the gate was correct to refuse.
+
+**Pre-flight audit, before the flip, and re-run after it on 2026-10-20.** A public repository's history cannot
+be unpublished, so the audit had to be of every reachable byte, not of the working tree. Measured on an
+anonymous clone (`env -i`, so no credential could be sent): 2 commits, 1 branch (`main`), 0 tags, 5 blob paths
+ever added (`.gitignore`, `README.md`, `package.json`, `src/slugify.js`, `test/slugify.test.js`), **1,605
+bytes** total at HEAD, 9 blob reads across all history. A privileged-shape sweep over every blob ever
+committed — private-key PEM headers, `ghp_`, `github_pat_`, `AKIA`, `xox[baprs]-`, `sk-`, long `Bearer`,
+`PasswordAuthentication`, `PermitRootLogin`, `AuthorizedKeysFile`, `HostKeyAuthority` — produced **0** hit
+lines, with two planted shapes run through the same pattern as a positive control to prove the instrument can
+fire (an earlier reading of this sweep was a variable incremented inside a piped subshell, i.e. a zero that
+could not have been otherwise; the file-counted re-run is what is recorded here). Commit identity is
+`Pavithran R A <pavithran@localhost>` for author and committer on both commits, dated
+`2026-10-04T18:45:12+05:30` and `2026-10-04T18:45:45+05:30`. Repository settings: `private=false`,
+`fork=false`, `default_branch=main`, `has_pages=false`, branches=1, environments=0, Actions secrets
+`total_count=0`, Actions variables `total_count=0`, workflows=0, releases=0, pulls=0, collaborators=1. The
+deploy-keys endpoint answers 404 for this repository *and* for MergeSutra, so it is the endpoint's answer
+rather than a finding about the fixture, and it is recorded as unread rather than counted as zero.
+
+**The flip, done the documented way.** `gh repo edit --visibility public --accept-visibility-change-consequences`
+— GitHub's own CLI procedure, whose second flag is the acknowledgement that a public repository's history is
+published. Only that repository's visibility was touched: MergeSutra's own visibility, every other project, and
+the fixture's contents were left alone, and nothing was pushed to the fixture to obtain a green result.
+
+**Public accessibility, verified without authenticating.** `env -i PATH=$PATH git ls-remote
+https://github.com/Pavithran-R-A/mergesutra-e2e-fixture.git refs/heads/main` →
+`6f3a0adb17389b93fd76b95c21a1c9eb7b161998`, `LSREMOTE_EXIT=0`; anonymous clone `CLONE_EXIT=0`;
+`raw.githubusercontent.com/…/main/README.md` → 200; `api.github.com/repos/…/issues/1` → 200 with title
+`slugify keeps leading and trailing hyphens`, `state=open`, a 1,210-byte body containing all five numbered
+acceptance criteria including "this is a five-line change, not a new library." and the `npm test` gate;
+`github.com/…` → 200. `git remote get-url origin` reads
+`https://github.com/Pavithran-R-A/mergesutra-e2e-fixture.git` — no token, no user, no password in the URL.
+
+**Correction recorded so nobody re-invents it.** The fixture's `main` does **not** contain `check.mjs`. The
+acceptance oracle is generated inside the disposable workspace by `scripts/lib/customer-oracle.mjs`, outside
+the directory the implementation stage can write; the fixture contributes only the five criteria the product
+derives from issue #1. A reader who looks for the oracle in the fixture will conclude the qualification is
+reading a file it planted — it is not, and that is why the oracle lives where it lives.
+
+## S18-5 — the gate's clock was coarser than the record it bounded — CLOSED (CODE + TEST)
+
+**Defect.** Run [39378637341](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39378637341) on
+`bc816d7` was green at steps 5, 6, 7, 8, 9 and 13 and failed only at step 10:
+
+```
+CUSTOMER_GATE_FAIL 1 problem(s)
+  - the summary finished at 2026-10-20T06:09:13.928Z, after the gate read it at 2026-10-20T06:09:13Z
+```
+
+**Root cause.** `checkFreshness` in `scripts/lib/customer-gate-summary.mjs:287` compares `Date.parse` values,
+and the harness stamps `finishedAt` with `new Date().toISOString()` — milliseconds. The workflow's two clock
+reads used `date -u +%Y-%m-%dT%H:%M:%SZ`. A second-precision read truncates *below* any record taken inside
+the same second, so the gate systematically undershoots the artifact it bounds and calls a current record
+stale. Not a race in the harness, and not a slow runner: a precision mismatch on the reader's side, guaranteed
+to fire whenever the last scenario finishes in the same second the gate reads it. The same line had already
+appeared as the ninth problem of the older red run 39247291675 (`finished at 2026-10-19T11:48:52.365Z, after
+the gate read it at 2026-10-19T11:48:52Z`) and was attributed to the private-fixture failure around it rather
+than named on its own.
+
+**Fix, and what was refused.** `0aaee73` writes milliseconds at both reads
+(`date -u +%Y-%m-%dT%H:%M:%S.%3NZ`), so the bound and the record have the same unit. The tempting alternative
+was to widen the tolerance in `checkFreshness` — refused: freshness is the only defence against a green job
+reading a stale artifact, so loosening it to manufacture a pass is exactly the weakening this stage's brief
+forbids. The right change makes the measurement honest rather than the threshold forgiving.
+
+**Measured control on the green run.** The summary closed at `2026-10-20T06:20:47.418Z` and the gate printed
+`CUSTOMER_GATE_PASS scenarios=8` at `2026-10-20T06:20:47.469Z` — 51 ms later, in the same second. Under the
+second-precision clock that same record was refused. The guard is
+`customer-workflow-policy.test.ts:627` `refuses a gate clock truncated to seconds while the record keeps
+milliseconds`, which mutates the shipped YAML's clock read and requires a violation (guards at `:639` and
+`:647`).
+
+## S18-6 — the hosted reading of the eight journeys, on the shipped bytes — CLOSED (measured)
+
+Three workflows, one head: `0aaee73d1178a515b3709bbf7b33d603517ad156`, `pull_request` event, all starting
+`2026-10-20T06:19:39Z`.
+
+- **CI** [39379727792](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39379727792) — `success`, six
+  jobs, every cell `Test Files 169 passed | 3 skipped (172)`. The unit suite reads
+  `Tests 2546 passed | 5 skipped (2551)` on both macOS cells and both Windows cells and
+  `2544 passed | 7 skipped (2551)` on both Ubuntu cells (platform-conditional skips, counted by file in the
+  per-cell logs: `tests/security/path-confinement-matrix.test.ts` contributes 3 on Ubuntu and 1 on Windows,
+  `tests/intake/home-path.test.ts` 1 on Windows, `tests/security/customer-workflow-policy.test.ts` 1 on every
+  cell — the Docker-availability pair of S18-2, exactly one of which is skipped whichever way the host answers).
+  Packaging boundary `5 passed (5)` files / `115 passed (115)` and installed-artifact `1 passed (1)` /
+  `14 passed (14)` in all six cells. The three fully-skipped files in every cell are
+  `tests/implement/live.test.ts`, `tests/review/live.test.ts` and `tests/plan/live.test.ts` — the real-model
+  legs, which is S18-9's boundary, not a silent skip. A sweep of the 953,121-byte log for `ENOSPC`,
+  `no space left`, `heap out of memory`, `FATAL ERROR`, `worker crash`, `Failed Files` and `[0-9]+ failed`
+  returns 0 matches.
+- **Real Docker isolation proof**
+  [39379727805](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39379727805) — `success`, three legs,
+  each pinned by digest: `sandbox (node@sha256:0e5f9065…)`, `sandbox (node@sha256:14078204…)`,
+  `sandbox (node@sha256:a4fb1414…)`.
+- **Customer workflow release gate**
+  [39379727810](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39379727810) — `success`, one job
+  `eight customer journeys, hosted`, 16 steps of which 13 are declared and 13 succeeded as themselves. The
+  lines that carry the claim, in step order: step 4 `MERGESUTRA_GATE_NOT_BEFORE: 2026-10-20T06:19:44.822Z`;
+  step 5 `docker daemon version: 28.0.4`; step 6 `Digest: sha256:363e15874946…` then
+  `resolved sha256:b37a4d56eedb5e42bca59c8d4782fa550e741fba5dbce943c53767d3ceee57e6`; step 8
+  `containers-before=0`; step 9 the eight verdicts with their own timestamps — `journey` `06:20:19.948`,
+  `failed-assertion` `06:20:23.275`, `interruption` `06:20:26.985`, `repair` `06:20:32.039`, `stale-patch`
+  `06:20:36.405`, `forged-metadata` `06:20:40.523`, `no-sandbox` `06:20:43.492`, `repeated` `06:20:47.418`,
+  then `CUSTOMER_WORKFLOW_PASS scenarios=8 notPass=0`; step 10 `CUSTOMER_GATE_PASS scenarios=8`; step 11
+  `CUSTOMER_EVIDENCE_PASS files=259`; step 13 `CUSTOMER_WORKFLOW_BOUNDS_PASS containers=0
+  fixture_main=6f3a0adb17389b93fd76b95c21a1c9eb7b161998`.
+
+**The artifact, read back after the fact.** `customer-workflows-39379727810`, artifact ID 12245086379, zip
+643,790 bytes, zip SHA256 `c2d9a13ddfc078f1ef697aa3eb9ff4d26a9222985f9d6cc0290c6fa653174645`; the downloaded
+tree is 243 files over 2,687,443 bytes in eight scenario directories plus `summary.json`. Its identity block,
+read from those bytes rather than from the log: `revision
+0a1067c880e5e220a867803f50c2cfa6b4f9308a` (the synthetic merge commit the checkout produced — the same object
+the gate was given, which is the point of binding it), `platform linux`, `nodeVersion v24.21.0`,
+`sandboxImage node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7`, `fixtureBaseSha
+6f3a0adb17389b93fd76b95c21a1c9eb7b161998`, `startedAt 2026-10-20T06:20:14.391Z`, `finishedAt
+2026-10-20T06:20:47.418Z`. All eight scenarios carry `verdict PASS` with `problems=[]`, `damage=[]`,
+`secrets=[]` and `cleanup {"removed":true,"remaining":0,"lastError":null}`.
+
+**Why this is not the harness grading itself.** The gate program ran in a different process, in a different
+step, with `if: always()`, against the record's bytes; it refuses an unnamed revision, an unpinned image, a
+non-40-character fixture base, a missing platform or Node identity, a verdict that is not `PASS`, a `PASS`
+that carries problems, damage or secrets, an unremoved workspace, an exit code read from a pipeline, an oracle
+that did not run, and a record whose timestamps do not sit inside the window this job knows about. Locally, the
+five guard suites read `5 passed (5)` files / `92 passed | 1 skipped (93)` at `VITEST_EXIT=0` (2026-10-20
+12:01:49, the skip being the Docker-availability pair).
+
+## S18-7 — what the sanitizer wrote is not what the uploader published, and both numbers are true — CLOSED (measured)
+
+**The discrepancy, said plainly.** Step 11 printed `CUSTOMER_EVIDENCE_PASS files=259`. Step 12 printed `With
+the provided path, there will be 243 files uploaded` and `Final size is 643,790 bytes`. The downloaded tree
+contains 243 files. Neither instrument is lying; the bundler counts what it wrote to
+`$RUNNER_TEMP/customer-evidence`, the uploader counts what its glob matched.
+
+**Cause, found by counting the same tree.** 16 of the 259 files are dot-named, and
+`actions/upload-artifact` omits hidden entries. Measured on the equivalent local export tree:
+`find .mergesutra/customer-qualification -type f | wc -l` = 259, and the dot-named ones are exactly 8 `.git`
+worktree pointers plus 8 `.gitignore` files, all under `<scenario>/product-state/worktrees/<runId>/`. This
+matters more than a file count: a raw `.git` pointer is a line of `gitdir: …` naming the host's disposable
+workspace — on this host `gitdir: C:/Users/…/Temp/mergesutra-s17-…` — so the sixteen files that never left the
+runner are precisely the ones carrying a host path. The bundler scrubbed them, wrote them, re-scanned the
+*post-redaction* bytes of all 259 (`bundleProblems` refuses anything that still holds a credential shape or a
+host path after redaction), and only then did the uploader see the tree. So the claim survives in both
+directions: no unscanned byte was published, and the published 243 are a subset of the 259 that passed.
+
+**Recorded rather than smoothed, because a reader will otherwise think one of the two numbers is a mistake.**
+If a future change makes the hidden set non-dot-named, or the uploader stops omitting hidden files, the two
+counts converge and nothing here needs re-explaining — but the reconciliation must be re-measured, not
+assumed.
+
+## S18-8 — the gate runs on every pull request; nothing yet requires its result — NOT VERIFIED (operator settings boundary)
+
+**Measured on 2026-10-20.** `gh api repos/Pavithran-R-A/mergesutra/rulesets` returns exactly one ruleset:
+id `24454501`, `protect-main`, `enforcement: active`, `target: branch`, `conditions.ref_name.include:
+["~DEFAULT_BRANCH"]`, created `2026-10-04T17:29:40+05:30`, updated `2026-10-04T18:21:15.542+05:30`,
+`bypass_actors: []`, `current_user_can_bypass: never`. Its `rules` are `[{type: deletion}, {type:
+non_fast_forward}]`. There is **no `required_status_checks` rule**. The legacy branch-protection endpoint
+`branches/main/protection` answers 404 `Branch not protected`, and `orgs/Pavithran-R-A/rulesets` answers 404
+because this is a personal account, not an organisation.
+
+**What that means for this stage's own word "mandatory".** The PR rollup for `0aaee73` lists 10 check runs —
+six `check (…)`, three `sandbox (node@sha256:…)`, and `eight customer journeys, hosted` — all `COMPLETED /
+SUCCESS`, with `mergeable: MERGEABLE` and `mergeStateStatus: CLEAN`. That proves the gate *arrives*, records
+evidence, and fails the job when it should. It does not prove a red gate blocks the merge, and this register
+will not describe it as though it did. The brief's "mandatory release gate" is therefore satisfied for
+triggering, bounding and evidence, and **not** satisfied for enforcement.
+
+**What would close it, and why it was not done here.** A `required_status_checks` rule on `24454501` naming the
+contexts exactly as GitHub prints them — `eight customer journeys, hosted` for this gate, plus the six
+`check (<os>, node <v>.x)` cells and the three `sandbox (node@sha256:…)` legs, which are equally un-required
+today. Two reasons this stage stopped: the operator's authorization covered the visibility of
+`Pavithran-R-A/mergesutra-e2e-fixture` *only* and explicitly excluded changing MergeSutra itself, and a
+required check whose name does not match a context that actually arrives blocks every merge with "Expected —
+never run", which is the same trap S18-1's unfiltered-trigger test exists to avoid. The context strings above
+are taken from the hosted rollup for exactly that reason; applying them is an operator action on shared
+repository state, and the names should be pasted from a run on the merge base rather than typed from this
+document.
+
+## S18-9 — boundaries Stage 18 measured and did not cross — NOT VERIFIED / by design
+
+- **Model quality: none measured, and now measured twice over.** The journeys run against the scripted
+  loopback gateway, so every green verdict here is a statement about the workflow and about the product's
+  honesty. Independently, the three real-model suites (`tests/implement/live.test.ts`,
+  `tests/review/live.test.ts`, `tests/plan/live.test.ts`) are skipped in all six hosted cells. The real-model
+  benchmark remains issue #35.
+- **The hosted journey leg is Linux-only.** `runs-on: ubuntu-latest`, one job, one container image. No macOS or
+  Windows container ran in this workflow, so S17-6's macOS statement stands and the non-Linux container
+  readings remain S16-10/S16-11's host measurements.
+- **A customer repository's own `git`-native gate in the sandbox: still the S16-4 limitation.** The fixture's
+  gates are `node` programs; nothing this workflow ran executed a repository-authored `git` step in the
+  container.
+- **Nothing published, anywhere in this stage.** No `git push`, no `gh pr create`, no issue comment in the
+  workflow; the journeys' own `pr` stage ends at a local reviewable candidate, as S17-5 records. Remote
+  publication remains issue #34's scope.
+- **No credentialed path is exercised.** Because there is no repository secret to read, this gate says nothing
+  about how the product handles one — which is also why the fixture's privacy had to be answered by changing
+  its visibility rather than by handing the gate a token.
+- **Retention is 14 days.** This artifact — and with it the byte-level proof behind `damage=[]` and `secrets=[]`
+  — disappears from GitHub's storage on 2026-11-03. The register's quoted lines and the run URLs outlive it;
+  the raw evidence does not.
+- **Bounding is measured, not proven.** `timeout-minutes: 45` bounds the job and `MERGESUTRA_STAGE_DEADLINE_MS`
+  bounds one stage; `--pids-limit=64`, `--memory=512m` and `--cpus=1` bound one container, and the container
+  count before/after is compared (`containers-before=0`, `containers=0`). Disk is *measured* (`df -k` recorded
+  before, `28.0.4`-style named findings after) but no assertion is made about the delta, and a runaway writer
+  inside the 512 MB container is bounded by Docker rather than by this gate.
+- **The bounds step prunes only what this harness names.** It looks for `mergesutra-s17-*` under `${TMPDIR:-/tmp}`
+  and `$RUNNER_TEMP` and refuses a survivor; it deliberately does not touch the runner's own temp tree. A
+  workspace created under a different name would not be found by it — the `cleanup` block in each scenario
+  record is the primary instrument there, and all eight read `{"removed":true,"remaining":0,"lastError":null}`.
+- **Independence is between verdicts, not between evidence and code.** `customer-gate-verify.mjs` does not
+  trust the harness's summary; but both the summary and the record it certifies are produced by this
+  repository's scripts. The bundler is likewise stage-mates with the harness — an attacker who controls the
+  harness controls the bundler too, and the scan that matters for that case is the release-boundary credential
+  and home-path sweep over the *tracked tree*, which is S13-0/S17-7's gate, not this one.
+- **The policy test is a text scan of the YAML.** It proves the shipped file's shape (no privilege, no secret,
+  no suppression, correct step order, correct digests, correct bindings) and it cannot prove that Actions
+  honours the file. That half is what the hosted runs in S18-6 are for, and it is why this stage ran four
+  failing hosted attempts before claiming anything.
+- **Derived history is re-derived, not inherited.** `fetch-depth: 0` and `package-manager-cache: false` mean
+  the release-boundary suites see this checkout's real history; a cached dependency directory or a shallow
+  clone would have let an earlier run answer for this one.
