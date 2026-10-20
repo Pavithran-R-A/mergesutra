@@ -13,10 +13,16 @@ const LIVE_RULES = readFileSync(
   path.join(ROOT, 'scripts', 'lib', 'live-qualification.mjs'),
   'utf8',
 );
+const RUNTIME_PROOF = readFileSync(
+  path.join(ROOT, 'scripts', 'sandbox-runtime-proof.mjs'),
+  'utf8',
+);
 
 const CHECKOUT_SHA = 'd23441a48e516b6c34aea4fa41551a30e30af803';
 const SETUP_NODE_SHA = '249970729cb0ef3589644e2896645e5dc5ba9c38';
 const UPLOAD_SHA = 'ea165f8d65b6e75b540449e92b4886f43607fa02';
+const SANDBOX_IMAGE =
+  'node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7';
 
 function job(name: string, next?: string): string {
   const start = WORKFLOW.indexOf(`  ${name}:\n`);
@@ -66,7 +72,10 @@ describe('the controlled live-validation workflow', () => {
     expect(live).toContain("if: github.ref == 'refs/heads/main' && inputs.run_live == true");
     expect(live).toContain('needs: no-key-chain');
     expect(live).toContain('BHARATCODE_MODEL: ${{ inputs.model }}');
-    expect(live).toContain('timeout-minutes: 30');
+    // The 25-minute chain deadline is enforced by the driver; this job ceiling also
+    // has to cover the install, build, image pull and no-spend boundary proof that
+    // must finish before the first model request can start.
+    expect(live).toContain('timeout-minutes: 45');
     expect(live).toContain('node scripts/e2e-validation.mjs live');
   });
 
@@ -75,7 +84,7 @@ describe('the controlled live-validation workflow', () => {
     expect(live).not.toMatch(/env:\n\s+GH_TOKEN:[\s\S]*BHARATCODE_API_KEY:[\s\S]*steps:/);
     const deterministic = live.slice(
       live.indexOf('- name: Install'),
-      live.indexOf('- name: Run the bounded real-model chain'),
+      live.indexOf('- name: Verify selected model is in the authenticated catalog'),
     );
     expect(deterministic).not.toContain('BHARATCODE_API_KEY');
     expect(deterministic).not.toContain('BHARATCODE_MODEL');
@@ -84,6 +93,65 @@ describe('the controlled live-validation workflow', () => {
     expect(modelStep).toContain('BHARATCODE_MODEL: ${{ inputs.model }}');
     expect(modelStep).toContain("BHARATCODE_TIMEOUT_MS: '300000'");
     expect(modelStep).toContain("BHARATCODE_MAX_RETRIES: '0'");
+  });
+
+  it('configures the production sandbox image and absolute Docker path for the chain', () => {
+    const live = job('live-model');
+    expect(live).toContain(`MERGESUTRA_SANDBOX_IMAGE: ${SANDBOX_IMAGE}`);
+    expect(live).toContain('MERGESUTRA_DOCKER_EXECUTABLE: /usr/bin/docker');
+    expect(live.match(/MERGESUTRA_SANDBOX_IMAGE:\s*\S+/g) ?? []).toHaveLength(1);
+  });
+
+  it('verifies the daemon and preloads the pinned digest before any model request', () => {
+    const live = job('live-model');
+    const daemon = live.indexOf(
+      "\"$MERGESUTRA_DOCKER_EXECUTABLE\" version --format '{{ .Server.Version }}'",
+    );
+    const pull = live.indexOf(
+      '"$MERGESUTRA_DOCKER_EXECUTABLE" pull "$MERGESUTRA_SANDBOX_IMAGE"',
+    );
+    const inspect = live.indexOf(
+      "\"$MERGESUTRA_DOCKER_EXECUTABLE\" image inspect --format 'resolved {{ .Id }}' \"$MERGESUTRA_SANDBOX_IMAGE\"",
+    );
+    const proofStepStart = live.indexOf(
+      '- name: Prove the sandbox boundary without a model call',
+    );
+    const proof = live.indexOf('node scripts/sandbox-runtime-proof.mjs');
+    const model = live.indexOf('- name: Verify selected model is in the authenticated catalog');
+    const chain = live.indexOf('- name: Run the bounded real-model chain');
+    for (const [name, index] of Object.entries({
+      daemon,
+      pull,
+      inspect,
+      proofStepStart,
+      model,
+      chain,
+    })) {
+      expect(index, `${name} step is missing`).toBeGreaterThanOrEqual(0);
+    }
+    expect(daemon).toBeLessThan(pull);
+    expect(pull).toBeLessThan(inspect);
+    expect(inspect).toBeLessThan(proofStepStart);
+    expect(proofStepStart).toBeLessThan(proof);
+    expect(proof).toBeLessThan(model);
+    expect(model).toBeLessThan(chain);
+
+    const proofStep = live.slice(proofStepStart, model);
+    expect(proofStep).toContain(`MERGESUTRA_RUNTIME_PROOF_IMAGE: ${SANDBOX_IMAGE}`);
+    expect(proofStep).toContain('MERGESUTRA_RUNTIME_PROOF_DOCKER: /usr/bin/docker');
+    // No model provider is contacted and no credential is present while the boundary
+    // is being proven; a skipped or conditional proof would qualify nothing.
+    expect(proofStep).not.toContain('BHARATCODE');
+    expect(proofStep).not.toMatch(/\n\s+if:/);
+    expect(proofStep).not.toContain('continue-on-error');
+  });
+
+  it('proves repository commands run in Docker without the model credential', () => {
+    expect(RUNTIME_PROOF).toContain('createSandboxedRunner');
+    expect(RUNTIME_PROOF).toContain("'BHARATCODE_API_KEY'");
+    expect(RUNTIME_PROOF).toContain('tokenInherited: false');
+    expect(RUNTIME_PROOF).toContain('SANDBOX_RUNTIME_PROOF: PASS');
+    expect(job('live-model')).toContain('node scripts/sandbox-runtime-proof.mjs');
   });
 
   it('refuses a missing secret without printing it', () => {
