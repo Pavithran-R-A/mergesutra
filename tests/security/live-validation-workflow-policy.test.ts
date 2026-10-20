@@ -88,7 +88,11 @@ describe('the controlled live-validation workflow', () => {
     const modelStep = live.slice(live.indexOf('- name: Run the bounded real-model chain'));
     expect(modelStep).toContain('BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}');
     expect(modelStep).toContain('BHARATCODE_MODEL: ${{ inputs.model }}');
-    expect(modelStep).toContain("BHARATCODE_TIMEOUT_MS: '300000'");
+    // Nine minutes, not five: run 39445715858 lost the chain to a plan request that
+    // the gateway held for the whole 300s cap. The driver still kills every command at
+    // its share of the 25-minute wall clock, so a longer per-request cap cannot lengthen
+    // the chain — it only stops a slow-but-answering model from being read as a failure.
+    expect(modelStep).toContain("BHARATCODE_TIMEOUT_MS: '540000'");
     expect(modelStep).toContain("BHARATCODE_MAX_RETRIES: '0'");
   });
 
