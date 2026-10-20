@@ -7679,3 +7679,141 @@ verdicts on the head that carries the map and nothing more. It does not close S1
 pull request and still no branch rule *requires* its result, which remains an operator settings action. And it is not
 the last word: the commit that carries this section gets its own three hosted runs, read back the same way, per the
 convention the two dated notes above record.
+
+## S18-12 — the head that promised its own reading received it — CLOSED (measured)
+
+**Why this section exists.** `382837ef9e648d97c8c5bf6e05415c430fcc63ab` ships S18-11 and nothing else: one file,
+`docs/SECURITY_GAP_REGISTER.md`, +99/−0, no executed byte. S18-11's last sentence promised that head three hosted
+runs read back the same way. This is that reading. It is also the reading the merge decision belongs to, which is
+why it is the section that closes the chain rather than the section that continues it — see the last paragraph.
+
+**What it measured, in three runs.** All three started `2026-10-20T08:06:27Z` on the `pull_request` event, first
+attempt, over base `71af1b062e3ddcb3329044712e225c75654bb654`, each on GitHub's synthetic merge commit
+`821ac65bbb6a9e520053a7ea6cf84458ed010368` — the checkout line says `HEAD is now at 821ac65 Merge 382837ef… into
+71af1b06…`, by `actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803` and `git version 2.55.0`.
+
+- CI [39391027807](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39391027807) — six cells `success`,
+  finished `08:16:50Z`. The deterministic-gate step in every cell reads `Test Files 169 passed | 3 skipped (172)`;
+  `Tests 2546 passed | 5 skipped (2551)` on both macOS cells and both Windows cells and
+  `2544 passed | 7 skipped (2551)` on both Ubuntu cells; the packaging boundary `5 passed (5)` files /
+  `115 passed (115)`; the installed artifact `1 passed (1)` / `14 passed (14)`. Number for number this is
+  `0aaee73`, `e99eb53` and `8b4ae79`'s reading, and the three fully-skipped files are still the real-model suites
+  (S18-9's boundary). The 973,689-byte combined log was swept for `ENOSPC`, `no space left`, `heap out of memory`,
+  `FATAL ERROR`, `worker crash`, `Failed Files`, `\d+ failed`, `Unhandled` and `ERR_PNPM|ERR_ENOENT|ERR_ASSERT` and
+  returned **0** matches on all nine. This sweep is recorded with the pattern source printed next to the count
+  (`dfailed source=\d+ failed count=0`) because an earlier pass of it had been silently mangled into `d+ failed` by
+  shell quoting: the count was 0 either way, and only the printed source proves which pattern actually ran.
+- Real Docker [39391027798](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39391027798) — three legs
+  `success`, finished `08:07:07Z`, one per qualified image: `node@sha256:a4fb14143ee24c038c851864fe85fd90f9121abc8fdca3092798bcc02e06b1d8`,
+  `node@sha256:14078204b6bb268c107ceff6d3c43f45a888105e5c2b18b14c32b3409d93a1b0`,
+  `node@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8`, whose containers were
+  `466a77b97804`, `96a492eb6a49` and `46f67ac6b23d`. Each leg printed `SANDBOX_BOUNDARY_RECORDS: inspected=1
+  matched=1`, a two-id `SANDBOX_BOUNDARY_IMAGE_IDENTITY` (the store's own config digest followed by the pulled
+  digest, which is the S16-11R shape the rule was rewritten to accept), `SANDBOX_BOUNDARY_ENV_NAMES:
+  CI,HOME,NODE_VERSION,PATH,XDG_CONFIG_HOME,…`, `SANDBOX_BOUNDARY_VIOLATIONS: none`, then twice
+  `SANDBOX_ESCAPE_LANDING: hostPathWrite=false insideMount=0 outsideMount=0` each with
+  `SANDBOX_ESCAPE_LANDING_VERDICT: accounted`, and both `SANDBOX_RUNTIME_PROOF: PASS` (at `08:06:46.362Z`,
+  `08:06:57.855Z`, `08:07:03.867Z`) and `STAGE_6_AND_7_DOCKER_PROOF: PASS` (`08:06:47.353Z`, `08:06:58.513Z`,
+  `08:07:04.593Z`).
+- Customer gate [39391027796](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39391027796) — one job,
+  `eight customer journeys, hosted`, `08:06:29Z` → `08:07:37Z`, all sixteen steps `success`, run closed `08:07:38Z`.
+  `SCENARIO journey: PASS` at `08:07:03.762`, `failed-assertion` `08:07:07.266`, `interruption` `08:07:11.074`,
+  `repair` `08:07:16.561`, `stale-patch` `08:07:21.242`, `forged-metadata` `08:07:25.832`, `no-sandbox`
+  `08:07:29.073`, `repeated` `08:07:33.349`, then `CUSTOMER_WORKFLOW_PASS scenarios=8 notPass=0` at
+  `08:07:33.350Z`, `CUSTOMER_GATE_PASS scenarios=8` at `08:07:33.394Z`, `CUSTOMER_EVIDENCE_PASS files=259` at
+  `08:07:33.651Z`, and `CUSTOMER_WORKFLOW_BOUNDS_PASS containers=0 fixture_main=6f3a0adb17389b93fd76b95c21a1c9eb7b161998`
+  at `08:07:35.087Z`. The certifier read the record **45 ms** after the record's own `finishedAt`
+  (`08:07:33.349Z`), which is S18-5's millisecond clock doing its job a fifth time: on the second-precision read
+  those two stamps are the same instant and a current artifact would be refused as stale — the exact refusal that
+  made run 3 red. The harness step's environment named `MERGESUTRA_GATE_REVISION=821ac65bbb…`,
+  `MERGESUTRA_GATE_NOT_BEFORE=2026-10-20T08:06:32.615Z` (so the record's `startedAt 08:06:57.651Z` sits inside the
+  window the job knows about), `MERGESUTRA_STAGE_DEADLINE_MS=420000` and the pinned `MERGESUTRA_SANDBOX_IMAGE`; the
+  only credential in that environment is the job's own ephemeral read-only token, which Actions prints as `***`.
+
+**The artifact, read back after the run rather than quoted from the job that made it.**
+`customer-workflows-39391027796`, ID 12249586859, 643,736 bytes, GitHub's own zip digest
+`sha256:87d5699c17c3dd7d35f4a401e169e07af98a29c0e69d7c9dfe8ab55a346c04dc` — and `sha256sum` over the bytes
+downloaded from the redirect equals that digest, so what was read is what GitHub stored. Extracted tree: 243 files
+over 2,687,418 bytes in the eight scenario directories plus `summary.json` (259 written, 243 published, the 16
+named in S18-7). Identity block from those bytes: `revision 821ac65bbb6a9e520053a7ea6cf84458ed010368`,
+`platform linux`, `nodeVersion v24.21.0`,
+`sandboxImage node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7`, `fixtureBaseSha
+6f3a0adb17389b93fd76b95c21a1c9eb7b161998`, `mergeSutraVersion 0.1.0`, `startedAt 2026-10-20T08:06:57.651Z`,
+`finishedAt 2026-10-20T08:07:33.349Z`. All eight records `verdict PASS` with `problems`, `damage` and `secrets` each
+of length 0 and `cleanup {"removed":true,"remaining":0,"lastError":null}`, and the exit-code families are intact in
+those bytes rather than inferred — `implement-killed=null(killed:SIGKILL)`, `pr-after-edit=4`,
+`pr-reuse-old-approval=4`, `pr-forged-approval=4`, `repair-forged-approval=3`, `verify-without-consent=4`, and every
+`verify-with-consent=0` on a workspace that earned it. The shipped instrument (`leaked()` at
+`scripts/lib/customer-evidence.mjs:44` plus the owner-name-in-path, runner-work-directory and Windows-profile
+regexes the bundler itself uses) reads over those 243 files `files=243 unreadable=0 owner_in_path=0
+runner_work_files=0 windows_users_files=0 credential_shaped_files=0`, with all four planted control shapes matching
+on the same run, so the zeros are a measurement and not a blind reader.
+
+**Reproduction, measured with a named instrument — and that instrument compared to the one S18-11 used.** The
+normalizer used here rewrites the run-stamped workspace suffix, `run-<UTC>-<6 hex>` identifiers, ISO and
+clock timestamps, the gateway's ephemeral loopback port, `duration_ms` values, millisecond durations, 12/40/64-hex
+digests and byte counts; it is `s18_repro_lines.mjs` and it is **not** the reading S18-11 recorded, so the two sets
+of numbers are listed side by side rather than merged:
+
+| pair compared | files | shared paths | unique per side | byte-identical | byte-differing | still differing after normalize | `summary.json` raw-differing lines | after normalize |
+|---|---|---|---|---|---|---|---|---|
+| `e99eb53` ↔ `8b4ae79` (this instrument) | 243 / 243 | 170 | 73 | 54 | 116 | 43 | 26 of 1,377 | **0** |
+| `8b4ae79` ↔ `382837e` (this instrument) | 243 / 243 | 170 | 73 | 54 | 116 | 47 | 27 of 1,377 | **1** |
+| `e99eb53` ↔ `8b4ae79` (as S18-11 recorded it) | 243 / 243 | 170 | 73 | — | 116 | — | — | **2** |
+
+The last row is S18-11's own output and stands as that reading; this instrument is the broader one, it folds the
+worktree stamp S18-11 counted as a difference into `<WS>`, and it therefore answers 0 for that pair. The single line
+this pair leaves over is `summary.json` line 7: `"nodeVersion": "v24.22.0"` against `"v24.21.0"`. That is GitHub's
+runner image, and the direction is not monotonic — `0aaee73` and `382837e` drew `v24.21.0`, `e99eb53` and `8b4ae79`
+drew `v24.22.0`, five gate runs inside one hour. So S18-10's note ("a `nodeVersion` difference across SHAs is
+GitHub's image, not a change to this branch") is now strengthened: it is not evidence of time's arrow either, and a
+reader must not order two runs by it. What the residual *does* prove is the property the freshness rule leans on:
+no two runs of these bytes are byte-identical, so a green row cannot be re-used for another revision, and every
+difference that is not GitHub's image is this run's identity.
+
+**S18-8, re-measured on this head — still NOT VERIFIED.** All ten check-runs arriving on `382837e` are
+`completed`/`success`: six `check (<os>, node <v>.x)` cells, three `sandbox (node@sha256:…)` legs and
+`eight customer journeys, hosted`. The repository still has exactly one active branch ruleset, `24454501`
+(`protect-main`), whose rule types are `deletion` and `non_fast_forward`, whose target is `~DEFAULT_BRANCH`, and
+which carries **no** `required_status_checks` rule; the legacy `/branches/main/protection` endpoint answers 404
+`Branch not protected`, and `orgs/Pavithran-R-A/rulesets` answers 404 because the account is personal. `gh pr view
+44` answers `open`, `mergeable=true`, `mergeable_state="unstable"`. So the gate's red would be recorded and named,
+but a merge is still not blocked by it, and closing that is an operator settings action outside the authorization
+Stage 18 was given.
+
+**The run count moved again, so it is re-stated.** `customer-workflow.yml` has seven runs now:
+[39243268605](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39243268605) failure,
+[39247291675](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39247291675) failure,
+[39378637341](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39378637341) failure,
+[39379727810](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39379727810) success,
+[39385021366](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39385021366) success,
+[39388064459](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39388064459) success,
+[39391027796](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39391027796) success — three red, four
+green. S18-11's "six" and S18-10's "five" were the API's answers when those readings were taken and stay as
+written, for the reason S18-10 gave: the number of gate runs says nothing on its own about quality.
+
+**And the customer repository, re-read after all of it.** `env -i git ls-remote
+https://github.com/Pavithran-R-A/mergesutra-e2e-fixture.git` answers
+`6f3a0adb17389b93fd76b95c21a1c9eb7b161998` for both `HEAD` and `refs/heads/main` — no credential helper in the
+environment, nothing in the URL. Unauthenticated API metadata: `private=false`, `visibility=public`,
+`default_branch=main`, `archived=false`, `pushed_at=2026-10-04T13:16:49Z` (unchanged since before Stage 18 existed,
+so no push was made to obtain a green row), `updated_at=2026-10-20T05:47:50Z` — still the only field the visibility
+flip moved, and it precedes the first hosted clone at `06:19:39Z`. History is still 2 commits,
+`6f3a0adb17389b93fd76b95c21a1c9eb7b161998` over `a0bf82b5fbf62f244f8974acfef98fda297eae5a`. Issue #1 is still
+`open`, title `slugify keeps leading and trailing hyphens`, `updated_at=2026-10-04T13:17:13Z`, 33 lines, all five
+numbered acceptance criteria and the `npm test` command present.
+
+*(Dated correction, 2026-10-20, measured here. Two readings in this register that quote issue #1's body as
+"1,210 bytes" took the length of the JSON string, not the UTF-8 encoding: the body is 1,210 characters and 1,214
+UTF-8 bytes, the difference being two non-ASCII dashes. Separately, the AC-5 sentence that S17-1 was about is
+present but wrapped in the issue source — `this is a` / newline / `five-line change, not a new library.` — so a
+contiguous-substring search for it fails while the criterion itself is intact. Neither changes any verdict; both
+are the kind of number a future reader should not re-derive from a byte count or a naive `includes()`.)*
+
+**What this section does not claim.** It adds no behaviour — with no executed byte changed, it re-derives the
+existing verdicts on the head that carries S18-11. It does not close S18-8. And this is where the self-certification
+chain stops, deliberately: the reading above belongs to `382837e`, the head this section is committed on, and a
+section that recorded *its own* commit's runs could only be written by a later commit, which would then need its
+own. The pull request body is the artifact that can hold the final head's reading without spawning another head, so
+`382837e`'s three runs are the merge decision's evidence, recorded here once and carried into PR #44, and any commit
+after this one carries only register prose and is measured by the same rules if it changes a claim.
