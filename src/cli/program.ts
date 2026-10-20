@@ -471,7 +471,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
               'Currently working commands: doctor, issue (intake), inspect, contract, plan, implement, verify, review, repair, report, status, resume, pr, --help, --version.',
             ),
             renderer.dim(
-              'Of those, `pr` prepares and approves a page; no command in this build opens one. `resume` acts on one stage at a time, and only when told to.',
+              'Of those, `pr` prepares and approves a page; only `pr --approve <digest> --publish` opens a draft pull request, and no command merges one. `resume` acts on one stage at a time, and only when told to.',
             ),
             renderer.dim(`Progress: ${ROADMAP_URL}`),
           ].join('\n'),

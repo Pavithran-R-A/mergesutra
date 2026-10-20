@@ -13,10 +13,7 @@ const LIVE_RULES = readFileSync(
   path.join(ROOT, 'scripts', 'lib', 'live-qualification.mjs'),
   'utf8',
 );
-const RUNTIME_PROOF = readFileSync(
-  path.join(ROOT, 'scripts', 'sandbox-runtime-proof.mjs'),
-  'utf8',
-);
+const RUNTIME_PROOF = readFileSync(path.join(ROOT, 'scripts', 'sandbox-runtime-proof.mjs'), 'utf8');
 
 const CHECKOUT_SHA = 'd23441a48e516b6c34aea4fa41551a30e30af803';
 const SETUP_NODE_SHA = '249970729cb0ef3589644e2896645e5dc5ba9c38';
@@ -105,17 +102,13 @@ describe('the controlled live-validation workflow', () => {
   it('verifies the daemon and preloads the pinned digest before any model request', () => {
     const live = job('live-model');
     const daemon = live.indexOf(
-      "\"$MERGESUTRA_DOCKER_EXECUTABLE\" version --format '{{ .Server.Version }}'",
+      '"$MERGESUTRA_DOCKER_EXECUTABLE" version --format \'{{ .Server.Version }}\'',
     );
-    const pull = live.indexOf(
-      '"$MERGESUTRA_DOCKER_EXECUTABLE" pull "$MERGESUTRA_SANDBOX_IMAGE"',
-    );
+    const pull = live.indexOf('"$MERGESUTRA_DOCKER_EXECUTABLE" pull "$MERGESUTRA_SANDBOX_IMAGE"');
     const inspect = live.indexOf(
-      "\"$MERGESUTRA_DOCKER_EXECUTABLE\" image inspect --format 'resolved {{ .Id }}' \"$MERGESUTRA_SANDBOX_IMAGE\"",
+      '"$MERGESUTRA_DOCKER_EXECUTABLE" image inspect --format \'resolved {{ .Id }}\' "$MERGESUTRA_SANDBOX_IMAGE"',
     );
-    const proofStepStart = live.indexOf(
-      '- name: Prove the sandbox boundary without a model call',
-    );
+    const proofStepStart = live.indexOf('- name: Prove the sandbox boundary without a model call');
     const proof = live.indexOf('node scripts/sandbox-runtime-proof.mjs');
     const model = live.indexOf('- name: Verify selected model is in the authenticated catalog');
     const chain = live.indexOf('- name: Run the bounded real-model chain');

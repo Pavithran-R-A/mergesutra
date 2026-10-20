@@ -359,18 +359,19 @@ describe('what `resume --execute` is not given permission to reach', () => {
     );
 
     // And these are the absences that make §17 and §26 structural rather than promised.
-    // `repair/stage.ts` is unreachable because the dispatcher has no route to it; the
-    // publication seam and every hosting-service module are unreachable because Stage 10
-    // left them that way and this path does not reopen them; `cli/pr.ts` is absent
-    // because a resumed publication stage is called, not re-parsed from a command line —
-    // so an approval flag has no way to enter here.
+    // `repair/stage.ts` is unreachable because the dispatcher has no route to it. The
+    // publication *seam* is reachable from `pr/stage.ts`, and that is safe: the stage
+    // calls it with `unavailableRemote()` unless a caller hands it a transport, and a
+    // resumed stage is never handed one. What must stay unreachable is the real
+    // transport (`pr/github-publisher.ts`) and the `--approve` wiring (`cli/pr.ts`),
+    // so no approval flag can enter this path and nothing here can reach GitHub.
     const unreachable = [
       'repair/stage.ts',
       'cli/repair.ts',
       'cli/pr.ts',
       'cli/doctor.ts',
       'cli/issue.ts',
-      'pr/publisher.ts',
+      'pr/github-publisher.ts',
       'github/gh-client.ts',
       'intake/intake.ts',
     ];

@@ -437,6 +437,7 @@ describe('the gate set is complete, not merely valid', () => {
 const GUARDED_WORKFLOWS = [
   'ci.yml',
   'customer-workflow.yml',
+  'draft-publication.yml',
   'live-validation.yml',
   'publish.yml',
   'sandbox-runtime.yml',

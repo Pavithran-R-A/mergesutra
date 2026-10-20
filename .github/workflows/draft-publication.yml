@@ -1,0 +1,158 @@
+name: Publish approved draft pull request
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: The completed live-validation run whose sanitized artifact holds the bundle
+        required: true
+        type: string
+      approval_digest:
+        description: The 64-character publication digest the operator approved
+        required: true
+        type: string
+
+# This is the only workflow allowed to write, and it writes only where GitHub needs
+# it: one branch, one commit, one draft pull request. It is dispatched by a person
+# from main, holds the workflow's short-lived token and nothing else, and never sees
+# a model credential. The live-model workflow that produced its input holds the model
+# credential and only read access; this job holds the opposite.
+permissions:
+  contents: read
+
+jobs:
+  publish-draft:
+    name: publish approved draft
+    # A person must dispatch this from main. A run from any other ref is refused
+    # before checkout, so a branch under review can never inherit write rights.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    env:
+      NO_COLOR: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.x'
+          package-manager-cache: false
+
+      - name: Validate the request before touching anything
+        shell: bash
+        env:
+          RUN_ID: ${{ inputs.run_id }}
+          APPROVAL_DIGEST: ${{ inputs.approval_digest }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "this workflow only publishes from main; dispatched from $GITHUB_REF" >&2
+            exit 78
+          fi
+          if ! [[ "$RUN_ID" =~ ^[0-9]{1,20}$ ]]; then
+            echo "run_id must be a numeric Actions run id" >&2
+            exit 78
+          fi
+          if ! [[ "$APPROVAL_DIGEST" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "approval_digest must be the 64-character hex digest of the approved page" >&2
+            exit 78
+          fi
+
+      - name: Verify the source run is a successful live validation on main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          gh run view "$RUN_ID" \
+            --json status,conclusion,event,headBranch,headSha,workflowName \
+            > "$RUNNER_TEMP/source-run.json"
+          head_sha="$(node -e '
+          const fs = require("node:fs");
+          const run = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          const problems = [];
+          if (run.status !== "completed") problems.push(`status is ${run.status}`);
+          if (run.conclusion !== "success") problems.push(`conclusion is ${run.conclusion}`);
+          if (run.event !== "workflow_dispatch") problems.push(`event is ${run.event}`);
+          if (run.headBranch !== "main") problems.push(`head branch is ${run.headBranch}`);
+          if (run.workflowName !== "Controlled live validation") {
+            problems.push(`workflow is ${run.workflowName}`);
+          }
+          if (!/^[0-9a-f]{40}$/.test(String(run.headSha))) {
+            problems.push("the run did not report a full head commit");
+          }
+          if (problems.length > 0) {
+            console.error(`source run ${process.env.RUN_ID} is not usable: ${problems.join("; ")}`);
+            process.exit(78);
+          }
+          console.log(run.headSha);
+          ' "$RUNNER_TEMP/source-run.json")"
+          if ! git merge-base --is-ancestor "$head_sha" origin/main; then
+            echo "the source run's commit $head_sha is not an ancestor of main" >&2
+            exit 78
+          fi
+          echo "source run $RUN_ID: completed live validation at $head_sha, reachable from main"
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Download the sanitized live artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          artifact="$RUNNER_TEMP/live-artifact"
+          mkdir -p "$artifact"
+          gh run download "$RUN_ID" --name "live-model-$RUN_ID" --dir "$artifact"
+          mapfile -t bundles < <(find "$artifact" -type f -name bundle.json -print)
+          if [ "${#bundles[@]}" -ne 1 ]; then
+            echo "the artifact must hold exactly one publication bundle; found ${#bundles[@]}" >&2
+            exit 78
+          fi
+          bundle_dir="$(dirname "${bundles[0]}")"
+          case "$bundle_dir" in
+            "$artifact"/*) ;;
+            *)
+              echo "the publication bundle escaped the download directory" >&2
+              exit 78
+              ;;
+          esac
+          echo "BUNDLE_DIR=$bundle_dir" >> "$GITHUB_ENV"
+
+      - name: Publish the approved draft through the product
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVAL_DIGEST: ${{ inputs.approval_digest }}
+        run: |
+          set -euo pipefail
+          node scripts/publish-draft.mjs \
+            --bundle "$BUNDLE_DIR" \
+            --approval "$APPROVAL_DIGEST" \
+            --repository "$GITHUB_WORKSPACE" \
+            --root "$GITHUB_WORKSPACE/.mergesutra/publication-run"
+
+      - name: Upload the publication receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: publication-result-${{ github.run_id }}
+          path: .mergesutra/publication-run/publication-result.json
+          if-no-files-found: error
+          retention-days: 14

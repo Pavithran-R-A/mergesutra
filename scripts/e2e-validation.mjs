@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -10,6 +11,11 @@ import {
   inspectFixtureAcceptance,
   liveQualificationFailures,
 } from './lib/live-qualification.mjs';
+import {
+  PACK_FILE_NAMES,
+  buildPublicationBundle,
+  writePublicationBundle,
+} from './lib/publication-bundle.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'dist', 'bin.js');
@@ -211,6 +217,126 @@ function fail(message) {
   throw new Error(safe);
 }
 
+/**
+ * Turn the live run's own page into the artifact the write-scoped job consumes.
+ *
+ * Nothing here is a second opinion about the run: the patch is re-measured with
+ * the product's Stage 7 code, the pack is re-hashed with Stage 8's identity, and
+ * the digest is re-derived from the candidate Stage 10 printed. A disagreement
+ * stops the export instead of shipping an artifact whose parts describe different
+ * things. The artifact carries exact bytes, so it is also the last place a raw
+ * credential could leave the machine — decoded file content, the record and the
+ * pack are scanned before the bundle is allowed to exist.
+ */
+async function exportPublicationBundle({ prJson, fixture, exportRoot }) {
+  const candidate = prJson?.candidate;
+  const digest = prJson?.digest;
+  if (!candidate || typeof digest !== 'string' || !/^[0-9a-f]{64}$/.test(digest)) {
+    fail(
+      'the real-model run produced no approval digest, so it has no page that could be ' +
+        'published; no publication bundle was written',
+    );
+  }
+
+  const { describePatch } = await import('../dist/verify/patch.js');
+  const { packIdentityOf } = await import('../dist/report/pack.js');
+  const { publicationDigestOf } = await import('../dist/pr/digest.js');
+
+  const record = prJson.record;
+  const runId = record?.runId;
+  const workspaceRelative = record?.implementation?.workspace?.relativePath;
+  const baseSha = record?.implementation?.workspace?.baseSha;
+  if (
+    typeof runId !== 'string' ||
+    typeof workspaceRelative !== 'string' ||
+    !workspaceRelative.startsWith('.mergesutra/worktrees/') ||
+    typeof baseSha !== 'string'
+  ) {
+    fail('the pr-stage record does not name the implementation workspace it measured');
+  }
+  if (candidate.baseSha !== baseSha) {
+    fail('the candidate and the recorded workspace name different base commits');
+  }
+  const workspace = path.resolve(fixture, workspaceRelative);
+  if (!workspace.startsWith(path.resolve(fixture) + path.sep)) {
+    fail('the implementation workspace escaped the fixture clone');
+  }
+
+  const patch = await describePatch({ workspace, baseSha });
+  if (patch.identity !== candidate.patchIdentity) {
+    fail(
+      'the workspace moved after the page was assembled; the candidate digest describes bytes that are gone',
+    );
+  }
+  if (publicationDigestOf(candidate) !== digest) {
+    fail('the reported approval digest does not describe the reported candidate');
+  }
+
+  const runsRoot = path.join(ROOT, '.mergesutra', 'runs');
+  const recordText = await readFile(path.join(runsRoot, `${runId}.json`), 'utf8');
+  const packText = {};
+  for (const name of PACK_FILE_NAMES) {
+    packText[name] = await readFile(path.join(runsRoot, runId, name), 'utf8');
+  }
+  const packIdentity = packIdentityOf(packText);
+  if (packIdentity !== candidate.evidencePackIdentity) {
+    fail('the evidence pack on disk is not the pack the page names');
+  }
+  if (hasRawSecret(recordText) || hasRawSecret(JSON.stringify(packText))) {
+    fail(
+      'a credential-shaped value reached the run record or evidence pack; no bundle was written',
+    );
+  }
+
+  const sourceRunUrl =
+    process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
+      ? `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+      : null;
+  const bundle = await buildPublicationBundle({
+    runId,
+    repository: candidate.repository,
+    baseSha: candidate.baseSha,
+    targetBranch: candidate.targetBranch,
+    proposedBranch: candidate.proposedBranch,
+    patchIdentity: patch.identity,
+    evidencePackIdentity: packIdentity,
+    publicationDigest: digest,
+    candidate,
+    patch,
+    workspace,
+    recordText,
+    packText,
+    sourceRunUrl,
+  });
+
+  const leaked = bundle.patch.files
+    .filter((file) => typeof file.contentBase64 === 'string')
+    .filter((file) => hasRawSecret(Buffer.from(file.contentBase64, 'base64').toString('utf8')))
+    .map((file) => file.path);
+  if (leaked.length > 0 || hasRawSecret(JSON.stringify(bundle.candidate))) {
+    fail('a credential-shaped value reached the publication bundle; the bundle was not written');
+  }
+
+  const written = await writePublicationBundle(path.join(exportRoot, 'publication-bundle'), bundle);
+  // Relative to the uploaded export root: the artifact is public to anyone who can
+  // read the run, so it must not carry the hosted runner's directory layout.
+  return {
+    directory: path.relative(exportRoot, written.dir).split(path.sep).join('/'),
+    file: path.relative(exportRoot, written.file).split(path.sep).join('/'),
+    runId: bundle.identity.runId,
+    repository: bundle.identity.repository,
+    baseSha: bundle.identity.baseSha,
+    targetBranch: bundle.identity.targetBranch,
+    proposedBranch: bundle.identity.proposedBranch,
+    patchIdentity: bundle.identity.patchIdentity,
+    evidencePackIdentity: bundle.identity.evidencePackIdentity,
+    publicationDigest: bundle.identity.publicationDigest,
+    changedPaths: bundle.identity.changedPaths,
+    deletedPaths: bundle.identity.deletedPaths,
+    sourceRunUrl: bundle.identity.sourceRunUrl,
+  };
+}
+
 async function main() {
   const publicProbe = git(
     'fixture-public-probe',
@@ -265,6 +391,7 @@ async function main() {
   let verifyRecord = null;
   let reviewRecord = null;
   let fixtureProof = null;
+  let publicationBundle = null;
 
   if (mode === 'no-key') {
     const doctor = exec('doctor-connect', process.execPath, [BIN, 'doctor', '--connect']);
@@ -424,6 +551,14 @@ async function main() {
       readFile,
       changedPaths: changed,
     });
+
+    if (prJson?.outcome !== 'PR_CANDIDATE_RECORDED') {
+      fail(
+        `the real-model chain ended '${String(prJson?.outcome)}', not with a showable ` +
+          'candidate page; the publication workflow needs a page and a digest',
+      );
+    }
+    publicationBundle = await exportPublicationBundle({ prJson, fixture, exportRoot });
   }
 
   const after = await trackedSnapshot(fixture);
@@ -541,6 +676,7 @@ async function main() {
           published: prJson.published,
         }
       : null,
+    publicationBundle,
     steps: steps.map((step) => ({
       label: step.label,
       exitCode: step.exitCode,
