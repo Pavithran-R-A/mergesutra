@@ -339,7 +339,9 @@ function violations(text: string, harness = HARNESS, gateCli = GATE_CLI): string
   if (!/retention-days: 14/.test(text)) {
     problems.push('the evidence artifact has no retention bound');
   }
-  if (/continue-on-error|\|\|\s*true|--privileged|--network=host|docker\.sock/.test(text)) {
+  if (
+    /continue-on-error|\|\|\s*true\b|\|\|\s*:|--privileged|--network=host|docker\.sock/.test(text)
+  ) {
     problems.push('failure suppression or sandbox privilege appears in the job');
   }
 
@@ -364,7 +366,7 @@ function violations(text: string, harness = HARNESS, gateCli = GATE_CLI): string
   // version the step prints and then trusts. These read the commands the step runs, not the
   // prose around them: a comment that recites the fix is not a fix.
   const versionRead = /docker version --format '([^']*)'/.exec(
-    commands.find((line) => /^docker version\b/.test(line)) ?? '',
+    commands.find((line) => /\bdocker version\b/.test(line)) ?? '',
   )?.[1];
   if (versionRead === undefined) {
     problems.push('the preflight never asks the Docker daemon which version it is running');
@@ -613,6 +615,33 @@ describe('the hosted customer gate enforces what it claims', () => {
     );
   });
 
+  it('refuses a preflight that suppresses a failing command with either || true or || :', () => {
+    // Both forms hide a non-zero exit from `set -e`: `|| true` returns a literal 0, `|| :`
+    // runs the shell's no-op builtin. Only the first matched the shipped policy until this
+    // test pinned the second too, and Stage 18's first hosted preflight used the second form
+    // to smuggle a dead daemon past the check that follows. Alternate shell syntax is still
+    // failure suppression, so the regex has to name it.
+    const trueSuppressed = WORKFLOW.replace(
+      /if ! server_version="\$\(docker version[^\n]*"; then/,
+      'server_version="$(docker version --format \'{{ .Server.Version }}\' 2>/dev/null)" || true',
+    );
+    expect(trueSuppressed).not.toEqual(WORKFLOW);
+    expect(violations(trueSuppressed)).toContain(
+      'failure suppression or sandbox privilege appears in the job',
+    );
+    const colonSuppressed = WORKFLOW.replace(
+      /if ! server_version="\$\(docker version[^\n]*"; then/,
+      'server_version="$(docker version --format \'{{ .Server.Version }}\' 2>/dev/null)" || :',
+    );
+    expect(colonSuppressed).not.toEqual(WORKFLOW);
+    expect(violations(colonSuppressed)).toContain(
+      'failure suppression or sandbox privilege appears in the job',
+    );
+    // Neither the shipped workflow nor a mutation-free read carries either form. If this
+    // assertion ever fails, the preflight has gone back to suppressing rather than handling.
+    expect(WORKFLOW).not.toMatch(/\|\|\s*(true\b|:)/);
+  });
+
   it('ignores prose, because a comment is not a command', () => {
     expect(runCommands('# npm ci\n        run: npm run build')).toEqual(['npm run build']);
     expect(runCommands(WORKFLOW)).toEqual(expect.arrayContaining(STAGE_ORDER));
@@ -790,7 +819,7 @@ describe('the Docker format templates the job uses are valid against the daemon'
   // Anti-vacuity: removing each template from the workflow removes its probe.
   it('loses the version probe when the preflight docker version command is removed', () => {
     const stripped = WORKFLOW.replace(
-      /\bdocker version --format '[^']*' > "\$RUNNER_TEMP[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*\n/,
+      /[^\n]*docker version --format[^\n]*\n/,
       '          echo "(preflight version skipped)"\n',
     );
     expect(stripped).not.toEqual(WORKFLOW);

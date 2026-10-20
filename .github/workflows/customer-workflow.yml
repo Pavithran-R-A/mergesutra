@@ -134,12 +134,19 @@ jobs:
           gh --version | head -1
           node --version
           npm --version
-          docker version --format '{{ .Server.Version }}' > "$RUNNER_TEMP/docker_version.txt" || :
-          server_version="$(cat "$RUNNER_TEMP/docker_version.txt" 2>/dev/null)" || :
-          if [ -z "$server_version" ]; then
-            echo "the Docker daemon is unreachable; the customer journeys cannot run" >&2
+          # `set -e` is disabled inside an `if` predicate, so a failing command substitution
+          # here is a finding the step can name — not a shell abort with no cause. Two
+          # shell-OR suppression forms have previously hidden a dead daemon from the check
+          # that follows; the failure is handled with an `exit` instead of a fallthrough.
+          if ! server_version="$(docker version --format '{{ .Server.Version }}' 2>/dev/null)"; then
+            echo "the Docker daemon did not answer 'docker version'; the customer journeys cannot run" >&2
             exit 78
           fi
+          if [ -z "$server_version" ]; then
+            echo "the Docker daemon returned an empty version; the customer journeys cannot run" >&2
+            exit 78
+          fi
+          printf '%s\n' "$server_version" > "$RUNNER_TEMP/docker_version.txt"
           echo "docker daemon version: $server_version"
           echo "image digest this job will preload: ${MERGESUTRA_SANDBOX_IMAGE}"
 
