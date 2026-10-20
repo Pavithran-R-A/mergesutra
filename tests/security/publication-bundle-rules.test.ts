@@ -326,6 +326,13 @@ await caseRun('reports failure when the CLI did not open a draft', async () => {
   assert.deepEqual(calls, ['prepare', 'measure', 'publish']);
 });
 
+await caseRun('reports the product refusal as a refusal, not a failure', async () => {
+  const { result } = await runWithFakes('runner-cli-refused', {
+    publish: async () => ({ exitCode: 3, stdout: '', stderr: 'the page moved' }),
+  });
+  assert.equal(result.status, 'REFUSED');
+});
+
 await caseRun('reports failure when GitHub did not mark the page a draft', async () => {
   const { result } = await runWithFakes('runner-not-draft', {
     publish: fakePublish({

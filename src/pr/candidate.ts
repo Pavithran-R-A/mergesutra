@@ -68,7 +68,19 @@ export const publicationCandidateSchema = z
     knownLimitations: z.array(z.string().min(1)).readonly(),
     createdAt: z.string().min(1),
   })
-  .strict();
+  .strict()
+  .superRefine((candidate, ctx) => {
+    // The digest folds in `prBodySha256` rather than the body text, so this is the
+    // one place the two can be tied together. Without it a stored page could carry
+    // a rewritten body beside the old hash and keep the same approval digest.
+    if (sha256Hex(candidate.prBody) !== candidate.prBodySha256) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['prBodySha256'],
+        message: 'must be the digest of the body beside it',
+      });
+    }
+  });
 
 export type PublicationCandidate = z.infer<typeof publicationCandidateSchema>;
 

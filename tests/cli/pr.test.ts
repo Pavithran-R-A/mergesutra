@@ -260,7 +260,13 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
       approved: boolean;
       published: boolean;
       outcome: string;
-      publication: { url: string; number: number; branch: string; commitSha: string };
+      publication: {
+        url: string;
+        number: number;
+        branch: string;
+        commitSha: string;
+        draft: boolean;
+      };
       recordedPublication: unknown;
     };
     expect(payload.approved).toBe(true);
@@ -271,6 +277,7 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
       number: 7,
       branch: `mergesutra/${fixture.record.runId}`,
       commitSha: PUSHED_SHA,
+      draft: true,
     });
     expect(payload.recordedPublication).toBeNull();
     // The run's next-step prose may say a human could merge; what may not exist is

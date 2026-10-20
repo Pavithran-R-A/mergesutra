@@ -84,6 +84,20 @@ export async function runPublication(input) {
     runId: bundle.identity.runId,
     approval: digest,
   });
+  if (reply?.exitCode === 3) {
+    // Exit 3 is the product's "shown or approved, nothing published" word. With
+    // `--publish` on the command line an attempted and failed transport is exit 4,
+    // so this branch never describes a partial remote write.
+    return {
+      status: 'REFUSED',
+      reason:
+        'The publication command exited 3 without opening a draft, so this invocation ' +
+        'sent nothing; read its output before dispatching again.',
+      exitCode: 3,
+      stderr: bound(reply?.stderr ?? ''),
+      bundle,
+    };
+  }
   if (reply?.exitCode !== 0) {
     return {
       status: 'FAILED',

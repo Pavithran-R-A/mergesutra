@@ -135,6 +135,17 @@ describe('draft publication is manual, main-only and write-scoped', () => {
     expect(WORKFLOW).toContain('the publication bundle escaped the download directory');
   });
 
+  it('refuses a bundle path that could inject a second GITHUB_ENV line', () => {
+    const guard = '[[ "$bundle_dir" == *[[:cntrl:]]* ]]';
+    const guardAt = WORKFLOW.indexOf(guard);
+    const writeAt = WORKFLOW.indexOf('echo "BUNDLE_DIR=$bundle_dir" >> "$GITHUB_ENV"');
+
+    expect(guardAt).toBeGreaterThanOrEqual(0);
+    expect(writeAt).toBeGreaterThanOrEqual(0);
+    expect(guardAt).toBeLessThan(writeAt);
+    expect(WORKFLOW).toContain('the publication bundle path contains control characters');
+  });
+
   it('builds, then downloads, then runs the product runner, then preserves its receipt', () => {
     const positions = [
       'run: npm ci',

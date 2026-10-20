@@ -45,6 +45,17 @@ describe('building the candidate', () => {
     expect(candidate.prBodySha256).not.toBe(candidate.prBody);
   });
 
+  it('refuses a body whose stored hash was not computed from that body', () => {
+    const candidate = candidateOf(candidateInput());
+    const rewritten = {
+      ...candidate,
+      prBody: '## Summary\n\nA body the approval never covered.\n',
+    };
+
+    expect(() => parsePublicationCandidate(rewritten)).toThrow(/body|digest|hash/i);
+    expect(() => publicationDigestOf(rewritten)).toThrow(/body|digest|hash/i);
+  });
+
   it('keeps which issue it came from, and whether it claims to close it', () => {
     const candidate = candidateOf(candidateInput());
 

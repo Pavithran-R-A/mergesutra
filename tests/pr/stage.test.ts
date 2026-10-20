@@ -351,6 +351,7 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
       commitSha: PUSHED_SHA,
       url: PUBLISHED_URL,
       number: 7,
+      draft: true,
     });
     // The page and its digest did not move because a remote answered.
     expect(published.candidate).toEqual(candidate);

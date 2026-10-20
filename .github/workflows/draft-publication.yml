@@ -133,6 +133,12 @@ jobs:
               exit 78
               ;;
           esac
+          # Artifact filenames can contain newlines; an unescaped path would let a
+          # crafted artifact append a second variable to the environment file.
+          if [[ "$bundle_dir" == *[[:cntrl:]]* ]]; then
+            echo "the publication bundle path contains control characters" >&2
+            exit 78
+          fi
           echo "BUNDLE_DIR=$bundle_dir" >> "$GITHUB_ENV"
 
       - name: Publish the approved draft through the product

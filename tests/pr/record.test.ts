@@ -66,6 +66,16 @@ describe('the publication Stage 10 records', () => {
     expect(record.result).toBeNull();
   });
 
+  it('refuses a filed candidate whose body was rewritten beside its old hash', () => {
+    const record = publicationRecord();
+    const rewritten = {
+      ...record,
+      candidate: { ...record.candidate, prBody: 'A body the approval never covered.\n' },
+    };
+
+    expect(() => parsePublicationRecord(rewritten)).toThrow(/body|digest|hash/i);
+  });
+
   it('records a candidate nobody has approved as having no approval, not an empty one', () => {
     const candidate = candidateOf(candidateInput());
 

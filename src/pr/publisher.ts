@@ -80,6 +80,8 @@ export interface PublishedPullRequest {
   readonly commitSha: string;
   readonly url: string;
   readonly number: number;
+  /** Always true: the transport refuses to report anything but a draft. */
+  readonly draft: true;
 }
 
 const pushBranchInputSchema = z
@@ -192,6 +194,7 @@ export async function publish(input: {
     commitSha: pushed.commitSha,
     url: created.url,
     number: created.number,
+    draft: created.draft,
   };
 }
 
