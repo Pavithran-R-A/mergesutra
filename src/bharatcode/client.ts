@@ -99,6 +99,34 @@ function cancelled(): AppError {
 /** Unique sentinel so an internal timeout abort is never confused with a user cancellation. */
 const TIMEOUT_REASON: { readonly mergesutra: 'timeout' } = { mergesutra: 'timeout' };
 
+/**
+ * What the transport actually said, including what it said underneath.
+ *
+ * Node's `fetch` reports a refused, interrupted or never-answered request as one
+ * message — `fetch failed` — and puts the error that distinguishes those cases one
+ * level down in `cause`. A live run that lost a paid request to the undici headers
+ * timeout was reported to the operator as `Could not reach BharatCode: fetch failed`,
+ * which is consistent with a dead hostname, a dropped TLS session and a gateway that
+ * accepted the connection and never answered. Those need different fixes, and the
+ * four words cannot tell them apart. The cause is flattened to one bounded line: it
+ * can come from a socket, so it is not trusted to be short or free of newlines.
+ */
+function transportDetail(error: unknown): string {
+  const headline = error instanceof Error ? error.message : String(error);
+  const cause = error instanceof Error ? error.cause : undefined;
+  if (cause === undefined) return headline;
+  const parts =
+    cause instanceof Error
+      ? [cause.name, (cause as { code?: string }).code, cause.message]
+      : [typeof cause, String(cause)];
+  const oneLine = parts
+    .filter(Boolean)
+    .join(' ')
+    .replace(/[\r\n]+/g, ' ')
+    .slice(0, 240);
+  return oneLine === '' ? headline : `${headline} (cause: ${oneLine})`;
+}
+
 export class HttpBharatCodeClient implements BharatCodeClient {
   private readonly config: BharatCodeClientConfig;
   private readonly fetch: FetchLike;
@@ -317,9 +345,7 @@ export class HttpBharatCodeClient implements BharatCodeClient {
     }
     return new AppError({
       kind: 'network',
-      message: `Could not reach BharatCode: ${this.redactor.text(
-        error instanceof Error ? error.message : String(error),
-      )}`,
+      message: `Could not reach BharatCode: ${this.redactor.text(transportDetail(error))}`,
       retryable: true,
       cause: error,
     });

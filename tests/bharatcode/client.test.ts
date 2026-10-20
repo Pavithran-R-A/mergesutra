@@ -217,6 +217,39 @@ describe('Retry policy (deterministic, offline)', () => {
     await expect(client.complete({ messages: [] })).rejects.toBeInstanceOf(AppError);
     expect(calls.length).toBe(1);
   });
+
+  it('names the transport cause, because "fetch failed" alone cannot be diagnosed', async () => {
+    // Node's fetch reports every socket-layer failure as `TypeError: fetch failed` and puts
+    // the reason in `cause`. Run 39460563729 lost a paid plan request to a ~300 s transport
+    // headers timeout and the whole evidence trail was the four words "fetch failed", which
+    // is indistinguishable from a dead endpoint. The cause has to survive into the message.
+    const transportFailure = Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error(`Headers Timeout Error while sending ${TEST_KEY}`), {
+        name: 'HeadersTimeoutError',
+        code: 'UND_ERR_HEADERS_TIMEOUT',
+      }),
+    });
+    const { fetch } = fakeFetch([transportFailure]);
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('UND_ERR_HEADERS_TIMEOUT');
+    expect(err.message).not.toContain(TEST_KEY);
+  });
+
+  it('still reports a transport failure that carries no cause', async () => {
+    const { fetch } = fakeFetch([new TypeError('fetch failed')]);
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('fetch failed');
+  });
 });
 
 describe('Timeout & cancellation (offline)', () => {

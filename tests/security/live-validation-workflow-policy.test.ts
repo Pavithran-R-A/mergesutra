@@ -88,11 +88,18 @@ describe('the controlled live-validation workflow', () => {
     const modelStep = live.slice(live.indexOf('- name: Run the bounded real-model chain'));
     expect(modelStep).toContain('BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}');
     expect(modelStep).toContain('BHARATCODE_MODEL: ${{ inputs.model }}');
-    // Nine minutes, not five: run 39445715858 lost the chain to a plan request that
-    // the gateway held for the whole 300s cap. The driver still kills every command at
-    // its share of the 25-minute wall clock, so a longer per-request cap cannot lengthen
-    // the chain — it only stops a slow-but-answering model from being read as a failure.
-    expect(modelStep).toContain("BHARATCODE_TIMEOUT_MS: '540000'");
+    // Below the transport's own ceiling, not above it. Node's fetch (undici) aborts a
+    // non-streaming request that never answers at ~300s with UND_ERR_HEADERS_TIMEOUT,
+    // whichever way this setting is configured — proved locally in
+    // scratch/undici-headers-timeout-probe.mjs (rejected at 306985ms with
+    // ourSignalAborted: false). Run 39460563729 therefore spent 304.5s and reported a
+    // network failure while BHARATCODE_TIMEOUT_MS said 540000. A cap set at exactly
+    // 300000 loses that race nondeterministically (run 39445715858 reported a timeout,
+    // the same wall of time), so the live job sets one below it: the app timer wins,
+    // and the failure names the budget that was actually reached. The driver still
+    // kills every command at its share of the 25-minute wall clock, so this cannot
+    // lengthen the chain.
+    expect(modelStep).toContain("BHARATCODE_TIMEOUT_MS: '290000'");
     expect(modelStep).toContain("BHARATCODE_MAX_RETRIES: '0'");
   });
 

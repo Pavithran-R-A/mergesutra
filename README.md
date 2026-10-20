@@ -1668,7 +1668,12 @@ source.
   that spends both variables — every command, flag, budget and exit code in one
   page — is
   [docs/REAL_MODEL_E2E_PROCEDURE.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/REAL_MODEL_E2E_PROCEDURE.md).
-- **`BHARATCODE_TIMEOUT_MS`** — the per-request timeout, default `60000`.
+- **`BHARATCODE_TIMEOUT_MS`** — the per-request timeout, default `60000`. Raise it and
+  a request that answers slowly is given longer; it cannot raise the ceiling on a
+  request that never answers. Node's `fetch` aborts those at ~300 s on its own
+  (`UND_ERR_HEADERS_TIMEOUT`), so a value above that is reached only by the transport
+  first, and the failure is reported as a network error naming the cause rather than
+  as this timeout. `290000` is the highest value this repository sets for it.
 - **`BHARATCODE_MAX_RETRIES`** — the adapter's own bounded retries, default `3`.
 - **`BHARATCODE_RETRY_BASE_MS`** — the backoff floor, default `500`.
 - **`BHARATCODE_RETRY_MAX_MS`** — the backoff ceiling, default `15000`.

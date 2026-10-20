@@ -187,7 +187,12 @@ jobs:
         env:
           BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
           BHARATCODE_MODEL: ${{ inputs.model }}
-          BHARATCODE_TIMEOUT_MS: '540000'
+          # Below the transport's own ceiling, not above it. Node's fetch aborts a
+          # non-streaming request that never answers at ~300s (UND_ERR_HEADERS_TIMEOUT)
+          # whatever this is set to: run 39460563729 died at 304.5s while it said 540000.
+          # One below that race makes the failure name the budget actually reached. The
+          # driver still kills each command at its share of the 25-minute wall clock.
+          BHARATCODE_TIMEOUT_MS: '290000'
           BHARATCODE_MAX_RETRIES: '0'
         run: node scripts/e2e-validation.mjs live
 
