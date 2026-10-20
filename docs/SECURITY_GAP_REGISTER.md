@@ -7684,8 +7684,8 @@ convention the two dated notes above record.
 
 **Why this section exists.** `382837ef9e648d97c8c5bf6e05415c430fcc63ab` ships S18-11 and nothing else: one file,
 `docs/SECURITY_GAP_REGISTER.md`, +99/−0, no executed byte. S18-11's last sentence promised that head three hosted
-runs read back the same way. This is that reading. It is also the reading the merge decision belongs to, which is
-why it is the section that closes the chain rather than the section that continues it — see the last paragraph.
+runs read back the same way. This is that reading, and the last paragraph says what a reading like this one can and
+cannot certify about the head carrying it.
 
 **What it measured, in three runs.** All three started `2026-10-20T08:06:27Z` on the `pull_request` event, first
 attempt, over base `71af1b062e3ddcb3329044712e225c75654bb654`, each on GitHub's synthetic merge commit
@@ -7803,17 +7803,27 @@ flip moved, and it precedes the first hosted clone at `06:19:39Z`. History is st
 `open`, title `slugify keeps leading and trailing hyphens`, `updated_at=2026-10-04T13:17:13Z`, 33 lines, all five
 numbered acceptance criteria and the `npm test` command present.
 
-*(Dated correction, 2026-10-20, measured here. Two readings in this register that quote issue #1's body as
-"1,210 bytes" took the length of the JSON string, not the UTF-8 encoding: the body is 1,210 characters and 1,214
-UTF-8 bytes, the difference being two non-ASCII dashes. Separately, the AC-5 sentence that S17-1 was about is
-present but wrapped in the issue source — `this is a` / newline / `five-line change, not a new library.` — so a
-contiguous-substring search for it fails while the criterion itself is intact. Neither changes any verdict; both
-are the kind of number a future reader should not re-derive from a byte count or a naive `includes()`.)*
+*(Dated correction, 2026-10-20, measured here. S18-4 is the only reading in this register that calls issue #1's
+body "1,210-byte", and that figure is the length of the JSON string rather than of its UTF-8 encoding: the body is
+1,210 characters and 1,214 UTF-8 bytes, the difference being two non-ASCII dashes. Stage 14's own captures already
+said `1210 character(s)`, which is the correct measure of the same body. Separately, the AC-5 sentence that S17-1
+was about is present but wrapped in the issue source — `this is a` / newline / `five-line change, not a new
+library.` — so a contiguous-substring search for it fails while the criterion itself is intact. Neither changes any
+verdict; both are the kind of number a future reader should not re-derive from a byte count or a naive `includes()`.
+And this paragraph has its own lesson: its first draft opened "two readings in this register", a count said from
+memory rather than from a sweep, and `grep -n "1210\|1,210" docs/SECURITY_GAP_REGISTER.md` did not support it. The
+revised wording is anchored to the one section the grep actually names, S18-4, because a count of occurrences inside
+a paragraph that quotes the figure drifts every time the paragraph is edited — which is the same reason S18-10
+maps its eight cases to the tests that fire instead of to a number of guard files.)*
 
 **What this section does not claim.** It adds no behaviour — with no executed byte changed, it re-derives the
-existing verdicts on the head that carries S18-11. It does not close S18-8. And this is where the self-certification
-chain stops, deliberately: the reading above belongs to `382837e`, the head this section is committed on, and a
-section that recorded *its own* commit's runs could only be written by a later commit, which would then need its
-own. The pull request body is the artifact that can hold the final head's reading without spawning another head, so
-`382837e`'s three runs are the merge decision's evidence, recorded here once and carried into PR #44, and any commit
-after this one carries only register prose and is measured by the same rules if it changes a claim.
+existing verdicts on the head it reads, `382837ef9e648d97c8c5bf6e05415c430fcc63ab`. It does not close S18-8. And it
+is not the branch's final word, for a reason worth stating instead of discovering: a section is always committed on
+a head *after* the one it certifies. This one first shipped on `38a09271a743098766eb96f010b9cf38ab6d267a`, and the
+words you are reading ship on a later head, because the first version counted the occurrences of the "1,210-byte"
+claim from memory and the sweep did not support it — see the dated correction above, which is the same mistake the
+paragraph then corrects, caught before it could stand. So the self-certification chain has no register-terminal
+member. What ends it is the pull request body: it is not part of any tree, so it can hold the reading of the
+branch's actual final head without spawning another one. The rule this stage leaves in force is therefore the one
+S18-11 stated and this section proves — the merge decision belongs to the head the pull request names, on that
+head's own three hosted runs, and `git log` accounts for every head between it and `0aaee73d1178a515b3709bbf7b33d603517ad156`.
