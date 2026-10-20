@@ -1,5 +1,6 @@
 import { PRODUCT_NAME } from '../version.js';
 import type { PublicationCandidate } from '../pr/candidate.js';
+import { createGitHubPublicationRemote } from '../pr/github-publisher.js';
 import { runPrStage, type PrStageDeps, type PrStageResult } from '../pr/stage.js';
 import { exitForOutcome } from './exit-codes.js';
 import {
@@ -31,10 +32,11 @@ import { createRenderer, resolveColor, type Renderer } from './render.js';
  * unknown options — which is the honest shape of the answer, since a flag declared in
  * order to refuse it would still be a flag readers could believe exists.
  *
- * Nothing here reaches a network. The stage has no client, no transport and no
- * publisher, and this module imports none, so `published` is a literal false by
- * construction rather than by a check. The last line of every screen says so in the
- * words the spec asked for, including on the screen where a person has just approved.
+ * A yes is not a publication. Sending the approved page requires a second, explicit
+ * `--publish`, and this module constructs the real transport only when that flag is
+ * present. Without it the stage's own refusal is the only remote it has, and the
+ * screen says no remote action was performed. With it, the screen reports exactly what
+ * GitHub answered: a draft URL, or a failure that tells a person to inspect the remote.
  */
 
 export interface PrCommandOptions {
@@ -44,6 +46,8 @@ export interface PrCommandOptions {
   readonly repo?: string;
   /** The 64-hex digest of the page being approved — the only way to say yes. */
   readonly approve?: string;
+  /** Ask the GitHub transport to push the approved patch and open a draft PR. */
+  readonly publish?: boolean;
 }
 
 export async function prAction(
@@ -54,13 +58,16 @@ export async function prAction(
 ): Promise<number> {
   const env = options.env ?? process.env;
   const renderer = createRenderer({ color: resolveColor(options.noColor === true, env) });
+  const remote =
+    deps.remote ?? (options.publish === true ? createGitHubPublicationRemote() : undefined);
   const result = await runPrStage(
     {
       runId,
       ...(options.repo ? { repo: options.repo } : {}),
       ...(options.approve ? { approve: options.approve } : {}),
+      ...(options.publish === true ? { publish: true } : {}),
     },
-    deps,
+    { ...deps, ...(remote ? { remote } : {}) },
   );
 
   if (options.json) {
@@ -71,10 +78,16 @@ export async function prAction(
         readiness: result.readiness.readiness,
         digest: result.digest,
         // Two different questions, answered separately: did a human agree, and did
-        // anything happen. In this build the second is always false, and a consumer
-        // that reads only the first would be reading half the news.
+        // GitHub report a draft. A consumer that reads only the first is reading a
+        // decision, not a publication.
         approved: result.decision?.allowed === true,
+        // `published` answers "did this invocation open one"; `recordedPublication`
+        // is the draft this run already owns. A later read can have the second
+        // without the first, and saying so is the difference between a fact and a
+        // claim that nothing ever happened.
         published: result.published,
+        publication: result.publication,
+        recordedPublication: result.recordedPublication,
         candidate: result.candidate,
         decision: result.decision,
         recordFile: result.recordFile,
@@ -114,6 +127,22 @@ export function formatPr(input: PrStageResult, renderer: Renderer): string {
   lines.push(label('Outcome', result.record.outcome));
   lines.push(label('Readiness', result.readiness.readiness));
   lines.push(label('Page', pageText(result.candidate)));
+  if (result.publication) {
+    lines.push(
+      label(
+        'Draft',
+        `#${String(result.publication.number)} ${result.publication.url} (${result.publication.branch} at ${result.publication.commitSha})`,
+      ),
+    );
+  } else if (result.recordedPublication) {
+    lines.push(
+      label(
+        'Draft',
+        `#${String(result.recordedPublication.number)} ${result.recordedPublication.url} ` +
+          '(recorded earlier; this command sent nothing)',
+      ),
+    );
+  }
   lines.push('');
 
   if (input.candidate) {
@@ -137,6 +166,19 @@ export function formatPr(input: PrStageResult, renderer: Renderer): string {
       `  to record that you approve exactly the page above: mergesutra pr ${result.runId} --approve ${result.digest}`,
     );
     lines.push('');
+  } else if (
+    result.decision?.allowed === true &&
+    result.digest &&
+    !result.publishRequested &&
+    result.recordedPublication === null
+  ) {
+    // A yes is not a publication. The second, separate act is named here so nobody
+    // has to guess that an approval alone was never going to open anything. A draft
+    // already on file is not offered a second time.
+    lines.push(
+      `  to ask GitHub for a draft pull request carrying exactly the page above: mergesutra pr ${result.runId} --publish`,
+    );
+    lines.push('');
   }
 
   if (result.record.limitations.length > 0) {
@@ -152,25 +194,44 @@ export function formatPr(input: PrStageResult, renderer: Renderer): string {
   lines.push('');
   lines.push(
     `  ${renderer.dim(
-      'An approval here records a decision about one page. This build has no publication remote, ' +
-        'so it has no action to take on that decision, and no read of this screen can be mistaken ' +
-        'for a pull request that exists.',
+      result.publication
+        ? 'An approval records a decision; --publish is the act that sends it. This screen reports a ' +
+            'draft that GitHub created and claims nothing further: merging is a human act.'
+        : result.recordedPublication
+          ? 'This run already holds a draft pull request from an earlier invocation. This screen ' +
+            'reports that fact; it did not send anything, and merging is a human act in GitHub.'
+          : 'An approval here records a decision about one page. Without --publish no remote is asked, ' +
+            'and no read of this screen can be mistaken for an event that did not happen.',
     )}`,
   );
   lines.push('');
   // The last three lines are the whole of what this command did, in the order a
-  // reader should absorb them: whether a person said yes, whether anything was
-  // sent, and whether the state changed at all. They are printed last and in the
-  // same place on every path — including the path where a person has just approved,
-  // which is the one where an overclaim would be believed — because a boundary that
-  // only appears when the news is bad is a boundary readers learn to skip.
+  // reader should absorb them: whether a person said yes, what was sent, and what
+  // is known to have changed. They are printed last and in the same place on every
+  // path — including the path where a person has just approved, which is the one
+  // where an overclaim would be believed — because a boundary that only appears
+  // when the news is bad is a boundary readers learn to skip.
   lines.push(
     renderer.heading(
       result.decision?.allowed === true ? 'HUMAN APPROVAL RECORDED' : 'NO HUMAN APPROVAL RECORDED',
     ),
   );
-  lines.push(renderer.heading('REMOTE PUBLICATION NOT ENABLED'));
-  lines.push(renderer.heading('NO REMOTE CHANGE HAS BEEN MADE.'));
+  if (result.publication) {
+    lines.push(renderer.heading('DRAFT PULL REQUEST OPENED'));
+    lines.push(renderer.heading('NOT MERGED — MERGING IS A HUMAN ACT IN GITHUB.'));
+  } else if (result.recordedPublication) {
+    lines.push(renderer.heading('DRAFT PULL REQUEST ALREADY RECORDED'));
+    lines.push(renderer.heading('NOTHING WAS SENT BY THIS COMMAND; NOTHING HAS BEEN MERGED.'));
+  } else if (result.publicationFailure) {
+    lines.push(renderer.heading('REMOTE PUBLICATION FAILED'));
+    lines.push(renderer.heading('THE REMOTE MAY HAVE CHANGED — INSPECT IT BEFORE RETRYING.'));
+  } else if (result.publishRequested) {
+    lines.push(renderer.heading('REMOTE PUBLICATION NOT ATTEMPTED'));
+    lines.push(renderer.heading('NO REMOTE CHANGE HAS BEEN MADE.'));
+  } else {
+    lines.push(renderer.heading('REMOTE PUBLICATION NOT ENABLED'));
+    lines.push(renderer.heading('NO REMOTE CHANGE HAS BEEN MADE.'));
+  }
   return lines.join('\n');
 }
 

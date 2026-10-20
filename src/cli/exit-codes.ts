@@ -49,13 +49,12 @@ export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
  * same news as `REVIEW_STALE` to a script: stop and look, there is nothing to
  * carry forward.
  *
- * Stage 10 adds the last three words and still no `EXIT.OK`, which is the point of
- * this one too. `PR_APPROVED_LOCAL` is as far as this build can go — a human has
- * named a digest and MergeSutra has written that down — and it exits 3, because what
- * it means is that a publication has not happened. There is no code for "the pull
- * request exists", and giving one would let a script report success for an event no
- * remote was ever asked to cause. `PR_PUBLICATION_BLOCKED` exits 4, the same stop-and-look
- * news the other blocks give.
+ * Stage 10 adds four words and exactly one `EXIT.OK`. `PR_CANDIDATE_RECORDED` and
+ * `PR_APPROVED_LOCAL` exit 3: a page was shown, or a human said yes to it, and
+ * nothing was published. `PR_DRAFT_OPENED` exits 0 because the command did the one
+ * thing it was asked to do — GitHub reported a draft pull request — and the word
+ * still claims nothing about merging, review or readiness. `PR_PUBLICATION_BLOCKED`
+ * exits 4, the same stop-and-look news the other blocks give.
  */
 export function exitForOutcome(outcome: RunOutcome): ExitCode {
   switch (outcome) {
@@ -64,6 +63,7 @@ export function exitForOutcome(outcome: RunOutcome): ExitCode {
     case 'CONTRACT_DERIVED':
     case 'PLAN_COMPLETE':
     case 'VERIFICATION_PASS':
+    case 'PR_DRAFT_OPENED':
       return EXIT.OK;
     case 'VERIFICATION_FAIL':
       return EXIT.ERROR;

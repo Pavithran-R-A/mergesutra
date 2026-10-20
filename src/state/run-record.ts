@@ -79,11 +79,13 @@ import { verificationPlanSchema } from '../verify/plan.js';
  * front of anyone as a pull request, and inventing one would manufacture the only
  * document in this file that a later stage could read as consent.
  *
- * `pr` is v9's stage word, and its three outcomes are the last place in this file
- * where a stage is allowed to sound like success and is not. `PR_APPROVED_LOCAL` is
- * the strongest thing Stage 10 can say, and it says a person agreed: nothing was
- * pushed, no pull request exists, and no field anywhere in this record can say
- * otherwise.
+ * `pr` is v9's stage word, and its four outcomes are the last place in this file
+ * where a stage is allowed to sound like success and is not. `PR_APPROVED_LOCAL`
+ * says a person agreed and no remote was asked; `PR_DRAFT_OPENED` says a transport
+ * was asked and GitHub reported a draft pull request, whose URL and number are kept
+ * in the publication entry beside that approval. Neither word says anything about
+ * merging: no field anywhere in this record can report a merge, because no
+ * transport in this product can perform one.
  *
  * Nothing secret belongs in here. There is no credential field to fill in.
  */
@@ -189,23 +191,25 @@ export const RUN_OUTCOMES_THROUGH_REPAIR = [
 ] as const;
 
 /**
- * Stage 10's three, and the last words this record is allowed to say about a run.
+ * Stage 10's four, and the last words this record is allowed to say about a run.
  *
  * They describe what happened to a proposal, not whether it was any good.
  * `PR_CANDIDATE_RECORDED` means the facts were complete enough to assemble a
  * candidate and show it; `PR_APPROVED_LOCAL` means a human then named that
- * candidate's digest, which is the strongest statement available in this build and
- * still says nothing about GitHub; `PR_PUBLICATION_BLOCKED` means the run stopped
- * with a gap — stale evidence, a refused approval, or a publication that cannot be
- * attempted.
+ * candidate's digest and no remote was asked; `PR_DRAFT_OPENED` means the approved
+ * digest was still the measured one when a transport was handed it, and GitHub
+ * reported a draft pull request — whose URL, number and time are stored in the
+ * entry beside the approval, because a word by itself is not evidence;
+ * `PR_PUBLICATION_BLOCKED` means the run stopped with a gap — stale evidence, a
+ * refused approval, a publication that cannot be attempted, or a remote that
+ * refused or failed.
  *
- * There is no `PR_CREATED`, `PR_PUBLISHED` or `PR_READY`, and that is not caution for
- * its own sake: Stage 10 has no remote, so a word meaning "the pull request exists"
- * would describe an event nothing in this repository is capable of causing. When a
- * publisher lands, it will be the publisher's own document that says so, and the
- * record will hold that document rather than a promise of one.
+ * `PR_DRAFT_OPENED` is not `PR_CREATED` by another name. It says one draft exists
+ * and nothing more: not that it is mergeable, reviewed by anyone at GitHub, or
+ * ready. There is still no word here meaning "merged", and no place to put a merge
+ * result, because merging is a human act this product cannot request.
  *
- * `PR_APPROVAL_REQUIRED` and `PR_CANDIDATE_STALE` are deliberately absent too. The
+ * `PR_APPROVAL_REQUIRED` and `PR_CANDIDATE_STALE` are deliberately absent. The
  * first is `PR_CANDIDATE_RECORDED` with an unapproved entry, which the entry itself
  * already says; the second is a block with a reason, and the reason is stored where
  * it was measured. Two words for one state is two chances to contradict each other.
@@ -214,6 +218,7 @@ export const RUN_OUTCOMES = [
   ...RUN_OUTCOMES_THROUGH_REPAIR,
   'PR_CANDIDATE_RECORDED',
   'PR_APPROVED_LOCAL',
+  'PR_DRAFT_OPENED',
   'PR_PUBLICATION_BLOCKED',
 ] as const;
 export const RUN_CHECK_STATUSES = [

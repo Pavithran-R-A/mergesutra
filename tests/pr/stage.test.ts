@@ -2,8 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { AppError } from '../../src/core/errors.js';
 import { publicationDigestOf } from '../../src/pr/digest.js';
 import { runPrStage } from '../../src/pr/stage.js';
+import type {
+  CreatePullRequestInput,
+  PublicationRemote,
+  PushBranchInput,
+} from '../../src/pr/publisher.js';
 import { buildEvidencePack } from '../../src/report/pack.js';
 import { readPackIdentity, writeEvidencePack } from '../../src/report/write.js';
 import { sha256Hex } from '../../src/security/digest.js';
@@ -59,6 +65,41 @@ function rowsOf(checks: readonly RunCheck[]): string {
 
 function filed(entries: readonly PublicationRecord[]): { candidate: unknown; approval: unknown }[] {
   return entries.map((entry) => ({ candidate: entry.candidate, approval: entry.approval }));
+}
+
+const PUBLISHED_URL = 'https://github.com/projectbharat/datekit/pull/7';
+const PUSHED_SHA = 'd'.repeat(40);
+
+/**
+ * A transport that answers in memory, so *when* the stage asks and *what* it hands
+ * over can be judged without a network. What the real transport sends — blobs, a
+ * tree, a ref, a draft body — is asserted field by field in its own suite; this fake
+ * exists to prove the stage's side of the boundary.
+ */
+function fakeRemote(options: { pushFails?: boolean; pullFails?: boolean } = {}): {
+  remote: PublicationRemote;
+  pushes: PushBranchInput[];
+  pulls: CreatePullRequestInput[];
+} {
+  const pushes: PushBranchInput[] = [];
+  const pulls: CreatePullRequestInput[] = [];
+  const remote: PublicationRemote = {
+    async pushBranch(input) {
+      pushes.push(input);
+      if (options.pushFails === true) {
+        throw new AppError({ kind: 'validation', message: 'scripted push failure' });
+      }
+      return { branch: input.branch, commitSha: PUSHED_SHA };
+    },
+    async createPullRequest(input) {
+      pulls.push(input);
+      if (options.pullFails === true) {
+        throw new AppError({ kind: 'invalid-response', message: 'scripted pull failure' });
+      }
+      return { url: PUBLISHED_URL, number: 7, draft: true };
+    },
+  };
+  return { remote, pushes, pulls };
 }
 
 describe.skipIf(!AVAILABLE)('runPrStage', () => {
@@ -239,6 +280,280 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     );
   });
 
+  it('does not ask a supplied transport when --publish is absent, however complete the approval', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    const fake = fakeRemote();
+
+    const approved = await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '' },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW, remote: fake.remote },
+    );
+
+    expect(approved.outcome).toBe('PR_APPROVED_LOCAL');
+    expect(approved.publishRequested).toBe(false);
+    expect(approved.publication).toBeNull();
+    expect(fake.pushes).toEqual([]);
+    expect(fake.pulls).toEqual([]);
+    const saved = await fixture.store.load(fixture.record.runId);
+    expect(saved.publications[0]?.approval?.publicationDigest).toBe(shown.digest);
+    expect(saved.publications[0]?.result).toBeNull();
+  });
+
+  it('asks a transport for a draft only when publishing was requested and the page matched', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    const candidate = shown.candidate;
+    if (!candidate) throw new Error('the run was proposed and filed no candidate');
+    await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '' },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    const fake = fakeRemote();
+
+    const published = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW, remote: fake.remote },
+    );
+
+    // The transport receives the measured directory and the page's own fields — not
+    // a re-lookup, a re-rendered body or a branch resolved a second time.
+    expect(fake.pushes).toEqual([
+      {
+        directory: fixture.workspace,
+        repository: 'projectbharat/datekit',
+        branch: candidate.proposedBranch,
+        baseSha: fixture.base,
+        patchIdentity: fixture.identityA,
+        runId: fixture.record.runId,
+      },
+    ]);
+    expect(fake.pulls).toEqual([
+      {
+        repository: 'projectbharat/datekit',
+        title: candidate.prTitle,
+        body: candidate.prBody,
+        head: candidate.proposedBranch,
+        base: candidate.targetBranch,
+      },
+    ]);
+    expect(published.outcome).toBe('PR_DRAFT_OPENED');
+    expect(published.published).toBe(true);
+    expect(published.publicationFailure).toBeNull();
+    expect(published.publication).toEqual({
+      branch: candidate.proposedBranch,
+      commitSha: PUSHED_SHA,
+      url: PUBLISHED_URL,
+      number: 7,
+    });
+    // The page and its digest did not move because a remote answered.
+    expect(published.candidate).toEqual(candidate);
+    expect(published.digest).toBe(shown.digest);
+    const rows = rowsOf(published.checks);
+    expect(rows).toMatch(/draft pull request #7/);
+    expect(rows).toMatch(/merging, reviewing and closing are human acts/i);
+    expect(published.record.nextStage).toMatch(/DRAFT_PULL_REQUEST_OPENED/);
+    expect(published.record.nextStage).toMatch(/Nothing was merged/);
+
+    const saved = await fixture.store.load(fixture.record.runId);
+    expect(saved.outcome).toBe('PR_DRAFT_OPENED');
+    expect(saved.publications).toHaveLength(1);
+    expect(saved.publications[0]?.approval?.publicationDigest).toBe(shown.digest);
+    expect(saved.publications[0]?.result).toEqual({
+      url: PUBLISHED_URL,
+      number: 7,
+      draft: true,
+      publishedAt: PR_NOW.toISOString(),
+    });
+    // The result vocabulary has no room for a merge.
+    expect(Object.keys(saved.publications[0]?.result ?? {}).sort()).toEqual([
+      'draft',
+      'number',
+      'publishedAt',
+      'url',
+    ]);
+  });
+
+  it('reports the draft already on file on a later read, and never asks for a second one', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '', publish: true },
+      {
+        store: fixture.store,
+        runsRoot: fixture.runsRoot,
+        now: () => PR_NOW,
+        remote: fakeRemote().remote,
+      },
+    );
+    const opened = (await fixture.store.load(fixture.record.runId)).publications[0]?.result;
+    expect(opened).not.toBeNull();
+
+    // A later reading of the same run, with no flags. The draft is a fact the run
+    // owns, so the screen and the record may not fall back to "no remote change".
+    const reread = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+
+    expect(reread.outcome).toBe('PR_DRAFT_OPENED');
+    expect(reread.published).toBe(false);
+    expect(reread.publication).toBeNull();
+    expect(reread.recordedPublication).toEqual(opened);
+    expect(rowsOf(reread.checks)).toMatch(/already records draft pull request #7/);
+    expect(rowsOf(reread.checks)).not.toMatch(
+      /No branch was pushed and no pull request was opened/,
+    );
+    expect(reread.record.nextStage).toMatch(/This command sent nothing/);
+    expect((await fixture.store.load(fixture.record.runId)).publications[0]?.result).toEqual(
+      opened,
+    );
+
+    // Asking again does not request a duplicate branch or a second pull request.
+    const second = fakeRemote();
+    const again = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      {
+        store: fixture.store,
+        runsRoot: fixture.runsRoot,
+        now: () => PR_NOW,
+        remote: second.remote,
+      },
+    );
+
+    expect(second.pushes).toEqual([]);
+    expect(second.pulls).toEqual([]);
+    expect(again.outcome).toBe('PR_DRAFT_OPENED');
+    expect(again.publication).toBeNull();
+    expect(again.recordedPublication).toEqual(opened);
+    expect((await fixture.store.load(fixture.record.runId)).publications[0]?.result).toEqual(
+      opened,
+    );
+  });
+
+  it('does not ask a transport when --publish is given but no approval covers the page', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const fake = fakeRemote();
+
+    const result = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW, remote: fake.remote },
+    );
+
+    expect(fake.pushes).toEqual([]);
+    expect(fake.pulls).toEqual([]);
+    expect(result.publishRequested).toBe(true);
+    expect(result.publication).toBeNull();
+    expect(result.outcome).toBe('PR_CANDIDATE_RECORDED');
+    expect(rowsOf(result.checks)).toMatch(/publishing was requested, but no human approval/i);
+    expect(result.record.nextStage).toMatch(/NEEDS_HUMAN_APPROVAL/);
+    expect(filed((await fixture.store.load(fixture.record.runId)).publications)).toEqual([
+      { candidate: result.candidate, approval: null },
+    ]);
+  });
+
+  it('reports a failed push as a changed remote, keeps the yes and files no result', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '' },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    const fake = fakeRemote({ pushFails: true });
+
+    const failed = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW, remote: fake.remote },
+    );
+
+    expect(failed.outcome).toBe('PR_PUBLICATION_BLOCKED');
+    expect(failed.published).toBe(false);
+    expect(failed.publication).toBeNull();
+    expect(failed.publicationFailure).toMatch(/scripted push failure/);
+    // A partial write is possible, so the row may not say nothing happened.
+    expect(rowsOf(failed.checks)).toMatch(/remote may have changed/i);
+    expect(failed.record.nextStage).toMatch(/PUBLICATION_FAILED/);
+    expect(fake.pulls).toEqual([]);
+
+    const saved = await fixture.store.load(fixture.record.runId);
+    expect(saved.outcome).toBe('PR_PUBLICATION_BLOCKED');
+    expect(saved.publications[0]?.approval?.publicationDigest).toBe(shown.digest);
+    expect(saved.publications[0]?.result).toBeNull();
+  });
+
+  it('does not report a pushed branch as nothing when only the pull request failed', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '' },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    const fake = fakeRemote({ pullFails: true });
+
+    const failed = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW, remote: fake.remote },
+    );
+
+    // The branch was created before the pull request failed, so the failure is not
+    // "nothing happened" — it is exactly the state a person has to inspect.
+    expect(fake.pushes).toHaveLength(1);
+    expect(fake.pulls).toHaveLength(1);
+    expect(failed.outcome).toBe('PR_PUBLICATION_BLOCKED');
+    expect(failed.publicationFailure).toMatch(/scripted pull failure/);
+    expect(rowsOf(failed.checks)).toMatch(/inspect the branch and any pull request/i);
+    const saved = await fixture.store.load(fixture.record.runId);
+    expect(saved.publications[0]?.result).toBeNull();
+    expect(saved.publications[0]?.approval).not.toBeNull();
+  });
+
+  it('does not turn a programming error into a publication failure screen', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '' },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    const remote: PublicationRemote = {
+      async pushBranch() {
+        throw new TypeError('a bug, not a refusal');
+      },
+      async createPullRequest() {
+        throw new TypeError('a bug, not a refusal');
+      },
+    };
+
+    await expect(
+      runPrStage(
+        { runId: fixture.record.runId, publish: true },
+        { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW, remote },
+      ),
+    ).rejects.toThrow(/a bug, not a refusal/);
+    // The approval was filed before the attempt; the bug did not overwrite it.
+    const saved = await fixture.store.load(fixture.record.runId);
+    expect(saved.outcome).toBe('PR_APPROVED_LOCAL');
+    expect(saved.publications[0]?.approval?.publicationDigest).toBe(shown.digest);
+    expect(saved.publications[0]?.result).toBeNull();
+  });
+
   it('keeps the pack it bound the approval to, rather than re-rendering it', async () => {
     const fixture = await proposedRun(tempDirs);
     const before = await readFile(path.join(fixture.packDir, 'report.md'), 'utf8');
@@ -298,12 +613,20 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
       prTitle: 'A title nobody was shown',
     });
 
+    const fake = fakeRemote();
     const stale = await runPrStage(
-      { runId: fixture.record.runId, approve: other },
-      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+      { runId: fixture.record.runId, approve: other, publish: true },
+      {
+        store: fixture.store,
+        runsRoot: fixture.runsRoot,
+        now: () => PR_NOW,
+        remote: fake.remote,
+      },
     );
 
     expect(stale.decision?.status).toBe('STALE');
+    expect(fake.pushes).toEqual([]);
+    expect(fake.pulls).toEqual([]);
     expect(stale.outcome).toBe('PR_PUBLICATION_BLOCKED');
     expect(rowsOf(stale.checks)).toMatch(/different candidate/i);
     const saved = await fixture.store.load(fixture.record.runId);

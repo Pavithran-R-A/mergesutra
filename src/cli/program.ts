@@ -51,9 +51,9 @@ import { defaultRedactor } from '../security/redaction.js';
  * there was nothing to describe. `resume` is the acting half, and it acts on one
  * stage at a time: it prints what it would do and what that costs, and only
  * `--execute` runs it — under the same gates the direct command has, so it brings no
- * consent, approval, credential or remote of its own. `pr` is wired but does not
- * publish: it prepares and approves a page locally, and no publication transport is
- * wired, so there is nothing in the build for it to open a pull request against.
+ * consent, approval, credential or remote of its own. `pr` prepares and approves a
+ * page locally; it asks GitHub for a draft pull request only when `--publish` is
+ * passed, through the operator's own `gh` login, and it never merges.
  */
 
 export interface ProgramDeps {
@@ -362,7 +362,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
   program
     .command('pr <run-id>')
     .description(
-      'Assemble the pull request page and record a human approval; nothing is pushed and no request is opened',
+      'Assemble the pull request page, record a human approval, and open a draft only with --publish',
     )
     .option(
       '--repo <path>',
@@ -372,7 +372,11 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       '--approve <digest>',
       "the page's 64-hex publication digest, typed after reading it (the only way to say yes)",
     )
-    .action(async (runId: string, opts: { repo?: string; approve?: string }) => {
+    .option(
+      '--publish',
+      'push the approved patch and open a draft pull request through your own gh login (never merges)',
+    )
+    .action(async (runId: string, opts: { repo?: string; approve?: string; publish?: boolean }) => {
       const globals = program.opts();
       const options: PrCommandOptions = {
         json: globals.json === true,
@@ -380,6 +384,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
         env,
         repo: opts.repo,
         approve: opts.approve,
+        publish: opts.publish === true,
       };
       setExitCode(await prAction(runId, options, deps.pr, write));
     });

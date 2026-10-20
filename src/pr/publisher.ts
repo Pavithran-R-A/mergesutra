@@ -6,40 +6,46 @@ import type { PublicationCandidate } from './candidate.js';
 import { MAX_BODY_LENGTH, MAX_TITLE_LENGTH } from './draft.js';
 
 /**
- * The line MergeSutra stops at — Stage 10.
+ * The line a publication crosses — Stage 10.
  *
- * Above this module everything is words: a page, a digest, a yes. This is where a
- * product would start growing hands, and the stage's whole claim is that it has
- * none. So the boundary is drawn in three places at once:
+ * Above this module everything is words: a page, a digest, a yes. This module is
+ * the seam those words pass through when a human asks for them to become a draft
+ * pull request, and the boundary is drawn in three places at once:
  *
- * - **Two methods, and no third.** A publisher may push one named branch and open
- *   one named pull request. There is no `request()`, no `endpoint`, no `command()`,
- *   no generic GitHub client, and nothing that could comment, review, merge,
- *   squash, rebase, close, release or delete — a shape with those verbs in it would
- *   let anything a human never approved be done on their yes.
+ * - **Two methods, and no third.** A publisher may publish one named branch's
+ *   bytes and open one named pull request. There is no `request()`, no `endpoint`,
+ *   no `command()`, no generic GitHub client, and nothing that could comment,
+ *   review, merge, squash, rebase, close, release or delete — a shape with those
+ *   verbs in it would let anything a human never approved be done on their yes.
  * - **A request cannot carry more than its fields.** Both inputs are validated
  *   through strict schemas on the way out, so a `force`, a refspec, an `autoMerge`,
  *   a reviewer list or a `deleteBranch` flag fails here rather than arriving at a
- *   transport that might obey it. `pushBranch` has no force parameter to set.
+ *   transport that might obey it. `pushBranch` has no force parameter to set, and
+ *   the GitHub transport always asks for a draft.
  * - **The approval is checked at the boundary, not assumed.** `publish` re-decides
  *   the digest against the candidate in front of it before anything is handed over,
  *   so a caller cannot reach the transport with an approval written for another
- *   page or another run.
+ *   page or another run. The push input also carries the patch identity the human
+ *   approved, and the transport re-measures the workspace against it before it
+ *   sends one byte.
  *
- * What actually ships is `unavailableRemote()`, and it refuses both methods. That
- * is not a stub waiting for Stage 11 to make it interesting: a real pull request
- * needs commits, and MergeSutra has never made one — the work it describes is
- * uncommitted bytes in a linked worktree, and the evidence it prints is ignored by
- * Git. Pushing would mean committing somebody's tree on their behalf, which is a
- * larger act than opening a page, and no approval in this build claims to cover it.
- *
- * The fake transport in `tests/pr/publisher.test.ts` exists to prove the seam is
- * real in both directions: it can carry a publication, and production cannot.
+ * `unavailableRemote()` still exists and still refuses both methods. It is the
+ * default inside `runPrStage`, so a caller that can reach the stage but has not
+ * wired a transport gets a refusal rather than an ambient credential. The real
+ * transport is `github-publisher.ts`, is constructed only by the `pr --publish`
+ * wiring, and is exercised without a network in its own tests.
  */
 
 export interface PushBranchInput {
   readonly directory: string;
+  /** The repository the branch belongs to, as `owner/name`. */
+  readonly repository: string;
   readonly branch: string;
+  /** The commit the patch was measured against; the new commit's only parent. */
+  readonly baseSha: string;
+  /** The measured bytes a human approved. Re-checked at the remote boundary. */
+  readonly patchIdentity: string;
+  readonly runId: string;
 }
 
 export interface CreatePullRequestInput {
@@ -52,10 +58,15 @@ export interface CreatePullRequestInput {
 
 export interface PushedBranch {
   readonly branch: string;
+  /** The commit the transport created, so the branch and its content are one fact. */
+  readonly commitSha: string;
 }
 
 export interface PullRequestRef {
   readonly url: string;
+  readonly number: number;
+  /** Always true: this product opens drafts and nothing else. */
+  readonly draft: true;
 }
 
 /** The whole of what a publication remote may be asked to do. */
@@ -66,13 +77,21 @@ export interface PublicationRemote {
 
 export interface PublishedPullRequest {
   readonly branch: string;
+  readonly commitSha: string;
   readonly url: string;
+  readonly number: number;
 }
 
 const pushBranchInputSchema = z
   .object({
     directory: z.string().min(1),
+    repository: z
+      .string()
+      .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'must be a repository as owner/name'),
     branch: z.string().min(1),
+    baseSha: z.string().regex(/^[0-9a-f]{40}$/, 'must be the full base commit SHA'),
+    patchIdentity: z.string().regex(/^[0-9a-f]{64}$/, 'must be a measured patch identity'),
+    runId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/),
   })
   .strict();
 
@@ -149,7 +168,14 @@ export async function publish(input: {
   }
 
   const pushed = await input.remote.pushBranch(
-    parsePushBranchInput({ directory: input.directory, branch: candidate.proposedBranch }),
+    parsePushBranchInput({
+      directory: input.directory,
+      repository: candidate.repository,
+      branch: candidate.proposedBranch,
+      baseSha: candidate.baseSha,
+      patchIdentity: candidate.patchIdentity,
+      runId: candidate.runId,
+    }),
   );
   const created = await input.remote.createPullRequest(
     parseCreatePullRequestInput({
@@ -161,7 +187,12 @@ export async function publish(input: {
     }),
   );
 
-  return { branch: pushed.branch, url: created.url };
+  return {
+    branch: pushed.branch,
+    commitSha: pushed.commitSha,
+    url: created.url,
+    number: created.number,
+  };
 }
 
 /** Validate a push request at the boundary: one branch, one directory, no verbs. */

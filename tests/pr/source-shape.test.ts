@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { riskOf, type RiskClass } from '../../src/process/tool-policy.js';
@@ -6,19 +7,25 @@ import { constructions, reachFrom, relative, show, SRC } from '../helpers/source
 /**
  * What Stage 10 is never built to put in front of a process.
  *
- * `boundaries.test.ts` proves the import side: the production path cannot reach the
- * publication seam, a runner, a writer or a client. This file proves the other half,
- * which imports alone cannot settle — the repair stage reached processes through
- * *measurements*, and so does this one. `describePatch` asks git what a workspace
- * holds, and somewhere in the closure there are argv arrays, so somebody has to have
- * looked at every one of them and said what a publication stage is allowed to ask.
+ * `boundaries.test.ts` proves the import side: the stage can reach the two-method
+ * seam but not the GitHub transport, and only the `pr` command imports that
+ * transport. This file proves the other half, which imports alone cannot settle —
+ * the repair stage reached processes through *measurements*, and so does this one.
+ * `describePatch` asks git what a workspace holds, and somewhere in the closure
+ * there are argv arrays, so somebody has to have looked at every one of them and
+ * said what a publication stage is allowed to ask.
  *
- * The answer is short, and that is the finding: a pull request is assembled from
- * bytes that are already there, so the only commands worth having are the ones that
- * read. There is no push, no merge, no rebase, no reset, no clean, no `gh`, no
- * publish, and no shell — because each of those would let a page nobody approved be
- * acted on, which is precisely the event §11 through §14 of the stage exist to make
- * unrepresentable.
+ * The answer is short: a pull request is assembled from bytes that are already
+ * there, so every command in the stage's reach reads. There is no push, no merge, no
+ * rebase, no reset, no clean, no `gh`, no publish, and no shell in *this* closure.
+ *
+ * The transport is deliberately outside the closure scanned here. It does build
+ * `gh api` requests, because that is what a transport is for; those requests are
+ * asserted field by field against a scripted runner in
+ * `tests/pr/github-publisher.test.ts`, and the import guard keeps the transport out
+ * of the stage. Scanning the transport's argv from this file would blur the
+ * question from "what may decide to publish" into "what may a publisher do", and
+ * the second question already has a stricter answer in its own suite.
  *
  * Nothing here is executed. The claims are made of source text and of the product's
  * own classifier: the first two blocks show what that classifier catches — every git
@@ -30,9 +37,9 @@ import { constructions, reachFrom, relative, show, SRC } from '../helpers/source
  * called it clean.
  */
 
-/** The command a person types, and the stage it calls: the whole production path. */
+/** The stage behind the command: the closure that decides what may be sent. */
 function entries(): string[] {
-  return [path.join(SRC, 'cli', 'pr.ts'), path.join(SRC, 'pr', 'stage.ts')];
+  return [path.join(SRC, 'pr', 'stage.ts')];
 }
 
 function risksOf(argv: readonly string[]): RiskClass {
@@ -44,14 +51,13 @@ describe('what a publication stage could ever put in front of a process', () => 
     const sources = await reachFrom(entries());
 
     // The orchestrator's own dependencies: Stage 7's patch measurement, Stage 8's
-    // pack reader and the state layer that files the record. A closure this thin
-    // would mean the walk broke, and an empty scan would then read as clean.
-    // `pr/publisher.ts` is deliberately absent — the seam is unreachable from here,
-    // which is what `boundaries.test.ts` pins down.
+    // pack reader, the state layer that files the record, and the two-method seam an
+    // approved page is handed to. The GitHub transport is deliberately absent — the
+    // stage cannot reach it, which is what `boundaries.test.ts` pins down.
     expect([...sources.keys()]).toEqual(
       expect.arrayContaining([
-        'cli/pr.ts',
         'pr/stage.ts',
+        'pr/publisher.ts',
         'pr/candidate.ts',
         'pr/draft.ts',
         'verify/patch.ts',
@@ -246,7 +252,7 @@ describe('what a publication stage could ever put in front of a process', () => 
     }
   });
 
-  it('keeps the reach free of any module that talks to a hosting service', async () => {
+  it('keeps the stage free of any module that talks to a hosting service', async () => {
     const sources = await reachFrom(entries());
     const text = [...sources.values()]
       .map((body) => body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''))
@@ -257,13 +263,22 @@ describe('what a publication stage could ever put in front of a process', () => 
         (file) => file.startsWith('github/') || file.startsWith('bharatcode/'),
       ),
     ).toEqual([]);
-    for (const word of ['createPullRequest', 'octokit', 'api.github.com', 'Bearer ']) {
+    // The seam's two method names are the whole vocabulary the stage's reach may
+    // have; no client, no hostname and no bearer header arrives with them.
+    for (const word of ['octokit', 'api.github.com', 'Bearer ']) {
       expect(text.includes(word), word).toBe(false);
+    }
+    // The transport exists one level above the stage. Neither the stage nor the
+    // command may call its methods directly: the command constructs a
+    // `PublicationRemote` and hands it to the stage, which hands it to `publish`.
+    for (const file of ['pr/stage.ts', 'cli/pr.ts']) {
+      const body = await readFile(path.join(SRC, file), 'utf8');
+      expect(body.includes('createPullRequest'), `${file} names the transport method`).toBe(false);
     }
     // The words a publication stage may print, and the ones it may not print about
     // itself: no outcome here may read as though a remote had answered.
     for (const file of ['pr/stage.ts', 'cli/pr.ts']) {
-      const body = sources.get(file) ?? '';
+      const body = await readFile(path.join(SRC, file), 'utf8');
       for (const word of ['PR CREATED', 'HUMAN_APPROVED_FOR_PR — published']) {
         expect(body.includes(word), `${relative(path.join(SRC, file))} ${word}`).toBe(false);
       }

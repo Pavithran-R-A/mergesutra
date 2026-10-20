@@ -22,12 +22,26 @@ import { publicationDigestOf } from './digest.js';
  * decision time, surviving into storage where a later stage would read it as
  * history rather than as a mistake.
  *
- * There is deliberately no result field. No URL, no "published", no merge timestamp,
- * because Stage 10 has no remote and nothing in this file is allowed to imply
- * otherwise. A run's record can say a human approved a proposal; only a publisher
- * that does not exist in this build could ever say more, and it would write that in
- * its own document.
+ * There is one result field, and it is written only by a transport that actually
+ * created something. `result: null` means no remote was asked, or the request
+ * failed; a result names the draft pull request and nothing about its fate. It is
+ * checked against the approval beside it, so a record cannot say a pull request was
+ * opened on a candidate nobody approved. There is still no `merged`, no verdict and
+ * no review state from GitHub: merging is a human act in GitHub, and this product
+ * has no transport that could perform it.
  */
+
+export const publicationResultSchema = z
+  .object({
+    url: z.string().regex(/^https:\/\/[^\s]+$/, 'must be the pull request URL GitHub returned'),
+    number: z.number().int().positive(),
+    /** The only kind of pull request this product may create. */
+    draft: z.literal(true),
+    publishedAt: z.string().min(1),
+  })
+  .strict();
+export type PublicationResult = z.infer<typeof publicationResultSchema>;
+
 export const publicationRecordSchema = z
   .object({
     /** The document a human was shown, exactly as it was shown to them. */
@@ -40,9 +54,24 @@ export const publicationRecordSchema = z
      * candidate has no field either, because Stage 10 has nothing to say about why.
      */
     approval: publicationApprovalSchema.nullable().default(null),
+    /**
+     * What a remote created, or `null`.
+     *
+     * Null for every candidate that was only shown or locally approved, and for a
+     * publish attempt that failed before GitHub reported a pull request. Non-null
+     * only when the candidate it sits beside was approved and a draft was opened.
+     */
+    result: publicationResultSchema.nullable().default(null),
   })
   .strict()
   .superRefine((record, ctx) => {
+    if (record.result !== null && record.approval === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['result'],
+        message: 'says a pull request was opened, but no approval beside it authorises one',
+      });
+    }
     if (record.approval === null) return;
     if (record.approval.publicationDigest.toLowerCase() !== publicationDigestOf(record.candidate)) {
       ctx.addIssue({
@@ -59,6 +88,8 @@ export interface NewPublicationRecordInput {
   readonly candidate: PublicationCandidate;
   /** Omit it, or pass null, for a candidate that has not been approved. */
   readonly approval?: PublicationApproval | null;
+  /** Only a transport that returned a draft pull request supplies this. */
+  readonly result?: PublicationResult | null;
 }
 
 /**
@@ -70,7 +101,11 @@ export interface NewPublicationRecordInput {
  * constructed rather than collected.
  */
 export function buildPublicationRecord(input: NewPublicationRecordInput): PublicationRecord {
-  return parsePublicationRecord({ candidate: input.candidate, approval: input.approval ?? null });
+  return parsePublicationRecord({
+    candidate: input.candidate,
+    approval: input.approval ?? null,
+    result: input.result ?? null,
+  });
 }
 
 /** Read a stored publication back, refusing one whose approval is about something else. */

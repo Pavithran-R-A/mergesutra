@@ -4,10 +4,16 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { run } from '../../src/cli/program.js';
 import { EXIT } from '../../src/cli/exit-codes.js';
+import { AppError } from '../../src/core/errors.js';
 import { recordWith } from '../helpers/review.js';
 import { onItsOwnBranch, proposedRun, type PublicationFixture } from '../helpers/publicationRun.js';
 import { cleanUp, hasGit, implementedRun } from '../helpers/verifyRun.js';
 import type { PrStageDeps } from '../../src/pr/stage.js';
+import type {
+  CreatePullRequestInput,
+  PublicationRemote,
+  PushBranchInput,
+} from '../../src/pr/publisher.js';
 
 /**
  * `mergesutra pr <run-id>` — Stage 10 judged as output.
@@ -22,10 +28,13 @@ import type { PrStageDeps } from '../../src/pr/stage.js';
  *
  * The flags are the other half. There is exactly one way to say yes, and no way to
  * say it in advance, broadly, or on someone else's behalf — a `--yes` here would
- * stand for opening a page in a stranger's repository. And nothing on the screen
- * may claim a remote was touched, because this build has no hands to touch one with:
- * `published` is a literal false all the way down, and no pull request address
- * exists in any output shape.
+ * stand for opening a page in a stranger's repository. A yes is still not a
+ * publication: sending it needs the separate `--publish`. That second act is judged
+ * through an injected transport here, so the screen can be checked for the one thing
+ * it must never blur — a draft that GitHub reported versus a merge that this product
+ * cannot perform. Without `--publish` the screen still refuses to claim any remote
+ * event, and a later read of a run whose draft already exists reports the draft as
+ * history rather than as something this invocation did.
  *
  * These run against the same fixture as the stage's own suite — a real Git
  * workspace, real gate receipts, a pack rendered to disk — because the command must
@@ -55,13 +64,52 @@ function capture() {
   };
 }
 
-function depsFor(fixture: PublicationFixture): Partial<PrStageDeps> {
+function depsFor(fixture: PublicationFixture, remote?: PublicationRemote): Partial<PrStageDeps> {
   return {
     store: fixture.store,
     runsRoot: fixture.runsRoot,
     cwd: fixture.workspace,
     now: () => PR_NOW,
+    ...(remote ? { remote } : {}),
   };
+}
+
+const DRAFT_URL = 'https://github.com/projectbharat/datekit/pull/7';
+const PUSHED_SHA = 'd'.repeat(40);
+
+/**
+ * A publication transport that records what it was asked to send.
+ *
+ * The real transport is tested against a scripted `gh` in its own suite; here the
+ * question is what the command does around it — whether a yes has to exist before a
+ * transport is called at all, and whether the screen distinguishes a draft GitHub
+ * reported from a merge this product cannot request.
+ */
+function fakeRemote(options: { pushFails?: boolean } = {}): {
+  remote: PublicationRemote;
+  pushes: PushBranchInput[];
+  pulls: CreatePullRequestInput[];
+} {
+  const pushes: PushBranchInput[] = [];
+  const pulls: CreatePullRequestInput[] = [];
+  const remote: PublicationRemote = {
+    async pushBranch(input) {
+      pushes.push(input);
+      if (options.pushFails) {
+        throw new AppError({
+          kind: 'server',
+          message: 'gh api refused the ref: HTTP 422',
+          remediation: 'Inspect the remote branch before asking again.',
+        });
+      }
+      return { branch: input.branch, commitSha: PUSHED_SHA };
+    },
+    async createPullRequest(input) {
+      pulls.push(input);
+      return { url: DRAFT_URL, number: 7, draft: true };
+    },
+  };
+  return { remote, pushes, pulls };
 }
 
 /** The clock a publication run is judged at — later than every document it reads. */
@@ -133,6 +181,192 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
     expect(saved.publications).toHaveLength(1);
     expect(saved.publications[0]?.approval?.action).toBe('CREATE_PULL_REQUEST');
     expect(saved.publications[0]?.approval?.publicationDigest).toBe(digest);
+  });
+
+  it('sends the approved page only on --publish, and reports a draft rather than a merge', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const first = capture();
+    await run(['node', 'mergesutra', 'pr', fixture.record.runId], {
+      ...first,
+      env: {},
+      pr: depsFor(fixture),
+    });
+    const digest = digestOnScreen(first.text());
+    const sent = fakeRemote();
+
+    const io = capture();
+    const code = await run(
+      ['node', 'mergesutra', 'pr', fixture.record.runId, '--approve', digest, '--publish'],
+      { ...io, env: {}, pr: depsFor(fixture, sent.remote) },
+    );
+
+    expect(sent.pushes).toHaveLength(1);
+    expect(sent.pulls).toHaveLength(1);
+    const push = sent.pushes[0]!;
+    const pull = sent.pulls[0]!;
+    expect(push.directory).toBe(fixture.workspace);
+    expect(push.repository).toBe('projectbharat/datekit');
+    expect(push.branch).toBe(`mergesutra/${fixture.record.runId}`);
+    expect(push.runId).toBe(fixture.record.runId);
+    expect(push.baseSha).toMatch(/^[0-9a-f]{40}$/);
+    expect(push.patchIdentity).toMatch(/^[0-9a-f]{64}$/);
+    expect(pull.head).toBe(push.branch);
+    expect(pull.base).toBe('main');
+    expect(pull.title).toBe('Parser accepts invalid empty dates');
+    expect(pull.body).toContain('## Summary');
+
+    const text = io.text();
+    expect(text).toContain(DRAFT_URL);
+    expect(text).toContain('DRAFT PULL REQUEST OPENED');
+    expect(text).toContain('NOT MERGED');
+    // A draft that exists is a remote change; the old "nothing changed" footer would
+    // now be false on this path.
+    expect(text).not.toContain('NO REMOTE CHANGE HAS BEEN MADE.');
+    expect(code).toBe(EXIT.OK);
+
+    const saved = await fixture.store.load(fixture.record.runId);
+    expect(saved.outcome).toBe('PR_DRAFT_OPENED');
+    expect(saved.publications[0]?.approval?.publicationDigest).toBe(digest);
+    expect(saved.publications[0]?.result?.url).toBe(DRAFT_URL);
+  });
+
+  it('prints the draft in JSON as a publication, and never as a merge', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const first = capture();
+    await run(['node', 'mergesutra', 'pr', fixture.record.runId], {
+      ...first,
+      env: {},
+      pr: depsFor(fixture),
+    });
+    const digest = digestOnScreen(first.text());
+    const sent = fakeRemote();
+
+    const io = capture();
+    const code = await run(
+      [
+        'node',
+        'mergesutra',
+        'pr',
+        fixture.record.runId,
+        '--approve',
+        digest,
+        '--publish',
+        '--json',
+      ],
+      { ...io, env: {}, pr: depsFor(fixture, sent.remote) },
+    );
+
+    const payload = JSON.parse(io.text()) as {
+      approved: boolean;
+      published: boolean;
+      outcome: string;
+      publication: { url: string; number: number; branch: string; commitSha: string };
+      recordedPublication: unknown;
+    };
+    expect(payload.approved).toBe(true);
+    expect(payload.published).toBe(true);
+    expect(payload.outcome).toBe('PR_DRAFT_OPENED');
+    expect(payload.publication).toEqual({
+      url: DRAFT_URL,
+      number: 7,
+      branch: `mergesutra/${fixture.record.runId}`,
+      commitSha: PUSHED_SHA,
+    });
+    expect(payload.recordedPublication).toBeNull();
+    // The run's next-step prose may say a human could merge; what may not exist is
+    // any field reporting a merge this product performed.
+    expect(io.text()).not.toMatch(/mergeUrl|mergedAt|mergeCommit|"merged":\s*true/i);
+    expect(code).toBe(EXIT.OK);
+  });
+
+  it('never calls a transport for --publish without an approval, and says nothing was attempted', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const sent = fakeRemote();
+    const io = capture();
+
+    const code = await run(['node', 'mergesutra', 'pr', fixture.record.runId, '--publish'], {
+      ...io,
+      env: {},
+      pr: depsFor(fixture, sent.remote),
+    });
+
+    expect(sent.pushes).toEqual([]);
+    expect(sent.pulls).toEqual([]);
+    const text = io.text();
+    expect(text).toContain('REMOTE PUBLICATION NOT ATTEMPTED');
+    expect(text).toContain('NO REMOTE CHANGE HAS BEEN MADE.');
+    expect(text).not.toContain('DRAFT PULL REQUEST OPENED');
+    expect(code).toBe(EXIT.INCONCLUSIVE);
+
+    const saved = await fixture.store.load(fixture.record.runId);
+    expect(saved.publications[0]?.approval).toBeNull();
+    expect(saved.publications[0]?.result).toBeNull();
+  });
+
+  it('reports a failed send as a changed remote, and keeps the yes without inventing a draft', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const first = capture();
+    await run(['node', 'mergesutra', 'pr', fixture.record.runId], {
+      ...first,
+      env: {},
+      pr: depsFor(fixture),
+    });
+    const digest = digestOnScreen(first.text());
+    const sent = fakeRemote({ pushFails: true });
+
+    const io = capture();
+    const code = await run(
+      ['node', 'mergesutra', 'pr', fixture.record.runId, '--approve', digest, '--publish'],
+      { ...io, env: {}, pr: depsFor(fixture, sent.remote) },
+    );
+
+    const text = io.text();
+    expect(text).toContain('REMOTE PUBLICATION FAILED');
+    expect(text).toContain('THE REMOTE MAY HAVE CHANGED');
+    expect(text).not.toContain('DRAFT PULL REQUEST OPENED');
+    expect(code).toBe(EXIT.BLOCKED);
+
+    const saved = await fixture.store.load(fixture.record.runId);
+    expect(saved.outcome).toBe('PR_PUBLICATION_BLOCKED');
+    expect(saved.publications[0]?.approval?.publicationDigest).toBe(digest);
+    expect(saved.publications[0]?.result).toBeNull();
+  });
+
+  it('shows a draft recorded earlier as history, not as an event of this read', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const first = capture();
+    await run(['node', 'mergesutra', 'pr', fixture.record.runId], {
+      ...first,
+      env: {},
+      pr: depsFor(fixture),
+    });
+    const digest = digestOnScreen(first.text());
+    const sent = fakeRemote();
+    await run(
+      ['node', 'mergesutra', 'pr', fixture.record.runId, '--approve', digest, '--publish'],
+      { ...capture(), env: {}, pr: depsFor(fixture, sent.remote) },
+    );
+
+    const reread = capture();
+    const code = await run(['node', 'mergesutra', 'pr', fixture.record.runId], {
+      ...reread,
+      env: {},
+      pr: depsFor(fixture),
+    });
+
+    const text = reread.text();
+    expect(text).toContain('DRAFT PULL REQUEST ALREADY RECORDED');
+    expect(text).toContain('NOTHING WAS SENT BY THIS COMMAND');
+    expect(text).toContain(DRAFT_URL);
+    // The approval is still current, so the readiness word remains the approved one;
+    // what changed is that no remote action is on offer a second time.
+    expect(text).toContain('HUMAN_APPROVED_FOR_PR');
+    expect(text).not.toContain('NO REMOTE CHANGE HAS BEEN MADE.');
+    expect(text).not.toMatch(/--publish\b/);
+    expect(code).toBe(EXIT.OK);
+
+    expect(sent.pushes).toHaveLength(1);
+    expect(sent.pulls).toHaveLength(1);
   });
 
   it('refuses a digest that names another page, and files no yes on top of it', async () => {
@@ -268,7 +502,7 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
     }
   });
 
-  it('names itself in help, with the digest it takes and none of the bypasses', async () => {
+  it('names itself in help, with the digest and the explicit publish act, and none of the bypasses', async () => {
     const io = capture();
 
     // Help must not need a run, a store or a credential, or a reader cannot find
@@ -281,6 +515,9 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
     // else's repository must never guess which run it was pointed at.
     expect(text).toMatch(/pr \[options\] <run-id>/);
     expect(text).toMatch(/--approve <digest>/);
+    // Sending is its own named act, and the help says what it cannot do.
+    expect(text).toMatch(/--publish/);
+    expect(text).toMatch(/never merges/);
     expect(text.toLowerCase()).not.toMatch(/--yes|--force|--approve-all|--all|--dangerously/);
   });
 });

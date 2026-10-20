@@ -5,7 +5,7 @@ import { terminalSafeDocument } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor } from './render.js';
 import {
   defaultRunner,
-  githubReadRunner,
+  githubApiRunner,
   safeRun,
   type Runner,
   type RunResult,
@@ -40,7 +40,7 @@ const MIN_NODE_MAJOR = 22;
 export async function runDoctor(deps: DoctorDeps): Promise<DoctorCheck[]> {
   const env = deps.env;
   const run = deps.run ?? defaultRunner;
-  const ghRun = deps.run ?? githubReadRunner;
+  const ghRun = deps.run ?? githubApiRunner;
   const nodeVersion = deps.nodeVersion ?? process.versions.node;
   const checks: DoctorCheck[] = [];
 
