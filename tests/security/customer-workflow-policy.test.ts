@@ -324,8 +324,15 @@ function violations(text: string, harness = HARNESS, gateCli = GATE_CLI): string
       );
     }
   }
-  if (!/MERGESUTRA_GATE_NOW="\$\(date -u/.test(text)) {
-    problems.push('the gate is not given the time it is reading at');
+  if (!/MERGESUTRA_GATE_NOW="\$\(date -u \+%Y-%m-%dT%H:%M:%S\.%3NZ\)"/.test(text)) {
+    problems.push(
+      "the gate's read-time is not captured at millisecond precision, so a same-second finish is refused as stale",
+    );
+  }
+  if (!/MERGESUTRA_GATE_NOT_BEFORE=\$\(date -u \+%Y-%m-%dT%H:%M:%S\.%3NZ\)/.test(text)) {
+    problems.push(
+      "the gate's window-open is not captured at millisecond precision, so it cannot honestly bound the record",
+    );
   }
   if (!/MERGESUTRA_GATE_EXPORT_ROOT=.*\.mergesutra\/customer-qualification/.test(text)) {
     problems.push('the bundle is not given the raw evidence tree');
@@ -539,7 +546,9 @@ describe('the hosted customer gate enforces what it claims', () => {
     );
     expect(
       violations(WORKFLOW.replace('MERGESUTRA_GATE_NOW="$(date -u', 'MERGESUTRA_GATE_NOW="x')),
-    ).toContain('the gate is not given the time it is reading at');
+    ).toContain(
+      "the gate's read-time is not captured at millisecond precision, so a same-second finish is refused as stale",
+    );
     expect(
       violations(
         WORKFLOW.replace(
@@ -612,6 +621,32 @@ describe('the hosted customer gate enforces what it claims', () => {
     expect(unguarded).not.toEqual(WORKFLOW);
     expect(violations(unguarded)).toContain(
       'the bounds step reads a baseline it never checks for, so an early failure ends the job in a sed error instead of a verdict',
+    );
+  });
+
+  it('refuses a gate clock truncated to seconds while the record keeps milliseconds', () => {
+    // Run 39378637341: all eight journeys passed, and the certification step refused
+    // anyway because the harness's `summary.finishedAt = new Date().toISOString()` closed
+    // at 06:09:13.928Z while the workflow's `date -u +%Y-%m-%dT%H:%M:%SZ` read the same
+    // second as 06:09:13.000Z. The freshness check cannot tell that a run started before
+    // the gate opened and a run that finished inside the same second the gate opened; only
+    // matching the record's milliseconds closes the window. Reverting either clock is a
+    // regression this test names.
+    const nowTruncated = WORKFLOW.replace(
+      /MERGESUTRA_GATE_NOW="\$\(date -u \+%Y-%m-%dT%H:%M:%S\.%3NZ\)"/,
+      'MERGESUTRA_GATE_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"',
+    );
+    expect(nowTruncated).not.toEqual(WORKFLOW);
+    expect(violations(nowTruncated)).toContain(
+      "the gate's read-time is not captured at millisecond precision, so a same-second finish is refused as stale",
+    );
+    const notBeforeTruncated = WORKFLOW.replace(
+      /MERGESUTRA_GATE_NOT_BEFORE=\$\(date -u \+%Y-%m-%dT%H:%M:%S\.%3NZ\)/,
+      'MERGESUTRA_GATE_NOT_BEFORE=$(date -u +%Y-%m-%dT%H:%M:%SZ)',
+    );
+    expect(notBeforeTruncated).not.toEqual(WORKFLOW);
+    expect(violations(notBeforeTruncated)).toContain(
+      "the gate's window-open is not captured at millisecond precision, so it cannot honestly bound the record",
     );
   });
 

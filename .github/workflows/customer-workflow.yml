@@ -107,8 +107,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Both clock reads carry milliseconds. The harness stamps summary.startedAt and
+          # summary.finishedAt with `new Date().toISOString()`, so a second-precision
+          # `date -u` on this side truncates *below* the record it is meant to bound and
+          # the freshness check refuses a run whose record is actually current. The first
+          # hosted gate died exactly that way on run 39378637341: the summary closed at
+          # .928 and the gate read the same second at .000, so it called a fresh record
+          # stale. A race no customer would want forgiven by an arbitrary slack in the
+          # check — the fix is the shared precision, not a widened tolerance.
           {
-            echo "MERGESUTRA_GATE_NOT_BEFORE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "MERGESUTRA_GATE_NOT_BEFORE=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
             echo "MERGESUTRA_GATE_REVISION=$(git rev-parse HEAD)"
           } >> "$GITHUB_ENV"
           # On a pull_request event `github.sha` is the synthetic merge commit GitHub
@@ -188,7 +196,7 @@ jobs:
           MERGESUTRA_GATE_SUMMARY: ${{ github.workspace }}/.mergesutra/customer-qualification/summary.json
         run: |
           set -euo pipefail
-          MERGESUTRA_GATE_NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          MERGESUTRA_GATE_NOW="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
           MERGESUTRA_GATE_SANDBOX_IMAGE="$MERGESUTRA_SANDBOX_IMAGE" \
             node scripts/customer-gate-verify.mjs
 
