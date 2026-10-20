@@ -4,7 +4,7 @@ import { createRunRecord, type RunRecord } from '../../src/state/run-record.js';
 import type { AppError } from '../../src/core/errors.js';
 import type { Runner } from '../../src/core/runner.js';
 import { IMPL_SCHEMA_VERSION, type ImplementationRecord } from '../../src/implement/state.js';
-import { hasGit, initRepository } from './git.js';
+import { hasGit, runWorkspace } from './git.js';
 import { NODE_REPO_FILES } from './fixture.js';
 import { cleanUp, contractBackedRun, NOW } from './plan.js';
 import { SUCCEEDED } from './verification.js';
@@ -22,19 +22,31 @@ import { SUCCEEDED } from './verification.js';
 export interface VerifyFixture {
   readonly prepared: Awaited<ReturnType<typeof contractBackedRun>>;
   readonly source: RunRecord;
+  /** The workspace the run owns: a linked worktree Stage 5 made from `primaryDir`. */
   readonly repoDir: string;
+  /** The human's checkout — the repository the run belongs to. */
+  readonly primaryDir: string;
   readonly base: string;
 }
 
 export async function implementedRun(tempDirs: string[]): Promise<VerifyFixture> {
   const prepared = await contractBackedRun(tempDirs);
-  const { dir: repoDir, base } = await initRepository({
-    ...NODE_REPO_FILES,
-    'src/parse.ts':
-      'export function parseDate(input: string): Date {\n  return new Date(input);\n}\n',
-    'README.md': '# datekit\n\nRun `npm run check` before pushing.\n',
-  });
-  tempDirs.push(repoDir);
+  const {
+    primary: primaryDir,
+    workspace: repoDir,
+    relativePath,
+    branch,
+    base,
+  } = await runWorkspace(
+    {
+      ...NODE_REPO_FILES,
+      'src/parse.ts':
+        'export function parseDate(input: string): Date {\n  return new Date(input);\n}\n',
+      'README.md': '# datekit\n\nRun `npm run check` before pushing.\n',
+    },
+    prepared.record.runId,
+  );
+  tempDirs.push(primaryDir);
   await put(
     repoDir,
     'src/parse.ts',
@@ -46,6 +58,7 @@ export async function implementedRun(tempDirs: string[]): Promise<VerifyFixture>
     prepared.record,
     prepared.contract.criteria.map((c) => c.id),
     base,
+    { relativePath, branch },
   );
   const source = createRunRecord({
     runId: prepared.record.runId,
@@ -58,8 +71,8 @@ export async function implementedRun(tempDirs: string[]): Promise<VerifyFixture>
     base: prepared.record.base,
     local: prepared.record.local && {
       ...prepared.record.local,
-      requestedPath: repoDir,
-      toplevel: repoDir,
+      requestedPath: primaryDir,
+      toplevel: primaryDir,
     },
     contract: prepared.record.contract,
     acceptanceContract: prepared.contract,
@@ -68,7 +81,7 @@ export async function implementedRun(tempDirs: string[]): Promise<VerifyFixture>
     nextStage: 'VERIFY',
   });
   await prepared.store.save(source);
-  return { prepared, source, repoDir, base };
+  return { prepared, source, repoDir, primaryDir, base };
 }
 
 /**
@@ -80,6 +93,7 @@ export function stubImplementation(
   record: RunRecord,
   criterionIds: readonly string[],
   baseSha: string,
+  workspace: { relativePath: string; branch: string } = { relativePath: '.', branch: 'main' },
 ): ImplementationRecord {
   return {
     schemaVersion: IMPL_SCHEMA_VERSION,
@@ -87,7 +101,13 @@ export function stubImplementation(
     status: 'COMPLETED_BY_MODEL',
     termination: { kind: 'FINISH', detail: 'the scripted model asked to stop' },
     model: 'bcb-test-model',
-    workspace: { relativePath: '.', branch: 'main', baseSha, reused: false, primaryDirty: false },
+    workspace: {
+      relativePath: workspace.relativePath,
+      branch: workspace.branch,
+      baseSha,
+      reused: false,
+      primaryDirty: false,
+    },
     contract: { runId: record.runId, version: 1, criterionIds: [...criterionIds] },
     contractUntouched: true,
     limits: { maxSteps: 12, maxWrites: 8, maxCommands: 6, maxRepeatedFailures: 3 },

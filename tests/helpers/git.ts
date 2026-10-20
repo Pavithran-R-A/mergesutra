@@ -1,6 +1,7 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { defaultRunner } from '../../src/core/runner.js';
+import { prepareWorkspace } from '../../src/git/workspace.js';
 import { makeFixtureTree, NODE_REPO_FILES } from './fixture.js';
 
 /**
@@ -66,6 +67,51 @@ export async function initRepository(
   }
   const head = await headOf(dir);
   return { dir, base: head };
+}
+
+/**
+ * The workspace a run really owns: Stage 5's linked worktree over a committed
+ * throwaway repository.
+ *
+ * This exists because a patch measurement is only allowed to read Git metadata
+ * a run could not have written, which is true of a linked worktree and false of a
+ * plain checkout. A fixture that handed a stage the checkout itself would be
+ * testing a workspace production can never produce — and would then have to
+ * weaken the measurement to pass.
+ *
+ * `workspace` is where the run works and `primary` is the human's checkout, which
+ * is the pair `mergesutra verify` resolves from a run record
+ * (`local.toplevel` plus `implementation.workspace.relativePath`).
+ */
+export async function runWorkspace(
+  files: Record<string, string>,
+  runId: string,
+): Promise<RunWorkspace> {
+  const { dir, base } = await initRepository(files);
+  const prepared = await prepareWorkspace({ primaryRoot: dir, runId, baseSha: base });
+  // `prepared.path` is resolved, and on Windows a resolved temporary path is the
+  // short (8.3) form of the same directory the fixture was handed. Reporting the
+  // primary the same way keeps the two derivations of a workspace path — Stage 5's
+  // and `local.toplevel` plus the relative path — the same string, the way they are
+  // in a run that came through intake on one machine.
+  const primary = await realpath(dir);
+  return {
+    primary,
+    workspace: prepared.path,
+    relativePath: prepared.relativePath,
+    branch: prepared.branch,
+    base,
+  };
+}
+
+export interface RunWorkspace {
+  /** The repository the run belongs to — the human's checkout. */
+  readonly primary: string;
+  /** The linked worktree the run works in, and the only thing it may be measured through. */
+  readonly workspace: string;
+  readonly relativePath: string;
+  readonly branch: string;
+  readonly base: string;
 }
 
 /**

@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
-import { defaultRunner, type Runner } from '../core/runner.js';
+import { createRunner, defaultRunner, type RunResult, type Runner } from '../core/runner.js';
 import { AppError } from '../core/errors.js';
+import { resolveTrustedGitDir, type TrustedGitDir } from '../git/workspace-git-dir.js';
 import { sha256Hex } from '../security/digest.js';
 import { resolveInsideRoot } from '../security/path-safety.js';
 
@@ -16,11 +17,18 @@ import { resolveInsideRoot } from '../security/path-safety.js';
  * shown not to describe patch B, which is the whole reason Stage 7 needs an
  * identity at all.
  *
- * Three decisions worth stating:
+ * Four decisions worth stating:
  *
  * - **The bytes on disk are the patch, not the model's memory of writing them.**
  *   Every gate runs against this directory, so a file a dependency or a fix-up
  *   script changed counts too. Nothing here asks what MergeSutra intended.
+ * - **Git is told which repository to read.** A run may write anywhere inside its
+ *   workspace, and a workspace's `.git` entry is one of the bytes it can write, so
+ *   letting Git *discover* the repository here would let the code under review
+ *   choose which configuration the trusted read obeys — and Git configuration
+ *   names programs to run. The measurement goes through the metadata directory the
+ *   run cannot author, and a workspace whose own metadata does not resolve to one
+ *   is refused rather than measured anyway.
  * - **Whatever Git ignores stays out, and so does `.mergesutra/` even if Git
  *   does not know to ignore it.** A run's own evidence directory must not become
  *   part of the patch its evidence describes, and a nested workspace under
@@ -68,7 +76,7 @@ export const patchDescriptionSchema = z
 export type PatchDescription = z.infer<typeof patchDescriptionSchema>;
 
 export interface DescribePatchInput {
-  /** The workspace a run owns — a Git worktree or checkout. */
+  /** The workspace a run owns — the Git worktree Stage 5 prepared for it. */
   readonly workspace: string;
   /** The commit the run recorded as its base. The diff is measured from here. */
   readonly baseSha: string;
@@ -93,19 +101,9 @@ export async function describePatch(
     });
   }
 
-  const toplevel = await git(run, input.workspace, ['rev-parse', '--show-toplevel']);
-  const root = toplevel.stdout.trim();
-  if (toplevel.code !== 0 || root.length === 0) {
-    throw new AppError({
-      kind: 'validation',
-      message: `Cannot name a patch: ${bound(input.workspace)} is not a Git workspace.`,
-      remediation:
-        'Verify inside the workspace the run prepared; MergeSutra does not diff an arbitrary directory.',
-      details: { stderr: bound(toplevel.stderr) },
-    });
-  }
-
-  const head = await git(run, root, ['rev-parse', 'HEAD']);
+  const measured = await measure(input.workspace);
+  const root = measured.workTree;
+  const head = await git(run, measured, ['rev-parse', 'HEAD']);
   const headSha = head.stdout.trim().toLowerCase();
   if (head.code !== 0 || headSha !== baseSha) {
     throw new AppError({
@@ -119,12 +117,95 @@ export async function describePatch(
     });
   }
 
-  const tracked = await trackedChanges(run, root, baseSha);
-  const untracked = await untrackedAdditions(run, root);
+  const tracked = await trackedChanges(run, measured, baseSha);
+  const untracked = await untrackedAdditions(run, measured);
   const files = await hashIn(root, [...tracked, ...untracked]);
   const identity = identityOf({ baseSha, files });
 
   return parsePatchDescription({ schemaVersion: PATCH_SCHEMA_VERSION, baseSha, identity, files });
+}
+
+/**
+ * The directory pair Git is told to read, or nothing at all.
+ *
+ * There is no fallback here on purpose. A workspace whose own `.git` entry does not
+ * lead outside itself is a workspace whose repository a run could have authored,
+ * and the difference between "unmeasurable" and "measured against the run's own
+ * invention" is the whole point of a patch identity.
+ */
+async function measure(workspace: string): Promise<TrustedGitDir> {
+  const trusted = await resolveTrustedGitDir(workspace);
+  if (trusted !== null) return trusted;
+  throw new AppError({
+    kind: 'validation',
+    message:
+      `Cannot name a patch: ${bound(workspace)} has no Git metadata a run could not have written, ` +
+      'so its repository is not trustworthy as the thing being measured.',
+    remediation:
+      'Measure the workspace MergeSutra prepared for this run (Stage 5 creates it). MergeSutra will not let Git discover a repository from inside the directory under review, because configuration found there can name programs to run.',
+  });
+}
+
+/**
+ * MergeSutra's own check of the patch, and the one place its command is spelled.
+ *
+ * Stage 7 asks every workspace one question the repository never asked it: does
+ * the patch still carry conflict markers or trailing whitespace. The answer comes
+ * from Git, and Git needs the repository — which is the fact that made this check
+ * unrunnable where it used to run. A sandbox mounts the workspace and nothing
+ * else, and a linked worktree's metadata lives outside it, so the same gate that
+ * measures cleanly on the host exits 128 in the container (`docs/SECURITY_GAP_REGISTER.md`
+ * S16-4 measured both readings on a real customer worktree). Handing the container
+ * the metadata would be the wrong fix: read-only, it exposes `remote.<name>.url`,
+ * which a customer may have written with a token in it; writable, it hands the run
+ * the hooks MergeSutra itself obeys.
+ *
+ * So this is a measurement, not a command under review, and it runs beside the
+ * other one. Three things keep that honest, and the second is why the argv is a
+ * constant rather than a field:
+ *
+ * - Git is told which repository to read, through `measure` and nothing else, so
+ *   the S16-2 refusal applies here too — a workspace that could have authored its
+ *   own metadata is refused instead of measured with discovery.
+ * - The command comes from this constant. A verification plan is a document, and a
+ *   document a run can write inside its own workspace could otherwise name any Git
+ *   command for a host read; equality with a literal in source is the whole of the
+ *   authority here, and it leaves the plan no choice to make.
+ * - Only a gate MergeSutra declared for itself qualifies. A repository's own
+ *   `git diff --check` step keeps going to the sandbox, because there the command
+ *   is the customer's and it is under review.
+ */
+export const WORKSPACE_CHECK: readonly string[] = ['git', 'diff', '--check'];
+
+/** The shape this decision reads, told structurally so no plan type is needed here. */
+export interface WorkspaceCheckCandidate {
+  readonly argv: readonly string[];
+  readonly provenance: { readonly source: string };
+  readonly requirementLevel: string;
+}
+
+/** Whether a gate is MergeSutra's own check, command for command. */
+export function isWorkspaceCheck(gate: WorkspaceCheckCandidate): boolean {
+  return (
+    gate.provenance.source === 'MERGESUTRA_BUILTIN' &&
+    gate.requirementLevel === 'MERGESUTRA_ADDITIONAL' &&
+    gate.argv.length === WORKSPACE_CHECK.length &&
+    WORKSPACE_CHECK.every((token, index) => gate.argv[index] === token)
+  );
+}
+
+export interface WorkspaceCheckDeps {
+  readonly timeoutMs?: number;
+  readonly run?: Runner;
+}
+
+export async function runWorkspaceCheck(
+  workspace: string,
+  deps: WorkspaceCheckDeps = {},
+): Promise<RunResult> {
+  const measured = await measure(workspace);
+  const run = deps.run ?? createRunner({ timeoutMs: deps.timeoutMs });
+  return git(run, measured, WORKSPACE_CHECK.slice(1));
 }
 
 /**
@@ -184,11 +265,15 @@ interface DraftFile {
   readonly change: PatchChange;
 }
 
-async function trackedChanges(run: Runner, root: string, baseSha: string): Promise<DraftFile[]> {
+async function trackedChanges(
+  run: Runner,
+  measured: TrustedGitDir,
+  baseSha: string,
+): Promise<DraftFile[]> {
   // `--no-renames` is not a detail: a rename reported as R would carry two paths
   // and Git's similarity score, and the identity would then depend on a
   // heuristic. Two files — one gone, one new — is the same fact with no guesswork.
-  const result = await git(run, root, [
+  const result = await git(run, measured, [
     'diff',
     '--name-status',
     '--no-renames',
@@ -211,8 +296,8 @@ async function trackedChanges(run: Runner, root: string, baseSha: string): Promi
   }));
 }
 
-async function untrackedAdditions(run: Runner, root: string): Promise<DraftFile[]> {
-  const result = await git(run, root, ['ls-files', '--others', '--exclude-standard', '-z']);
+async function untrackedAdditions(run: Runner, measured: TrustedGitDir): Promise<DraftFile[]> {
+  const result = await git(run, measured, ['ls-files', '--others', '--exclude-standard', '-z']);
   if (result.code !== 0) {
     throw new AppError({
       kind: 'invalid-response',
@@ -311,8 +396,19 @@ function requireDigest(value: string, label: string): string {
   return lowered;
 }
 
-function git(run: Runner, cwd: string, args: readonly string[]) {
-  return run('git', ['-C', cwd, ...args]);
+function git(run: Runner, measured: TrustedGitDir, args: readonly string[]) {
+  // The pair comes before the subcommand, so Git never discovers a repository from
+  // the directory under review, and `--no-optional-locks` keeps the "read-only"
+  // claim in this module's header honest: a measurement must not take the index
+  // lock a run's own `git` invocation is holding.
+  return run('git', [
+    '--git-dir',
+    measured.gitDir,
+    '--work-tree',
+    measured.workTree,
+    '--no-optional-locks',
+    ...args,
+  ]);
 }
 
 function bound(value: string): string {

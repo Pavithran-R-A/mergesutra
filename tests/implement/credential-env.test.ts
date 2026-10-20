@@ -11,6 +11,7 @@ import {
   finishAction,
   plantWorkspace,
   plannedRun,
+  type WorkspaceLocation,
 } from '../helpers/implement.js';
 import { cleanUp, NOW } from '../helpers/plan.js';
 import { scriptedClient } from '../helpers/bharatcode.js';
@@ -57,16 +58,12 @@ async function withLiveCredentials<T>(body: () => Promise<T>): Promise<T> {
 }
 
 /** Git is simulated (there is no repository here to mutate); a check is a real process. */
-function realChecksSimulatedGit(state: {
-  root: string;
-  workspacePath: string;
-  check: Runner;
-}): Runner {
+function realChecksSimulatedGit(state: WorkspaceLocation & { check: Runner }): Runner {
   return async (program, args) => {
     if (program !== 'git') return state.check(program, args);
     const answer = answerWorkspaceGit(args, state);
     if (answer.code === 0 && args.slice(2).join(' ').startsWith('worktree add')) {
-      await plantWorkspace(state.workspacePath, {
+      await plantWorkspace(state, {
         'dump-env.js':
           "console.log(JSON.stringify({ model: process.env.BHARATCODE_API_KEY ?? 'ABSENT', github: process.env.GH_TOKEN ?? 'ABSENT' }));\n",
       });
@@ -95,7 +92,12 @@ async function implementWithARealCheck(): Promise<{
         checkAction(['node', 'dump-env.js'], 'print what this process was given'),
         finishAction('Ran the environment check.', []),
       ]),
-      run: realChecksSimulatedGit({ root: run.prepared.root, workspacePath, check }),
+      run: realChecksSimulatedGit({
+        root: run.prepared.root,
+        workspacePath,
+        runId: run.record.runId,
+        check,
+      }),
     },
   );
   return { record: result.record, implementation: result.implementation };

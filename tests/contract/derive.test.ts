@@ -179,6 +179,24 @@ describe('deriveAcceptanceCriteria — from the issue', () => {
     expect(contract.criteria[0]?.statement).toBe('Rejects empty input');
   });
 
+  it('keeps a list item that wraps onto an indented continuation line whole', () => {
+    const contract = derive({
+      issue: body(
+        [
+          '## Acceptance criteria',
+          '1. `slugify(x)` trims hyphens from both ends.',
+          '2. `package.json` still declares no `dependencies` and no `devDependencies` — this is a',
+          '   five-line change, not a new library.',
+        ].join('\n'),
+      ),
+    });
+    const fromIssue = contract.criteria.filter((c) => c.source.kind === 'issue');
+    expect(fromIssue.map((c) => c.statement)).toEqual([
+      '`slugify(x)` trims hyphens from both ends.',
+      '`package.json` still declares no `dependencies` and no `devDependencies` — this is a five-line change, not a new library.',
+    ]);
+  });
+
   it('does not mine a heading that is not about acceptance', () => {
     const contract = derive({
       issue: body(['## Steps to reproduce', '1. Open the form', '2. Press save'].join('\n')),

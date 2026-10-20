@@ -45,11 +45,37 @@ describe('pinned, reduced-privilege Docker command', () => {
     expect(argv).toContain('--workdir');
     expect(argv).toContain('/workspace/sub');
     expect(argv).toContain(`type=bind,source=${realpathSync(workspace)},target=/workspace`);
-    expect(argv.slice(-3)).toEqual(['node', 'check.js', 'one two']);
+    expect(argv.slice(argv.indexOf('--entrypoint'))).toEqual([
+      '--entrypoint',
+      'node',
+      IMAGE,
+      'check.js',
+      'one two',
+    ]);
     expect(argv.join(' ')).not.toMatch(
       /docker\.sock|--privileged|--network=host|GH_TOKEN|BHARATCODE_API_KEY/,
     );
     expect(argv.filter((a) => a.startsWith('type=bind,'))).toHaveLength(1);
+  });
+
+  it('names the program as the container entrypoint so the image cannot substitute another program', async () => {
+    const { workspace, inside } = await fixture();
+    const argv = sandboxDockerArgv({
+      workspace,
+      cwd: inside,
+      image: IMAGE,
+      file: 'git',
+      args: ['status', '--porcelain'],
+    });
+    // The official `node` images carry `docker-entrypoint.sh`, which prepends
+    // `node` to any argv whose first word is not on PATH. Without an explicit
+    // entrypoint, `git status` silently becomes `node git status`: the container
+    // ran a different program than the gate named, and the receipt recorded its
+    // exit code as if it were the gate's.
+    const at = argv.indexOf('--entrypoint');
+    expect(at).toBeGreaterThan(-1);
+    expect(argv.slice(at + 1, at + 4)).toEqual(['git', IMAGE, 'status']);
+    expect(argv).not.toContain('docker-entrypoint.sh');
   });
 
   it('rejects mutable image tags, shell-shaped programs, and workspace escape', async () => {
@@ -165,6 +191,11 @@ describe('pinned, reduced-privilege Docker command', () => {
     expect(calls[0]).toEqual([process.execPath, 'image', 'inspect', IMAGE]);
     expect(calls[1]?.[0]).toBe(process.execPath);
     expect(calls[1]).toContain('--network=none');
-    expect(calls[1]?.slice(-2)).toEqual(['npm', 'test']);
+    expect(calls[1]?.slice(calls[1]!.indexOf('--entrypoint'))).toEqual([
+      '--entrypoint',
+      'npm',
+      IMAGE,
+      'test',
+    ]);
   });
 });

@@ -2,6 +2,7 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { AppError } from '../core/errors.js';
 import { defaultRunner, type Runner } from '../core/runner.js';
+import { resolveTrustedGitDir, type TrustedGitDir } from '../git/workspace-git-dir.js';
 import { publicationDigestOf } from '../pr/digest.js';
 import { readPackIdentity } from '../report/write.js';
 import { repairPlanDigest } from '../repair/digest.js';
@@ -34,17 +35,44 @@ import { lifecycleStaleness, type LifecycleFacts, type LifecycleVerdict } from '
  *   `null` in that case, which the graph reads as `UNMEASURABLE`. It is never
  *   `null` *and* treated as agreement, and never guessed from the last recorded
  *   value — that would be the tool quoting its own memory as an observation.
- * - **Git evidence outranks an old absolute path.** A run's record carries where
- *   the workspace was on the day it was written, and people move repositories. So
- *   a directory is taken to be this run's repository when it can produce the
- *   commit the run is based on, not when its name matches.
+ * - **Git evidence outranks an old absolute path, but only Git evidence MergeSutra
+ *   did not take from the run.** A run's record carries where the workspace was on
+ *   the day it was written, and people move repositories. So a directory is taken to
+ *   be this run's repository when it can produce the commit the run is based on, not
+ *   when its name matches — and every question is asked of the metadata pair
+ *   `resolveTrustedGitDir` accepts, because the workspace's own `.git` entry is one
+ *   of the files the run may rewrite. Asking Git to *discover* the repository from
+ *   that directory would make the commit, the history and the "is this the run's
+ *   base?" answer come from whichever repository the pointer was aimed at, which is
+ *   the same failure `SECURITY_GAP_REGISTER.md` S16-1/S16-2 measured for the patch
+ *   identity; `src/lifecycle/observe.test.ts` holds the reading of the rewritten
+ *   pointer before that rule reached here.
  * - **Few states, each with a cause.** The vocabulary is closed below, and every
  *   state that is not `PRESENT_MATCHED` says why in `detail`.
  */
 
+/**
+ * Where Stage 5 prepares a run's workspace, spelled again here on purpose.
+ *
+ * `src/git/workspace.ts` exports `WORKTREE_BASE_DIR` with exactly this value, and
+ * importing it would drag every command that module can construct into this one —
+ * which is the proof `tests/lifecycle/source-shape.test.ts` exists to keep. The
+ * customer journey in `scripts/customer-workflow-qualification.mjs` kills a real
+ * `implement` and reads this state back, so a drift between the two spellings
+ * fails there rather than quietly turning this state off.
+ */
+const WORKTREE_BASE_DIR = '.mergesutra/worktrees';
+
 export const WORKSPACE_STATES = [
   /** The run never prepared one: there is no implementation record to point at. */
   'NOT_CREATED',
+  /**
+   * The run recorded nothing, and yet a directory sits where its workspace would
+   * be. Stage 5 adds the worktree before Stage 6 writes the record that claims it,
+   * so a run killed in that window leaves a real, Git-registered checkout that no
+   * document of the run names.
+   */
+  'PRESENT_UNRECORDED',
   /** It claimed one, and the path it claimed is not there. */
   'MISSING',
   /** There is a directory, but neither Git nor this tool can tell what it is. */
@@ -146,9 +174,48 @@ async function observeWorkspace(
 ): Promise<WorkspaceObservation> {
   const implementation = record.implementation;
   if (!implementation) {
-    // No loop record means no workspace was ever claimed. Asking Git about the
-    // recorded path anyway would let a run that stopped at planning look like one
-    // whose worktree had been deleted, which is a much worse thing to tell a human.
+    // The run claimed no workspace, which used to be the whole answer. Stage 17
+    // measured the case where it is not: Stage 5 adds a worktree and Stage 6 writes
+    // the record that names it, so an `implement` killed in between leaves a real
+    // checkout Git has registered on a branch of this run's very name, while the
+    // record says nothing. Saying "never prepared a workspace" about that directory
+    // sends a customer to look for residue that is standing under their nose.
+    //
+    // The directory is found by the one convention Stage 5 writes it under, beside
+    // the store this observation already reads, and only `stat`ed: no Git, so no
+    // reading of metadata a run could have rewritten, and nothing created.
+    const primary = path.resolve(input.repo ?? record.local?.toplevel ?? input.cwd);
+    const where = path.join(primary, WORKTREE_BASE_DIR, record.runId);
+    const presence = await presenceOf(where);
+    if (presence === 'HERE') {
+      return {
+        state: 'PRESENT_UNRECORDED',
+        path: where,
+        recordedBaseSha: record.base?.sha ?? null,
+        observedHead: null,
+        currentPatchIdentity: null,
+        recordedPatchIdentity: null,
+        detail:
+          `Nothing in this run's record claims a workspace, but a directory left it on disk at ` +
+          `${bound(where)}. That is what an interrupted \`implement\` looks like after it prepared ` +
+          'a worktree and before it recorded one. This observation only looked at the name: the ' +
+          'bytes are unread, and MergeSutra will not verify or remove them.',
+      };
+    }
+    if (presence === 'UNKNOWN') {
+      return {
+        state: 'NOT_CREATED',
+        path: null,
+        recordedBaseSha: record.base?.sha ?? null,
+        observedHead: null,
+        currentPatchIdentity: null,
+        recordedPatchIdentity: null,
+        detail:
+          'This run has no implementation record, so it never prepared a workspace of its own, ' +
+          `and ${bound(where)} could not be read to check whether one is there anyway.`,
+      };
+    }
+    // No loop record and no directory: nothing was ever prepared.
     return {
       state: 'NOT_CREATED',
       path: null,
@@ -192,19 +259,20 @@ async function observeWorkspace(
     };
   }
 
-  const toplevel = await git(run, where, ['rev-parse', '--show-toplevel']);
-  const root = toplevel.code === 0 ? toplevel.stdout.trim() : '';
-  if (root.length === 0) {
+  const measured = await resolveTrustedGitDir(where);
+  if (measured === null) {
     return {
       ...known,
       state: 'UNREADABLE',
       detail:
-        'There is a directory where this run recorded its workspace, but Git does not ' +
-        'recognise it as a workspace, so its contents cannot be described as a patch.',
+        'There is a directory where this run recorded its workspace, but MergeSutra cannot name ' +
+        'Git metadata for it that the run could not have written, so neither its commit nor its ' +
+        'patch can be described: a pointer rewritten inside the workspace would make every ' +
+        'answer below belong to whichever repository the run aimed it at.',
     };
   }
 
-  const head = await git(run, root, ['rev-parse', '--verify', 'HEAD']);
+  const head = await git(run, measured, ['rev-parse', '--verify', 'HEAD']);
   const observedHead = head.code === 0 ? head.stdout.trim().toLowerCase() : '';
   if (observedHead.length === 0) {
     return {
@@ -216,7 +284,7 @@ async function observeWorkspace(
     };
   }
 
-  if (!(await holdsCommit(run, root, baseSha))) {
+  if (!(await holdsCommit(run, measured, baseSha))) {
     return {
       ...known,
       observedHead,
@@ -241,7 +309,7 @@ async function observeWorkspace(
 
   let current: string;
   try {
-    current = (await describePatch({ workspace: root, baseSha }, { run })).identity;
+    current = (await describePatch({ workspace: measured.workTree, baseSha }, { run })).identity;
   } catch (error) {
     if (!(error instanceof AppError)) throw error;
     // The workspace is here and on its base, which is all that can honestly be
@@ -334,14 +402,31 @@ async function presenceOf(directory: string): Promise<'HERE' | 'GONE' | 'UNKNOWN
  * in the sense of proving two directories are the same project — a clone of a clone
  * passes it — and the states above say only what they can support.
  */
-async function holdsCommit(run: Runner, directory: string, commit: string): Promise<boolean> {
+async function holdsCommit(run: Runner, measured: TrustedGitDir, commit: string): Promise<boolean> {
   if (!/^[0-9a-f]{40,64}$/.test(commit)) return false;
-  const result = await git(run, directory, ['cat-file', '-e', `${commit}^{commit}`]);
+  const result = await git(run, measured, ['cat-file', '-e', `${commit}^{commit}`]);
   return result.code === 0;
 }
 
-function git(run: Runner, directory: string, args: readonly string[]) {
-  return run('git', ['-C', directory, ...args]);
+/**
+ * A question asked of the directory pair MergeSutra resolved, never of a repository
+ * Git discovers from the workspace.
+ *
+ * The pair comes first, so Git reads the metadata the run could not have written; a
+ * `-C <workspace>` here would let one rewritten pointer file decide which commit and
+ * which history this observation reports as the run's own. `--no-optional-locks`
+ * keeps this module's read-only promise honest against a `git` the run is running at
+ * the same moment.
+ */
+function git(run: Runner, measured: TrustedGitDir, args: readonly string[]) {
+  return run('git', [
+    '--git-dir',
+    measured.gitDir,
+    '--work-tree',
+    measured.workTree,
+    '--no-optional-locks',
+    ...args,
+  ]);
 }
 
 function short(digest: string): string {

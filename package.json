@@ -58,6 +58,8 @@
     "test:live": "node scripts/run-live-tests.mjs",
     "test:artifact": "vitest run --config vitest.release.config.ts",
     "qualify:path-shapes": "node scripts/path-shape-qualification.mjs",
+    "qualify:customer": "node scripts/customer-workflow-qualification.mjs",
+    "verify:customer-gate": "node scripts/customer-gate-verify.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test",
     "verify:package": "npm run build && vitest run tests/security/publish-contents.test.ts tests/security/credential-boundary.test.ts tests/security/home-path-boundary.test.ts tests/security/public-link-boundary.test.ts tests/security/shipped-pointer-boundary.test.ts",
     "prepack": "npm run verify:package",

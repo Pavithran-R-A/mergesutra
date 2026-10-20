@@ -26,7 +26,7 @@ import {
  * asked for. Two claims about them were live when this item opened, and only one of them
  * was in the register: the register said "no hook-firing verb is ever spawned", which is
  * true of `git commit` and false of `git worktree add` — the command that creates every
- * run's workspace (`src/git/workspace.ts:163`) is, per Git's own documentation and the
+ * run's workspace (`src/git/workspace.ts:178-185`) is, per Git's own documentation and the
  * measurement below, one of the commands that fires `post-checkout`. A half-true claim is
  * the dangerous kind: it reads as though the whole surface had been enumerated when the
  * one verb the product *does* run was the exception.
@@ -298,21 +298,34 @@ describe('what the product can put in front of Git', () => {
   it('names the sites whose argv it cannot read off the page, across the whole product', async () => {
     const open = constructions(await allSources(SRC)).filter((site: Site) => site.open);
 
-    // Eight, and each is a pass-through rather than a command: the project's own
-    // `git(run, dir, …)` shorthand handing its parameter along, and `verify/command.ts`
+    // Ten, and each is a pass-through rather than a command: the project's own
+    // git shorthands handing their parameters along, and `verify/command.ts`
     // discovering a gate command from the repository's own build files — the S12-22
     // boundary, which runs only under execution consent and is never a MergeSutra-authored
-    // git call. A ninth open site is a command nobody can read, and this fails so the next
-    // person decides about it instead of inheriting it.
+    // git call. An eleventh open site is a command nobody can read, and this fails so the
+    // next person decides about it instead of inheriting it.
+    //
+    // What the pass-throughs are worth, since a hook fires from a directory as well as
+    // from a verb: the `git -C value` sites — `intake/local-repo.ts` and the two in
+    // `git/workspace.ts` — read the *operator's* checkout, a directory chosen before any
+    // run exists. The four `--git-dir`/`--work-tree` sites are the reads of a *run's*
+    // workspace, and each resolves its pair from metadata the run could not write before
+    // asking: `verify/patch.ts` (S16-2), `lifecycle/observe.ts` (S16-6),
+    // `review/context.ts` (S16-7) and `git/workspace.ts:278` (S16-8, the workspace-commit
+    // question Stage 5 asked through discovery before reusing a directory an earlier run
+    // left behind). Those four render the same string, so this list cannot name which read
+    // each one is; SECURITY_GAP_REGISTER.md keeps that per item.
     expect(open.map(show).sort()).toEqual([
+      'git/workspace.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
       'git/workspace.ts: git -C value (open)',
       'git/workspace.ts: git -C value (open)',
       'git/workspace.ts: git rev-parse --verify (open)',
       'intake/local-repo.ts: git -C value (open)',
-      'lifecycle/observe.ts: git -C value (open)',
+      'lifecycle/observe.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
       'lifecycle/observe.ts: git cat-file -e (open)',
+      'review/context.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
       'verify/command.ts: value (open)',
-      'verify/patch.ts: git -C value (open)',
+      'verify/patch.ts: git --git-dir value --work-tree value --no-optional-locks (open)',
     ]);
   });
 });
@@ -520,7 +533,7 @@ describe.skipIf(!GIT_AVAILABLE)(
       // The measurement the register had wrong, kept exactly as it happened. Git creates the
       // worktree, checks out the base commit and registers it, and *then* runs
       // `post-checkout`; a non-zero exit from that hook becomes the exit code of the whole
-      // `git worktree add`. `src/git/workspace.ts:163-172` reads that code and refuses, so
+      // `git worktree add`. `src/git/workspace.ts:185-192` reads that code and refuses, so
       // MergeSutra says "git could not create the workspace (3)" about a workspace that now
       // exists — and blames another process holding the repository, which is not what
       // happened. This item documents that (D1: no production change); the evidence is
@@ -615,7 +628,7 @@ describe.skipIf(!GIT_AVAILABLE)(
 
       // And when the same kind of output accompanies a failing hook, the bound detail carries
       // Git's account of the command without letting anything foreign grow past the single
-      // 120-character, newline-free line `bound()` promises at `src/git/workspace.ts:281-284`.
+      // 120-character, newline-free line `bound()` promises at `src/git/workspace.ts:333-336`.
       const shouting = await repoWithHook(
         () => `printf '%s\\n' '${'A'.repeat(400)} ${HOSTILE}'\nexit 7`,
       );

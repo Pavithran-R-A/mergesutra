@@ -221,18 +221,88 @@ repository declares, which is a different threat and gets a different boundary.
   spell `sudo rm -rf` is refused as DESTRUCTIVE even though a repository wrote it
   in a workflow file — repository text is data, including when it looks like
   instructions to a verification engine.
-- **Executing a repository command is not sandboxed, and does not claim to be.**
-  The gate runs in the run's worktree with a real cwd; a worktree is isolation for
-  clarity, not a security boundary (§4). The child environment strips model and
-  GitHub credentials plus common unrelated credential variables (cloud, registry,
-  database and API keys), while retaining ordinary build flags. The GitHub-owned
-  read runner alone may retain GitHub authentication. **This is not a sandbox**:
-  repository code can still read files visible to the host account, and a secret
-  held under an unrecognized variable name may still be inherited. What MergeSutra
-  adds is *observation*: the workspace's patch identity is re-described after
-  every gate, and a gate that left the tree changed voids the run's verdict rather
-  than reporting the next result, because the next measurement would describe
-  bytes no one identified.
+- **A repository's command runs in the sandbox, or it does not run at all.**
+  Stage 7 hands a discovered CI step or package script to
+  `createRepositoryCommandRunner` (`src/security/repository-runner.ts`), which is
+  a boundary rather than a preference: with no digest-pinned
+  `MERGESUTRA_SANDBOX_IMAGE` or no absolute `MERGESUTRA_DOCKER_EXECUTABLE` it
+  throws `SANDBOX_UNAVAILABLE` and executes nothing, and no product flag swaps in
+  a host runner. The container's own rules — one bind mount of the workspace,
+  `--network=none`, dropped capabilities, a read-only root filesystem, four
+  `--env` assignments and no inherited host environment, so no host credential is even offered to the
+  gate (`src/security/sandbox.ts:113-116`; the container still
+  carries `PATH` and whatever the pinned image bakes in, which is exactly the line the host now reads
+  back rather than assumes), and a Docker client configuration the launch owns rather than
+  inherits — are `docs/SANDBOX_EXECUTION.md`'s, and the child never sees the
+  BharatCode or GitHub credentials (§6). Those rules are not certified by asking
+  the container whether it obeyed them: the two proof fixtures hold their
+  self-report apart from the verdict, and `scripts/lib/container-boundary.mjs`
+  decides the escape claim from the host, by reading the `docker inspect` record
+  the daemon actually created and walking the host's own filesystem for the bytes
+  the container wrote. Which image the container started is read the same way, from
+  the host's own `docker image inspect` record, because the two image stores measured
+  for this product spell the same pinned reference's image ID differently — a
+  classic-store daemon records the platform manifest's config digest, a containerd-store
+  daemon records the index digest it was handed. Predicting one of those from the
+  reference string certified an honest daemon as an escape on GitHub's runners, so the
+  rule now asks whether the container's image ID is among the identities this host
+  reports for the pin, and an identity the host cannot read back is a violation rather
+  than a pass. A guest's boolean says a `writeFileSync` returned; it
+  cannot say where the bytes landed, and on a Windows host a planted `C:\…` path
+  is a *relative file name* inside a Linux guest, so the write can succeed and
+  still be confined. What the container does *not* do is make
+  the workspace trustworthy: its one writable mount is the directory under review,
+  so a gate can still change the bytes being measured. That is why the patch
+  identity is re-described after every gate and a gate that left the tree changed
+  voids the run's verdict rather than reporting the next result, because the next
+  measurement would describe bytes no one identified.
+- **MergeSutra's own check of the patch is a host measurement, and it is the only
+  one.** The single gate this stage runs outside the container is its built-in
+  `git diff --check`, and the reason is that the sandbox mounts the workspace and
+  nothing else: a Git command dispatched into it cannot see the repository it is
+  being asked about, and would report the pinned image's missing `git` (exit 127)
+  as a verdict about the change forever. The authority for the exception is
+  structural, in `isWorkspaceCheck` (`src/verify/patch.ts`): a gate is measured on
+  the host only when its argv is exactly that constant *and* its
+  `provenance.source` is `MERGESUTRA_BUILTIN` *and* its `requirementLevel` is
+  `MERGESUTRA_ADDITIONAL` — so a plan a run can rewrite inside its own workspace
+  gains no host Git read, and a repository's own `git diff --check` step, being
+  the customer's code under review, still goes to the sandbox. The host read is
+  then made through the trusted Git directory of the next bullet, so the check
+  obeys configuration the run could not have authored.
+- **The measurement is told which repository to read.** Stage 5's reuse
+  decision, Stage 7's patch identity, Stage 9's per-file diff and Stage 11's
+  observation of the tree each ask Git what differs from the run's base commit.
+  A Stage 5 workspace's `.git` entry is a one-line pointer *inside* the directory
+  the run may write, so letting Git *discover* the repository from that directory
+  would let the code under review choose which configuration the trusted read
+  obeys — and Git configuration names programs to run (`core.fsmonitor`,
+  `core.hooksPath`, a `remote.<name>.url` spelled with `ext::`). The rule is in
+  `resolveTrustedGitDir` (`src/git/workspace-git-dir.ts`) and it is structural
+  rather than a deny-list: a workspace's Git directory is read only when `.git` is
+  a regular non-symlink file, its target resolves to a directory outside the
+  workspace, and that directory's own back-pointer names exactly this workspace's
+  `.git`. A plain checkout, a `.git` directory, a pointer aimed inside the
+  workspace or at another run's metadata is unmeasurable, and the run's verdict
+  says so — there is no fallback to discovery, because "unmeasurable" and
+  "measured against the run's own invention" have to be different outcomes.
+  `SECURITY_GAP_REGISTER.md` S16-1/S16-2 carry the control that shows a
+  discovering read reporting a planted repository as the run's patch, and S16-6,
+  S16-7 and S16-8 the three reads that were still discovering after that. Each
+  of the four resolves the pair before it asks anything —
+  `src/verify/patch.ts:137`, `src/lifecycle/observe.ts:204`,
+  `src/review/context.ts:368` and `src/git/workspace.ts:138` and `:193` — and
+  each then asks through `--git-dir`/`--work-tree`/`--no-optional-locks`
+  (`src/verify/patch.ts:405`, `src/lifecycle/observe.ts:365`,
+  `src/review/context.ts:391`, `src/git/workspace.ts:324`). The `-C` reads that
+  remain are of the operator's own checkout, chosen before any run exists.
+  The rule is written for one level of indirection — a workspace's pointer into
+  `…/.git/worktrees/<id>` — and it is measured rather than assumed to survive a
+  `tests/git/customer-worktree.test.ts` builds a parent clone, makes a linked
+  checkout of it with real Git, and runs Stage 5, Stage 7, Stage 11's observation
+  and intake's own worktree detection inside *that* checkout, where the run's
+  registration lands in the parent clone rather than beside the operator's `.git`.
+  Register item `S16-9` records that round and its negative control.
 - **Receipts are the only thing that can prove anything, so they are bounded and
   redacted.** A receipt keeps exit code, termination, duration, a 4 KB tail of
   *redacted* stdout/stderr and the sha-256 of the unredacted bytes — the digest
@@ -773,8 +843,17 @@ is refused outright rather than escalated (§2.1). Four things about it are wort
   `git push --force` proposed as `execute` is DESTRUCTIVE, `git push` is
   REMOTE MUTATION, and `git -c core.pager=evil log` — which is a *read* until
   git starts the pager — is DESTRUCTIVE too. Global git options that redirect
-  the repository, the config or the program are refused outright; MergeSutra
-  only ever emits `-C`, which chooses a directory and nothing else.
+  the repository, the config or the program are refused outright, and a command
+  this controller mediates only ever carries `-C`, which chooses a directory and
+  nothing else. MergeSutra's own trusted measurements (§2.2) are the one place
+  those tokens appear — `--git-dir`/`--work-tree` in
+  `src/verify/patch.ts`, `src/lifecycle/observe.ts` and `src/review/context.ts` —
+  and they are not proposed to this controller: each module runs its own argv
+  through a `Runner`, defaulting to `defaultRunner` (`src/verify/patch.ts:93`),
+  with the two paths taken from metadata the run cannot write rather than from
+  anything the repository proposed. The classifier still marks that argv
+  DESTRUCTIVE, which is why the shape is written once per module and pinned by a
+  test rather than proposed as an action.
 - **A remote mutation needs a yes for that exact action.** The approval carries
   the action's own summary and is compared word for word, so a general
   "you may publish" cannot cover a different push. Without the match the
@@ -909,6 +988,16 @@ half of either, and a refused oversized write to an existing path is proven by
 test to leave the original bytes in place. That resolution of the way is done
 twice, once when the write is planned and once immediately before the rename, and
 §4.3 states what the gap between the two still allows.
+
+Reading a workspace is the same problem from the other side, and Stage 16 gave it
+a rule of the same shape. Among the bytes a run may write is the `.git` entry that
+tells Git where its repository is, so MergeSutra's own trusted reads — the patch
+identity of §2.2 above all — do not ask Git to find a repository from inside a
+workspace. They name the metadata directory `resolveTrustedGitDir` accepts, which
+lies outside the writable area and resolves only when the workspace's pointer and
+that directory's back-pointer describe each other. Where such a pair cannot be
+obtained, the read refuses and says the workspace is unmeasurable; it does not
+discover instead.
 
 The API has no delete, no rename and no chmod, and a test asserts that the only
 methods on the object are `writeText` and `exists`. A writer that cannot delete

@@ -42,6 +42,7 @@ Useful scripts:
 | `npm run verify:package`    | Build, then run the five release-boundary verifiers listed below    |
 | `npm run test:artifact`     | Install a real tarball in a clean directory and run what it ships   |
 | `npm run qualify:path-shapes`| Exercise temp/space/drive/separator paths plus real Git/gh discovery|
+| `npm run qualify:customer`  | Run the eight customer journeys against a disposable clone, then `npm run verify:customer-gate` on what it writes |
 | `npm run test:live`         | The live-model tests, which skip unless a credential is offered     |
 
 `prepack` runs `verify:package` and `prepublishOnly` runs `check`, so an ordinary
