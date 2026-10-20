@@ -187,7 +187,7 @@ jobs:
         env:
           BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
           BHARATCODE_MODEL: ${{ inputs.model }}
-          BHARATCODE_TIMEOUT_MS: '300000'
+          BHARATCODE_TIMEOUT_MS: '540000'
           BHARATCODE_MAX_RETRIES: '0'
         run: node scripts/e2e-validation.mjs live
 
