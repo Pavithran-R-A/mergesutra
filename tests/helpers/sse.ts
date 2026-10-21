@@ -163,8 +163,7 @@ export function stallingSseFetch(first: string): {
     ok: true,
     status: 200,
     headers: {
-      get: (name: string) =>
-        name.toLowerCase() === 'content-type' ? 'text/event-stream' : null,
+      get: (name: string) => (name.toLowerCase() === 'content-type' ? 'text/event-stream' : null),
     },
     text: async () => first,
     body: new ReadableStream<Uint8Array>({
@@ -211,8 +210,7 @@ export function endlessSseFetch(chunkBytes = 64 * 1024): {
     ok: true,
     status: 200,
     headers: {
-      get: (name: string) =>
-        name.toLowerCase() === 'content-type' ? 'text/event-stream' : null,
+      get: (name: string) => (name.toLowerCase() === 'content-type' ? 'text/event-stream' : null),
     },
     text: async () => '',
     body: new ReadableStream<Uint8Array>({
