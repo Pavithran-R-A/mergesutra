@@ -1,14 +1,17 @@
 import { AppError, isAppError, isErrorLike, kindForStatus, retryFacts } from '../core/errors.js';
 import { Redactor } from '../security/redaction.js';
 import { terminalSafeSingleLine } from '../security/terminal-safety.js';
-import { parseCompletion, parseModelList } from './schemas.js';
+import { ResponseStream } from './responses.js';
+import { parseModelList } from './schemas.js';
 import { parseRetryAfter, runWithRetry, throwIfCancelled } from './retry.js';
+import { SseParser, type SseFrame } from './sse.js';
 import {
   DEFAULT_BASE_URL,
   DEFAULT_MAX_RETRIES,
   DEFAULT_TIMEOUT_MS,
   MAX_RESPONSE_BYTES,
   type BharatCodeClientConfig,
+  type ChatMessage,
   type CompletionRequest,
   type CompletionResult,
   type HealthResult,
@@ -21,9 +24,10 @@ import {
  * The BharatCode adapter.
  *
  * `BharatCodeClient` is the abstraction the rest of the application depends on.
- * `HttpBharatCodeClient` is the only place that knows BharatCode is an
- * OpenAI-compatible HTTP service. `fetch`, the `sleeper`, and `random` are
- * dependency-injected so the whole adapter is testable with zero live network.
+ * `HttpBharatCodeClient` is the only place that knows BharatCode's wire shape: the
+ * Responses route, its event-stream framing and its terminal objects. `fetch`, the
+ * `sleeper`, and `random` are dependency-injected so the whole adapter is testable with
+ * zero live network.
  */
 
 export interface BharatCodeClient {
@@ -78,6 +82,9 @@ interface BodyRead {
   /** The read itself failed — an interruption, not a body that arrived empty. */
   readonly failed: unknown;
 }
+
+/** One read from a body stream, named without relying on a DOM-only global type. */
+type ChunkRead = Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']>>;
 
 const defaultSleeper: Sleeper = (ms, signal) =>
   new Promise<void>((resolve, reject) => {
@@ -457,52 +464,249 @@ export class HttpBharatCodeClient implements BharatCodeClient {
     }
 
     const body = await this.readBody(response);
-    if (!response.ok) {
-      const { kind, retryable } = kindForStatus(response.status);
-      const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'));
-      throw new AppError({
-        kind,
-        message: this.redactor.text(`BharatCode request failed with HTTP ${response.status}.`),
-        status: response.status,
-        retryable,
-        retryAfterMs,
-        details: {
-          body: this.redactor.text(bounded(body.text, 500)),
-          ...(body.over ? { bodyOverLimit: MAX_RESPONSE_BYTES } : {}),
-        },
-        remediation: remediationFor(kind),
-      });
-    }
+    if (!response.ok) throw this.httpError(response, body);
     // A body that stopped arriving is not a body that arrived empty: the first is the
     // transport failing, and the retry policy has to be told which one it is looking at.
     if (body.failed)
       throw this.toAppError(body.failed, init.signal, init.callerSignal, 'response-body');
-    if (body.over) {
-      throw new AppError({
-        kind: 'invalid-response',
-        message: `BharatCode sent a response body larger than the ${MAX_RESPONSE_BYTES} byte limit, so the read was stopped and the body refused.`,
-        retryable: false,
-        status: response.status,
-        details: { limitBytes: MAX_RESPONSE_BYTES },
-        remediation:
-          'The service answered, but not with a completion this client will hold. Retry this run once; if it repeats, check the model and endpoint configured.',
-      });
-    }
+    if (body.over) throw this.overBound(response.status);
 
     let json: unknown;
     try {
       json = JSON.parse(body.text);
     } catch (cause) {
-      throw new AppError({
-        kind: 'invalid-response',
-        message: 'BharatCode returned a non-JSON response body.',
-        retryable: false,
-        status: response.status,
-        cause,
-        details: { body: this.redactor.text(bounded(body.text, 200)) },
-      });
+      throw this.nonJson(response.status, body.text, cause);
     }
-    return { status: response.status, json, retryAfter: response.headers.get('retry-after') };
+    return {
+      status: response.status,
+      json,
+      retryAfter: readHeader(response, 'retry-after') ?? null,
+    };
+  }
+
+  /**
+   * One Responses request, read as the stream the documented API sends.
+   *
+   * The media type decides how the body is read, because both shapes are documented
+   * outcomes of the same route: an event stream carries deltas that must be framed
+   * incrementally, while a buffered JSON response is a whole terminal object. Guessing
+   * from the first bytes would decide before the provider has said what it sent.
+   */
+  private async send(init: {
+    body: string;
+    signal?: AbortSignal;
+    callerSignal?: AbortSignal;
+    model: string;
+  }): Promise<CompletionResult> {
+    const auth = this.requireKey();
+    let response: Awaited<ReturnType<FetchLike>>;
+    try {
+      response = await this.fetch(this.url('/responses'), {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'text/event-stream',
+          authorization: `Bearer ${auth}`,
+        },
+        body: init.body,
+        signal: init.signal,
+      });
+    } catch (error) {
+      throw this.toAppError(error, init.signal, init.callerSignal);
+    }
+
+    if (!response.ok) {
+      const body = await this.readBody(response);
+      throw this.httpError(response, body);
+    }
+    if ((readHeader(response, 'content-type') ?? '').includes('text/event-stream')) {
+      return this.consumeStream(response, init);
+    }
+
+    const body = await this.readBody(response);
+    if (body.failed)
+      throw this.toAppError(body.failed, init.signal, init.callerSignal, 'response-body');
+    if (body.over) throw this.overBound(response.status);
+    let json: unknown;
+    try {
+      json = JSON.parse(body.text);
+    } catch (cause) {
+      throw this.nonJson(response.status, body.text, cause);
+    }
+    const stream = this.newStream(init.model, response);
+    stream.applyBuffered(json);
+    return stream.result();
+  }
+
+  /**
+   * Read an event stream until the response names its terminal event.
+   *
+   * The `MAX_RESPONSE_BYTES` bound is enforced on the bytes taken off the socket, before
+   * anything is parsed, so an endpoint that never stops cannot decide how much memory this
+   * process spends. Cancellation is raced against every read rather than only the first:
+   * a provider that sends headers and then goes quiet would otherwise hold the run until
+   * the body ended, which is exactly the case `timeoutMs` exists for.
+   */
+  private async consumeStream(
+    response: Awaited<ReturnType<FetchLike>>,
+    init: { signal?: AbortSignal; callerSignal?: AbortSignal; model: string },
+  ): Promise<CompletionResult> {
+    const stream = this.newStream(init.model, response);
+    const body = response.body;
+    if (!body) {
+      // A gateway that declares a stream but offers no readable one. The bytes are read
+      // through the same bound, then replayed into the same parser, so the framing and
+      // terminal rules do not depend on which property the fetcher exposed.
+      const buffered = await this.readBody(response);
+      if (buffered.failed)
+        throw this.toAppError(buffered.failed, init.signal, init.callerSignal, 'response-body');
+      if (buffered.over) throw this.overBound(response.status);
+      return this.consumeFrames(stream, () => buffered.text);
+    }
+
+    let reader: ReadableStreamDefaultReader<Uint8Array>;
+    try {
+      reader = body.getReader();
+    } catch (error) {
+      throw this.toAppError(error, init.signal, init.callerSignal, 'response-body');
+    }
+
+    const parser = new SseParser();
+    const decoder = new TextDecoder();
+    let taken = 0;
+    let drained = false;
+    try {
+      for (;;) {
+        let next: ChunkRead;
+        try {
+          next = await this.nextChunk(reader, init.signal);
+        } catch (error) {
+          await cancelQuietly(reader);
+          throw this.toAppError(error, init.signal, init.callerSignal, 'response-body');
+        }
+        if (next.done) {
+          drained = true;
+          this.feed(stream, parser.push(decoder.decode()));
+          if (!stream.finished) this.feed(stream, parser.end());
+          break;
+        }
+        taken += next.value.byteLength;
+        if (taken > MAX_RESPONSE_BYTES) throw this.overBound(response.status);
+        this.feed(stream, parser.push(decoder.decode(next.value, { stream: true })));
+        if (stream.finished) break;
+      }
+      return stream.result();
+    } finally {
+      // The terminal event is the end of the answer, whether or not the socket has closed;
+      // a stream that is still offering more is released rather than drained.
+      if (!drained) await cancelQuietly(reader);
+    }
+  }
+
+  private consumeFrames(stream: ResponseStream, text: () => string): CompletionResult {
+    const parser = new SseParser();
+    this.feed(stream, parser.push(text()));
+    if (!stream.finished) this.feed(stream, parser.end());
+    return stream.result();
+  }
+
+  private newStream(
+    model: string,
+    response: { headers: { get(name: string): string | null } },
+  ): ResponseStream {
+    return new ResponseStream(
+      model,
+      (value) => this.redactor.text(value),
+      readHeader(response, 'x-request-id'),
+    );
+  }
+
+  /**
+   * One read, racing the request signal.
+   *
+   * A body whose source ignores the signal would otherwise never settle after the budget
+   * fires or the caller cancels. Cancelling before rejecting is deliberate: on a source
+   * that is already rejecting through its own abort path, a cancel issued after the
+   * rejection can no longer reach it, and the connection would be left open.
+   */
+  private nextChunk(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    signal: AbortSignal | undefined,
+  ): Promise<ChunkRead> {
+    const read = reader.read();
+    if (!signal) return read;
+    if (signal.aborted) {
+      void reader.cancel().catch(() => undefined);
+      return Promise.reject(abortError(signal));
+    }
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        void reader.cancel().catch(() => undefined);
+        reject(abortError(signal));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      read.then(
+        (value) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(value);
+        },
+        (error: unknown) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  private feed(stream: ResponseStream, frames: readonly SseFrame[]): void {
+    for (const frame of frames) {
+      stream.apply(frame);
+      if (stream.finished) return;
+    }
+  }
+
+  private httpError(response: Awaited<ReturnType<FetchLike>>, body: BodyRead): AppError {
+    const { kind, retryable } = kindForStatus(response.status);
+    const retryAfterMs = parseRetryAfter(readHeader(response, 'retry-after') ?? null);
+    const requestId = readHeader(response, 'x-request-id');
+    return new AppError({
+      kind,
+      message: this.redactor.text(
+        `BharatCode request failed with HTTP ${response.status}.${requestId ? ` Request id: ${requestId}.` : ''}`,
+      ),
+      status: response.status,
+      retryable,
+      retryAfterMs,
+      details: {
+        ...(requestId === undefined ? {} : { requestId }),
+        body: this.redactor.text(bounded(body.text, 500)),
+        ...(body.over ? { bodyOverLimit: MAX_RESPONSE_BYTES } : {}),
+      },
+      remediation: remediationFor(kind),
+    });
+  }
+
+  private overBound(status: number): AppError {
+    return new AppError({
+      kind: 'invalid-response',
+      message: `BharatCode sent a response body larger than the ${MAX_RESPONSE_BYTES} byte limit, so the read was stopped and the body refused.`,
+      retryable: false,
+      status,
+      details: { limitBytes: MAX_RESPONSE_BYTES },
+      remediation:
+        'The service answered, but not with a completion this client will hold. Retry this run once; if it repeats, check the model and endpoint configured.',
+    });
+  }
+
+  private nonJson(status: number, bodyText: string, cause: unknown): AppError {
+    return new AppError({
+      kind: 'invalid-response',
+      message: 'BharatCode returned a non-JSON response body.',
+      retryable: false,
+      status,
+      cause,
+      details: { body: this.redactor.text(bounded(bodyText, 200)) },
+    });
   }
 
   /**
@@ -610,27 +814,17 @@ export class HttpBharatCodeClient implements BharatCodeClient {
         remediation: 'Set BHARATCODE_MODEL or pass an explicit model to complete().',
       });
     }
-    const payload = {
-      model,
-      messages: request.messages,
-      temperature: request.temperature,
-      max_tokens: request.maxTokens,
-      chat_template_kwargs:
-        request.enableThinking === undefined
-          ? undefined
-          : { enable_thinking: request.enableThinking },
-    };
-    const result = await this.withRetry(
+    const payload = requestPayload(model, request);
+    return this.withRetry(
       (signal, callerSignal) =>
-        this.rawRequest('/chat/completions', {
-          method: 'POST',
+        this.send({
           body: JSON.stringify(payload),
           signal,
           callerSignal,
+          model,
         }),
       request.signal,
     );
-    return parseCompletion(result.json, model);
   }
 
   async completeStructured<T>(request: StructuredRequest<T>): Promise<T> {
@@ -641,6 +835,19 @@ export class HttpBharatCodeClient implements BharatCodeClient {
       signal: request.signal,
       temperature: request.temperature ?? 0,
     });
+    // A partial answer refused at the token limit is the limit's failure, not the JSON's:
+    // reporting "not valid JSON" would send the operator to the model's formatting when
+    // the budget is what ran out.
+    if (completion.finishReason !== 'stop') {
+      throw new AppError({
+        kind: 'invalid-response',
+        message: `BharatCode did not complete the structured response (finish reason: ${completion.finishReason ?? 'unknown'}), so no result could be parsed.`,
+        retryable: false,
+        details: { finishReason: completion.finishReason },
+        remediation:
+          'Raise the output token budget for this call, or reduce the amount of material the model must return.',
+      });
+    }
     const parsed = safeJsonParse(completion.text);
     try {
       return request.validate(parsed);
@@ -722,6 +929,54 @@ export class HttpBharatCodeClient implements BharatCodeClient {
       },
     );
   }
+}
+
+/**
+ * The documented Responses request body.
+ *
+ * System turns become `instructions` and the conversation becomes `input`; the
+ * chat-completions fields (`messages`, `max_tokens`, `chat_template_kwargs`) do not exist
+ * on this route. `store:false` keeps the provider stateless — the caller replays history
+ * in `input`, so nothing here depends on state the next stage never references.
+ * `reasoning` is sent only for an explicit disable: the documented API expresses an
+ * effort, not a boolean, and `true` must leave the provider's default alone rather than
+ * invent a level.
+ */
+function requestPayload(model: string, request: CompletionRequest): Record<string, unknown> {
+  const system = request.messages.filter((message: ChatMessage) => message.role === 'system');
+  const input = request.messages
+    .filter((message: ChatMessage) => message.role !== 'system')
+    .map((message) => ({ role: message.role, content: message.content }));
+  return {
+    model,
+    ...(system.length === 0
+      ? {}
+      : { instructions: system.map((message) => message.content).join('\n\n') }),
+    input,
+    store: false,
+    stream: true,
+    ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+    ...(request.maxTokens === undefined ? {} : { max_output_tokens: request.maxTokens }),
+    ...(request.enableThinking === false ? { reasoning: { effort: 'none' } } : {}),
+  };
+}
+
+function readHeader(
+  response: { headers: { get(name: string): string | null } },
+  name: string,
+): string | undefined {
+  const value = response.headers.get(name);
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+function abortError(signal: AbortSignal): Error {
+  const reason: unknown = signal.reason;
+  if (reason instanceof Error) return reason;
+  return Object.assign(new Error('The response read was aborted.'), { name: 'AbortError' });
+}
+
+async function cancelQuietly(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  await reader.cancel().catch(() => undefined);
 }
 
 function withJsonInstruction<T>(request: StructuredRequest<T>) {

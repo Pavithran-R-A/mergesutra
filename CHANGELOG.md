@@ -6,6 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed — the BharatCode adapter reads the documented Responses stream
+
+The adapter POSTed a chat-completions shape and read one JSON body. BharatCode's current
+documentation describes `POST /responses` with `instructions` and `input`, `store:false`,
+`stream:true`, and server-sent events. `src/bharatcode/client.ts` now sends that request and
+reads the answer incrementally: `response.output_text.delta` frames build the text, a queue
+keepalive comment is not output, `response.completed`/`response.incomplete` finish the answer
+with the provider's own final copy and usage, and `response.failed` is reported as a bounded
+server failure that is retried only when no text was produced. The byte bound applies to socket
+bytes before decoding; cancellation races every read; a gateway that answers with one JSON
+object instead of SSE is still accepted, because both shapes are documented outcomes of the
+same route. `completeStructured` refuses a non-`stop` finish reason before parsing, so an
+answer cut at `max_output_tokens` is reported as the token limit rather than as malformed JSON.
+
+`src/bharatcode/sse.ts` (incremental framing) and `src/bharatcode/responses.ts` (terminal
+objects, failures and tool calls) are new. Tool calls are exposed only for a completed
+response, and the existing command contracts and schema validation are unchanged.
+Tests: `tests/bharatcode/responses-stream.test.ts` (framing, terminals, failures, retries and
+the buffered fallback), `client.test.ts`, `response-size.test.ts` and `loopback-leak.test.ts`;
+`scripts/lib/scripted-gateway.mjs` answers the same route as SSE, so the zero-spend
+demonstration still exercises the production adapter.
+
 ### Added — an approved page can become a draft pull request
 
 `mergesutra pr` could prepare and locally approve a page but had no remote: the only transport

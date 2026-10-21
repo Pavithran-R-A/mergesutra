@@ -8,7 +8,7 @@ import { URL } from 'node:url';
  * The qualification this serves has to exercise the production CLI as a child
  * process, so the model is replaced below the process boundary rather than
  * inside it: the CLI is configured with `BHARATCODE_API_BASE` pointing here, and
- * every request travels through the same HTTP adapter, JSON parsing, schema
+ * every request travels through the same HTTP adapter, event-stream parsing, schema
  * validation and retry policy a live gateway would meet. Nothing here is
  * injected into the product's process, and no answer is a MergeSutra-owned
  * verdict — the answers are what a model said, and every one of them still has
@@ -53,8 +53,8 @@ export function digestForPath(messages, wantedPath) {
 
 /**
  * Start the gateway. `respond(messages, callIndex)` returns the assistant text
- * for one `/chat/completions` request; returning `undefined` means the script ran
- * out, which is answered with a 500 rather than an invented completion.
+ * for one `/responses` request; returning `undefined` means the script ran out,
+ * which is answered with a 500 rather than an invented completion.
  */
 export async function startScriptedGateway({ model, respond, onCall } = {}) {
   const calls = [];
@@ -66,7 +66,7 @@ export async function startScriptedGateway({ model, respond, onCall } = {}) {
       writeJson(res, 200, { object: 'list', data: [{ id: model, object: 'model' }] });
       return;
     }
-    if (req.method !== 'POST' || url.pathname !== '/chat/completions') {
+    if (req.method !== 'POST' || url.pathname !== '/responses') {
       writeJson(res, 404, { error: { message: `unexpected ${req.method} ${url.pathname}` } });
       return;
     }
@@ -84,7 +84,7 @@ export async function startScriptedGateway({ model, respond, onCall } = {}) {
         writeJson(res, 400, { error: { message: 'request body was not JSON' } });
         return;
       }
-      const messages = Array.isArray(payload.messages) ? payload.messages : [];
+      const messages = messagesFrom(payload);
       const index = calls.length;
       calls.push({ model: payload.model, messages, temperature: payload.temperature });
       let text;
@@ -106,15 +106,7 @@ export async function startScriptedGateway({ model, respond, onCall } = {}) {
         return;
       }
       onCall?.(index, text);
-      writeJson(res, 200, {
-        id: `scripted-${String(index)}`,
-        object: 'chat.completion',
-        model: payload.model ?? model,
-        choices: [
-          { index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' },
-        ],
-        usage: { prompt_tokens: 1000, completion_tokens: 100, total_tokens: 1100 },
-      });
+      writeStream(res, { text, model: payload.model ?? model, index });
     });
   });
 
@@ -147,4 +139,76 @@ function writeJson(res, status, payload) {
     'content-length': String(Buffer.byteLength(text)),
   });
   res.end(text);
+}
+
+/**
+ * The conversation the product sent, in the OpenAI-style shape the responders read.
+ *
+ * The Responses route splits a conversation into `instructions` (the system turn) and
+ * `input` (everything else), so the stand-in recombines them here. A responder still
+ * sees the same turns it saw on the older route, and the harness does not need to know
+ * which route the product uses.
+ */
+function messagesFrom(payload) {
+  const messages = [];
+  if (typeof payload.instructions === 'string' && payload.instructions !== '') {
+    messages.push({ role: 'system', content: payload.instructions });
+  }
+  if (typeof payload.input === 'string') {
+    messages.push({ role: 'user', content: payload.input });
+  } else if (Array.isArray(payload.input)) {
+    for (const item of payload.input) {
+      if (!item || typeof item !== 'object') continue;
+      messages.push({
+        role: typeof item.role === 'string' ? item.role : 'user',
+        content:
+          typeof item.content === 'string' ? item.content : JSON.stringify(item.content ?? null),
+      });
+    }
+  }
+  return messages;
+}
+
+/**
+ * Answer one request as the documented stream: a queue keepalive comment, the text as
+ * `response.output_text.delta` frames, then one terminal `response.completed` carrying
+ * the provider's own final copy of the answer and its usage.
+ */
+function writeStream(res, { text, model, index }) {
+  const frames = [': queue\n\n'];
+  for (const delta of splitForDeltas(text)) {
+    frames.push(sse('response.output_text.delta', { type: 'response.output_text.delta', delta }));
+  }
+  frames.push(
+    sse('response.completed', {
+      type: 'response.completed',
+      response: {
+        id: `scripted-${String(index)}`,
+        object: 'response',
+        status: 'completed',
+        model,
+        output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }],
+        usage: { input_tokens: 1000, output_tokens: 100, total_tokens: 1100 },
+      },
+    }),
+  );
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-store',
+  });
+  res.end(frames.join(''));
+}
+
+function sse(event, data) {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function splitForDeltas(text) {
+  const characters = [...text];
+  if (characters.length === 0) return [''];
+  const pieces = [];
+  for (let at = 0; at < characters.length; at += 160) {
+    pieces.push(characters.slice(at, at + 160).join(''));
+  }
+  return pieces;
 }

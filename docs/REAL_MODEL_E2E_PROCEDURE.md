@@ -32,7 +32,7 @@ general tutorial; `README.md` is that, and where the two disagree the screens pr
 | `BHARATCODE_API_KEY` | `src/config/load-config.ts:74` | yes, for `plan`, `implement`, `review`, `repair` | `doctor` FAILs that row; `plan` exits 78 before asking anything (§4) |
 | `BHARATCODE_MODEL` | `src/config/load-config.ts:91` | yes | `plan` has no `--model` flag, so the chain's fourth step ends in a configuration refusal |
 | `BHARATCODE_API_BASE` | `src/config/load-config.ts:38` | no | defaults to `https://bharatcode.ai/api/model/v1` (`src/bharatcode/types.ts:9`) |
-| `BHARATCODE_TIMEOUT_MS`, `BHARATCODE_MAX_RETRIES` | `src/config/load-config.ts:70-71` | no | `60000` ms and `3`; the live job sets `290000` and `0`. A larger value buys nothing: Node's fetch settles an unanswered non-streaming request at its own ~300 s bound (`UND_ERR_HEADERS_TIMEOUT`), and a completion sends headers only once the whole answer is ready |
+| `BHARATCODE_TIMEOUT_MS`, `BHARATCODE_MAX_RETRIES` | `src/config/load-config.ts:70-71` | no | `60000` ms and `3`; the live job sets `290000` and `0`. The Responses route answers as a stream, so headers arrive when the stream opens and this budget is enforced on every read for the whole answer. Before the headers arrive, Node's fetch still gives up at its own ~300 s `UND_ERR_HEADERS_TIMEOUT`, which no larger value here can raise |
 | `BHARATCODE_RETRY_BASE_MS`, `BHARATCODE_RETRY_MAX_MS` | `src/config/load-config.ts:95-100` | no | 500 ms and 15 000 ms |
 | `NO_COLOR` | `src/cli/render.ts:41` | no | colour stays on |
 
@@ -193,8 +193,9 @@ stage, but it re-enters the budget the record already holds and cannot raise a c
 
 Two things this build cannot bound, stated because the ceiling above is otherwise misleading:
 
-- **Tokens.** No call site sets `max_tokens` (`src/bharatcode/types.ts:55` declares it and nothing
-  passes it), so per-answer length is the gateway's default. What MergeSutra does bound is what a
+- **Tokens.** No call site sets a token limit (`src/bharatcode/types.ts:55` declares `maxTokens` and
+  nothing passes it), so `max_output_tokens` is sent only when a caller sets one and per-answer
+  length is otherwise the gateway's default. What MergeSutra does bound is what a
   single answer may be before it is refused as too large: 96 KB for an implementation turn
   (`src/implement/limits.ts:58`), 64 KB for a repair turn (`src/repair/limits.ts:42`).
 - **Money.** The cost in your currency is that many requests at your provider's price, which this
