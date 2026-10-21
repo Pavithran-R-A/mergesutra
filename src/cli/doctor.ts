@@ -1,5 +1,6 @@
 import { loadBharatCodeConfig, summarizeConfig } from '../config/load-config.js';
-import type { BharatCodeClient } from '../bharatcode/client.js';
+import { createBharatCodeClient, type BharatCodeClient } from '../bharatcode/client.js';
+import type { BharatCodeClientConfig } from '../bharatcode/types.js';
 import type { RenderOptions, Renderer, Status } from './render.js';
 import { terminalSafeDocument } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor } from './render.js';
@@ -30,7 +31,7 @@ export interface DoctorCheck {
 export interface DoctorDeps {
   readonly env: NodeJS.ProcessEnv;
   readonly run?: Runner;
-  readonly makeClient?: (apiKey: string | undefined) => BharatCodeClient | undefined;
+  readonly makeClient?: (config: BharatCodeClientConfig) => BharatCodeClient | undefined;
   readonly connect?: boolean;
   readonly nodeVersion?: string;
 }
@@ -113,10 +114,13 @@ export async function runDoctor(deps: DoctorDeps): Promise<DoctorCheck[]> {
   // Reachability (opt-in, and only meaningful with a key)
   if (!deps.connect) {
     checks.push({ name: 'BharatCode reach', status: 'SKIP', detail: 'pass --connect to test' });
-  } else if (!summary.configured || !deps.makeClient) {
+  } else if (!summary.configured) {
     checks.push({ name: 'BharatCode reach', status: 'SKIP', detail: 'not configured' });
   } else {
-    const client = deps.makeClient(config.apiKey);
+    const makeClient =
+      deps.makeClient ??
+      ((loaded: BharatCodeClientConfig) => createBharatCodeClient({ config: loaded }));
+    const client = makeClient(config);
     if (!client) {
       checks.push({ name: 'BharatCode reach', status: 'SKIP', detail: 'no client' });
     } else {

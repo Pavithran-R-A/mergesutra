@@ -53,6 +53,17 @@ non-https URLs) and `tests/pr/boundaries.test.ts` (only the `--publish` CLI path
 transport). No live draft pull request has been opened by this tree at the time of writing; the
 controlled demonstration is a separate, human-approved step.
 
+### Fixed — `doctor --connect` now asks BharatCode
+
+The reachability row was only ever wired in tests. `src/cli/doctor.ts` asked its injectable
+`makeClient` whether to probe, but no production caller supplied one, so the shipped command
+printed `SKIP · not configured` and exited 0 while a key was present — and the live chain read
+that exit as a passed preflight. `runDoctor` now falls back to
+`createBharatCodeClient({ config })`, the same factory the model stages use; without a key the
+row is still `SKIP`, and without `--connect` nothing is sent. `tests/cli/doctor.test.ts` stubs
+the global fetch, runs the command with no injected factory, and asserts the one request goes to
+`<base>/models` and the row reports `PASS`. No live request was made to write this test.
+
 ### Fixed — Stage 14 qualification: a run ended on a tally meant to be a streak
 
 Twenty-two controlled real-model attempts of this release produced a sanitized artifact, twelve of them
