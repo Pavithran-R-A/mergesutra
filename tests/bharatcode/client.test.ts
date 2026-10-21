@@ -327,8 +327,89 @@ describe('Retry policy (deterministic, offline)', () => {
     });
     const err = await client.complete({ messages: [] }).catch((e) => e);
     expect(err.message).toBe(terminalSafeSingleLine(err.message));
+    // The idempotence check above would also pass if the helper *deleted* the control
+    // bytes, because an empty string is its own escape. The promise is that a reader sees a
+    // spelling of what arrived, so the spelling is pinned: backslash, a lower-case `u`, four
+    // hex digits — exactly what the encoder writes.
+    expect(err.message).toContain('\\u001b[31m');
     expect(err.message).not.toContain(chatter);
     expect(err.message).toContain('UND_ERR_HEADERS_TIMEOUT');
+  });
+
+  it('masks a credential the socket quoted with a line break at its separator', async () => {
+    // The redactor's generic rule needs whitespace between the name and the `:` or `=`,
+    // and the encoder rewrites exactly the code points that are whitespace there. So a
+    // message that encodes first, and masks afterwards, hands the rule a spelling it can
+    // no longer find: `api_key\r\n= <secret>` becomes `api_key\u000d\u000a= <secret>`, the
+    // separator stops matching, and the credential travels to the report whole. This is
+    // the case the pattern list exists for — `this.redactor` only ever knows the
+    // configured key, so a `GITHUB_TOKEN`-shaped value has no exact-match defence.
+    const secret = 'q3WERTyuiop12345678';
+    const { fetch } = fakeFetch([
+      Object.assign(new TypeError(`fetch failed api_key\r\n= ${secret}`), {
+        cause: Object.assign(new Error('Headers Timeout Error'), {
+          name: 'HeadersTimeoutError',
+          code: 'UND_ERR_HEADERS_TIMEOUT',
+        }),
+      }),
+    ]);
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.message).not.toContain(secret);
+    expect(err.message).toContain('[REDACTED]');
+  });
+
+  it('masks a credential whose value continues past a raw line break', async () => {
+    // The other half of the same measurement, and the reason the fix has to mask on both
+    // sides of the encoder rather than only before it: the value class stops at
+    // whitespace, so a raw `U+2028` inside a quoted credential masks its first half and
+    // leaves the rest. Encoding rewrites that code point into six ASCII characters, which
+    // the value class does not stop at, so the whole value is masked — but only if the
+    // encoder still gets to run before the last look at the string.
+    const tail = 'Kx9mZ2p7Lq4wN8b';
+    const lineSeparator = String.fromCharCode(0x2028);
+    const { fetch } = fakeFetch([
+      Object.assign(new TypeError(`fetch failed token= abc${lineSeparator}${tail}`), {
+        cause: Object.assign(new Error('Headers Timeout Error'), {
+          name: 'HeadersTimeoutError',
+          code: 'UND_ERR_HEADERS_TIMEOUT',
+        }),
+      }),
+    ]);
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.message).not.toContain(tail);
+  });
+
+  it('masks a credential quoted with a line break inside the cause, not only the headline', async () => {
+    // The transport wraps its reason one level down, so the half of the report that leaks is
+    // often the cause rather than the headline. `transportDetail` masks each half on its own
+    // way out for this reason: a single pass over the joined, already-encoded string would
+    // see the cause's `api_key\u000d\u000a= <secret>` spelling, match no separator, and
+    // print the credential — which is the same defect the headline case above catches, one
+    // level down, and it needs its own proof because the two halves are masked separately.
+    const secret = 'z7Xcvbnm98QWERtyui';
+    const { fetch } = fakeFetch([
+      Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error(`socket stalled api_key\r\n= ${secret}`), {
+          name: 'SocketError',
+        }),
+      }),
+    ]);
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.message).toContain('cause:');
+    expect(err.message).not.toContain(secret);
+    expect(err.message).toContain('[REDACTED]');
   });
 
   it('names the error that rejected the request when it carries the transport code itself', async () => {
@@ -413,6 +494,12 @@ describe('Retry policy (deterministic, offline)', () => {
     const err = await client.complete({ messages: [] }).catch((e) => e);
     expect(err.message).toContain('AggregateError');
     expect(err.message).toContain('2 nested errors');
+    // The count says how much was withheld; the codes say what kind of failure was. A
+    // socket's `message` is where its address lives — `connect ECONNREFUSED 127.0.0.1:1` is
+    // the only place one appears in this test — while `code` is a fixed enum the transport
+    // chose from a table, not a value the connection wrote.
+    expect(err.message).toContain('ECONNREFUSED');
+    expect(err.message).toContain('ETIMEDOUT');
     expect(err.message).not.toContain('127.0.0.1');
   });
 
@@ -523,6 +610,136 @@ describe('Retry policy (deterministic, offline)', () => {
     const err = await client.complete({ messages: [] }).catch((e) => e);
     expect(err.message).toContain('ECONNREFUSED');
     expect(err.message).not.toContain('741000ms');
+  });
+
+  it('still names the wait when a generic code sits above the transport timeout', async () => {
+    // Node's own shape puts the code one level down, so reading the top-level code first
+    // and stopping there is invisible while it is only ever right about Node. A proxy, an
+    // adapter or a keep-alive socket that resets mid-flight can carry `ECONNRESET` at the
+    // top with the headers timeout underneath it, and then the sentence that says *which*
+    // of the two waits ended the request goes missing exactly when the two disagree.
+    const { fetch } = fakeFetch([
+      Object.assign(new Error('socket hang up'), {
+        code: 'ECONNRESET',
+        cause: Object.assign(new Error('Headers Timeout Error'), {
+          name: 'HeadersTimeoutError',
+          code: 'UND_ERR_HEADERS_TIMEOUT',
+        }),
+      }),
+    ]);
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 741000,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.message).toContain('ECONNRESET');
+    expect(err.message).toContain('which the transport did not reach');
+  });
+
+  it('still names the wait when the cause is not an Error', async () => {
+    // `cause` is whatever the thrower chose. A transport that serializes its failure, or an
+    // adapter that wraps in a plain object, leaves the code on a non-Error — and a reader
+    // that requires `cause instanceof Error` reports the wait as if nothing was known about
+    // it, which is the silence this class of helper exists to end.
+    const { fetch } = fakeFetch([
+      Object.assign(new TypeError('fetch failed'), {
+        cause: { code: 'UND_ERR_HEADERS_TIMEOUT', errno: -1 },
+      }),
+    ]);
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 741000,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.message).toContain('which the transport did not reach');
+    expect(err.message).not.toContain('-1');
+  });
+
+  it('survives an Error whose own fields refuse to be read', async () => {
+    // The keys of a hostile object are already guarded, because describing a failure must
+    // not be able to become one. An `Error` takes the other branch, where `name`, `code`
+    // and `message` are read one after another — and any of the three can be a getter that
+    // throws, which is how the socket's failure gets replaced by the trap's. Each read has
+    // to answer for itself, and say that it refused, rather than pretend the field was
+    // never there.
+    const hostile = new Error('the message is not for you');
+    for (const key of ['name', 'code', 'message']) {
+      Object.defineProperty(hostile, key, {
+        configurable: true,
+        get(): never {
+          throw new Error(`do not read ${key}`);
+        },
+      });
+    }
+    const fetch: FetchLike = async () => {
+      throw hostile;
+    };
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('could not be read');
+    expect(err.message).not.toContain('do not read');
+    expect(err.message).not.toContain('not for you');
+  });
+
+  it('reports a body that stopped arriving as a body that stopped arriving', async () => {
+    // `Could not reach BharatCode` belongs to the failure that never got an answer. Once
+    // the response has arrived, a stream that dies during the read is the same transport
+    // one step later — same retry class, same cause to print — but a different place for
+    // the operator to look, and the old sentence sends them to the network when the network
+    // worked.
+    const fetch: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => JSON.stringify(completionBody),
+      body: {
+        getReader(): never {
+          throw Object.assign(new Error('ReadableStream is locked'), {
+            code: 'ERR_STREAM_ALREADY_LOCKED',
+          });
+        },
+      } as unknown as ReadableStream<Uint8Array>,
+    });
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.retryable).toBe(true);
+    expect(err.message).toContain('ERR_STREAM_ALREADY_LOCKED');
+    expect(err.message).toContain('stopped arriving');
+    expect(err.message).not.toContain('Could not reach BharatCode');
+  });
+
+  it('bounds an endpoint body on whole characters, never between the halves of one', async () => {
+    // `bounded` is what an endpoint's bytes become when they are quoted back in `details`,
+    // and it counts UTF-16 code units, so the cut can land between the two units that hold
+    // one astral character and keep half of it. A lone surrogate is not a character:
+    // `JSON.stringify` writes it out raw and a consumer that re-parses the report gets a
+    // replacement glyph where the response used to be. The leading `!` puts every pair on
+    // an odd offset, so the 200-unit cut falls inside one.
+    const { fetch } = fakeFetch([{ ok: true, status: 200, raw: `!${'😀'.repeat(200)}` }]);
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('invalid-response');
+    const body = (err.details as { body: string }).body;
+    expect(body).toContain('chars)');
+    expect(body).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(body).not.toMatch(/(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/);
   });
 });
 

@@ -116,16 +116,21 @@ const TIMEOUT_REASON: { readonly mergesutra: 'timeout' } = { mergesutra: 'timeou
  * propagate the coded error directly, and a headline built from `message` alone would
  * drop both its name and the code the reader needs.
  *
- * Both halves come off somebody else's connection, so both are put through the encoder
- * the CLI sink uses and held to a length of our choosing: an operator's report should
- * not become a socket's transcript.
- * Each half is bounded on its own, not the string after joining them: a chatty
- * headline must not be able to crowd out the cause code, which is the whole diagnosis.
+ * Each half is masked before it is encoded, and the joined result is masked again by the
+ * caller, because the two orders catch different secrets and neither contains the other.
+ * `Redactor.text` masks a known secret by exact substring and its generic rule needs the
+ * whitespace between a name and its `:` or `=`, so a value the encoder has already rewritten
+ * reaches neither: `api_key\r\n= <secret>` becomes `api_key\u000d\u000a= <secret>`, the
+ * separator matches no more, and the credential travels whole. Masking the raw string first
+ * closes that. The pass afterwards is not redundant: the generic rule's value class stops at
+ * whitespace, so a secret that continues past a raw line break masks only its first half in
+ * source form — and the encoder turns that break into six ASCII characters the class does not
+ * stop at, so the second pass sees one long value and masks all of it.
  */
-function transportDetail(error: unknown): string {
-  const headline = oneLine(describeForeign(error), 160);
+function transportDetail(error: unknown, redactor: Redactor): string {
+  const headline = oneLine(redactor.text(describeForeign(error)), 160);
   const cause = error instanceof Error ? error.cause : undefined;
-  const detail = cause === undefined ? '' : oneLine(describeForeign(cause), 240);
+  const detail = cause === undefined ? '' : oneLine(redactor.text(describeForeign(cause)), 240);
   return detail === '' ? headline : `${headline} (cause: ${detail})`;
 }
 
@@ -138,18 +143,43 @@ function transportDetail(error: unknown): string {
  * differs from what arrived. The bound is taken after encoding, and by code point, because
  * `slice` counts the UTF-16 units that hold them and can cut a surrogate pair in half.
  *
- * This is the one path that encodes before redacting rather than after, and the measured
- * order is the stricter of the two. `Redactor.text` masks a known secret by exact substring,
- * and the encoder rewrites nothing outside the terminal-control ranges, so a printable
- * credential reaches it unchanged; and the pattern path captures a value with a class that
- * stops at whitespace, over which U+000A, U+000B, U+000C, U+2028 and U+2029 are whitespace
- * and U+0085 is not — a secret split by a raw line break masks one half in the source form
- * and all of it here. The output boundary is untouched: `src/cli/program.ts:519` still runs
- * redaction and then terminal safety, and re-escaping this string cannot change it, because
- * what the encoder emits holds no code point the encoder forges.
+ * Whatever reaches this is already masked: the encoder rewrites code points the redactor's
+ * rules read as structure, so a value encoded first can no longer be found.
  */
 function oneLine(value: string, limit: number): string {
   return [...terminalSafeSingleLine(value)].slice(0, limit).join('');
+}
+
+/** Returned in place of a value when the act of reading the value is what threw. */
+const UNREADABLE = Symbol('unreadable');
+
+/**
+ * Read one property off somebody else's failure, without being able to fail.
+ *
+ * A getter is allowed to throw and a proxy handler makes that ordinary, so *describing* a
+ * transport error can itself become the error — and the trap's own message then replaces
+ * the socket's, which is the silence this whole group of helpers exists to end.
+ */
+function readForeignField(value: unknown, key: string): unknown {
+  if (value === null || typeof value !== 'object') return undefined;
+  try {
+    return (value as Record<string, unknown>)[key];
+  } catch {
+    return UNREADABLE;
+  }
+}
+
+/**
+ * The same read, kept to a non-empty string.
+ *
+ * A field that refuses is reported as refusing, because a name that exists and will not be
+ * read is not the same fact as a name that was never there. The refusal is this helper's
+ * own words, never the thrower's: the trap's message is somebody else's value.
+ */
+function readForeignString(value: unknown, key: string): string | undefined {
+  const field = readForeignField(value, key);
+  if (field === UNREADABLE) return `${key} could not be read`;
+  return typeof field === 'string' && field !== '' ? field : undefined;
 }
 
 /**
@@ -159,16 +189,19 @@ function oneLine(value: string, limit: number): string {
  * that object's *values* is how a request payload, headers included, can end up on a
  * screen. So a bare object is described by its key names, which say what it was without
  * saying what was in it, and an `AggregateError` — undici's real multi-address connect
- * failure, whose own message distinguishes nothing — is described by how much it hides,
- * never by what it hides.
+ * failure, whose own message distinguishes nothing — is described by how much it hides
+ * and by the kind of each hidden failure, never by what it hides.
  */
 function describeForeign(value: unknown): string {
   if (value instanceof Error) {
-    const named = [value.name, (value as { code?: string }).code, value.message]
-      .filter(Boolean)
+    const named = ['name', 'code', 'message']
+      .map((key) => readForeignString(value, key))
+      .filter((part): part is string => part !== undefined)
       .join(' ');
-    const nested = (value as { errors?: unknown }).errors;
-    return Array.isArray(nested) ? `${named}; ${nested.length} nested errors` : named;
+    const nested = readForeignField(value, 'errors');
+    if (!Array.isArray(nested)) return named;
+    const kinds = nestedKinds(nested);
+    return `${named}; ${nested.length} nested errors${kinds === '' ? '' : ` (${kinds})`}`;
   }
   if (typeof value === 'string') return value;
   if (typeof value === 'object' && value !== null) {
@@ -186,19 +219,36 @@ function describeForeign(value: unknown): string {
 }
 
 /**
- * The transport error code, whether the rejection carries it or wraps it.
+ * The kinds inside an `AggregateError`, named without quoting them.
  *
- * Node puts undici's code one level down in `cause`, but only because Node wraps; an
- * adapter that propagates the coded error directly has the same code at the top, and
- * reading only the cause would leave `transportWait` silent about the failure it exists
- * to explain.
+ * Each entry's `message` is a connect line — `connect ECONNREFUSED 127.0.0.1:1` — so it
+ * carries a host and a port, which is exactly what the keys-only rule above keeps out of a
+ * report. `code` comes from a fixed table and `name` from a class list, so either says
+ * which failure this was without repeating an address. Past four the list is noise: the
+ * count already says how much the transport withheld.
  */
-function causeCode(error: unknown): string | undefined {
-  if (!(error instanceof Error)) return undefined;
-  const own = (error as { code?: string }).code;
-  if (typeof own === 'string') return own;
-  const cause = error.cause;
-  return cause instanceof Error ? (cause as { code?: string }).code : undefined;
+function nestedKinds(nested: readonly unknown[]): string {
+  const kinds = nested
+    .slice(0, 4)
+    .map((item) => readForeignString(item, 'code') ?? readForeignString(item, 'name'))
+    .filter((kind): kind is string => kind !== undefined);
+  return kinds.join(', ');
+}
+
+/**
+ * Whether this rejection carries the transport's own give-up-on-headers code, at either of
+ * the two depths it is seen at.
+ *
+ * Node puts undici's code one level down in `cause`, but only because Node wraps. An
+ * adapter that propagates the coded error directly has it at the top; a socket reset
+ * through a proxy can carry a generic `ECONNRESET` at the top with the headers timeout
+ * underneath it; a transport that serializes its failure leaves the code on a `cause` that
+ * is not an `Error`. Any one of those positions, read alone, leaves `transportWait` silent
+ * about the failure it exists to name — so both are asked.
+ */
+function isHeaderTimeout(error: unknown): boolean {
+  if (readForeignString(error, 'code') === 'UND_ERR_HEADERS_TIMEOUT') return true;
+  return readForeignString(readForeignField(error, 'cause'), 'code') === 'UND_ERR_HEADERS_TIMEOUT';
 }
 
 export class HttpBharatCodeClient implements BharatCodeClient {
@@ -375,7 +425,8 @@ export class HttpBharatCodeClient implements BharatCodeClient {
     }
     // A body that stopped arriving is not a body that arrived empty: the first is the
     // transport failing, and the retry policy has to be told which one it is looking at.
-    if (body.failed) throw this.toAppError(body.failed, init.signal, init.callerSignal);
+    if (body.failed)
+      throw this.toAppError(body.failed, init.signal, init.callerSignal, 'response-body');
     if (body.over) {
       throw new AppError({
         kind: 'invalid-response',
@@ -404,7 +455,20 @@ export class HttpBharatCodeClient implements BharatCodeClient {
     return { status: response.status, json, retryAfter: response.headers.get('retry-after') };
   }
 
-  private toAppError(error: unknown, signal?: AbortSignal, callerSignal?: AbortSignal): AppError {
+  /**
+   * Convert a transport rejection into the error this client reports.
+   *
+   * `phase` says how far the connection got, because the same death means two different
+   * things depending on whether a response ever arrived. Before one does, "could not reach
+   * this host" is where the operator has to look; after one does, the host answered and the
+   * read is what failed — the same retry class, a different place to point.
+   */
+  private toAppError(
+    error: unknown,
+    signal?: AbortSignal,
+    callerSignal?: AbortSignal,
+    phase: 'request' | 'response-body' = 'request',
+  ): AppError {
     // Caller explicitly cancelled → not a timeout, never retried.
     if (callerSignal?.aborted) {
       return new AppError({
@@ -424,7 +488,9 @@ export class HttpBharatCodeClient implements BharatCodeClient {
         cause: error,
       });
     }
-    if (error instanceof Error && error.name === 'AbortError') {
+    // Same reason the field readers exist: `name` is a string a foreign error is allowed
+    // to withhold behind a getter that throws, and a cancelled run is decided by a word.
+    if (readForeignString(error, 'name') === 'AbortError') {
       return new AppError({
         kind: 'cancelled',
         message: 'Operation was cancelled.',
@@ -432,10 +498,14 @@ export class HttpBharatCodeClient implements BharatCodeClient {
         cause: error,
       });
     }
+    const reach =
+      phase === 'request'
+        ? 'Could not reach BharatCode'
+        : 'BharatCode answered, but the response body stopped arriving';
     return new AppError({
       kind: 'network',
-      message: `Could not reach BharatCode: ${this.redactor.text(
-        `${transportDetail(error)}${this.transportWait(error)}`,
+      message: `${reach}: ${this.redactor.text(
+        `${transportDetail(error, this.redactor)}${this.transportWait(error)}`,
       )}`,
       retryable: true,
       cause: error,
@@ -459,7 +529,7 @@ export class HttpBharatCodeClient implements BharatCodeClient {
    * sentence to add.
    */
   private transportWait(error: unknown): string {
-    if (causeCode(error) !== 'UND_ERR_HEADERS_TIMEOUT') return '';
+    if (!isHeaderTimeout(error)) return '';
     return `; the configured per-request budget was ${this.config.timeoutMs}ms, which the transport did not reach`;
   }
 
@@ -631,9 +701,19 @@ function isReachableDespiteError(error: AppError): boolean {
   return typeof error.status === 'number';
 }
 
+/**
+ * Quote at most `max` characters of somebody else's text, and say how much was cut.
+ *
+ * The text is an endpoint's bytes, so the limit has to fall between whole characters:
+ * `slice` counts the UTF-16 units that hold them, and a cut inside a surrogate pair leaves
+ * one half behind. A lone surrogate is not a character — `JSON.stringify` writes it out
+ * unescaped and a reader that re-parses the report gets a replacement glyph where the
+ * response used to be — so this iterates by code point instead.
+ */
 function bounded(text: string, max: number): string {
-  if (text.length <= max) return text;
-  return `${text.slice(0, max)}…(+${text.length - max} chars)`;
+  const characters = [...text];
+  if (characters.length <= max) return text;
+  return `${characters.slice(0, max).join('')}…(+${characters.length - max} chars)`;
 }
 
 function remediationFor(kind: string): string | undefined {

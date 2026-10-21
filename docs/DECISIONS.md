@@ -1964,7 +1964,7 @@ from the act all remain in force.)*
   rows from that copy instead of from the document itself — the escaping therefore happens before
   any row, column or label is composed, not on the finished page. `createRenderer` escapes the
   value and then adds its own colour (`src/cli/render.ts:53`), the error path redacts a secret and
-  then disarms the terminal in that order (`src/cli/program.ts:513`), and the eleven `--json`
+  then disarms the terminal in that order (`src/cli/program.ts:519`), and the eleven `--json`
   sinks serialize through `terminalSafeJson()` so the output stays parseable. One consequence was
   not anticipated: `mergesutra report` now renders the evidence pack **twice**
   (`src/cli/report.ts:59-67`) — once from the record, written to disk and digested, and once from

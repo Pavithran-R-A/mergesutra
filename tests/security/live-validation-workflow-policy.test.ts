@@ -126,7 +126,11 @@ describe('the controlled live-validation workflow', () => {
     // operator reads before raising the cap by hand, so the bound belongs in that row.
     const row = PROCEDURE.split('\n').find((line) => line.includes('BHARATCODE_TIMEOUT_MS'));
     expect(row, 'the procedure documents BHARATCODE_TIMEOUT_MS in its own row').toBeDefined();
-    expect(row, `${row}\n...names no transport bound`).toContain('300');
+    // Not `300` anywhere in the line: a row that says `6300 ms` or counts three retries
+    // would satisfy that and still promise patience the transport will not grant. The bound
+    // is a span of seconds and the transport names itself, so the row has to carry both.
+    expect(row, `${row}\n...names no transport bound`).toMatch(/~?300\s*s/);
+    expect(row, `${row}\n...names no transport error`).toContain('UND_ERR_HEADERS_TIMEOUT');
     // The live job's own value is the only configured one, and it sits under the bound.
     const configured = prose.match(/BHARATCODE_TIMEOUT_MS:\s*'?(\d+)/g) ?? [];
     expect(configured).toHaveLength(1);
@@ -137,8 +141,19 @@ describe('the controlled live-validation workflow', () => {
       const ms = Number(digits.replace(/\D/g, ''));
       expect(ms, `${digits} is promised above the transport bound`).toBeLessThan(300_000);
     }
-    // The same mistake written in seconds instead of milliseconds.
-    expect(prose).not.toMatch(/\b[4-9]\d0-second|[5-9]\d0\s*s\b/);
+    // The same mistake written in seconds instead of milliseconds. What is swept is a
+    // hand-raised cap: a number of seconds that is a round multiple of ten, in any of the
+    // spellings a person uses — `540 s`, `540s`, `540 seconds`, `540-second`, `1000s`. A
+    // measured figure is not that shape, which is why the transport's own 304.5 s and 306 s
+    // give-ups stay in these documents untouched while `~300 s` is checked and passes.
+    // Minutes are deliberately not swept: the only minutes figures here are the run's own
+    // wall clock, a ceiling the cap has to stay *under* rather than a promise of patience,
+    // and no shape test tells those two sentences apart.
+    for (const promise of prose.match(/\b\d{2,4}[\s-]*(?:seconds|second|secs|sec|s)\b/g) ?? []) {
+      const seconds = Number(promise.replace(/\D/g, ''));
+      if (seconds % 10 !== 0) continue;
+      expect(seconds, `${promise} is promised above the transport bound`).toBeLessThanOrEqual(300);
+    }
   });
 
   it('describes the wall clock the way the driver actually enforces it', () => {

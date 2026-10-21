@@ -1054,7 +1054,7 @@ original (`status.ts:95`, `resume.ts:283`, `review.ts:93`, `verify.ts:64`, `pr.t
 `doctor.ts:139`, `issue.ts:51`, `inspect.ts:48`, `plan.ts:52`, `contract.ts:280`,
 `implement.ts:104`, `repair.ts:123`, `report.ts:67`), which is what makes §10's single-line/multi-line
 distinction hold without a new renderer. `createRenderer` escapes the value before it adds colour
-(`render.ts:53`); the error path runs redaction then terminal safety (`program.ts:513`); eleven
+(`render.ts:53`); the error path runs redaction then terminal safety (`program.ts:519`); eleven
 `--json` sinks call `terminalSafeJson()` and `report --json` runs `terminalSafeJsonText()` over
 bytes that were already serialized. Order is the §22 one: value → redaction → terminal safety →
 styling → terminal, and no secret pattern was copied into the terminal sanitizer.
