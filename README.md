@@ -20,34 +20,52 @@ becomes a PR."*
 **Source:** [github.com/Pavithran-R-A/mergesutra](https://github.com/Pavithran-R-A/mergesutra)
 · **Report a problem:** [issue tracker](https://github.com/Pavithran-R-A/mergesutra/issues)
 
-> **Release status: v0.1.0 release candidate.** The deterministic source gates,
-> package-boundary gates and packed-artifact install test run on GitHub-hosted
-> Ubuntu, Windows and macOS with Node 22 and Node 24 (six CI cells). The shipped command surface is
+> **What works today (v0.1.0 release candidate).** The shipped command surface is
 > `doctor`, `issue`, `inspect`, `contract`, `plan`, `implement`,
 > `verify`, `report`, `review`, `repair`, `pr`, `status` and
-> `resume`. The unattended `run` command remains deliberately planned rather
-> than pretending that consent and approval can be skipped.
+> `resume`. The chain runs end to end against a real repository. The unattended
+> `run` command remains deliberately planned rather than pretending that consent
+> and approval can be skipped.
 >
-> **Important boundary:** `mergesutra pr` prepares a reviewable pull-request
-> page and records a digest-bound human approval locally; this build still does
-> not run `git commit`, push a branch or open the GitHub pull request for you.
-> A worktree is isolation for clarity, not an operating-system sandbox.
+> **The publication boundary is explicit.** `mergesutra pr <run>` assembles the
+> pull-request page, prints it in full and names the 64-hex digest that approves
+> it. `--approve <digest>` records a human yes in the run; only a second, separate
+> `--publish` asks GitHub for a **draft** pull request through the operator's own
+> `gh` login. It creates a branch that must not already exist, never force-pushes,
+> never merges, and refuses if a byte moved after the approval.
 >
-> **Live-model status (11 October 2026):** the controlled real BharatCode/Qwen
+> **Where repository commands run.** The model only proposes actions. MergeSutra
+> executes a run's commands in a digest-pinned Linux container with
+> `--network=none`, a read-only root, a non-root user, and memory and CPU caps;
+> writes stay inside the run's own worktree. The container is the execution
+> boundary. The worktree is the change boundary, not an OS sandbox on its own.
+>
+> **Live-model evidence (historical).** The controlled real BharatCode/Qwen
 > [run #38144174041](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38144174041)
-> completed successfully on the exact current main commit
-> `b1c18bfaf299dfae6316b70e17647a6bde48caee`, after the
-> [earlier failed run #38040856632](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38040856632).
-> The new run used `qwen-3.8-27b` and completed 9 of 12 budgeted model
-> requests. The independent fixture checks passed required outputs, required
-> new assertions, preservation of original assertions, dependency policy and
-> changed-file scope; review recorded no findings. The live job also ran
-> 2,368 passing deterministic tests (6 skipped).
-> **This proves one bounded fixture task, not general customer reliability.**
-> The actual PR was neither approved nor published: the report explicitly says
-> `NOT_READY_FOR_PUBLICATION`. Ten representative real tasks, OS-level isolation
-> for untrusted repository execution, a real recorded demo, authenticated
-> npm first publication and matching release are still open.
+> (11 October 2026) succeeded on commit
+> `b1c18bfaf299dfae6316b70e17647a6bde48caee` with `qwen-3.8-27b`: 9 of 12
+> budgeted model requests, the independent fixture checks passed, review recorded
+> no findings, and the live job ran 2,368 passing tests (6 skipped) before the
+> chain. That commit predates the current tree; the run proves one bounded
+> fixture task, not general customer reliability, and its PR was neither approved
+> nor published (`NOT_READY_FOR_PUBLICATION`). Real-model latency under the
+> current 290-second per-request cap is unproven.
+>
+> **Demonstration.** [`scripts/demo-scripted-journey.mjs`](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/scripts/demo-scripted-journey.mjs)
+> drives the production CLI through
+> [fixture issue #1](https://github.com/Pavithran-R-A/mergesutra-e2e-fixture/issues/1)
+> — a small, checkable change in a public customer repository — through contract →
+> plan → implement → consent → verify → independent acceptance evidence → review →
+> digest-bound approval → publication capability. The model turns come from a
+> deterministic local gateway, so it is labelled **Scripted-model demonstration**:
+> it proves the workflow, not model quality or BharatCode latency. A completed run
+> (`run-20261021T115401Z-ea10b8`, 21 October 2026, source `eba29b7`) passed both
+> gates, the independent oracle passed all five criteria, review recorded zero
+> findings, and a digest-bound approval was filed without publishing. An
+> 88-second transcript-cut video accompanies the submission; it is selected
+> verbatim stdout, not a screen recording. See [docs/DEMO.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DEMO.md) for
+> that run's facts, the reproducible procedure, and the earlier full-repository
+> attempt that honestly failed.
 >
 > See the [Roadmap](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md)
 > and [real-model E2E procedure](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/REAL_MODEL_E2E_PROCEDURE.md)
@@ -59,15 +77,7 @@ becomes a PR."*
 MergeSutra requires **Node.js 22 or newer** and Git. GitHub issue intake also
 requires the GitHub CLI (`gh`) signed in.
 
-Once v0.1.0 is present on the npm registry:
-
-```bash
-npm install --global mergesutra
-mergesutra --version
-mergesutra doctor
-```
-
-Until registry publication is complete, run the exact same CLI from source:
+The npm package is not published; run the exact CLI from source:
 
 ```bash
 git clone https://github.com/Pavithran-R-A/mergesutra.git
@@ -77,6 +87,8 @@ npm run build
 node dist/bin.js --version
 node dist/bin.js doctor
 ```
+
+The jump-to-workflow version is [Quick start](#quick-start).
 
 BharatCode-backed stages need the **current user's own** `BHARATCODE_API_KEY`
 and `BHARATCODE_MODEL`; no developer key is shared with CLI users or shipped
@@ -101,8 +113,9 @@ evidence chain the product:
 - **Truthful gates** — `PASS` only if something really ran and succeeded;
   otherwise `FAIL` / `SKIPPED` / `NOT_AVAILABLE` / `BLOCKED` / `INCONCLUSIVE`.
 - **Safety harness above the model** — confined writes, a risk-classified tool
-  policy, central redaction, a worktree per run (isolation for clarity, **not a
-  sandbox**), and **human approval before any remote action**.
+  policy, central redaction, a worktree per run, every repository command inside
+  a digest-pinned, network-disabled container, and **human approval before any
+  remote action**.
   `mergesutra implement` is the loop that uses them: the
   model picks one action per turn from a closed list, and MergeSutra decides
   whether it runs at all. `mergesutra verify` then judges the result by exit
@@ -124,51 +137,51 @@ evidence chain the product:
 Full positioning and competitor notes: [docs/COMPETITIVE_ANALYSIS.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/COMPETITIVE_ANALYSIS.md),
 [docs/ACCEPTANCE_CONTRACT.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ACCEPTANCE_CONTRACT.md).
 
-## 60-second demo *(target experience — not yet runnable)*
+## Demonstration
 
-*(Steps 6 and 7 of that list are real today as `mergesutra verify`, step 8's
-packaging is real as `mergesutra report`, and the second pair of eyes the roadmap
-puts between them is real as `mergesutra review`; step 9's repair is real as
-`mergesutra repair`, under a digest-bound yes. The captures below in "Stage 7:
-the same run, verified", "Stage 8: the same run, written down", "Stage 9: the
-same patch, read a second time" and "Stage 9R: the same plan, carried out and
-measured again" are their output. Step 10's approval is real too, as
-`mergesutra pr`, and the capture under "Stage 10" is its output — what that
-command approves is a page, never a publication. The one-shot `issue` driver that
-runs all eight steps unattended is not, and neither is the PR at the end of the
-list, which is why this section is a target and the sections after it
-are output. The `CONTRIBUTION_READY` line below is part of that mock of a later
-build: no stage of this product emits that word.)*
+The demonstration drives the **production CLI** — not a replay — through the whole
+chain against [fixture issue #1](https://github.com/Pavithran-R-A/mergesutra-e2e-fixture/issues/1)
+in a real clone of the public customer repository: issue intake → inspect →
+acceptance contract → plan → bounded implementation → consent-gated verification →
+independent acceptance evidence → review → digest-bound approval → publication
+capability. Every screen is the product's own stdout; the patch, gate receipt and
+run record are the bytes the product wrote. The harness asserts on those screens
+and records, so it fails rather than illustrating a step that did not happen.
 
-```text
-$ mergesutra issue https://github.com/example/project/issues/123
+The fixture is deliberate. An earlier attempt drove this repository's own issue #8
+instead; its workload is this repository's full 17-gate plan, and inside the
+product's 512 MB, one-CPU sandbox several gates timed out or aborted. That run
+ended `VERIFICATION_FAIL` and its evidence is preserved rather than presented as a
+pass. The fixture's whole gate is `npm test`, so the same workflow finishes in
+minutes and every step is observable.
 
-MergeSutra — Issue in. Evidence-backed PR out.
-Repository  example/project
-Issue       #123 Reject empty date input
+The model turns come from a deterministic local gateway, so the recording is
+labelled **Scripted-model demonstration**: it proves the workflow, the consent
+boundaries and the evidence chain, not model quality or BharatCode latency. The
+real-model path has its own recorded evidence; see "Live-model evidence" above.
 
-[1/8] Repository discovery      PASS
-[2/8] Policy discovery          PASS
-[3/8] Acceptance Contract       4 criteria
-[4/8] Implementation plan       READY
-[5/8] Isolated patch            COMPLETE
-[6/8] Repository verification   PASS
-[7/8] Evidence mapping          4/4 VERIFIED
-[8/8] Human approval            WAITING
+A completed run on 21 October 2026 (`run-20261021T115401Z-ea10b8`, source
+`eba29b7`, fixture base `6f3a0adb`) passed `VG-001 npm test` and
+`VG-002 git diff --check`, the independent oracle passed all five issue criteria,
+review recorded zero findings, and the approval was bound to
+`46e27c326c4b9d5f015e8b0de015c03944516e1e46fccaff025a20fee067163e` without
+`--publish`. The 88-second video is a **transcript cut**: the literal stdout lines
+selected and reflowed, with a persistent SCRIPTED banner, not a screen recording.
+[docs/DEMO.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DEMO.md) records the facts and the generation method.
 
-Verification
-PASS unit tests   418 passed
-PASS typecheck    PASS lint    PASS build
-PASS secret scan  PASS scope guard
+- Harness: [scripts/demo-scripted-journey.mjs](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/scripts/demo-scripted-journey.mjs)
+- Procedure, capture map and recording notes: [docs/DEMO.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DEMO.md)
+- Evidence written by a run: `summary.json`, `transcript.txt`, `PROCEDURE.md` and
+  one log per command under the `--out` directory, kept outside the repository
 
-Acceptance Contract
-AC-1 PASS  Empty input rejected.   Evidence: parser.test.ts…
-AC-2 PASS  Valid ISO input unchanged. Evidence: existing date suite…
-AC-3 PASS  Error contract preserved. Evidence: …
-AC-4 PASS  No unrelated files changed. Evidence: diff scope analysis
-
-Final state: CONTRIBUTION_READY   →  mergesutra report   |   mergesutra pr
+```bash
+# Node >= 22, Git, and Docker with the pinned image already pulled
+node scripts/demo-scripted-journey.mjs --out /tmp/mergesutra-demo
 ```
+
+A run never executes `pr --publish`, so the demonstration shows the approval and
+the exact publication capability without opening a remote pull request. The one
+remote act available to an operator is described under "Try it now".
 
 ## Try it now
 
@@ -225,11 +238,15 @@ than a model. It needs a run whose verification, review and evidence pack all
 describe the patch currently on disk; if any of them has drifted it names the
 stage that owes the update and exits `4` rather than re-running anything to make
 its own screen greener. Given a digest typed back against the page it printed, it
-files that approval in the run record and still reports `published: false`, no
-pull-request address, and no remote touched — because this build has no
-publication transport, which is the point of the exercise: approval and
-capability are separate facts, and a test suite proves both halves. It needs no
-`BHARATCODE_API_KEY`, and it has no exit `0`.
+files that approval in the run record and still reports `published: false` and no
+pull-request address, because a yes is a decision, not an act. Sending the
+approved page is a second, explicit `--publish`: only then does the command
+construct the GitHub transport, which creates a commit through the Git Data API on
+the recorded base SHA and opens a **draft** pull request through the operator's
+own `gh` login. It refuses if the workspace bytes moved after the approval, cannot
+force-push, cannot update an existing branch and cannot merge. `pr` itself needs no
+`BHARATCODE_API_KEY`; `--publish` needs a GitHub login in `gh`. Approval alone has
+no exit `0`; a draft that GitHub actually opened is `PR_DRAFT_OPENED`, exit `0`.
 
 `repair` is the one command here that changes a repository because a person asked
 it to, so it has two halves and they need different things. Without
@@ -1095,7 +1112,7 @@ What that screen is and is not:
   action, and this brief — which Stage 12 closed with one shared corpus run against every
   page (`docs/SECURITY_MODEL.md` §2.7).
 
-### Stage 10: the page a person approves, and that goes nowhere
+### Stage 10: the page a person approves, and the separate act that sends it
 
 `mergesutra pr <run-id>` is the first command whose subject is a human decision
 rather than a measurement. It assembles the pull request body out of what the run
@@ -1103,9 +1120,9 @@ already recorded — no model is asked anything, no gate is re-run, no earlier
 verdict is re-read — prints that body in full, and asks for one thing: the 64-hex
 digest of the page, typed back after reading it. There is no `--yes`, no
 `--force`, no `--approve-all` and no variable that stands in for the digest, and
-even the digest typed correctly performs no action, because this build has no
-publication remote to act through. Approval and publication are separated by
-construction here, not by a flag someone forgot to pass.
+even the digest typed correctly performs no remote action: sending the page needs
+the separate `--publish`, which the capture below does not pass. Approval and
+publication are separated by construction, not by a flag someone forgot to pass.
 
 The capture is one real run of `tests/pr/hero.test.ts`: the same fixture
 repository that produced the Stage 9 and 9R captures, repaired through Stage 9R's
@@ -1236,22 +1253,23 @@ What those screens are and are not:
   PR that exists, and the boundary line is last on both, including on the screen
   where the news is good, because a caveat that only appears when something went
   wrong is a caveat readers learn to skip.
-- **Nothing left this machine, and that is measured.** The hero test reads the
-  patch identity, `git remote -v` and every ref with its object before the first
-  `pr` and after the last: same digests, same remotes (none), same refs. A build
-  with no transport cannot push; what the test proves is that no accidental
-  `git commit`, no stray ref and no re-labelled state slipped in either, on the
-  path where a person has just said yes.
-- **Exit codes:** `PR_CANDIDATE_RECORDED` and `PR_APPROVED_LOCAL` exit `3`,
-  `PR_PUBLICATION_BLOCKED` exits `4`. There is no exit `0` in Stage 10 — the
-  highest a publication-less build can honestly claim is "a human agreed, and
-  nothing happened".
-- **Known gaps:** the approval authorises a `CREATE_PULL_REQUEST` action this
-  build has no hands for, and what it names is an uncommitted patch — Stage 5's
-  worktree is on a real branch, but no stage of this product has ever run `git
-  commit`, so committing and pushing belong to whoever wires a publisher later,
-  not to a stage that says it does neither. Re-rendering the evidence pack changes
-  the page's identity and expires an approval exactly as editing the patch does.
+- **On this path nothing left this machine, and that is measured.** The hero test
+  reads the patch identity, `git remote -v` and every ref with its object before
+  the first `pr` and after the last: same digests, same remotes (none), same refs.
+  What it proves is that no accidental `git commit`, no stray ref and no
+  re-labelled state slipped in, on the path where a person has just said yes and
+  did not type `--publish`.
+- **Exit codes:** `PR_CANDIDATE_RECORDED` and `PR_APPROVED_LOCAL` exit `3`, and
+  `PR_PUBLICATION_BLOCKED` exits `4`. A bare `pr` has no exit `0`: the highest it
+  can honestly claim is "a human agreed, and nothing was sent". `--publish`, after
+  that approval, can reach `PR_DRAFT_OPENED` and exit `0` when GitHub answers with
+  a draft.
+- **Known gap:** the approval names an uncommitted patch — Stage 5's worktree is on
+  a real branch, but no local stage runs `git commit`. `--publish` therefore
+  creates the commit through GitHub's Git Data API on the recorded base SHA rather
+  than from the local worktree; a failed publication leaves the patch uncommitted
+  where it was. Re-rendering the evidence pack changes the page's identity and
+  expires an approval exactly as editing the patch does.
   See [docs/DECISIONS.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DECISIONS.md).
 
 ### Stage 11: what is true now, and the one word that acts on it
@@ -1410,8 +1428,8 @@ NOTHING WAS RUN.
 ```
 
 Exit `4`. No gate started, no record written, no state moved — the test reads all three
-back after the refusal. A resume that could sign a page could publish one, and this build
-has no hands for either.
+back after the refusal. `resume` cannot publish: it never constructs the publication
+transport, and publication is a separate `--publish` act on `pr` after a typed approval.
 
 **Two services, one run.** `tests/lifecycle/lock-hero.test.ts` is the same shape against a
 lock: process 4141 holds the run, process 4242 asks to resume it, and is refused — then the
@@ -1480,28 +1498,45 @@ What those screens are and are not:
   rather than one signed artefact. See [docs/DECISIONS.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DECISIONS.md) ADR-056
   through ADR-058, and ADR-061 for the row that closed the disclosure half.
 
-## Installation *(planned)*
+## Installation
 
-Today MergeSutra is run from a checkout. A published npm package comes at
-[Stage 15](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md); publication requires explicit human approval.
+MergeSutra runs from a checkout today; no npm package is published. The installed
+shape of the CLI is exercised by `npm run test:artifact` against the packed
+tarball, and publication to a registry remains a separate, human-authorised step.
 
-## Quick start *(target)*
+## Quick start
 
 ```bash
-mergesutra issue https://github.com/owner/repo/issues/123   # hero workflow
-mergesutra issue <url> --dry-run                            # read-only analysis
-mergesutra status | resume | pr                             # recovery + output
+git clone https://github.com/Pavithran-R-A/mergesutra && cd mergesutra
+npm ci && npm run build
+
+# 1. Read an issue into a run record.
+node dist/bin.js issue https://github.com/<owner>/<repo>/issues/<n> --repo /path/to/clone
+
+# 2. The next stage always names the run id it produced.
+node dist/bin.js inspect /path/to/clone
+node dist/bin.js contract <run-id>
+node dist/bin.js plan <run-id>          # needs BHARATCODE_API_KEY
+
+# 3. Bounded implementation, then verification by consent.
+node dist/bin.js implement <run-id> --max-steps 8
+node dist/bin.js verify <run-id> --repo /path/to/clone              # prints the gates; runs none
+node dist/bin.js verify <run-id> --repo /path/to/clone --allow VG-001 ...
+
+# 4. Second reading, evidence pack, and the page a human approves.
+node dist/bin.js review <run-id>
+node dist/bin.js report <run-id>
+node dist/bin.js pr <run-id>             # prints the page and its 64-hex digest
+node dist/bin.js pr <run-id> --approve <digest>
+# only after reading the page and deciding to publish:
+node dist/bin.js pr <run-id> --publish   # draft PR through gh; never merges
 ```
 
-`report` is missing from that list because it already works; see "Try it now".
-
-Global flags: `--dry-run`, `--verbose`, `--json`, `--no-color` (also honours
-`NO_COLOR`), `--yes`. *(Kept as written from the original spec. What ships is
-`--json` and `--no-color`, plus `--version` and `--help`; `--dry-run` and
-`--verbose` are still unimplemented, and `--yes` is now ruled out rather than
-merely missing — Stage 10's approval is a digest typed after reading a page, so a
+Global flags: `--json`, `--no-color` (also honours `NO_COLOR`), `--version`,
+`--help`. There is no `--yes`, `--dry-run` or `--verbose`: `--yes` is ruled out
+rather than merely missing — approval is a digest typed after reading a page, so a
 flag that agrees in advance to a document nobody has shown you would undo the
-thing that flag's absence is for. Stage 15 owns this list.)*
+thing the flag's absence is for.
 
 ## Command surface
 
@@ -1518,7 +1553,7 @@ thing that flag's absence is for. Stage 15 owns this list.)*
 | `report` | Render a run's evidence pack — `report.md`, `report.json`, `commands.jsonl` — from its record, deciding nothing and exiting with the outcome already recorded | Ready |
 | `review` | A second reader for the exact patch a run left: a model files findings, MergeSutra dispositions them, and the workspace comes back byte-identical | Ready |
 | `repair` | Carry out a frozen plan, and only under `--approve-plan <digest>`: one bounded cycle through `implement`'s own loop, then the gates run again over the bytes that exist now | Ready |
-| `pr` | Assemble the pull request a run's evidence supports, print the page in full, and accept one yes bound to its digest — opening nothing, pushing nothing, deciding nothing about whether the code is good | Ready |
+| `pr` | Assemble the pull request a run's evidence supports, print the page in full, and accept one yes bound to its digest; a separate `--publish` asks GitHub for a **draft** PR through `gh` — never a merge, never a force-push, deciding nothing about whether the code is good | Ready |
 | `status` | Read a run and its workspace without changing either: what is here now, whether each recorded document still describes those bytes, and which commands would be true to run next | Ready |
 | `resume` | Continue a stopped run — a plan and its costs first, and the stage it names only when `--execute` is typed. Holds no consent, no approval, no remote permission; no reset, no clean, no stash | Ready |
 | `issue`     | Intake: read an issue, pin the repository + base commit into a run record | **Partial — intake only** |
@@ -1527,10 +1562,10 @@ thing that flag's absence is for. Stage 15 owns this list.)*
 
 A planned command reports honestly and exits non-zero — it never fakes success.
 `mergesutra run` — the unattended pipeline from issue to PR — is still planned,
-and stays planned: `pr` records a human's approval and has no publication
-transport to act on it, `repair` runs only when a human
-has typed a yes for one plan's digest, and `resume` deliberately cannot be the
-thing that closes that gap, because the whole reason it exists is that a
+and stays planned: reaching a draft PR requires the typed digest approval, the
+separate `--publish`, and a run whose evidence is current, `repair` runs only when
+a human has typed a yes for one plan's digest, and `resume` deliberately cannot be
+the thing that closes that gap, because the whole reason it exists is that a
 pipeline which decides for itself when to keep going is what produced the run it
 would have to recover.
 
@@ -1554,7 +1589,7 @@ A script or editor can tell these apart without parsing prose:
 
 | Code | Meaning                                                                     |
 | ---- | --------------------------------------------------------------------------- |
-| `0`  | Did what it claimed (`doctor` ready; `inspect` reached `INSPECT_COMPLETE`; `contract` reached `CONTRACT_DERIVED`; `plan` reached `PLAN_COMPLETE`; `status` produced a snapshot — including of a run that is blocked, stale or failed, because the number says the observation happened and the document says what was observed; `resume` printed a plan without running it; `verify` reached `VERIFICATION_PASS`) |
+| `0`  | Did what it claimed (`doctor` ready; `inspect` reached `INSPECT_COMPLETE`; `contract` reached `CONTRACT_DERIVED`; `plan` reached `PLAN_COMPLETE`; `status` produced a snapshot — including of a run that is blocked, stale or failed, because the number says the observation happened and the document says what was observed; `resume` printed a plan without running it; `verify` reached `VERIFICATION_PASS`; `pr --publish` reached `PR_DRAFT_OPENED` because GitHub answered with a draft) |
 | `1`  | Failed for a stated reason (bad input, unusable configuration, nothing to plan or implement against) |
 | `2`  | Command is planned, not implemented — nothing was done                        |
 | `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`, `contract`, `plan`), an implementation run that changed files without proving anything (`IMPLEMENTED_BY_MODEL`, `IMPLEMENTATION_INCONCLUSIVE`, `IMPLEMENTATION_NEEDS_REVIEW`), a review that was filed but settled nothing (`REVIEW_RECORDED`, `REVIEW_NEEDS_HUMAN`, `REVIEW_INCONCLUSIVE`), a repair cycle that ran and re-verified without earning a word like "good" (`REPAIR_APPLIED`, `REPAIR_NEEDS_HUMAN`), a publication page that was proposed — or approved — without anything being sent (`PR_CANDIDATE_RECORDED`, `PR_APPROVED_LOCAL`), or a `resume` that stopped where a person's decision is outstanding (`AWAIT_HUMAN`) |
@@ -1572,13 +1607,15 @@ again". `REPAIR_APPLIED` is the outcome where Stage 7's re-run really passed, an
 it still exits `3` — the command reports the receipt, it does not convert it into
 a verdict — while `REPAIR_NEEDS_HUMAN` covers a cycle whose gates did not, and
 exits `3` beside it. A script therefore cannot read a repaired run as a successful
-one, whatever the patch looks like. `pr` has none either, and its reason is the
-simplest in the set: nothing this command can do has an outcome worth a `0`,
-because it has no transport. `PR_APPROVED_LOCAL` is the best case — a person read
-the page and said yes to exactly it — and it exits `3`, so no script can print a
-pull request into existence by checking a return code. It is also the only command
-of this product that never calls a model: showing a page and recording a yes ask
-nothing of BharatCode, so `pr` works with no `BHARATCODE_API_KEY` set.
+one, whatever the patch looks like. `pr` has no exit `0` without `--publish`, and
+that is the point: a page and a yes are decisions, not events.
+`PR_APPROVED_LOCAL` is the best case for a bare `pr` — a person read the page and
+said yes to exactly it — and it exits `3`, so no script can print a pull request
+into existence by checking a return code. Only `--publish`, after that approval,
+can reach `PR_DRAFT_OPENED` and exit `0`; a failed publication is
+`PR_PUBLICATION_BLOCKED`, exit `4`. `pr` is also the only command of this product
+that never calls a model: showing a page and recording a yes ask nothing of
+BharatCode, so `pr` works with no `BHARATCODE_API_KEY` set.
 
 `status` and `resume` part company on what a number means. `status` is the one
 command whose exit code is about *the command* rather than the run: it exits `0`
@@ -1598,11 +1635,11 @@ Repository content, issue text and model output are untrusted. The authority
 hierarchy, risk-classified tools, worktree isolation, confined writes, argv-only
 command execution, and central redaction are described in
 [docs/SECURITY_MODEL.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/SECURITY_MODEL.md). **Remote actions always
-require explicit human approval** — and in this build there is nothing on the
-other side of that approval to act: no command of MergeSutra's pushes, comments,
-opens or merges anything, Stage 10's digest-bound yes included. It records the
-decision and stops at the boundary, which is the only way a product that has no
-remote can promise a human is the one who decides.
+require explicit human approval.** `mergesutra pr --publish` is the only command
+that can act on a remote, and it requires a digest typed against a page the
+operator has just read; it creates a branch that must not already exist, opens a
+draft, never force-pushes and never merges. Every other command's strongest word
+about a remote is that it did not touch one.
 
 ## How BharatCode powers it
 
@@ -1861,7 +1898,7 @@ walk away.
 ## Limitations
 
 See [docs/PRODUCT_SPEC.md § Limitations](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/PRODUCT_SPEC.md) and the
-[roadmap](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md). In short: the full workflow is not implemented yet;
+[roadmap](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md). In short: the chain runs end to end as separate commands, but the unattended `run` pipeline is not implemented;
 CI discovery is a bounded line scan, so YAML anchors, aliases, merge keys and
 matrices are reported as *partial coverage* rather than expanded; dev-only
 toolchain advisories (vite/esbuild) are documented rather than force-upgraded
@@ -1880,9 +1917,9 @@ it is beyond any tool; a criterion whose requirement arrived as issue prose stay
 no consent named is recorded `NOT_EXECUTED` rather than quietly left off the
 list. Two specific gaps in Stage 6 are stated in the record itself: a
 `WRITE_FILE` is a whole file, so a model that rewrites one it never read clobbers
-it (the digest makes that visible, not impossible), and a worktree is isolation
-for clarity, **not a sandbox** — a permitted command can still do what the
-operating system allows. What `review` adds is a second reader, with its own
+it (the digest makes that visible, not impossible), and a worktree is the change
+boundary rather than an OS sandbox on its own — the execution boundary is the
+digest-pinned container every repository command runs in. What `review` adds is a second reader, with its own
 limits: a finding is a *claim about bytes*, so MergeSutra weighs it against the
 manifest it authored and drops one that cites nothing however well it reads; the
 disposition on a surviving finding says where the work is routed, not whether the
@@ -1901,20 +1938,26 @@ repair's guards cannot be tested by running them — the commands they refuse wo
 to be started to be refused — so they are tested against the source instead: every
 command a cycle can construct is enumerated and classified by the production risk
 oracle (`tests/repair/source-shape.test.ts`), and only `src/repair/stage.ts` is allowed
-to reach the loop at all (`tests/repair/boundaries.test.ts`). Neither `plan`,
-`implement`, `review` nor `repair` has been run against a live BharatCode endpoint from this
-machine (no key was set here); the samples above go through the same adapter
-against a local stub, and the real-Git behaviour around them is covered by tests
-that need no key. One opt-in test (`tests/review/live.test.ts`) will ask the real
+to reach the loop at all (`tests/repair/boundaries.test.ts`). The samples above
+were produced on this machine through the same adapter against a local scripted
+gateway, not a live endpoint. The live path has its own recorded run: the
+controlled hosted
+[run #38144174041](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38144174041)
+on 11 October 2026 exercised plan, implement and review against the real
+BharatCode `qwen-3.8-27b` endpoint on commit
+`b1c18bfaf299dfae6316b70e17647a6bde48caee`, with 9 of 12 budgeted model requests,
+no review findings and passing fixture checks. That is one bounded fixture task on
+an older commit — evidence that the path works, not a claim of general customer
+reliability; latency under the current 290-second cap is unproven. One opt-in test (`tests/review/live.test.ts`) will ask the real
 endpoint for one review — it stays skipped unless `MERGESUTRA_LIVE_BHARATCODE=1`,
 a key and a model id are all present together. Stage 9R deliberately adds no such
 live test of its own: a repair is the one path where a model gets a writer, and its
 proofs here are the deterministic ones. Stage 10 closes no gap and adds one to state:
-`pr` asks nothing of a model, so it brings no new live-endpoint exposure, and its
-limitation is the opposite of a claim — an approval authorises an action this build has
-no hands for, so the strongest word it has (`HUMAN_APPROVED_FOR_PR`) is about a
-person's decision and not about GitHub, and the patch it names is uncommitted, because
-no stage of this product has ever run `git commit`. Two further limits are structural
+`pr` asks nothing of a model, so a bare `pr` brings no new live-endpoint exposure, and
+its limitation is the opposite of a claim — `HUMAN_APPROVED_FOR_PR` is about a
+person's decision, not about GitHub, and the patch it names is uncommitted locally
+because no stage runs `git commit`; `--publish` creates the commit through GitHub's
+Git Data API on the recorded base instead. Two further limits are structural
 rather than unfinished: re-rendering the evidence pack expires an approval exactly as
 editing a byte does, with no re-approve shortcut, and the bans on `gh pr create` and
 `npm publish` rest on two layers now: the risk classifier names those binaries
@@ -1989,8 +2032,9 @@ what ran rather than what it thinks it fixed. [Stage
 10](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md)
 is done to its boundary: `mergesutra pr` assembles the pull request body out of the
 run's own records, prints the page with the digest that approves it, and files a
-person's yes as a local fact — with no publication transport behind it, deliberately,
-so nothing it approves can turn into an action by accident. [Stage
+person's yes as a local fact. Sending the approved page is the separate
+`--publish` act, which opens a draft PR through the operator's own `gh` login and
+never merges. [Stage
 11](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/ROADMAP.md#stage-11--resumerecovery--failure-ux--done)
 is done to its boundary too: `mergesutra status` reads a run and its workspace
 without touching either and says which recorded documents still describe the bytes
