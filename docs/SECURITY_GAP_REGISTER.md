@@ -1020,8 +1020,9 @@ it wraps. The only control-character filter in `src/` is `src/github/schemas.ts:
 `sanitizeInline` (`[\u0000-\u001f\u007f]`, applied at `:126`) and it covers GitHub titles
 only; no bidi (U+202E, U+2066-2069) coverage anywhere. Untrusted text printed raw:
 `src/cli/status.ts:98,135,145` (workspace detail, lifecycle reason, blockers),
-`src/cli/issue.ts:52`, error path `src/cli/program.ts:507` (redacts secrets, not control
-chars). The recurring `replace(/[\r\n]+/g,' ')` helpers (`writer.ts:273`, `reader.ts:299`,
+`src/cli/issue.ts:52`, error path `src/cli/program.ts:507` as found (now `:519`, where it
+runs both masks — see the closure below); it redacted secrets, not control chars. The
+recurring `replace(/[\r\n]+/g,' ')` helpers (`writer.ts:273`, `reader.ts:299`,
 `observe.ts:352`, `git/workspace.ts:282`, `review/engine.ts:291`) remove only CR/LF.
 
 **Missing.** One terminal-safe rendering function used by every screen, and proof that JSON
