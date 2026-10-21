@@ -17,6 +17,7 @@ import { resolveRepairLimits, REPAIR_DEFAULT_LIMITS } from '../../src/repair/lim
 import { Redactor, REDACTED_MASK } from '../../src/security/redaction.js';
 import { fakeFetch, TEST_KEY } from '../helpers/fetch.js';
 import { ok, scriptedRunner, TEST_REPO } from '../helpers/github.js';
+import { sseFetch } from '../helpers/sse.js';
 import { PACK_RUN_ID, recordAt } from '../helpers/report.js';
 import { issuePayload } from '../fixtures/github-payloads.js';
 import { code, reachFrom, SRC } from '../helpers/sourceShape.js';
@@ -32,10 +33,11 @@ import { code, reachFrom, SRC } from '../helpers/sourceShape.js';
  * own *data* property rather than invoking the setter: every document the product parses
  * arrives with its prototype intact and its hostile key sitting in `Object.keys()`, where
  * `.strip()` drops it, `.passthrough()` drops it too, and `.strict()` refuses the document for
- * it. That is measured at each of the ten byte-to-object edges in the build — the adapter's
- * three parse sites, the model list, the run store, the lock, `gh`'s two readers, the manifest
- * scanner, the pack reader — each one driven from real bytes at the real edge, plus the one
- * consumer (`repair/limits.ts`) that takes an already-parsed document rather than bytes.
+ * it. That is measured at each byte-to-object edge in the build — the adapter's buffered
+ * `/responses` document, the event data inside a stream, its three structured-output recovery
+ * branches, the model list, the run store, the lock, `gh`'s two readers, the manifest scanner,
+ * the pack reader — each one driven from real bytes at the real edge, plus the one consumer
+ * (`repair/limits.ts`) that takes an already-parsed document rather than bytes.
  *
  * **What the marker assertions can see.** Two canary cases build the two gadgets this property
  * is about: a recursive merge that walks *through* an inherited key, which really does pollute
@@ -312,14 +314,17 @@ describe('every edge that turns bytes into an object', () => {
   });
 
   it('carries the same document through the adapter without letting it reach a result', async () => {
-    // `client.ts:276` is the one place the product parses the JSON of a response body.
+    // The buffered `/responses` route: the provider documents both a stream and a whole object.
     const { fetch } = fakeFetch([
       {
         ok: true,
         status: 200,
         raw: withHidden(
-          { choices: [{ message: { role: 'assistant', content: 'real' } }] },
-          { model: 'evil-model' },
+          {
+            status: 'completed',
+            output: [{ type: 'message', content: [{ type: 'output_text', text: 'real' }] }],
+          },
+          { model: 'evil-model', usage: { input_tokens: 999_999, output_tokens: 999_999 } },
         ),
       },
     ]);
@@ -329,6 +334,30 @@ describe('every edge that turns bytes into an object', () => {
 
     expect(result.text).toBe('real');
     expect(result.model).toBe('bc-large');
+    expect(result.usage).toBeUndefined();
+    expectHeld(result);
+  });
+
+  it('ignores what a stream event hid behind the prototype', async () => {
+    // `responses.ts` parses each event's `data`, so that is the stream's byte-to-object edge.
+    const data =
+      '{"type":"response.completed","response":' +
+      withHidden(
+        {
+          status: 'completed',
+          output: [{ type: 'message', content: [{ type: 'output_text', text: 'real' }] }],
+        },
+        { model: 'evil-model', usage: { input_tokens: 999_999, output_tokens: 999_999 } },
+      ) +
+      '}';
+    const { fetch } = sseFetch(`event: response.completed\ndata: ${data}\n\n`);
+    const client = createBharatCodeClient({ config: clientConfig(), fetch });
+
+    const result = await client.complete({ messages: [{ role: 'user', content: 'go' }] });
+
+    expect(result.text).toBe('real');
+    expect(result.model).toBe('bc-large');
+    expect(result.usage).toBeUndefined();
     expectHeld(result);
   });
 
@@ -341,8 +370,8 @@ describe('every edge that turns bytes into an object', () => {
           ok: true,
           status: 200,
           raw: JSON.stringify({
-            choices: [{ message: { role: 'assistant', content } }],
-            model: 'bc-large',
+            status: 'completed',
+            output: [{ type: 'message', content: [{ type: 'output_text', text: content }] }],
           }),
         },
       ]);
@@ -621,6 +650,17 @@ describe('source shape, so a new site cannot arrive unmeasured', () => {
     'report/write.ts': ['files[name]', 'files[name]'],
   };
 
+  /**
+   * Every `Object.assign` in the build, by file. Both copy a literal the source wrote:
+   * `cli/implement.ts` closes its computed key to a union of the three budget flags, and
+   * `bharatcode/client.ts` sets the one `name` of a fresh Error. A site that copied keys
+   * from a parsed document instead is reported, not absorbed.
+   */
+  const ASSIGN_SITES: Record<string, number> = {
+    'bharatcode/client.ts': 1,
+    'cli/implement.ts': 1,
+  };
+
   async function allSources(): Promise<Map<string, string>> {
     const files: string[] = [];
     const walk = async (dir: string): Promise<void> => {
@@ -686,16 +726,18 @@ const [first] = list;`).matchAll(WRITE),
     ).toEqual({ 'x.out': 1 });
   });
 
-  it('assigns through Object.assign once, with keys the source closes', async () => {
+  it('assigns through Object.assign only where the source closes every key', async () => {
     const sources = await allSources();
     const sites = [...sources].flatMap(([file, text]) =>
-      Array.from(code(text).matchAll(/Object\.assign\(/g), () => file),
+      Array.from(code(text).matchAll(/Object\.assign\(/g), () => ({ file })),
     );
 
-    expect(sites).toEqual(['cli/implement.ts']);
-    const body = code(sources.get('cli/implement.ts') ?? '');
-    expect(body).toMatch(/key: '[\w']+' \| '[\w']+' \| '[\w']+'/);
-    expect(body).toMatch(/Object\.assign\(into, \{ \[key\]: value \}\)/);
+    expect(count(sites)).toEqual(ASSIGN_SITES);
+    const implement = code(sources.get('cli/implement.ts') ?? '');
+    expect(implement).toMatch(/key: '[\w']+' \| '[\w']+' \| '[\w']+'/);
+    expect(implement).toMatch(/Object\.assign\(into, \{ \[key\]: value \}\)/);
+    const client = code(sources.get('bharatcode/client.ts') ?? '');
+    expect(client).toMatch(/Object\.assign\(new Error\('[^']*'\), \{ name: 'AbortError' \}\)/);
   });
 
   it('builds every versioned record schema from local field constants, not from payloads', async () => {

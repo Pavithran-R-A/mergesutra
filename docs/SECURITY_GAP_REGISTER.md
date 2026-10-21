@@ -1510,17 +1510,18 @@ copier that ran on the result.
   `Object.prototype` setter is never invoked: the object arrives with its prototype intact and the
   hostile key sitting in `Object.keys()`, where `.strip()` drops it, `.passthrough()` drops it too
   and `.strict()` refuses the document for it (`unrecognized_keys: ['__proto__']`, measured). The
-  ten byte-to-object edges — `parseCompletion`, the adapter's body read (`client.ts:276`),
-  `completeStructured`'s three accepted shapes, the model list, `createFileRunStore().load()` and
+  byte-to-object edges — the adapter's buffered `/responses` object and the `data` of each stream
+  event, `completeStructured`'s three accepted shapes, the model list, `createFileRunStore().load()` and
   `.list()`, `readRunLock`'s `owner.json`, `GhCliGitHubSource.issue()` and `.repository()`,
   `detectManifests`, `readPackFacts` — were each driven from real bytes at that edge, not from a
   hand-built object, and none re-targeted a prototype or read a hidden field. `repair/limits.ts`,
   the one consumer that takes an already-parsed document, keeps its defaults against a hidden
   `maxSteps: 999`.
 - **The entry's "the one `.passthrough()` in the build" is false, and §19 says correct it.** There
-  are eight `.passthrough()` calls across three files — `bharatcode/schemas.ts` (1),
-  `github/schemas.ts` (5), `report/write.ts` (2) — pinned by a case that counts them in the import
-  closure so a ninth cannot arrive unmeasured. None is a hole for this purpose: `.passthrough()`
+  are twelve `.passthrough()` calls across four files — `bharatcode/schemas.ts` (1),
+  `github/schemas.ts` (5), `pr/github-publisher.ts` (4), `report/write.ts` (2) — pinned by a case
+  that counts them in the import closure so a thirteenth cannot arrive unmeasured. None is a hole
+  for this purpose: `.passthrough()`
   also drops `__proto__`. What it does keep is `constructor` as an own data key, which
   `JSON.stringify` re-emits — inert, because a JSON document's `constructor` key is a property, not
   a path, and reading it back yields the same data property.
