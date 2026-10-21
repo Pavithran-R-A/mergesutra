@@ -787,8 +787,20 @@ MergeSutra's own verdict rows.
   cannot become a row boundary, which is where the visible difference between a caveat and a
   verdict lives. `createRenderer` escapes each value before it adds its own colour
   (`src/cli/render.ts:53`), and the error path runs redaction and then terminal safety on the
-  way out (`src/cli/program.ts:513`). The order is fixed: untrusted value → secret redaction →
+  way out (`src/cli/program.ts:519`). The order is fixed: untrusted value → secret redaction →
   terminal safety → trusted renderer styling → terminal.
+- **One value is deliberately run through redaction twice: a transport's own message.**
+  `src/bharatcode/client.ts` reports a socket's failure as *redact → encode → bound → redact*,
+  because the two orders catch different secrets and neither one contains the other. The
+  encoder rewrites exactly the code points the redactor's generic rule reads as structure, so
+  a value encoded first cannot be found: `api_key\r\n= <secret>` becomes
+  `api_key\u000d\u000a= <secret>`, whose separator matches no rule, and the credential travels
+  whole. And the value class stops at whitespace, so a secret that runs past a raw U+2028
+  masks only its first half in source form — the encoder turns that break into six ASCII
+  characters the class does not stop at, so only a second look afterwards sees one value.
+  This is not the §22 order reversed and not a second sink: the boundary at `program.ts:519`
+  still redacts and then encodes whatever arrives, and re-escaping this string cannot change
+  it, because what the encoder emits holds no code point the encoder forges.
 - **`--json` is inert and still parses.** Eleven `--json` sinks call `terminalSafeJson()`;
   `report --json` prints a document that was already serialized, so it calls
   `terminalSafeJsonText()` (`:140`), which escapes only what `JSON.stringify` left raw. `JSON`

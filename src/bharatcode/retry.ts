@@ -1,4 +1,4 @@
-import { AppError } from '../core/errors.js';
+import { AppError, isAppError, retryFacts } from '../core/errors.js';
 import type { RetryConfig, Sleeper } from './types.js';
 
 /**
@@ -55,9 +55,13 @@ export async function runWithRetry<T>(
   const random = options.random ?? defaultRandom;
   const classify: NonNullable<RunWithRetryOptions['isRetryable']> =
     options.isRetryable ??
-    ((error: unknown): { retry: boolean; retryAfterMs?: number } => ({
-      retry: error instanceof AppError && error.retryable,
-    }));
+    ((error: unknown): { retry: boolean; retryAfterMs?: number } => {
+      // `retryFacts`, not a direct read: identity was established by `isAppError`, but the
+      // flag itself can still be refused, and that refusal would escape from here.
+      if (!isAppError(error)) return { retry: false };
+      const facts = retryFacts(error);
+      return { retry: facts.retryable, retryAfterMs: facts.retryAfterMs };
+    });
 
   let attempt = 0;
   // maxRetries counts *additional* attempts, so total attempts = maxRetries + 1.
@@ -66,16 +70,31 @@ export async function runWithRetry<T>(
     try {
       return await fn(attempt, signal);
     } catch (error) {
-      const { retry, retryAfterMs } = classify(error);
-      const appErr =
-        error instanceof AppError
-          ? error
-          : new AppError({
-              kind: 'network',
-              message: 'BharatCode request failed',
-              retryable: retry,
-              cause: error,
-            });
+      // Every read a decision needs can refuse: the classifier is caller-supplied, its
+      // result is somebody else's object too, and a refusal thrown from here would replace
+      // the attempt's failure with the trap's message. A decision this side cannot read is
+      // answered "do not retry", which is the direction that cannot spend on a guess.
+      let retry = false;
+      let retryAfterMs: number | undefined;
+      try {
+        const decision = classify(error);
+        retry = decision.retry === true;
+        const after: unknown = decision.retryAfterMs;
+        retryAfterMs = typeof after === 'number' && Number.isFinite(after) ? after : undefined;
+      } catch {
+        retry = false;
+      }
+      // `isAppError`, not `instanceof`: `classify` is handed whatever the attempt threw, and
+      // asking a proxied failure whether it is one of ours can itself throw — which would
+      // replace the retry decision, and the failure behind it, with the trap's own message.
+      const appErr = isAppError(error)
+        ? error
+        : new AppError({
+            kind: 'network',
+            message: 'BharatCode request failed',
+            retryable: retry,
+            cause: error,
+          });
       const canRetry = retry && attempt < config.maxRetries;
       if (!canRetry) throw appErr;
       const delay = retryAfterMs ?? backoffDelayMs(config, attempt, random);
