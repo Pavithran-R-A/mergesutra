@@ -1,4 +1,4 @@
-import { AppError } from '../core/errors.js';
+import { AppError, isAppError } from '../core/errors.js';
 import type { RetryConfig, Sleeper } from './types.js';
 
 /**
@@ -56,7 +56,7 @@ export async function runWithRetry<T>(
   const classify: NonNullable<RunWithRetryOptions['isRetryable']> =
     options.isRetryable ??
     ((error: unknown): { retry: boolean; retryAfterMs?: number } => ({
-      retry: error instanceof AppError && error.retryable,
+      retry: isAppError(error) && error.retryable,
     }));
 
   let attempt = 0;
@@ -67,15 +67,17 @@ export async function runWithRetry<T>(
       return await fn(attempt, signal);
     } catch (error) {
       const { retry, retryAfterMs } = classify(error);
-      const appErr =
-        error instanceof AppError
-          ? error
-          : new AppError({
-              kind: 'network',
-              message: 'BharatCode request failed',
-              retryable: retry,
-              cause: error,
-            });
+      // `isAppError`, not `instanceof`: `classify` is handed whatever the attempt threw, and
+      // asking a proxied failure whether it is one of ours can itself throw — which would
+      // replace the retry decision, and the failure behind it, with the trap's own message.
+      const appErr = isAppError(error)
+        ? error
+        : new AppError({
+            kind: 'network',
+            message: 'BharatCode request failed',
+            retryable: retry,
+            cause: error,
+          });
       const canRetry = retry && attempt < config.maxRetries;
       if (!canRetry) throw appErr;
       const delay = retryAfterMs ?? backoffDelayMs(config, attempt, random);

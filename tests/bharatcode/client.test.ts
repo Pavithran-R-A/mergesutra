@@ -385,6 +385,8 @@ describe('Retry policy (deterministic, offline)', () => {
     });
     const err = await client.complete({ messages: [] }).catch((e) => e);
     expect(err.message).not.toContain(tail);
+    // And not because the bound happened to cut it: the mask has to be seen firing.
+    expect(err.message).toContain('[REDACTED]');
   });
 
   it('masks a credential quoted with a line break inside the cause, not only the headline', async () => {
@@ -528,6 +530,26 @@ describe('Retry policy (deterministic, offline)', () => {
     expect(err.message).toContain('could not be described');
   });
 
+  it('survives a revocation that makes every question about a failure throw', async () => {
+    // A revoked proxy throws on *every* operation, `instanceof` and `Object.keys` included,
+    // so this is the case where each guard above is exercised at once. The rejection is
+    // still a failure the operator has to hear about, and the message has to be this
+    // side's name for an undescribable value — never the runtime's "proxy has been
+    // revoked" text, which names the trap instead of the connection.
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch: async () => {
+        throw proxy;
+      },
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('could not be described');
+    expect(err.message).not.toContain('revoked');
+  });
+
   it('bounds on whole characters, never between the halves of one', async () => {
     // `slice` counts UTF-16 code units, so a limit can land between the surrogate pair that
     // makes one astral character and emit half of it. A lone surrogate is not a character,
@@ -542,6 +564,25 @@ describe('Retry policy (deterministic, offline)', () => {
     const err = await client.complete({ messages: [] }).catch((e) => e);
     expect(err.message).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
     expect(err.message).not.toMatch(/(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
+  it('survives a rejection that is a callable whose every answer is revoked', async () => {
+    // `String(value)` is a read too: for a function it looks up `toString`, and a revoked
+    // proxy makes that lookup throw. A callable is not a shape a transport rejects with
+    // today, but it is the one remaining door into `describeForeign` that can fail, and
+    // the rule this round enforces is that describing a failure never becomes the failure.
+    const { proxy, revoke } = Proxy.revocable(function unreachable() {}, {});
+    revoke();
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch: async () => {
+        throw proxy;
+      },
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('could not be described');
+    expect(err.message).not.toContain('revoked');
   });
 
   it('names a rejection that is not an Error by its keys, never [object Object]', async () => {
@@ -689,6 +730,200 @@ describe('Retry policy (deterministic, offline)', () => {
     expect(err.message).toContain('could not be read');
     expect(err.message).not.toContain('do not read');
     expect(err.message).not.toContain('not for you');
+  });
+
+  it('survives a cause that refuses to be read', async () => {
+    // The same rule the three named fields answer to, one level down: `transportDetail`
+    // reaches for `cause` to print the reason the transport gives underneath its own. A
+    // proxy may answer that reach by throwing, and then the trap's message is what the
+    // report carries instead of the socket's — which is the defect this whole group of
+    // readers exists to close, still open on the one field that was read directly.
+    const hostile = new Proxy(Object.assign(new TypeError('fetch failed at the socket'), {}), {
+      get(target, key) {
+        if (key === 'cause') throw new Error('do not read the cause');
+        return Reflect.get(target, key);
+      },
+    });
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch: async () => {
+        throw hostile;
+      },
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('fetch failed at the socket');
+    expect(err.message).toContain('cause could not be read');
+    expect(err.message).not.toContain('do not read the cause');
+  });
+
+  it('survives a failure that refuses the question of what it is', async () => {
+    // `instanceof` is not a safe read either: it walks the value's prototype chain, and a
+    // proxy can make that walk throw. Refusing the question is not the same as answering
+    // "not an error" — the fields are still readable, and they are the diagnosis. So the
+    // refusal routes the value through the same guarded readers, and the report says what
+    // the failure said rather than what the trap shouted.
+    const hostile = new Proxy(
+      { name: 'TypeError', message: 'fetch failed behind a refused prototype' },
+      {
+        getPrototypeOf(): never {
+          throw new TypeError('trap on the prototype chain');
+        },
+      },
+    );
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch: async () => {
+        throw hostile;
+      },
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('fetch failed behind a refused prototype');
+    expect(err.message).not.toContain('trap on the prototype chain');
+  });
+
+  it('survives an error list that refuses to be counted', async () => {
+    // An `AggregateError`'s own message distinguishes nothing, so its entries are read by
+    // position and the count comes from `length` — both of which a proxy over the list can
+    // refuse. The names of the entries are still worth reporting, and the refusal of the
+    // count is its own fact: a withheld tally is not a tally of one.
+    const inner = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:9'), {
+      code: 'ECONNREFUSED',
+    });
+    const hostile = Object.assign(new TypeError('fetch failed at the connect'), {
+      errors: new Proxy([inner], {
+        get(target, key) {
+          if (key === 'length') throw new RangeError('the count is withheld');
+          return Reflect.get(target, key);
+        },
+      }),
+    });
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch: async () => {
+        throw hostile;
+      },
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('fetch failed at the connect');
+    expect(err.message).toContain('ECONNREFUSED');
+    expect(err.message).toContain('whose count could not be read');
+    expect(err.message).not.toContain('the count is withheld');
+  });
+
+  it('survives an error list whose entries refuse to be reached', async () => {
+    // The count is one number the list can withhold; the entries are the other thing it can
+    // refuse, and a proxy that throws on every positional read replaces the diagnosis just as
+    // completely as a thrown `length` does — `map` asks the same object for the same values.
+    // Both halves of the aggregate report are therefore reached one guarded read at a time,
+    // and a refused entry is named as refused: an entry this side could not look at is not the
+    // same fact as an entry with neither a code nor a name.
+    const inner = Object.assign(new Error('connect ETIMEDOUT 198.51.100.7:443'), {
+      code: 'ETIMEDOUT',
+    });
+    const hostile = Object.assign(new TypeError('fetch failed at the connect'), {
+      errors: new Proxy([inner], {
+        get(target, key) {
+          if (typeof key === 'string' && /^\d+$/.test(key)) {
+            throw new RangeError('the entries are withheld');
+          }
+          return Reflect.get(target, key);
+        },
+      }),
+    });
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch: async () => {
+        throw hostile;
+      },
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('fetch failed at the connect');
+    expect(err.message).toContain('entry 0 could not be read');
+    expect(err.message).toContain('1 nested errors');
+    expect(err.message).not.toContain('the entries are withheld');
+    expect(err.message).not.toContain('ETIMEDOUT');
+    expect(err.message).not.toContain('198.51.100.7');
+  });
+
+  it('survives the nested error list being refused as a whole', async () => {
+    // A count can be withheld and entries can be withheld; the list itself can refuse to be
+    // looked at. Neither of those is the same fact as a failure that carries no aggregate,
+    // and an array test that swallows the refusal reports the second one — the operator
+    // reads a plain connect error and never learns that a hidden list was withheld.
+    const hostile = new TypeError('fetch failed at the connect');
+    Object.defineProperty(hostile, 'errors', {
+      get(): never {
+        throw new RangeError('the list is withheld');
+      },
+    });
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch: async () => {
+        throw hostile;
+      },
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('fetch failed at the connect');
+    expect(err.message).toContain('errors could not be read');
+    expect(err.message).not.toContain('the list is withheld');
+  });
+
+  it('survives a nested error list that is itself a revoked proxy', async () => {
+    // `Array.isArray` is not total either: on a revoked proxy the language requires it to
+    // throw, and it stands between the guarded read of `errors` and the summary. A list
+    // that arrives revoked therefore replaced the connect failure with the runtime's own
+    // "IsArray on a proxy that has been revoked" — the same swallowed diagnosis, one step
+    // further in than the cases above.
+    const { proxy: list, revoke } = Proxy.revocable([], {});
+    revoke();
+    const hostile = Object.assign(new TypeError('fetch failed at the connect'), { errors: list });
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch: async () => {
+        throw hostile;
+      },
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('fetch failed at the connect');
+    expect(err.message).toContain('errors could not be read');
+    expect(err.message).not.toContain('revoked');
+  });
+
+  it('does not blame the header wait for a failure after the answer started', async () => {
+    // The two-wait sentence says which wait this side did not reach, and it is only true of
+    // a request that was never answered. Once the response has begun, a header-timeout code
+    // on the thing that broke the stream is a different failure wearing a familiar code, and
+    // quoting the per-request budget next to "the body stopped arriving" tells the operator
+    // to raise a number that was never the problem.
+    const fetch: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => JSON.stringify(completionBody),
+      body: {
+        getReader(): never {
+          throw Object.assign(new Error('Headers Timeout Error'), {
+            code: 'UND_ERR_HEADERS_TIMEOUT',
+          });
+        },
+      } as unknown as ReadableStream<Uint8Array>,
+    });
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 812000,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.message).toContain('stopped arriving');
+    expect(err.message).not.toContain('which the transport did not reach');
   });
 
   it('reports a body that stopped arriving as a body that stopped arriving', async () => {
