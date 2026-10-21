@@ -121,7 +121,10 @@ describe('the controlled live-validation workflow', () => {
       entry.includes('BHARATCODE_TIMEOUT_MS'),
     );
     expect(bullet, 'README documents BHARATCODE_TIMEOUT_MS in its own bullet').toBeDefined();
-    expect(bullet).toContain('300 s');
+    // The same pin as the procedure's row, not a spelling of it: `300 s`, `300s` and `~300 s`
+    // all state the bound, and a bullet that says none of them must not pass because it wrote
+    // `300  s` or `~300 seconds` where this looked for one exact substring.
+    expect(bullet).toMatch(/~?300\s*s/);
     // Same rule for the procedure document: its row for this variable is the sentence an
     // operator reads before raising the cap by hand, so the bound belongs in that row.
     const row = PROCEDURE.split('\n').find((line) => line.includes('BHARATCODE_TIMEOUT_MS'));
@@ -137,7 +140,12 @@ describe('the controlled live-validation workflow', () => {
     expect(configured[0]).toContain('290000');
     // Any other figure written as a number of milliseconds is a budget promised above
     // the bound. Run and probe IDs are not followed by `ms`, so they do not trip this.
-    for (const digits of prose.replace(/'290000'/g, '').match(/\b(\d{5,})\s*ms\b/g) ?? []) {
+    // Thousands separators come out first, because a cap is the one number an operator
+    // copies from a dashboard: `600,000 ms` is the same promise as `600000 ms`, and a
+    // digit run that stops at a comma would let it into the documentation untouched —
+    // worse, the seconds sweep below would read the orphaned `000 s` as three hundred.
+    const counted = prose.replace(/(?<=\d),(?=\d)/g, '');
+    for (const digits of counted.replace(/'290000'/g, '').match(/\b(\d{5,})\s*ms\b/g) ?? []) {
       const ms = Number(digits.replace(/\D/g, ''));
       expect(ms, `${digits} is promised above the transport bound`).toBeLessThan(300_000);
     }
@@ -149,7 +157,7 @@ describe('the controlled live-validation workflow', () => {
     // Minutes are deliberately not swept: the only minutes figures here are the run's own
     // wall clock, a ceiling the cap has to stay *under* rather than a promise of patience,
     // and no shape test tells those two sentences apart.
-    for (const promise of prose.match(/\b\d{2,4}[\s-]*(?:seconds|second|secs|sec|s)\b/g) ?? []) {
+    for (const promise of counted.match(/\b\d{2,4}[\s-]*(?:seconds|second|secs|sec|s)\b/g) ?? []) {
       const seconds = Number(promise.replace(/\D/g, ''));
       if (seconds % 10 !== 0) continue;
       expect(seconds, `${promise} is promised above the transport bound`).toBeLessThanOrEqual(300);
