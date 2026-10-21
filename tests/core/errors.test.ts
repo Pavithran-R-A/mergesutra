@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { AppError, isAppError, isErrorLike } from '../../src/core/errors.js';
+import { AppError, isAppError, isErrorLike, retryFacts } from '../../src/core/errors.js';
 
 /**
  * Asking a failure what it is, of failures that may refuse to answer.
@@ -83,5 +83,37 @@ describe('reading the shape of a failure that may refuse', () => {
     });
     expect(built.message).toBe('Could not reach BharatCode');
     expect(built.cause).toBe(hostile);
+  });
+
+  it('reads the retry facts of a failure whose fields refuse', () => {
+    // Identity was established, so the fields are the next read — and they are somebody
+    // else's values too. A refused flag is answered "do not retry"; a refused delay leaves
+    // the retry itself intact, because the server's wait is an optimisation, not permission.
+    const ours = new AppError({
+      kind: 'rate-limit',
+      message: 'slow down',
+      retryable: true,
+      retryAfterMs: 4000,
+    });
+    expect(retryFacts(ours)).toEqual({ retryable: true, retryAfterMs: 4000 });
+    expect(retryFacts(new AppError({ kind: 'auth', message: 'no', retryable: false }))).toEqual({
+      retryable: false,
+    });
+
+    const refusesDelay = new Proxy(ours, {
+      get(target, key, receiver) {
+        if (key === 'retryAfterMs') throw new TypeError('trap on the delay');
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    expect(retryFacts(refusesDelay)).toEqual({ retryable: true });
+
+    const refusesFlag = new Proxy(ours, {
+      get(target, key, receiver) {
+        if (key === 'retryable') throw new TypeError('trap on the flag');
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    expect(retryFacts(refusesFlag)).toEqual({ retryable: false });
   });
 });

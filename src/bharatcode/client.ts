@@ -1,4 +1,4 @@
-import { AppError, isAppError, isErrorLike, kindForStatus } from '../core/errors.js';
+import { AppError, isAppError, isErrorLike, kindForStatus, retryFacts } from '../core/errors.js';
 import { Redactor } from '../security/redaction.js';
 import { terminalSafeSingleLine } from '../security/terminal-safety.js';
 import { parseCompletion, parseModelList } from './schemas.js';
@@ -259,13 +259,15 @@ function describeForeign(value: unknown): string {
  * Four positions are read by index and the tally is read separately, because `length`,
  * `slice` and `map` all ask a proxy over the list for the count it may refuse to give — and
  * a withheld tally is not a tally of one, so the refusal is reported as the fact it is
- * rather than guessed at from however many entries this window happened to reach.
+ * rather than guessed at from however many entries this window happened to reach. A hole
+ * at one position is not the end of the list either: stopping there would drop every kind
+ * behind it and print a count with nothing to say what the counted failures were.
  */
 function nestedSummary(nested: readonly unknown[]): string {
   const kinds: string[] = [];
   for (let position = 0; position < 4; position += 1) {
     const item = readForeignField(nested, String(position));
-    if (item === undefined) break;
+    if (item === undefined) continue;
     const kind =
       item === UNREADABLE
         ? refusedField(`entry ${position}`)
@@ -667,10 +669,14 @@ export class HttpBharatCodeClient implements BharatCodeClient {
       return { reachable: true, configured: true, modelCount: list.models.length };
     } catch (error) {
       const appErr = isAppError(error) ? error : null;
+      // Identity was answered, not readability: both fields are still somebody else's and
+      // are read through the same guards as everywhere else on this path.
+      const status = appErr ? readForeignField(appErr, 'status') : undefined;
+      const message = appErr ? readForeignString(appErr, 'message') : undefined;
       return {
-        reachable: appErr ? isReachableDespiteError(appErr) : false,
+        reachable: typeof status === 'number',
         configured: true,
-        note: appErr ? this.redactor.text(appErr.message) : 'Unknown error.',
+        note: this.redactor.text(message ?? 'Unknown error.'),
       };
     }
   }
@@ -694,19 +700,24 @@ export class HttpBharatCodeClient implements BharatCodeClient {
         sleep: this.sleeper,
         random: this.random,
         isRetryable: (error) => {
-          if (isAppError(error)) {
-            return { retry: error.retryable, retryAfterMs: error.retryAfterMs };
-          }
-          return { retry: false };
+          if (!isAppError(error)) return { retry: false };
+          // Identity was answered without a throw; the flag can still refuse, and a retry
+          // read through a refusal would be a spend this side cannot explain.
+          const facts = retryFacts(error);
+          return { retry: facts.retryable, retryAfterMs: facts.retryAfterMs };
         },
         onRetry: ({ attempt: a, error }) => {
-          if (isAppError(error)) {
-            this.onRetry?.({
-              attempt: a,
-              kind: error.kind,
-              delayMs: 0,
-            });
+          if (!isAppError(error)) return;
+          let kind: AppError['kind'];
+          try {
+            kind = error.kind;
+          } catch {
+            // The callback is progress, not evidence: a kind this side cannot read is not
+            // one it may report, and the failure itself is already on its way out.
+            return;
           }
+          if (typeof kind !== 'string' || kind.length === 0) return;
+          this.onRetry?.({ attempt: a, kind, delayMs: 0 });
         },
       },
     );
@@ -749,11 +760,6 @@ export function safeJsonParse(text: string): unknown {
       retryable: false,
     });
   }
-}
-
-function isReachableDespiteError(error: AppError): boolean {
-  // A 4xx/5xx means we reached the service; network/timeout means we did not.
-  return typeof error.status === 'number';
 }
 
 /**

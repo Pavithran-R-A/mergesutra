@@ -783,6 +783,88 @@ describe('Retry policy (deterministic, offline)', () => {
     expect(err.message).not.toContain('trap on the prototype chain');
   });
 
+  it('does not let a failure that refuses its retry flag replace the diagnosis', async () => {
+    // `response.body` is read before the conversion that would wrap a foreign failure, so a
+    // proxy response can throw an `AppError`-shaped value straight into the retry loop. Its
+    // identity answers "ours" without a throw; its `retryable` flag refuses. The classifier
+    // must decide without reading through that trap, and the failure behind it must escape.
+    const ours = new AppError({
+      kind: 'network',
+      message: 'fetch failed at the socket',
+      retryable: true,
+    });
+    const hostile = new Proxy(ours, {
+      get(target, key, receiver) {
+        if (key === 'retryable') throw new TypeError('trap on the retry flag');
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const fetch: FetchLike = async () =>
+      ({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () => JSON.stringify(completionBody),
+        get body(): never {
+          throw hostile;
+        },
+      }) as unknown as Awaited<ReturnType<FetchLike>>;
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err).toBe(hostile);
+    expect(err.message).toContain('fetch failed at the socket');
+    expect(err.message).not.toContain('trap on the retry flag');
+  });
+
+  it('reports no kind it could not read, and still completes the retry', async () => {
+    // The retry callback is the last read of the failure on this path. A failure that
+    // answers `retryable` but refuses `kind` is still worth retrying; the report is not
+    // worth throwing for, and a kind this side cannot read is not one it may invent.
+    const ours = new AppError({ kind: 'network', message: 'the probe failed', retryable: true });
+    const hostile = new Proxy(ours, {
+      get(target, key, receiver) {
+        if (key === 'kind') throw new TypeError('trap on the kind');
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    let calls = 0;
+    const fetch: FetchLike = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          text: async () => JSON.stringify(completionBody),
+          get body(): never {
+            throw hostile;
+          },
+        } as unknown as Awaited<ReturnType<FetchLike>>;
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () => JSON.stringify(completionBody),
+        body: undefined,
+      } as unknown as Awaited<ReturnType<FetchLike>>;
+    };
+    const seen: { attempt: number; kind: string }[] = [];
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 1, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+      onRetry: (info) => seen.push({ attempt: info.attempt, kind: info.kind }),
+    });
+    const result = await client.complete({ messages: [] });
+    expect(result.text).toBe('hi there');
+    expect(calls).toBe(2);
+    // A progress callback that cannot be given an honest kind is not given one at all.
+    expect(seen).toEqual([]);
+  });
+
   it('survives an error list that refuses to be counted', async () => {
     // An `AggregateError`'s own message distinguishes nothing, so its entries are read by
     // position and the count comes from `length` — both of which a proxy over the list can
@@ -846,6 +928,28 @@ describe('Retry policy (deterministic, offline)', () => {
     expect(err.message).toContain('1 nested errors');
     expect(err.message).not.toContain('the entries are withheld');
     expect(err.message).not.toContain('ETIMEDOUT');
+    expect(err.message).not.toContain('198.51.100.7');
+  });
+
+  it('reads past an absent entry in a nested error list', async () => {
+    // A hole in the list is not the end of it. Stopping at the first `undefined` would drop
+    // every later kind and print a tally with nothing behind it, which is exactly the fact
+    // the summary exists to add: the count says how much, the kinds say which failures.
+    const inner = Object.assign(new Error('connect ETIMEDOUT 198.51.100.7:443'), {
+      code: 'ETIMEDOUT',
+    });
+    const hostile = Object.assign(new TypeError('fetch failed at the connect'), {
+      errors: [undefined, inner],
+    });
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch: async () => {
+        throw hostile;
+      },
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.message).toContain('2 nested errors');
+    expect(err.message).toContain('ETIMEDOUT');
     expect(err.message).not.toContain('198.51.100.7');
   });
 
@@ -1072,5 +1176,40 @@ describe('healthCheck', () => {
     const client = createBharatCodeClient({ config: baseConfig(), fetch });
     const health = await client.healthCheck();
     expect(health).toMatchObject({ reachable: true, configured: true, modelCount: 1 });
+  });
+
+  it('survives a health failure whose status and message refuse to be read', async () => {
+    // `healthCheck` asks an `AppError`-shaped failure for the two fields it reports. The
+    // identity answer does not make those fields readable, and a probe that throws while
+    // being described would replace its own answer with the trap's message.
+    const ours = new AppError({
+      kind: 'network',
+      message: 'probe failed',
+      retryable: true,
+      status: 503,
+    });
+    const hostile = new Proxy(ours, {
+      get(target, key, receiver) {
+        if (key === 'status' || key === 'message') throw new TypeError('trap on the health fields');
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const fetch: FetchLike = async () =>
+      ({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () => '{}',
+        get body(): never {
+          throw hostile;
+        },
+      }) as unknown as Awaited<ReturnType<FetchLike>>;
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const health = await client.healthCheck();
+    expect(health.reachable).toBe(false);
+    expect(health.note).toBe('message could not be read');
   });
 });

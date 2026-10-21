@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { AppError } from '../../src/core/errors.js';
+import { AppError, isAppError } from '../../src/core/errors.js';
 import { runWithRetry } from '../../src/bharatcode/retry.js';
 import type { Sleeper } from '../../src/bharatcode/types.js';
 
@@ -41,5 +41,33 @@ describe('retry classification of a hostile failure', () => {
     // through the refusal, so the conservative answer is the only one that is honest.
     expect(attempts).toBe(1);
     expect((err as AppError).retryable).toBe(false);
+  });
+
+  it('does not let a failure that refuses its retry flag replace the failure', async () => {
+    // Identity and readability are different questions. A value can inherit `AppError`'s
+    // prototype — so `instanceof` answers "ours" without a throw — and still refuse the one
+    // field the classifier reads next. That read is a trap of its own, and it used to
+    // escape from the catch block, replacing the attempt's failure with the trap's message.
+    const ours = new AppError({ kind: 'network', message: 'the socket died', retryable: true });
+    const hostile = new Proxy(ours, {
+      get(target, key, receiver) {
+        if (key === 'retryable') throw new TypeError('trap on the retry flag');
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    let attempts = 0;
+    const err = await runWithRetry(
+      async () => {
+        attempts += 1;
+        throw hostile;
+      },
+      { config, sleep: noSleep },
+    ).catch((e: unknown) => e);
+    // The failure it was given is what escapes, and it is not re-spent on: a retry decided
+    // from a flag this side could not read is a spend it could not explain.
+    expect(err).toBe(hostile);
+    expect(isAppError(err)).toBe(true);
+    expect((err as AppError).message).not.toContain('trap on the retry flag');
+    expect(attempts).toBe(1);
   });
 });

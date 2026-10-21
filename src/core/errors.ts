@@ -105,6 +105,35 @@ export function isErrorLike(value: unknown): value is Error {
   }
 }
 
+/**
+ * The retry decision's facts, read without being able to fail.
+ *
+ * `isAppError` establishes identity, not readability: a value can inherit this class's
+ * prototype and still refuse a field through a getter or a proxy. A refused flag is
+ * answered "do not retry" — the same safe direction as a refused identity — because a
+ * retry decided from a flag this side could not read is a spend it cannot explain. A
+ * refused delay does not cancel the retry: the server's wait is an optimisation, and the
+ * caller's backoff is still a bound.
+ */
+export function retryFacts(error: AppError): { retryable: boolean; retryAfterMs?: number } {
+  let retryable: unknown;
+  try {
+    retryable = error.retryable;
+  } catch {
+    return { retryable: false };
+  }
+  if (retryable !== true) return { retryable: false };
+  let after: unknown;
+  try {
+    after = error.retryAfterMs;
+  } catch {
+    return { retryable: true };
+  }
+  return typeof after === 'number' && Number.isFinite(after)
+    ? { retryable: true, retryAfterMs: after }
+    : { retryable: true };
+}
+
 function isObjectLike(value: unknown): boolean {
   return value !== null && (typeof value === 'object' || typeof value === 'function');
 }
