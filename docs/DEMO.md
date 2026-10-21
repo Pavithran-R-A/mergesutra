@@ -11,8 +11,9 @@ with its own SHA and limitations (README, "Live-model evidence").
 The subject is the public fixture
 [`Pavithran-R-A/mergesutra-e2e-fixture`](https://github.com/Pavithran-R-A/mergesutra-e2e-fixture),
 issue #1: `slugify` keeps leading and trailing hyphens, and the issue fixes five
-checkable criteria. The fixture's whole gate is `npm test`, so the journey is
-short enough to watch and every step is observable.
+checkable criteria. The fixture declares one gate of its own, `npm test`; the
+product adds its own `git diff --check`, so the verification plan holds two. The
+journey is short enough to watch and every step is observable.
 
 The journey stops after `pr --approve <digest>`. `pr --publish` is named by the
 product as the next step and is deliberately never invoked: no branch is pushed
@@ -39,8 +40,9 @@ npm run build
 node scripts/demo-scripted-journey.mjs --out "C:/demo/mergesutra-evidence"
 ```
 
-The driver takes a few minutes on this host: the fixture's single gate is
-`npm test` (`node --test`), and Docker start-up dominates.
+The driver takes a few minutes on this host: the fixture's own gate is
+`npm test` (`node --test`), the plan adds the product's `git diff --check`, and
+Docker start-up dominates.
 
 It writes:
 
@@ -50,7 +52,13 @@ It writes:
 | `summary.json` | Structured facts: run id, base SHA, stages and exit codes, gates, criterion statuses, review findings, readiness rows, digest, damage check |
 | `PROCEDURE.md` | The generated copy of this procedure |
 | `logs/NN-*.log` | One raw stdout/stderr capture per command |
-| `fixture/` | The real clone the run operated on, including the run's worktree and run records |
+| `fixture/` | The real clone the run operated on, including the run's confined worktree |
+
+The run records themselves are written by the CLI into the repository it is
+invoked from — `.mergesutra/runs/<id>.json`, a path `.gitignore` already
+excludes — so `fixture/` holds the clone and its worktree only. The damage check
+measures the clone's tracked bytes and status before and after; the repository's
+tracked tree is not a subject of the run and is left alone.
 
 The harness fails on any contradiction: a missing outcome word, a nonzero exit
 where zero is required, a review finding, a readiness row that is not `INFO` or
@@ -85,10 +93,12 @@ claim on purpose.
 ## The transcript-cut video
 
 An 88-second MP4 was produced from this run for the submission. It is a
-**transcript cut, not a screen recording**: each displayed line is selected
-verbatim from the run's `logs/` or `summary.json`, reflowed to fit the frame,
-and a persistent banner labels the model **SCRIPTED**. The generator refuses to
-render a line that is absent from the evidence, so no frame is invented. The
+**transcript cut, not a screen recording**: each displayed line is either
+selected from the run's `logs/` or `summary.json` by a helper that refuses a line
+the evidence does not contain (`line()`, `oracleLine()`), or is a layout label or
+a transcription of a recorded value written into the generator. `transcript.txt`
+is published beside the video so every fact-bearing line can be checked against
+the run. A persistent banner labels the model **SCRIPTED**. The
 thirteen recorded CLI stages took about 25 seconds in this run, so there are no
 long waits to condense; each slide simply holds a real line set long enough to
 read.
@@ -101,8 +111,8 @@ If you prefer a terminal recording on a machine with a display:
    Run the full command once to warm Docker and the npm cache, then delete that
    output directory and record a fresh run.
 2. **Continuous capture.** Record the whole run at 1080p. Do not splice a command
-   to an output it did not produce. The fixture's gate is a single `npm test`, so
-   the verification segment is short; if you speed it up, do so uniformly and
+   to an output it did not produce. The fixture's own gate is a single `npm test`,
+   so the verification segment is short; if you speed it up, do so uniformly and
    with a visible "verification running" title. Never replace it with a
    fabricated PASS.
 3. **Permanent label.** Keep a "Scripted-model demonstration" overlay visible for

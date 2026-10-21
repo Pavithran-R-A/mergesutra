@@ -152,8 +152,9 @@ The fixture is deliberate. An earlier attempt drove this repository's own issue 
 instead; its workload is this repository's full 17-gate plan, and inside the
 product's 512 MB, one-CPU sandbox several gates timed out or aborted. That run
 ended `VERIFICATION_FAIL` and its evidence is preserved rather than presented as a
-pass. The fixture's whole gate is `npm test`, so the same workflow finishes in
-minutes and every step is observable.
+pass. The fixture declares one gate of its own, `npm test`; the product adds its
+own `git diff --check` on top, so the plan holds two and the same workflow
+finishes in minutes with every step observable.
 
 The model turns come from a deterministic local gateway, so the recording is
 labelled **Scripted-model demonstration**: it proves the workflow, the consent
@@ -165,8 +166,9 @@ A completed run on 21 October 2026 (`run-20261021T115401Z-ea10b8`, source
 `VG-002 git diff --check`, the independent oracle passed all five issue criteria,
 review recorded zero findings, and the approval was bound to
 `46e27c326c4b9d5f015e8b0de015c03944516e1e46fccaff025a20fee067163e` without
-`--publish`. The 88-second video is a **transcript cut**: the literal stdout lines
-selected and reflowed, with a persistent SCRIPTED banner, not a screen recording.
+`--publish`. The 88-second video is a **transcript cut**: lines taken from the
+run's own screens, selected and reflowed, with a persistent SCRIPTED banner, not a
+screen recording.
 [docs/DEMO.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DEMO.md) records the facts and the generation method.
 
 - Harness: [scripts/demo-scripted-journey.mjs](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/scripts/demo-scripted-journey.mjs)
