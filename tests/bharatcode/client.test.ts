@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { createBharatCodeClient, type FetchLike } from '../../src/bharatcode/client.js';
+import { terminalSafeSingleLine } from '../../src/security/terminal-safety.js';
 import { loadBharatCodeConfig } from '../../src/config/load-config.js';
 import { AppError } from '../../src/core/errors.js';
 import type { BharatCodeClientConfig } from '../../src/bharatcode/types.js';
@@ -265,8 +266,10 @@ describe('Retry policy (deterministic, offline)', () => {
     expect(err.kind).toBe('network');
     // The whole message, not a substring: `fetch failed` is inside the broken version of
     // the helper too (`fetch failed (cause: undefined undefined)`), and an error screen
-    // that invents a cause the transport never sent is its own misdiagnosis.
-    expect(err.message).toBe('Could not reach BharatCode: fetch failed');
+    // that invents a cause the transport never sent is its own misdiagnosis. The name is
+    // part of the report because a rejection's `name` is what separates a `TypeError`
+    // from a socket error that happens to carry the same sentence.
+    expect(err.message).toBe('Could not reach BharatCode: TypeError fetch failed');
   });
 
   it('holds one socket-said line to one bounded line', async () => {
@@ -297,12 +300,168 @@ describe('Retry policy (deterministic, offline)', () => {
     expect(err.message).toContain('UND_ERR_HEADERS_TIMEOUT');
   });
 
+  it('leaves no line-breaking code point raw in a transport message', async () => {
+    // The promise is "held to one line", and CR and LF are not the only code points that
+    // break one: the terminal sink's set also holds VT, FF, ESC, the whole C1 range (NEL
+    // lives in it), U+2028/U+2029 and the bidi controls. So the helper runs the value
+    // through that same encoder instead of keeping a list of its own, and the assertion is
+    // the encoder's own invariant — a message this client produced is already escaped, so
+    // escaping it again changes nothing. A consumer that does not route through the sink
+    // (the live driver's log files, a published artifact, a caller of this client) then
+    // reads the control bytes as a visible spelling, never as a live cursor move.
+    const chatter = 'y'.repeat(4000);
+    const { fetch } = fakeFetch([
+      Object.assign(
+        new TypeError(`fetch failed\u2028second\u000b\u000c\u0085\u2029\u001b[31m${chatter}`),
+        {
+          cause: Object.assign(new Error('Headers Timeout Error'), {
+            name: 'HeadersTimeoutError',
+            code: 'UND_ERR_HEADERS_TIMEOUT',
+          }),
+        },
+      ),
+    ]);
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.message).toBe(terminalSafeSingleLine(err.message));
+    expect(err.message).not.toContain(chatter);
+    expect(err.message).toContain('UND_ERR_HEADERS_TIMEOUT');
+  });
+
+  it('names the error that rejected the request when it carries the transport code itself', async () => {
+    // Node wraps undici's timeout one level down, and that is the shape every other case
+    // here uses. It is not the only shape: an adapter, or a later version of this client,
+    // can propagate the coded error directly. Taking only `message` off the top-level error
+    // throws away both its name and its code, and a headline without the code leaves
+    // `transportWait` silent — the operator loses the sentence that says which of the two
+    // waits ended the request.
+    const { fetch } = fakeFetch([
+      Object.assign(new Error('Headers Timeout Error while reading the response'), {
+        name: 'HeadersTimeoutError',
+        code: 'UND_ERR_HEADERS_TIMEOUT',
+      }),
+    ]);
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 812000,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('HeadersTimeoutError');
+    expect(err.message).toContain('UND_ERR_HEADERS_TIMEOUT');
+    // The sentence's meaning, not just the number in it: this branch exists to say the
+    // transport stopped waiting first, and flipping that claim misleads the reader.
+    expect(err.message).toContain('812000ms, which the transport did not reach');
+  });
+
+  it('keeps the diagnosis when reading the body fails outside the fetch call', async () => {
+    // The fetch is guarded and the body read is the same transport failing one step later.
+    // A locked or non-conforming stream throws out of `getReader()` rather than out of
+    // `reader.read()`, so it escapes unconverted and the retry wrapper turns it into the
+    // generic `BharatCode request failed`: no cause, no code, and — because the wrapper
+    // classifies a non-AppError as not retryable — a transient failure recorded as one that
+    // must never be retried.
+    const fetch: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => JSON.stringify(completionBody),
+      body: {
+        getReader(): never {
+          throw Object.assign(new Error('ReadableStream is locked'), {
+            code: 'ERR_STREAM_ALREADY_LOCKED',
+          });
+        },
+      } as unknown as ReadableStream<Uint8Array>,
+    });
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('ERR_STREAM_ALREADY_LOCKED');
+    expect(err.retryable).toBe(true);
+  });
+
+  it('says how many errors an AggregateError hid', async () => {
+    // undici's real multi-address connect failure is an AggregateError: its own message
+    // distinguishes nothing and every useful code sits in `errors`. The values there are
+    // not this message's to print — that is the leak the keys-only rule exists for — so the
+    // count travels and the reader knows how much the transport withheld.
+    const nested = [
+      Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1'), { code: 'ECONNREFUSED' }),
+      Object.assign(new Error('connect ETIMEDOUT 127.0.0.1:1'), { code: 'ETIMEDOUT' }),
+    ];
+    const { fetch } = fakeFetch([
+      Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new AggregateError(nested, 'All connections failed'), {
+          name: 'AggregateError',
+        }),
+      }),
+    ]);
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.message).toContain('AggregateError');
+    expect(err.message).toContain('2 nested errors');
+    expect(err.message).not.toContain('127.0.0.1');
+  });
+
+  it('survives a rejection whose own keys refuse to be listed', async () => {
+    // `Object.keys` is not a total function. A Proxy with a throwing `ownKeys` trap makes
+    // the *act of describing* a failure throw, and the diagnosis is then replaced by the
+    // trap's own error — which is the same class of silence this whole helper exists to
+    // end. Describing has to fail safe into a name.
+    const hostile = new Proxy(
+      {},
+      {
+        ownKeys(): never {
+          throw new Error('do not look');
+        },
+      },
+    );
+    const fetch: FetchLike = async () => {
+      throw hostile;
+    };
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.kind).toBe('network');
+    expect(err.message).toContain('could not be described');
+  });
+
+  it('bounds on whole characters, never between the halves of one', async () => {
+    // `slice` counts UTF-16 code units, so a limit can land between the surrogate pair that
+    // makes one astral character and emit half of it. A lone surrogate is not a character,
+    // and the terminal JSON sink does not repair it. The leading `!` is not decoration: it
+    // puts the pair on an odd offset, so the 160-unit cut falls inside it whether or not
+    // the error's own name is part of the headline.
+    const { fetch } = fakeFetch([new TypeError(`!${'😀'.repeat(200)}`)]);
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 } }),
+      fetch,
+    });
+    const err = await client.complete({ messages: [] }).catch((e) => e);
+    expect(err.message).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(err.message).not.toMatch(/(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
   it('names a rejection that is not an Error by its keys, never [object Object]', async () => {
     // A fetch that rejects with a bare object is reachable — `controller.abort(value)`
     // hands the value back untouched, and a mocked or future transport can do the same.
     // `String()` of that is `[object Object]`, which names nothing, and printing the
     // *values* of somebody else's object is how a request payload ends up on a screen.
-    // Keys carry the diagnosis; the values do not get to travel.
     // Keys carry the diagnosis; the values do not get to travel. `fakeFetch` only ever
     // throws Errors, so this rejection is made here, exactly as Node makes it.
     const fetch: FetchLike = async () => {

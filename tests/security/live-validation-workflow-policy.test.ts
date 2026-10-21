@@ -15,6 +15,7 @@ const LIVE_RULES = readFileSync(
   'utf8',
 );
 const RUNTIME_PROOF = readFileSync(path.join(ROOT, 'scripts', 'sandbox-runtime-proof.mjs'), 'utf8');
+const PROCEDURE = readFileSync(path.join(ROOT, 'docs', 'REAL_MODEL_E2E_PROCEDURE.md'), 'utf8');
 
 const CHECKOUT_SHA = 'd23441a48e516b6c34aea4fa41551a30e30af803';
 const SETUP_NODE_SHA = '249970729cb0ef3589644e2896645e5dc5ba9c38';
@@ -109,9 +110,10 @@ describe('the controlled live-validation workflow', () => {
   it('states the transport bound instead of promising a cap it cannot honour', () => {
     // The defect this catches is the one shipped in PR #46: a comment here and a claim in
     // README.md that a larger per-request cap buys patience, when the transport settles a
-    // non-streaming request at ~300s regardless. Both files make the promise — prose in
-    // README, configuration plus comment in the workflow — so both are swept together.
-    const prose = `${WORKFLOW}\n${README}`;
+    // non-streaming request at ~300s regardless. Every file that documents the variable
+    // makes the promise, so all of them are swept together — the procedure document is the
+    // one an operator follows by hand, and it is where the figure is actually configured.
+    const prose = `${WORKFLOW}\n${README}\n${PROCEDURE}`;
     // The bound has to be stated where the variable is documented, not merely somewhere:
     // a README that mentions ~300 s in one place and promises an unlimited cap in the
     // bullet itself is the document that misled the operator.
@@ -120,6 +122,11 @@ describe('the controlled live-validation workflow', () => {
     );
     expect(bullet, 'README documents BHARATCODE_TIMEOUT_MS in its own bullet').toBeDefined();
     expect(bullet).toContain('300 s');
+    // Same rule for the procedure document: its row for this variable is the sentence an
+    // operator reads before raising the cap by hand, so the bound belongs in that row.
+    const row = PROCEDURE.split('\n').find((line) => line.includes('BHARATCODE_TIMEOUT_MS'));
+    expect(row, 'the procedure documents BHARATCODE_TIMEOUT_MS in its own row').toBeDefined();
+    expect(row, `${row}\n...names no transport bound`).toContain('300');
     // The live job's own value is the only configured one, and it sits under the bound.
     const configured = prose.match(/BHARATCODE_TIMEOUT_MS:\s*'?(\d+)/g) ?? [];
     expect(configured).toHaveLength(1);
@@ -137,16 +144,33 @@ describe('the controlled live-validation workflow', () => {
   it('describes the wall clock the way the driver actually enforces it', () => {
     // The live step's comment tells the operator what happens when the 25 minutes run out.
     // It used to say each command is killed at "its share" of the clock, which is not what
-    // the driver does: it refuses to start a command after the deadline and gives each
-    // running one the whole time still left. A promise about the clock is only worth what
-    // the code behind it is worth, so both halves are pinned here.
-    expect(DRIVER).toMatch(
-      /if \(mode === 'live' && Date\.now\(\) - startedAt >= LIVE_DEADLINE_MS\)/,
+    // the driver does: it refuses to start a command once the deadline has passed, and
+    // gives a command it does start the less of its own ceiling and the time left. A
+    // promise about the clock is only worth what the code behind it is worth, so the
+    // promise and the code are pinned here — including where the code sits, because an
+    // identical check written *after* the process started would refuse nothing.
+    const refusal = DRIVER.indexOf(
+      "if (mode === 'live' && Date.now() - startedAt >= LIVE_DEADLINE_MS)",
     );
-    expect(DRIVER).toMatch(
-      /timeout: Math\.min\(options\.timeoutMs \?\? remainingMs\(\), remainingMs\(\)\)/,
+    const start = DRIVER.indexOf('const result = spawnSync(file, args, {');
+    expect(
+      refusal,
+      'the driver refuses to start a command on a spent clock',
+    ).toBeGreaterThanOrEqual(0);
+    expect(start, 'the driver starts its commands through one spawnSync').toBeGreaterThanOrEqual(0);
+    expect(refusal, 'the refusal has to precede the spawn it refuses').toBeLessThan(start);
+    expect(DRIVER).toContain(
+      'timeout: Math.min(options.timeoutMs ?? remainingMs(), remainingMs())',
     );
-    expect(`${WORKFLOW}\n${DRIVER}`).not.toMatch(/its share of the \S+-minute wall clock/);
+    // The floor in `remainingMs()` is load-bearing, measured on this build's Node: a
+    // `timeout` of 0 applies no limit at all, and a negative one throws before the child
+    // starts. Without it, the clock running out hands the deadline's own command either an
+    // unbounded wait or a RangeError, which is the opposite of the promise above.
+    expect(DRIVER).toContain('Math.max(1_000, LIVE_DEADLINE_MS - (Date.now() - startedAt))');
+    // The share-of-the-clock wording, in any of the shapes it has appeared in.
+    expect(`${WORKFLOW}\n${DRIVER}\n${README}`).not.toMatch(
+      /(share|slice|split|piece) of the \S+-minute wall/,
+    );
   });
 
   it('configures the production sandbox image and absolute Docker path for the chain', () => {

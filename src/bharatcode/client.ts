@@ -1,5 +1,6 @@
 import { AppError, kindForStatus } from '../core/errors.js';
 import { Redactor } from '../security/redaction.js';
+import { terminalSafeSingleLine } from '../security/terminal-safety.js';
 import { parseCompletion, parseModelList } from './schemas.js';
 import { parseRetryAfter, runWithRetry, throwIfCancelled } from './retry.js';
 import {
@@ -110,23 +111,45 @@ const TIMEOUT_REASON: { readonly mergesutra: 'timeout' } = { mergesutra: 'timeou
  * accepted the connection and never answered. Those need different fixes, and the
  * four words cannot tell them apart.
  *
- * Both halves come off somebody else's connection, so both are held to one line and
- * a length of our choosing — the CLI sink escapes what can steer a terminal and lets a
- * newline through, and an operator's report should not become a socket's transcript.
+ * The headline names the error as well as quoting it, because the code that separates
+ * those cases is not always one level down: an adapter, or a later transport, can
+ * propagate the coded error directly, and a headline built from `message` alone would
+ * drop both its name and the code the reader needs.
+ *
+ * Both halves come off somebody else's connection, so both are put through the encoder
+ * the CLI sink uses and held to a length of our choosing: an operator's report should
+ * not become a socket's transcript.
  * Each half is bounded on its own, not the string after joining them: a chatty
  * headline must not be able to crowd out the cause code, which is the whole diagnosis.
  */
 function transportDetail(error: unknown): string {
-  const own = error instanceof Error ? error.message : describeForeign(error);
-  const headline = oneLine(own, 160);
+  const headline = oneLine(describeForeign(error), 160);
   const cause = error instanceof Error ? error.cause : undefined;
   const detail = cause === undefined ? '' : oneLine(describeForeign(cause), 240);
   return detail === '' ? headline : `${headline} (cause: ${detail})`;
 }
 
-/** Collapse a foreign string to one bounded line. Truncation is expected, not an error. */
+/**
+ * Collapse a foreign string to one bounded line. Truncation is expected, not an error.
+ *
+ * Encoding, not filtering: the set of bytes that may not travel a report is the terminal
+ * sink's own (`terminalSafeSingleLine`), and a socket that sent a control byte is worth
+ * reading about — a filter that deleted it would hand the operator a message that quietly
+ * differs from what arrived. The bound is taken after encoding, and by code point, because
+ * `slice` counts the UTF-16 units that hold them and can cut a surrogate pair in half.
+ *
+ * This is the one path that encodes before redacting rather than after, and the measured
+ * order is the stricter of the two. `Redactor.text` masks a known secret by exact substring,
+ * and the encoder rewrites nothing outside the terminal-control ranges, so a printable
+ * credential reaches it unchanged; and the pattern path captures a value with a class that
+ * stops at whitespace, over which U+000A, U+000B, U+000C, U+2028 and U+2029 are whitespace
+ * and U+0085 is not — a secret split by a raw line break masks one half in the source form
+ * and all of it here. The output boundary is untouched: `src/cli/program.ts:519` still runs
+ * redaction and then terminal safety, and re-escaping this string cannot change it, because
+ * what the encoder emits holds no code point the encoder forges.
+ */
 function oneLine(value: string, limit: number): string {
-  return value.replace(/[\r\n]+/g, ' ').slice(0, limit);
+  return [...terminalSafeSingleLine(value)].slice(0, limit).join('');
 }
 
 /**
@@ -135,23 +158,46 @@ function oneLine(value: string, limit: number): string {
  * `String()` of a plain object is `[object Object]`, which names nothing — and printing
  * that object's *values* is how a request payload, headers included, can end up on a
  * screen. So a bare object is described by its key names, which say what it was without
- * saying what was in it.
+ * saying what was in it, and an `AggregateError` — undici's real multi-address connect
+ * failure, whose own message distinguishes nothing — is described by how much it hides,
+ * never by what it hides.
  */
 function describeForeign(value: unknown): string {
   if (value instanceof Error) {
-    return [value.name, (value as { code?: string }).code, value.message].filter(Boolean).join(' ');
+    const named = [value.name, (value as { code?: string }).code, value.message]
+      .filter(Boolean)
+      .join(' ');
+    const nested = (value as { errors?: unknown }).errors;
+    return Array.isArray(nested) ? `${named}; ${nested.length} nested errors` : named;
   }
   if (typeof value === 'string') return value;
   if (typeof value === 'object' && value !== null) {
-    const keys = Object.keys(value).slice(0, 8);
-    return keys.length === 0 ? 'object' : `object with keys ${keys.join(', ')}`;
+    try {
+      const keys = Object.keys(value).slice(0, 8);
+      return keys.length === 0 ? 'object' : `object with keys ${keys.join(', ')}`;
+    } catch {
+      // `Object.keys` is not a total function: a proxy with a throwing `ownKeys` trap makes
+      // the act of describing a failure throw, and the diagnosis would be replaced by the
+      // trap's own error. Naming the refusal is the most this helper can say.
+      return 'object that could not be described';
+    }
   }
   return String(value);
 }
 
-/** The undici error code one level below a `TypeError: fetch failed`, if there is one. */
+/**
+ * The transport error code, whether the rejection carries it or wraps it.
+ *
+ * Node puts undici's code one level down in `cause`, but only because Node wraps; an
+ * adapter that propagates the coded error directly has the same code at the top, and
+ * reading only the cause would leave `transportWait` silent about the failure it exists
+ * to explain.
+ */
 function causeCode(error: unknown): string | undefined {
-  const cause = error instanceof Error ? error.cause : undefined;
+  if (!(error instanceof Error)) return undefined;
+  const own = (error as { code?: string }).code;
+  if (typeof own === 'string') return own;
+  const cause = error.cause;
   return cause instanceof Error ? (cause as { code?: string }).code : undefined;
 }
 
@@ -221,7 +267,8 @@ export class HttpBharatCodeClient implements BharatCodeClient {
    *
    * Three outcomes are kept apart because the caller has to treat them differently: a body
    * that arrived within the bound, a body that went past it (so the read was stopped and the
-   * connection cancelled), and a read that failed part-way (so nothing arrived to judge).
+   * connection cancelled), and a read that failed — before it started or part-way (so
+   * nothing arrived to judge).
    * Reading the stream rather than calling `text()` is what bounds the *bytes held*: past
    * the limit this function stops asking, so an endpoint that keeps sending cannot decide how
    * much memory this process spends.
@@ -232,6 +279,20 @@ export class HttpBharatCodeClient implements BharatCodeClient {
   private async readBody(response: Awaited<ReturnType<FetchLike>>): Promise<BodyRead> {
     const stream = response.body;
     if (!stream) return this.readText(response);
+    try {
+      return await this.readStream(stream);
+    } catch (error) {
+      // `getReader()` refuses outright on a locked or detached body. That is the transport
+      // failing one step later than the fetch, and an error escaping unconverted reaches
+      // the retry wrapper as an unknown rejection: a generic message, no cause, and —
+      // because the wrapper cannot tell — classified as one that must never be retried.
+      return { text: '', over: false, failed: error };
+    }
+  }
+
+  private async readStream(
+    stream: NonNullable<Awaited<ReturnType<FetchLike>>['body']>,
+  ): Promise<BodyRead> {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     const parts: string[] = [];
@@ -385,12 +446,17 @@ export class HttpBharatCodeClient implements BharatCodeClient {
    * How long this side was prepared to wait, appended only when the transport is the
    * party that stopped waiting for headers.
    *
-   * The two waits are different numbers and the reader has to be able to tell them
-   * apart: run 39460563729 configured 540000ms and was answered at 304.5s by
-   * `UND_ERR_HEADERS_TIMEOUT`, and a message quoting only the configured budget would
-   * have said the run gave up five and a half minutes early. It did not. The transport
-   * gave up, and this repository cannot raise that bound without a dispatcher of its
-   * own, which would be a new runtime dependency.
+   * The two waits are different numbers and the reader has to be able to tell them apart.
+   * Run 39460563729 was measured on one clock: it configured a 540000ms budget and was
+   * answered at 304.5s by `UND_ERR_HEADERS_TIMEOUT`, so the transport stopped waiting
+   * 235.5 seconds before this side's budget ran out. A message quoting only the configured
+   * budget would have blamed that earlier give-up on us. It was not ours — the bound
+   * belongs to the transport, and this repository cannot raise it without a dispatcher of
+   * its own, which would be a new runtime dependency.
+   *
+   * Reaching this branch needs a budget *above* the bound. Below it, the internal timer
+   * aborts first and the failure is reported as a timeout of our own, with no transport
+   * sentence to add.
    */
   private transportWait(error: unknown): string {
     if (causeCode(error) !== 'UND_ERR_HEADERS_TIMEOUT') return '';
