@@ -8,14 +8,10 @@ on:
         required: true
         default: false
         type: boolean
-      model:
-        description: BharatCode model (Qwen for students/Lite/Pro; DeepSeek requires Pro; live /models check is authoritative)
-        required: true
-        default: qwen-3.8-27b
-        type: choice
-        options:
-          - qwen-3.8-27b
-          - deepseek-v4.1-flash
+
+# The model, the token ceiling, the reasoning mode, the streaming flag, the deadline and the retry
+# count are all frozen in `scripts/lib/live-smoke-rules.mjs`, which the offline suite reads. Nothing
+# here can widen any of them, and this smoke only ever asks for `qwen-3.8-27b`.
 
 # The cheapest live reading this repository can take: one completion, 512 output tokens, one
 # hard 90-second clock, no retries. It exists to answer whether the production adapter receives a
@@ -71,12 +67,11 @@ jobs:
 
       - name: Send the one bounded request
         env:
-          # Only this step holds the credential, and only the script reads it. The budget is not
-          # configurable from here: it is the frozen SMOKE_BUDGET in
+          # Only this step holds the credential, and only the script reads it. Neither the budget
+          # nor the model is configurable from here: both are frozen in SMOKE_BUDGET in
           # scripts/lib/live-smoke-rules.mjs, which tests/security/live-smoke-rules.test.ts runs
           # against planted answers and tests/security/live-smoke-workflow-policy.test.ts re-reads.
           BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
-          BHARATCODE_MODEL: ${{ inputs.model }}
         run: node scripts/live-smoke.mjs
 
       - name: Upload the sanitized smoke evidence

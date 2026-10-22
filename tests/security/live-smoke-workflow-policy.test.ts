@@ -7,6 +7,7 @@ const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const WORKFLOW = readFileSync(path.join(ROOT, '.github', 'workflows', 'live-smoke.yml'), 'utf8');
 const SCRIPT = readFileSync(path.join(ROOT, 'scripts', 'live-smoke.mjs'), 'utf8');
 const RULES = readFileSync(path.join(ROOT, 'scripts', 'lib', 'live-smoke-rules.mjs'), 'utf8');
+const WIRE = readFileSync(path.join(ROOT, 'src', 'bharatcode', 'client.ts'), 'utf8');
 
 const CHECKOUT_SHA = 'd23441a48e516b6c34aea4fa41551a30e30af803';
 const EVIDENCE_PATH = '.mergesutra/live-smoke-export/';
@@ -44,7 +45,21 @@ function budgetFields(rules: string): Record<string, string> {
   return fields;
 }
 
-function smokeViolations(workflow: string, script: string, rules: string): string[] {
+/**
+ * The body of `requestPayload` — the one place the shipped adapter decides what the route is sent.
+ *
+ * An empty string means the function is gone, which is itself the finding: the smoke's artifact
+ * would then be describing a wire shape no code produces.
+ */
+function payloadBlock(source: string): string {
+  const start = source.indexOf('function requestPayload(');
+  if (start < 0) return '';
+  const rest = source.slice(start);
+  const end = rest.indexOf('\n}');
+  return end < 0 ? rest : rest.slice(0, end);
+}
+
+function smokeViolations(workflow: string, script: string, rules: string, wire = WIRE): string[] {
   const problems: string[] = [];
 
   if (!/^on:\n {2}workflow_dispatch:/m.test(workflow)) {
@@ -77,8 +92,8 @@ function smokeViolations(workflow: string, script: string, rules: string): strin
   if (!workflow.includes("if: github.ref == 'refs/heads/main' && inputs.run_smoke == true")) {
     problems.push('the smoke can run on a ref other than main, or without the switch');
   }
-  if (!workflow.includes('default: qwen-3.8-27b')) {
-    problems.push('the selectable model set does not default to qwen-3.8-27b');
+  if (/^\s{6}model:/m.test(workflow)) {
+    problems.push('the dispatch offers a model choice; this smoke is written for exactly one');
   }
   if (!workflow.includes(`timeout-minutes: ${String(JOB_CEILING_MINUTES)}`)) {
     problems.push(`the job ceiling is not ${String(JOB_CEILING_MINUTES)} minutes`);
@@ -114,6 +129,7 @@ function smokeViolations(workflow: string, script: string, rules: string): strin
   for (const forbidden of [
     'BHARATCODE_TIMEOUT_MS',
     'BHARATCODE_MAX_RETRIES',
+    'BHARATCODE_MODEL',
     'max_output_tokens',
   ]) {
     if (workflow.includes(forbidden)) {
@@ -179,6 +195,12 @@ function smokeViolations(workflow: string, script: string, rules: string): strin
   if (!script.includes('ids.includes(requestedModel)')) {
     problems.push('the smoke does not refuse a model that the authenticated catalog does not list');
   }
+  if (!script.includes('const requestedModel = SMOKE_BUDGET.model;')) {
+    problems.push('the smoke no longer takes the model from its frozen budget');
+  }
+  if (!script.includes('modelChoice !== requestedModel')) {
+    problems.push('the smoke would let BHARATCODE_MODEL point it at another model');
+  }
   if (!script.includes('credentialLeakFindings(entries, secret)') || !/await rm\(/.test(script)) {
     problems.push('the smoke would upload an artifact without auditing it for credential bytes');
   }
@@ -193,10 +215,26 @@ function smokeViolations(workflow: string, script: string, rules: string): strin
     problems.push('a passing exit no longer follows only a PASS verdict, or does not end the run');
   }
 
+  // The wire itself. The smoke prints `stream`, `store`, the token ceiling and the reasoning mode as
+  // facts about its request, but only `maxTokens` and `enableThinking` are its own to pass — the
+  // shipped adapter decides the rest, so its bytes are part of this budget and not a paraphrase.
+  const payload = payloadBlock(wire);
+  for (const onTheWire of [
+    'max_output_tokens',
+    "reasoning: { effort: 'none' }",
+    'store: false',
+    'stream: true',
+  ]) {
+    if (!payload.includes(onTheWire)) {
+      problems.push(`the adapter no longer puts ${onTheWire} on the wire the smoke reports`);
+    }
+  }
+
   // The numbers themselves, and the one reading of the stream that counts as an answer.
   const budget = budgetFields(rules);
   const required: Record<string, string> = {
     completionsAsked: '1',
+    model: "'qwen-3.8-27b'",
     maxOutputTokens: '512',
     temperature: '0',
     enableThinking: 'false',
@@ -215,6 +253,14 @@ function smokeViolations(workflow: string, script: string, rules: string): strin
   }
   if (!rules.includes('if (elapsedMs > budget.deadlineMs) {')) {
     problems.push('the elapsed time is no longer compared with the ceiling it was given');
+  }
+  // The provider chooses its own finish reason, model name, answer text and failure wording. None
+  // of it may reach the job log or the artifact as bytes that open a second line, because a reader
+  // of this job trusts those lines to be this smoke's own verdicts.
+  if (!rules.includes('const safeString = (value) => singleLine(redact(value));')) {
+    problems.push(
+      'the smoke no longer routes every provider-chosen string through both redaction and the one-line filter',
+    );
   }
   // The ceiling has to fit the job that runs it, with room for install and build.
   const deadlineSeconds = Number((budget.deadlineMs ?? '0').replace(/_/g, '')) / 1000;
@@ -236,8 +282,8 @@ describe('the one-request live smoke', () => {
     expect(WORKFLOW).toMatch(/^on:\n {2}workflow_dispatch:/m);
     expect(WORKFLOW).toContain("if: github.ref == 'refs/heads/main' && inputs.run_smoke == true");
     expect(WORKFLOW).toContain('default: false');
-    expect(WORKFLOW).toContain('- qwen-3.8-27b');
-    expect(WORKFLOW).toContain('- deepseek-v4.1-flash');
+    expect(WORKFLOW).not.toMatch(/^\s{6}model:/m);
+    expect(WORKFLOW).not.toContain('inputs.model');
   });
 
   it('hands the credential to two steps and contacts GitHub with no token at all', () => {
@@ -250,7 +296,7 @@ describe('the one-request live smoke', () => {
       'BHARATCODE',
     );
     const smoke = stepOf(WORKFLOW, 'Send the one bounded request');
-    expect(smoke).toContain('BHARATCODE_MODEL: ${{ inputs.model }}');
+    expect(smoke).not.toContain('BHARATCODE_MODEL');
     expect(smoke).toContain('run: node scripts/live-smoke.mjs');
   });
 
@@ -279,6 +325,7 @@ describe('the one-request live smoke', () => {
   it('spends nothing it was not told to spend', () => {
     expect(budgetFields(RULES)).toMatchObject({
       completionsAsked: '1',
+      model: "'qwen-3.8-27b'",
       maxOutputTokens: '512',
       temperature: '0',
       enableThinking: 'false',
@@ -312,6 +359,8 @@ describe('the policy fires on the mutations it exists for', () => {
     smokeViolations(WORKFLOW, change(SCRIPT), RULES);
   const onRules = (change: (text: string) => string) =>
     smokeViolations(WORKFLOW, SCRIPT, change(RULES));
+  const onWire = (change: (text: string) => string) =>
+    smokeViolations(WORKFLOW, SCRIPT, RULES, change(WIRE));
 
   it('fires when the smoke is wired to an automatic trigger', () => {
     expect(
@@ -385,6 +434,46 @@ describe('the policy fires on the mutations it exists for', () => {
     ).toContain('the workflow configures BHARATCODE_TIMEOUT_MS; the budget is code, not an input');
   });
 
+  it('fires when the model stops being a bound and becomes a choice', () => {
+    expect(
+      onWorkflow((text) =>
+        text.replace(
+          '        type: boolean',
+          `        type: boolean
+      model:
+        required: true
+        default: 'qwen-3.8-27b'
+        type: choice
+        options:
+          - qwen-3.8-27b
+          - deepseek-v4.1-flash`,
+        ),
+      ),
+    ).toContain('the dispatch offers a model choice; this smoke is written for exactly one');
+    expect(
+      onWorkflow((text) =>
+        text.replace(
+          '          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}\n        run: node scripts/live-smoke.mjs',
+          '          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}\n          BHARATCODE_MODEL: ${{ inputs.model }}\n        run: node scripts/live-smoke.mjs',
+        ),
+      ),
+    ).toContain('the workflow configures BHARATCODE_MODEL; the budget is code, not an input');
+    expect(
+      onScript((text) =>
+        text.replace(
+          'const requestedModel = SMOKE_BUDGET.model;',
+          "const requestedModel = (process.env.BHARATCODE_MODEL ?? 'qwen-3.8-27b').trim();",
+        ),
+      ),
+    ).toContain('the smoke no longer takes the model from its frozen budget');
+    expect(
+      onScript((text) => text.replace('modelChoice !== requestedModel', 'modelChoice.length > 64')),
+    ).toContain('the smoke would let BHARATCODE_MODEL point it at another model');
+    expect(
+      onRules((text) => text.replace("model: 'qwen-3.8-27b'", "model: 'deepseek-v4.1-flash'")),
+    ).toContain("SMOKE_BUDGET.model is 'deepseek-v4.1-flash', not 'qwen-3.8-27b'");
+  });
+
   it('fires when the script is given a process, a second request, or its own numbers', () => {
     expect(
       onScript((text) =>
@@ -442,6 +531,15 @@ describe('the policy fires on the mutations it exists for', () => {
     expect(onRules((text) => text.replace('maxRetries: 0', 'maxRetries: 3'))).toContain(
       'SMOKE_BUDGET.maxRetries is 3, not 0',
     );
+    expect(onRules((text) => text.replace('store: false', 'store: true'))).toContain(
+      'SMOKE_BUDGET.store is true, not false',
+    );
+    expect(onRules((text) => text.replace('stream: true', 'stream: false'))).toContain(
+      'SMOKE_BUDGET.stream is false, not true',
+    );
+    expect(
+      onRules((text) => text.replace(/^ {2}enableThinking: false,/m, '  enableThinking: true,')),
+    ).toContain('SMOKE_BUDGET.enableThinking is true, not false');
     expect(
       onRules((text) => text.replace("if (finish !== 'stop')", 'if (finish === never)')),
     ).toContain('the verdict no longer requires the provider’s own completed terminal event');
@@ -453,6 +551,49 @@ describe('the policy fires on the mutations it exists for', () => {
         ),
       ),
     ).toContain('the elapsed time is no longer compared with the ceiling it was given');
+  });
+
+  it('fires when the smoke is handed a transport of its own or a provider string stops being filtered', () => {
+    expect(
+      onScript((text) =>
+        text.replace(
+          '  const client = adapter.createBharatCodeClient({',
+          "  const raw = await fetch('https://bharatcode.ai/api/model/v1/responses');\n  await raw.text();\n  const client = adapter.createBharatCodeClient({",
+        ),
+      ),
+    ).toContain(
+      'the smoke script must reach the provider through the production adapter, not fetch',
+    );
+    expect(
+      onRules((text) =>
+        text.replace(
+          'const safeString = (value) => singleLine(redact(value));',
+          "const safeString = (value) => String(value ?? '');",
+        ),
+      ),
+    ).toContain(
+      'the smoke no longer routes every provider-chosen string through both redaction and the one-line filter',
+    );
+  });
+
+  it('fires when the adapter stops putting the fields the smoke reports onto the wire', () => {
+    expect(onWire((text) => text.replace('    store: false,', '    store: true,'))).toContain(
+      'the adapter no longer puts store: false on the wire the smoke reports',
+    );
+    expect(
+      onWire((text) => text.replace('    stream: true,', '    stream: request.stream ?? true,')),
+    ).toContain('the adapter no longer puts stream: true on the wire the smoke reports');
+    expect(
+      onWire((text) => text.replace("{ reasoning: { effort: 'none' } }", "{ reasoning: 'off' }")),
+    ).toContain(
+      "the adapter no longer puts reasoning: { effort: 'none' } on the wire the smoke reports",
+    );
+    expect(
+      onWire((text) => text.replace('{ max_output_tokens: request.maxTokens }', '{ maxTokens }')),
+    ).toContain('the adapter no longer puts max_output_tokens on the wire the smoke reports');
+    expect(
+      onWire((text) => text.replace(/function requestPayload\([\s\S]*?\n\}/, 'const removed = 1;')),
+    ).toHaveLength(4);
   });
 
   it('fires when the budget block disappears entirely rather than being narrowed', () => {

@@ -10,8 +10,15 @@
 
 /** What one smoke is allowed to ask for, and nothing more. */
 export const SMOKE_BUDGET = Object.freeze({
-  /** Exactly one completion POST. A catalog read is a GET and is counted separately. */
+  /**
+   * How many completions this smoke is written to send. It is a statement about the code, printed
+   * as a bound — not a counter of what happened. What makes it true is that the script holds
+   * exactly one `client.complete()` call site, which the workflow-policy suite pins and fires a
+   * planted second call site against.
+   */
   completionsAsked: 1,
+  /** The only model this smoke may ask for. A dispatch cannot choose another one. */
+  model: 'qwen-3.8-27b',
   maxOutputTokens: 512,
   temperature: 0,
   /** Sent to the adapter as `enableThinking: false`, which is `reasoning: { effort: "none" }`. */
@@ -125,9 +132,10 @@ export function credentialLeakFindings(entries, secret) {
  * The sanitized summary, shaped for the artifact and the log line.
  *
  * `redact` and `singleLine` are injected so this stays pure and testable; the script passes the
- * product's own `Redactor` and `terminalSafeSingleLine`. Model text is untrusted input, so it
- * travels as a bounded one-line preview plus its length — never as a block a reader mistakingly
- * treats as instructions, and never as bytes that could carry a control sequence into a terminal.
+ * product's `Redactor` and `terminalSafeSingleLine`. Every string the provider chooses — its finish
+ * reason, its model name, its answer text, and the wording of a transport failure — travels as a
+ * redacted one-line value, never as bytes that could open a second line in the job log a reader
+ * trusts to hold this smoke's own verdicts.
  */
 export function smokeEvidence({
   answer,
@@ -141,11 +149,15 @@ export function smokeEvidence({
 } = {}) {
   const text = textOf(answer);
   const usage = answer?.usage;
+  // Every string the provider or the transport can choose its own wording for goes through this:
+  // a finish reason, a failure message or a model name is untrusted text, and it is written both
+  // into the artifact and onto the job log a reader trusts to be this smoke's own verdict lines.
+  const safeString = (value) => singleLine(redact(value));
   return {
     schemaVersion: 1,
     kind: 'bharatcode-live-smoke',
     status: verdict?.status ?? null,
-    reason: verdict?.reason === null ? null : redact(String(verdict?.reason ?? '')),
+    reason: verdict?.reason === null ? null : safeString(String(verdict?.reason ?? '')),
     budget: {
       completionsAsked: budget.completionsAsked,
       maxOutputTokens: budget.maxOutputTokens,
@@ -157,16 +169,19 @@ export function smokeEvidence({
       maxRetries: budget.maxRetries,
     },
     model: {
-      requested: redact(String(requestedModel ?? '')),
-      reported: redact(String(answer?.model ?? '')),
+      requested: safeString(String(requestedModel ?? '')),
+      reported: safeString(String(answer?.model ?? '')),
       catalogModels: Number.isInteger(catalog?.models) ? catalog.models : null,
       catalogContainsRequested: catalog?.contains === true,
     },
     answer: {
-      finishReason: answer?.finishReason ?? null,
+      finishReason:
+        answer?.finishReason === undefined || answer?.finishReason === null
+          ? null
+          : safeString(String(answer.finishReason)),
       characters: text.length,
       matchedSentinel: text.trim() === SMOKE_SENTINEL,
-      preview: singleLine(redact(text)).slice(0, 200),
+      preview: safeString(text).slice(0, 200),
     },
     usage:
       usage === undefined || usage === null
@@ -180,7 +195,10 @@ export function smokeEvidence({
   };
 }
 
-/** One line for the job log, so a reader can see the verdict without opening the artifact. */
+/**
+ * The verdict block for the job log: one labelled line per fact, so a reader sees the outcome
+ * without opening the artifact and no line needs a sentence parsed out of it.
+ */
 export function smokeSummaryLine(evidence) {
   const answer = evidence?.answer ?? {};
   const usage = evidence?.usage ?? {};

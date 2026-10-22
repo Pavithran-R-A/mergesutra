@@ -199,10 +199,15 @@ What this build bounds, and what it does not:
 - **Output tokens.** Every request the chain makes carries a ceiling. `plan` and `implement` send
   `max_output_tokens: 4096` (`src/plan/plan.ts:245`, `src/implement/loop.ts:278`) and `review`
   sends 8192 (`REVIEW_MAX_OUTPUT_TOKENS` at `src/review/engine.ts:48`, sent at `:159`), which its
-  one schema-repair turn carries too because both go through that call site. The twelve
-  completions are therefore bounded at 57,344 output tokens asked for in total; the 200,000-character
-  review receipt limit still stands behind that, in case a gateway ignores the ceiling it was sent
-  (`src/review/engine.ts:37`).
+  one schema-repair turn carries too because both go through that call site. For the composition
+  this workflow runs — 2 plan + 8 implement + 2 review, with review held to one cycle by
+  `--max-review-cycles 1` at `scripts/e2e-validation.mjs:518` — that is at most **57,344** output
+  tokens asked for in total. Widen the review cycles and the total moves with it: the shipped
+  default is two cycles (`src/repair/bounds.ts:22`, ceiling 3 at `:27`), and the 12-request ceiling
+  counts requests, not tokens, so the figure to budget money against is the worst product —
+  12 requests at 8192, which is 98,304. The 200,000-character review receipt limit still stands
+  behind all of it, in case a gateway ignores the ceiling it was sent
+  (`MAX_REVIEW_ANSWER_CHARS` at `src/review/engine.ts:36`).
 - **A cut-off answer.** `plan`, `implement` and `review` read the provider's own finish reason
   before interpreting any text, so a `response.incomplete` is filed as no plan, an
   `INCOMPLETE_OUTPUT` loop ending and a `REFUSED` review — never as a stored plan, a write, a
@@ -232,20 +237,28 @@ which model served a request is provenance, not authority (S12-27).
 `.github/workflows/live-smoke.yml` is not this chain. It answers one question — can this
 credential reach this route, and does the provider mark the answer complete — for one completion
 and nothing else, so it is the instrument for checking a route before committing to the
-12-completion, 25-minute run above. Its budget is `SMOKE_BUDGET` at
-`scripts/lib/live-smoke-rules.mjs:12`: one completion (`:14`), `max_output_tokens: 512` (`:15`),
-`temperature: 0`, reasoning off, streaming on, `store` off, a 90-second ceiling on the credentialed
-phase (`:22`) and zero retries. The workflow sets no variable that can widen any of those, and
-`scripts/live-smoke.mjs` takes every bound from that one frozen object.
+12-completion, 25-minute run above. Its budget is the frozen `SMOKE_BUDGET` block at
+`scripts/lib/live-smoke-rules.mjs:12`: the model `qwen-3.8-27b`, one completion (`:19`),
+`max_output_tokens: 512` (`:22`), `temperature: 0`, reasoning off, streaming on, `store` off, a
+90-second ceiling on the credentialed phase (`:29`) and zero retries (`:30`). The workflow dispatch
+offers a boolean and nothing else, and `scripts/live-smoke.mjs` takes the model from that same
+object (`:36`), refusing at exit `78` if a `BHARATCODE_MODEL` asks for a different one — so a run
+cannot choose its own target either. What the smoke does not set, it does not claim either:
+`stream` and `store` are the adapter's own hard-coded fields (`src/bharatcode/client.ts:956-957`),
+and the policy suite reads that file too, so the artifact's description of the request is checked
+against the code that builds it rather than restated by it.
 
 What it refuses, and with which exit code: a missing key is the product's own configuration
-refusal (`scripts/live-smoke.mjs:131`, exit `78`); a model the authenticated catalog does not list
-(`:174`) is refused at exit `79`, before any completion is asked; a stream that never reached
+refusal (`scripts/live-smoke.mjs:133`, exit `78`); a model the authenticated catalog does not list
+(`:182`) is refused at exit `79`, before any completion is asked; a stream that never reached
 `response.completed` is `INCOMPLETE` at exit `3` and its partial text is not read
-(`scripts/lib/live-smoke-rules.mjs:74`), because a cut stream and an answered one cannot be told
+(`scripts/lib/live-smoke-rules.mjs:81`), because a cut stream and an answered one cannot be told
 apart by their text; and an artifact that still carries the credential's bytes is deleted rather
-than uploaded (`scripts/live-smoke.mjs:108`). It has been dispatched zero times, its switch
-defaults to off, and a run needs the operator's yes for that specific SHA.
+than uploaded (`scripts/live-smoke.mjs:110`). Every string the provider chooses — its finish reason,
+its model name, its answer text, the wording of a transport failure — is redacted and forced onto
+one line before it is written or printed (`scripts/lib/live-smoke-rules.mjs:155`), so an answer
+cannot forge a second `LIVE_SMOKE:` verdict line in a log a reader trusts. It has been dispatched
+zero times, its switch defaults to off, and a run needs the operator's yes for that specific SHA.
 
 ## 6. The two approvals, and what they do not do
 

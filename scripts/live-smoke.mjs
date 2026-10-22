@@ -28,11 +28,13 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EXIT = { PASS: 0, INCOMPLETE: 3, FAILED: 4, CONFIG: 78, NOT_IN_CATALOG: 79 };
-const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const DEFAULT_EVIDENCE_DIR = path.join(ROOT, '.mergesutra', 'live-smoke-export');
 
 const apiKey = process.env.BHARATCODE_API_KEY ?? '';
-const requestedModel = (process.env.BHARATCODE_MODEL ?? '').trim();
+// The model is a bound, not a preference: it is chosen here so a dispatch cannot widen it, and the
+// environment variable is only allowed to confirm it.
+const requestedModel = SMOKE_BUDGET.model;
+const modelChoice = (process.env.BHARATCODE_MODEL ?? '').trim();
 const evidenceDir = path.resolve(process.env.MERGESUTRA_LIVE_SMOKE_DIR ?? DEFAULT_EVIDENCE_DIR);
 
 function log(lines) {
@@ -129,8 +131,12 @@ async function main() {
   // The product's own wording for a missing credential, so a reader of this job and a reader of
   // `mergesutra doctor` are told the same thing.
   adapter.requireApiKey(apiKey.length > 0 ? apiKey : undefined);
-  if (!MODEL_PATTERN.test(requestedModel)) {
-    refuse(EXIT.CONFIG, 'LIVE_SMOKE: CONFIG — BHARATCODE_MODEL is unset or not a plain model id.');
+  if (modelChoice.length > 0 && modelChoice !== requestedModel) {
+    refuse(
+      EXIT.CONFIG,
+      `LIVE_SMOKE: CONFIG — BHARATCODE_MODEL asks for '${safe(modelChoice)}', and this smoke only ` +
+        `runs the model frozen in its budget ('${requestedModel}'). No request was sent.`,
+    );
     return;
   }
 
@@ -157,8 +163,10 @@ async function main() {
     ].join('\n'),
   );
 
-  // The credentialed phase shares one hard clock with the request itself, so a slow catalog read
-  // cannot eat the completion's budget and the whole job still cannot outlive the deadline.
+  // One clock for the whole credentialed phase. The catalog read is not handed this signal — it is
+  // bounded by the client's own per-request budget, which is the same figure — so time spent
+  // listing models is time taken from the completion rather than added to it, and the signal below
+  // is what keeps the completion from running past the ceiling.
   const signal = globalThis.AbortSignal.timeout(SMOKE_BUDGET.deadlineMs);
   let catalog;
   try {
