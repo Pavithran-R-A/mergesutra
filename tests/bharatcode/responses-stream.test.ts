@@ -276,6 +276,57 @@ describe('reading the documented stream', () => {
     expect(result.finishReason).toBe('stop');
   });
 
+  it('refuses a refusal part that carries no refusal text', async () => {
+    const fixture = sseFetch(
+      deltaEvent('streamed ') +
+        deltaEvent('answer') +
+        sseEvent('response.completed', {
+          type: 'response.completed',
+          response: {
+            status: 'completed',
+            model: 'bc-large',
+            output: [
+              { type: 'message', role: 'assistant', content: [{ type: 'refusal', refusal: 7 }] },
+            ],
+          },
+        }),
+    );
+    const error = await failure(
+      clientWith(fixture.fetch).complete({ messages: [{ role: 'user', content: 'unreadable' }] }),
+    );
+    // The provider said it refused and then did not say so in words this build can read.
+    // An empty `stop` answer would report a completed decline the caller cannot see.
+    expect(error.kind).toBe('invalid-response');
+    expect(error.retryable).toBe(false);
+    expect(error.message).toMatch(/refusal/i);
+    expect(fixture.calls).toHaveLength(1);
+  });
+
+  it('refuses a text part that carries no text', async () => {
+    const fixture = sseFetch(
+      deltaEvent('streamed ') +
+        deltaEvent('answer') +
+        sseEvent('response.completed', {
+          type: 'response.completed',
+          response: {
+            status: 'completed',
+            model: 'bc-large',
+            output: [
+              { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 7 }] },
+            ],
+          },
+        }),
+    );
+    const error = await failure(
+      clientWith(fixture.fetch).complete({
+        messages: [{ role: 'user', content: 'unreadable text' }],
+      }),
+    );
+    expect(error.kind).toBe('invalid-response');
+    expect(error.retryable).toBe(false);
+    expect(fixture.calls).toHaveLength(1);
+  });
+
   it('reports the answer as empty when the terminal message says it is', async () => {
     const fixture = sseFetch(
       deltaEvent('streamed ') +

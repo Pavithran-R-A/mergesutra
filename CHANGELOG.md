@@ -21,9 +21,11 @@ same route. A bare `[DONE]` sentinel is refused: it belongs to the chat-completi
 to this route's terminal events, so it cannot stand in for a missing `response.completed` and
 stamp `stop` on partial delta text. A message in the terminal object is the answer whenever
 there is one — its text, an empty text, or its refusal — so words streamed before it cannot be
-relabeled a finished answer and a decline is visible downstream instead of dropped. Deltas are
-used only when the terminal object carries no message at all, because a gateway that streamed an
-answer and summarized it as nothing has still answered. A failure whose code blames the request or
+relabeled a finished answer and a decline is visible downstream instead of dropped. A message
+part that names itself `output_text` or `refusal` but carries no readable string is refused as a
+malformed response rather than answered with silence. Deltas are used only when the terminal
+object carries no message at all, because a gateway that streamed an answer and summarized it as
+nothing has still answered. A failure whose code blames the request or
 the account — quota, context length, content inspection — is not retried, so a permanent refusal
 does not spend twice and is not described as temporary unavailability.
 `completeStructured` refuses a non-`stop` finish reason before parsing, so an answer cut at

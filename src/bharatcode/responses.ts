@@ -13,9 +13,11 @@ import type { CompletionResult, ToolCall, Usage } from './types.js';
  *
  * When the terminal response object carries a message, that message is the answer. It is
  * the provider's own final copy — its text, an empty text, or its refusal — and the deltas
- * this side happened to receive never stand in for it, so a partial stream cannot become a
- * finished instruction. Deltas are used only when the terminal object carries no message at
- * all: a gateway that streamed an answer and then summarized nothing has still answered.
+ * this side happened to receive never stand in for it, so words streamed before a decline
+ * cannot come back as a finished instruction. Deltas are the answer only when the terminal
+ * object carries no message at all, and then only on the provider's own attestation that the
+ * response completed; a stream that ends without naming a terminal event is refused, not
+ * assumed to have finished.
  */
 
 interface ParsedResponse {
@@ -119,9 +121,15 @@ export function parseResponseObject(value: unknown): Outcome {
         if (!Array.isArray(content)) continue;
         for (const part of content) {
           const piece = record(part);
-          if (piece?.type === 'output_text' && typeof piece.text === 'string') {
+          if (piece?.type === 'output_text') {
+            if (typeof piece.text !== 'string') {
+              throw malformed('a text part in the output carried no text');
+            }
             pieces.push(piece.text);
-          } else if (piece?.type === 'refusal' && typeof piece.refusal === 'string') {
+          } else if (piece?.type === 'refusal') {
+            if (typeof piece.refusal !== 'string') {
+              throw malformed('a refusal part in the output carried no refusal');
+            }
             pieces.push(piece.refusal);
           }
         }
