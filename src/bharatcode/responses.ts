@@ -187,18 +187,13 @@ export class ResponseStream {
   apply(frame: SseFrame): void {
     if (this.terminal) return;
     if (frame.data === '[DONE]') {
-      this.terminal = {
-        kind: 'final',
-        response: {
-          status: 'completed',
-          text: undefined,
-          model: undefined,
-          finishReason: 'stop',
-          usage: undefined,
-          toolCalls: undefined,
-        },
-      };
-      return;
+      // `[DONE]` is the chat-completions sentinel. On this route the provider names
+      // completion itself, so a bare sentinel means the terminal event never arrived;
+      // accepting it would stamp `stop` on partial delta text and let a truncated
+      // answer be executed as if it were whole.
+      throw malformed(
+        'the stream sent [DONE] without a response.completed or response.incomplete event',
+      );
     }
 
     let payload: unknown;

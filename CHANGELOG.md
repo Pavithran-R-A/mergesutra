@@ -17,8 +17,11 @@ with the provider's own final copy and usage, and `response.failed` is reported 
 server failure that is retried only when no text was produced. The byte bound applies to socket
 bytes before decoding; cancellation races every read; a gateway that answers with one JSON
 object instead of SSE is still accepted, because both shapes are documented outcomes of the
-same route. `completeStructured` refuses a non-`stop` finish reason before parsing, so an
-answer cut at `max_output_tokens` is reported as the token limit rather than as malformed JSON.
+same route. A bare `[DONE]` sentinel is refused: it belongs to the chat-completions wire, not
+to this route's terminal events, so it cannot stand in for a missing `response.completed` and
+stamp `stop` on partial delta text. `completeStructured` refuses a non-`stop` finish reason
+before parsing, so an answer cut at `max_output_tokens` is reported as the token limit rather
+than as malformed JSON.
 
 `src/bharatcode/sse.ts` (incremental framing) and `src/bharatcode/responses.ts` (terminal
 objects, failures and tool calls) are new. Tool calls are exposed only for a completed

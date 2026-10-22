@@ -190,6 +190,17 @@ describe('reading the documented stream', () => {
     expect(result.text).toBe('only deltas');
     expect(result.finishReason).toBe('stop');
   });
+
+  it('ignores a [DONE] sentinel that follows response.completed', async () => {
+    const fixture = sseFetch(
+      deltaEvent('finished') + completedEvent({ text: 'finished answer' }) + 'data: [DONE]\n\n',
+    );
+    const result = await clientWith(fixture.fetch).complete({
+      messages: [{ role: 'user', content: 'sentinel' }],
+    });
+    expect(result.text).toBe('finished answer');
+    expect(result.finishReason).toBe('stop');
+  });
 });
 
 describe('a response that stops at the output limit', () => {
@@ -321,6 +332,16 @@ describe('a stream that does not finish cleanly', () => {
     );
     expect(error.kind).toBe('invalid-response');
     expect(error.message).toMatch(/ended|terminal|completed|incomplete/i);
+  });
+
+  it('refuses a [DONE] sentinel that never named a terminal response event', async () => {
+    const fixture = sseFetch(deltaEvent('partial answer') + 'data: [DONE]\n\n');
+    const error = await failure(
+      clientWith(fixture.fetch).complete({ messages: [{ role: 'user', content: 'go' }] }),
+    );
+    expect(error.kind).toBe('invalid-response');
+    expect(error.retryable).toBe(false);
+    expect(error.message).toMatch(/DONE|terminal|completed|incomplete/i);
   });
 
   it('refuses a stream larger than the bounded read, and stops taking bytes', async () => {
