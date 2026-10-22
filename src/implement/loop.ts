@@ -282,7 +282,8 @@ export async function runImplementationLoop(
         state.model = completion.model;
         state.modelRequests += 1;
         answer = completion.text;
-        unfinishedBy = completion.finishReason === 'stop' ? null : String(completion.finishReason);
+        unfinishedBy =
+          completion.finishReason === 'stop' ? null : (completion.finishReason ?? 'unknown');
       } catch (error) {
         if (deps.signal?.aborted || errorKind(error) === 'cancelled') {
           throw new LoopEnd('CANCELLED', 'Cancelled while a model request was in flight.');

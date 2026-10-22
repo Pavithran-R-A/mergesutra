@@ -182,7 +182,7 @@ The ceilings are code, not estimates:
 | --- | --- | --- |
 | `plan` | 1 ask + at most 1 schema repair | `src/plan/plan.ts:67`, `src/plan/plan.ts:239` |
 | `implement` | 1 per turn, default 12, cap 40 | `src/implement/limits.ts:50`, `:69` |
-| `review` | 1 ask + at most 1 schema repair, ≤3 rounds | `src/review/engine.ts:40`, `node dist/bin.js review --help` |
+| `review` | 1 ask + at most 1 schema repair, ≤3 rounds | `src/review/engine.ts:51`, `node dist/bin.js review --help` |
 | `repair` | 1 per turn, default 6, ceiling 8, ≤3 cycles | `src/repair/limits.ts:34`, `:51` |
 | every other verb | 0 | — |
 
@@ -196,11 +196,23 @@ recovered run does not silently double the bill.
 
 What this build bounds, and what it does not:
 
-- **Output tokens.** `plan` and `implement` send `max_output_tokens: 4096` on every request
-  (`src/plan/plan.ts:245`, `src/implement/loop.ts:276`), so ten of the hosted chain's twelve
-  completions are capped at 40,960 output tokens in all. `review` sends no token limit
-  (`src/review/engine.ts:145`); its two answers are bounded only on receipt, at 200,000
-  characters each (`src/review/engine.ts:37`), after the provider has already produced them.
+- **Output tokens.** Every request the chain makes carries a ceiling. `plan` and `implement` send
+  `max_output_tokens: 4096` (`src/plan/plan.ts:245`, `src/implement/loop.ts:278`) and `review`
+  sends 8192 (`REVIEW_MAX_OUTPUT_TOKENS` at `src/review/engine.ts:48`, sent at `:159`), which its
+  one schema-repair turn carries too because both go through that call site. The twelve
+  completions are therefore bounded at 57,344 output tokens asked for in total; the 200,000-character
+  review receipt limit still stands behind that, in case a gateway ignores the ceiling it was sent
+  (`src/review/engine.ts:37`).
+- **A cut-off answer.** `plan`, `implement` and `review` read the provider's own finish reason
+  before interpreting any text, so a `response.incomplete` is filed as no plan, an
+  `INCOMPLETE_OUTPUT` loop ending and a `REFUSED` review — never as a stored plan, a write, a
+  command or a clean second reading — and none of them re-asks, so a truncation costs one request.
+  One asymmetry a live run can hit: `plan` and `implement` send `reasoning: { effort: "none" }`
+  (`src/plan/plan.ts:246`, `src/implement/loop.ts:279`) while `review` leaves reasoning at the
+  provider's default, so a reviewer that reasons at length can be cut at 8192 and come back
+  refused rather than answered. That is the ceiling doing its job; raise
+  `REVIEW_MAX_OUTPUT_TOKENS`, or send `enableThinking: false` from the review engine, before a
+  live run if a second reading every time matters more than the bound.
 - **Money.** The cost in your currency is the provider's price for the usage the record reports,
   which this repository cannot see. Set the ceiling before the run, in requests or in your own
   billing terms. The dispatched workflow's hard stops are 12 completions, 25 minutes of chain

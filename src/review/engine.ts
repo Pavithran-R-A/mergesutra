@@ -182,9 +182,9 @@ export async function requestReview(
         'REFUSED',
         null,
         `The reviewer's answer was cut short before it finished (finish reason: ` +
-          `${String(answer.finishReason)}). Its text was refused without being parsed, because a ` +
-          'review of part of a patch reads like a clean one, and no second request was made on the ' +
-          'same truncated budget.',
+          `${answer.finishReason ?? 'unknown'}). Its text was refused without being parsed, because ` +
+          'a review of part of a patch reads like a clean one, and no second request was made on ' +
+          'the same truncated budget.',
       );
     }
 

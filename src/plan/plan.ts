@@ -254,7 +254,7 @@ async function requestPlan(input: {
         body: null,
         problem:
           `the model never finished its answer (finish reason: ` +
-          `${String(completion.finishReason)}). The text it did return was refused without being ` +
+          `${completion.finishReason ?? 'unknown'}). The text it did return was refused without being ` +
           'parsed, and no further request was made: a cut-off answer is the budget failing, and a ' +
           'repair round trip would spend again on the same truncated text.',
         attempts: attempt,
