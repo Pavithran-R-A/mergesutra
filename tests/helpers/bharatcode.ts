@@ -22,7 +22,16 @@ export const TEST_MODEL = 'bharatcode-test-model';
 
 export function scriptedClient(
   answers: readonly (string | unknown)[],
-  options: { model?: string; usage?: CompletionResult['usage'] } = {},
+  options: {
+    model?: string;
+    usage?: CompletionResult['usage'];
+    /**
+     * What the provider attested about the answer. Defaults to `'stop'`, so an
+     * existing test keeps the honest case; a test passes a truncation reason to
+     * hand over text that is well-formed and still never finished.
+     */
+    finishReason?: string;
+  } = {},
 ): ScriptedClient {
   const calls: CompletionRequest[] = [];
   const queue = [...answers];
@@ -41,7 +50,7 @@ export function scriptedClient(
       return {
         text: typeof answer === 'string' ? answer : JSON.stringify(answer),
         model: options.model ?? TEST_MODEL,
-        finishReason: 'stop',
+        finishReason: options.finishReason ?? 'stop',
         usage: options.usage ?? { promptTokens: 120, completionTokens: 40, totalTokens: 160 },
       };
     },

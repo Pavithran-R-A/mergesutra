@@ -90,6 +90,27 @@ describe('runPlanStage — what a plan may contain', () => {
     expect(client.calls).toHaveLength(2);
   });
 
+  it('does not store a plan whose answer the provider never finished', async () => {
+    const prepared = await contractBackedRun(tempDirs);
+    const client = scriptedClient([planFor(prepared)], { finishReason: 'max_output_tokens' });
+    const result = await runPlanStage(
+      { runId: prepared.record.runId },
+      { store: prepared.store, now: () => NOW, random: () => 0.9, client },
+    );
+
+    // The partial text was a complete, valid plan body — which is exactly why the
+    // shape cannot be what decides. Only the provider's own attestation says the
+    // answer was cut short, and a cut answer may not become a stored plan.
+    expect(result.plan).toBeNull();
+    expect(result.record.outcome).toBe('INCONCLUSIVE');
+    const failure = result.checks.find((check) => check.name === 'Plan schema');
+    expect(failure?.status).toBe('FAIL');
+    expect(failure?.detail).toContain('max_output_tokens');
+    // One request: a truncation is the budget's failure, not the model's
+    // formatting, so the schema-repair round trip would spend on the same nothing.
+    expect(client.calls).toHaveLength(1);
+  });
+
   it('refuses a command handed over as a shell string instead of argv', async () => {
     const prepared = await contractBackedRun(tempDirs);
     const bad = planFor(prepared, {

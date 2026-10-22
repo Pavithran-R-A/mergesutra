@@ -40,6 +40,28 @@ the buffered fallback), `client.test.ts`, `response-size.test.ts` and `loopback-
 `scripts/lib/scripted-gateway.mjs` answers the same route as SSE, so the zero-spend
 demonstration still exercises the production adapter.
 
+### Fixed — a cut-off answer is no longer usable work, at any stage
+
+The adapter can report that the provider stopped early (`finishReason: max_output_tokens`), and
+only `completeStructured` acted on it. `src/plan/plan.ts`, `src/implement/loop.ts` and
+`src/review/engine.ts` each read `completion.text` and parsed it, so text chopped mid-generation
+could still become a stored plan, an executed write or command, or a clean review — the JSON of a
+truncated action is frequently valid JSON. All three now require a finished response before
+interpreting it and name the provider's own reason: the planner returns no plan and the run
+outcome stays `INCONCLUSIVE`, the loop ends with the new `INCOMPLETE_OUTPUT` termination
+(`INCONCLUSIVE` status) before parsing or executing anything, and the reviewer is `REFUSED` with
+no body. None of them asks again: a truncation is the output budget failing, so a schema-repair
+round trip or another turn would spend on the same cut text. `src/review/engine.ts` also sends
+`maxTokens: 8192` on its request, which covers the initial review and its one schema-repair
+turn because both go through the same call site; the plan and loop were already capped at 4096.
+Because Stage 9R's repair cycle calls the same `runImplementationLoop`, a repair is bounded and
+refused by the identical rule rather than a second copy of it.
+
+Tests: the truncation cases in `tests/plan/plan.test.ts`, `tests/implement/loop.test.ts` (write
+and command), `tests/review/engine.test.ts` (output ceiling across both turns, refusal) and
+`tests/repair/stage.test.ts` (shared loop); `scriptedClient` gained a `finishReason` option so a
+test can hand over text that parses and was never finished.
+
 ### Added — an approved page can become a draft pull request
 
 `mergesutra pr` could prepare and locally approve a page but had no remote: the only transport

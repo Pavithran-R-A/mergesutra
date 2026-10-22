@@ -249,6 +249,21 @@ async function requestPlan(input: {
     promptTokens = completion.usage?.promptTokens ?? null;
     completionTokens = completion.usage?.completionTokens ?? null;
 
+    if (completion.finishReason !== 'stop') {
+      return {
+        body: null,
+        problem:
+          `the model never finished its answer (finish reason: ` +
+          `${String(completion.finishReason)}). The text it did return was refused without being ` +
+          'parsed, and no further request was made: a cut-off answer is the budget failing, and a ' +
+          'repair round trip would spend again on the same truncated text.',
+        attempts: attempt,
+        model,
+        promptTokens,
+        completionTokens,
+      };
+    }
+
     let body: PlanBody | null = null;
     let problem: string | undefined;
     try {
