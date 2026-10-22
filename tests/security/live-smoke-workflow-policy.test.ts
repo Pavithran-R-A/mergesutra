@@ -168,7 +168,7 @@ function smokeViolations(workflow: string, script: string, rules: string, wire =
       'the smoke script must reach the provider through the production adapter, not fetch',
     );
   }
-  if ((script.match(/client\.complete\(/g) ?? []).length !== 1) {
+  if ((script.match(/client\.complete\w*\(/g) ?? []).length !== 1) {
     problems.push('the smoke script does not hold to exactly one completion call site');
   }
   if ((script.match(/client\.listModels\(\)/g) ?? []).length !== 1) {
@@ -490,6 +490,14 @@ describe('the policy fires on the mutations it exists for', () => {
         text.replace(
           '  const file = await writeEvidence(evidence);',
           '  await client.complete({ messages: SMOKE_MESSAGES, model: requestedModel });\n  const file = await writeEvidence(evidence);',
+        ),
+      ),
+    ).toContain('the smoke script does not hold to exactly one completion call site');
+    expect(
+      onScript((text) =>
+        text.replace(
+          '  const file = await writeEvidence(evidence);',
+          '  await client.completeStructured({ messages: SMOKE_MESSAGES, model: requestedModel, schema: answerSchema });\n  const file = await writeEvidence(evidence);',
         ),
       ),
     ).toContain('the smoke script does not hold to exactly one completion call site');

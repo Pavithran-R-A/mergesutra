@@ -13,8 +13,9 @@ export const SMOKE_BUDGET = Object.freeze({
   /**
    * How many completions this smoke is written to send. It is a statement about the code, printed
    * as a bound — not a counter of what happened. What makes it true is that the script holds
-   * exactly one `client.complete()` call site, which the workflow-policy suite pins and fires a
-   * planted second call site against.
+   * exactly one completion call site — any `client.complete…(`, including the adapter's
+   * `completeStructured()`, which POSTs too — which the workflow-policy suite pins and fires
+   * planted second call sites against.
    */
   completionsAsked: 1,
   /** The only model this smoke may ask for. A dispatch cannot choose another one. */
