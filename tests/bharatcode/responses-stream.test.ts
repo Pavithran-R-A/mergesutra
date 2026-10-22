@@ -202,7 +202,7 @@ describe('reading the documented stream', () => {
     expect(result.finishReason).toBe('stop');
   });
 
-  it('keeps the streamed deltas when the terminal message carries no text', async () => {
+  it('keeps the streamed deltas when the terminal message carries no part at all', async () => {
     const fixture = sseFetch(
       deltaEvent('streamed ') +
         deltaEvent('answer') +
@@ -219,6 +219,34 @@ describe('reading the documented stream', () => {
       messages: [{ role: 'user', content: 'shadowed' }],
     });
     expect(result.text).toBe('streamed answer');
+    expect(result.finishReason).toBe('stop');
+  });
+
+  it('reports the answer as empty when the terminal message says it is', async () => {
+    const fixture = sseFetch(
+      deltaEvent('streamed ') +
+        deltaEvent('answer') +
+        sseEvent('response.completed', {
+          type: 'response.completed',
+          response: {
+            status: 'completed',
+            model: 'bc-large',
+            output: [
+              {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: '' }],
+              },
+            ],
+          },
+        }),
+    );
+    const result = await clientWith(fixture.fetch).complete({
+      messages: [{ role: 'user', content: 'withheld' }],
+    });
+    // What the provider finally wrote is empty, so the deltas it streamed during the answer
+    // are not offered to the application as a whole one.
+    expect(result.text).toBe('');
     expect(result.finishReason).toBe('stop');
   });
 

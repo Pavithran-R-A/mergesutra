@@ -19,11 +19,12 @@ bytes before decoding; cancellation races every read; a gateway that answers wit
 object instead of SSE is still accepted, because both shapes are documented outcomes of the
 same route. A bare `[DONE]` sentinel is refused: it belongs to the chat-completions wire, not
 to this route's terminal events, so it cannot stand in for a missing `response.completed` and
-stamp `stop` on partial delta text. A terminal message that carries no text does not erase the
-deltas already received, because a gateway that streamed an answer and summarized it as empty
-has still answered. A failure whose code blames the request or the account — quota, context
-length, content inspection — is not retried, so a permanent refusal does not spend twice and
-is not described as temporary unavailability. `completeStructured` refuses a non-`stop` finish reason
+stamp `stop` on partial delta text. A terminal message that offers no text part at all does not
+erase the deltas already received, because a gateway that streamed an answer and summarized it
+as nothing has still answered; a message that states its text is empty keeps the answer empty,
+because that is the provider speaking. A failure whose code blames the request or the account —
+quota, context length, content inspection — is not retried, so a permanent refusal does not spend
+twice and is not described as temporary unavailability. `completeStructured` refuses a non-`stop` finish reason
 before parsing, so an answer cut at `max_output_tokens` is reported as the token limit rather
 than as malformed JSON.
 

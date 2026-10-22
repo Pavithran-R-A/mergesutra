@@ -13,9 +13,10 @@ import type { CompletionResult, ToolCall, Usage } from './types.js';
  *
  * The terminal response object is authoritative for the text it carries — it is the
  * provider's own final copy, not a reassembly of the deltas this side happened to
- * receive. When it carries no text — no message at all, or a message whose parts are
- * empty — the accumulated deltas are used instead, because a gateway that sent them and
- * then summarized nothing has still answered.
+ * receive. When it offers no text part at all, the accumulated deltas are used instead,
+ * because a gateway that streamed an answer and then summarized nothing has still
+ * answered. A part that says the final text is empty is still the provider speaking, so
+ * the answer stays empty rather than presenting deltas as a whole one.
  */
 
 interface ParsedResponse {
@@ -146,7 +147,7 @@ export function parseResponseObject(value: unknown): Outcome {
     kind: 'final',
     response: {
       status,
-      text: text(pieces.join('')),
+      text: pieces.length === 0 ? undefined : pieces.join(''),
       model: text(response.model),
       finishReason,
       usage: parseUsage(response.usage),
