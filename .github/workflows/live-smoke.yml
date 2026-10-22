@@ -1,0 +1,84 @@
+name: One-request live smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_smoke:
+        description: Send exactly one bounded completion request to BharatCode
+        required: true
+        default: false
+        type: boolean
+
+# The model, the token ceiling, the reasoning mode, the streaming flag, the deadline and the retry
+# count are all frozen in `scripts/lib/live-smoke-rules.mjs`, which the offline suite reads. Nothing
+# here can widen any of them, and this smoke only ever asks for `qwen-3.8-27b`.
+
+# The cheapest live reading this repository can take: one completion, 512 output tokens, one
+# hard 90-second clock, no retries. It exists to answer whether the production adapter receives a
+# real `response.completed` from the production endpoint, and nothing else — it plans nothing,
+# writes nothing to a repository, runs no repository command and never contacts GitHub with a
+# token at all.
+#
+# Like the full validation workflow, this never runs on a push or a pull request. A person
+# dispatches it deliberately, and the job refuses to run anywhere but main with the switch on.
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    name: single bounded request
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && inputs.run_smoke == true
+    # The credentialed phase is capped at 90 seconds by the script's own clock. What is left of
+    # this ceiling is install and build, which take a few minutes and never hold the credential.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      NO_COLOR: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.x'
+          package-manager-cache: false
+
+      - name: Refuse an unconfigured secret without printing it
+        shell: bash
+        env:
+          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
+        run: |
+          if [ -z "${BHARATCODE_API_KEY:-}" ]; then
+            echo "BHARATCODE_API_KEY repository secret is not configured." >&2
+            echo "no request was sent" >&2
+            exit 78
+          fi
+
+      - name: Install
+        run: npm ci
+
+      - name: Build the adapter this smoke will exercise
+        run: npm run build
+
+      - name: Send the one bounded request
+        env:
+          # Only this step holds the credential, and only the script reads it. Neither the budget
+          # nor the model is configurable from here: both are frozen in SMOKE_BUDGET in
+          # scripts/lib/live-smoke-rules.mjs, which tests/security/live-smoke-rules.test.ts runs
+          # against planted answers and tests/security/live-smoke-workflow-policy.test.ts re-reads.
+          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
+        run: node scripts/live-smoke.mjs
+
+      - name: Upload the sanitized smoke evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: live-smoke-${{ github.run_id }}
+          path: .mergesutra/live-smoke-export/
+          if-no-files-found: ignore
+          retention-days: 14

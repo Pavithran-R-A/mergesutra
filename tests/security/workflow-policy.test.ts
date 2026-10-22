@@ -438,6 +438,7 @@ const GUARDED_WORKFLOWS = [
   'ci.yml',
   'customer-workflow.yml',
   'draft-publication.yml',
+  'live-smoke.yml',
   'live-validation.yml',
   'publish.yml',
   'sandbox-runtime.yml',

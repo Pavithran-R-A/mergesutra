@@ -99,6 +99,7 @@ const STATUS_BY_TERMINATION: Record<TerminationKind, LoopStatus> = {
   MODEL_BLOCKED: 'BLOCKED',
   MODEL_UNAVAILABLE: 'INCONCLUSIVE',
   SCHEMA_REFUSAL: 'INCONCLUSIVE',
+  INCOMPLETE_OUTPUT: 'INCONCLUSIVE',
   MAX_REFUSALS: 'BLOCKED',
   REPEATED_FAILURE: 'BLOCKED',
   MAX_STEPS: 'NEEDS_HUMAN_REVIEW',
@@ -268,6 +269,7 @@ export async function runImplementationLoop(
 
       state.steps = step;
       let answer: string;
+      let unfinishedBy: string | null = null;
       try {
         const completion = await client.complete({
           messages,
@@ -280,6 +282,8 @@ export async function runImplementationLoop(
         state.model = completion.model;
         state.modelRequests += 1;
         answer = completion.text;
+        unfinishedBy =
+          completion.finishReason === 'stop' ? null : (completion.finishReason ?? 'unknown');
       } catch (error) {
         if (deps.signal?.aborted || errorKind(error) === 'cancelled') {
           throw new LoopEnd('CANCELLED', 'Cancelled while a model request was in flight.');
@@ -290,6 +294,16 @@ export async function runImplementationLoop(
         throw new LoopEnd(
           'MODEL_UNAVAILABLE',
           `BharatCode did not answer, after its own bounded retries: ${reasonOf(error)}`,
+        );
+      }
+
+      if (unfinishedBy !== null) {
+        throw new LoopEnd(
+          'INCOMPLETE_OUTPUT',
+          `BharatCode cut the answer short (finish reason: ${unfinishedBy}). It was refused ` +
+            'before parsing, because an action chopped at the token limit can still read as a ' +
+            'complete write or command, and the loop would have carried it out. No second request ' +
+            'was made: a truncated answer is the budget failing, not the model formatting badly.',
         );
       }
 

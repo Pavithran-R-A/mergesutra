@@ -1711,13 +1711,15 @@ source.
 - **`BHARATCODE_TIMEOUT_MS`** — the per-request timeout, default `60000`. Lowering it
   works: this side stops waiting and reports `BharatCode request timed out after Nms`.
   Raising it past ~300 s does not. Node's `fetch` gives up on its own at that point
-  (`UND_ERR_HEADERS_TIMEOUT`) because the response headers for a completion arrive only
-  once the answer is whole — no request here sets `stream` — so on this transport a
-  single completion cannot be granted more patience than that by configuration. A failure
-  that names the cause rather than this number is the transport having stopped waiting,
-  not this budget. The live-validation workflow sets `290000`, one below that bound, and
-  giving one request more than ~300 s would need streaming or a dispatcher, not a larger
-  number.
+  (`UND_ERR_HEADERS_TIMEOUT`) whenever a route's response headers never arrive, and that
+  bound is the transport's, not this budget's: no larger value here can raise it. The
+  completion route asks for a stream, so the headers arrive when the stream opens and
+  from then on this timeout is enforced on every read of the answer — which is why the
+  figure still has to sit under the transport's own wall. A failure that names the cause
+  rather than this number is the transport having stopped waiting, not this budget. The
+  live-validation workflow sets `290000`, one below that bound, because a cap at exactly
+  `300000` loses that race nondeterministically; giving one request more than the bound
+  would need a dispatcher, not a larger number.
 - **`BHARATCODE_MAX_RETRIES`** — the adapter's own bounded retries, default `3`.
 - **`BHARATCODE_RETRY_BASE_MS`** — the backoff floor, default `500`.
 - **`BHARATCODE_RETRY_MAX_MS`** — the backoff ceiling, default `15000`.

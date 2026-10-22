@@ -43,6 +43,7 @@ export const terminationKindSchema = z.enum([
   'REPEATED_FAILURE',
   'SCHEMA_REFUSAL',
   'MODEL_UNAVAILABLE',
+  'INCOMPLETE_OUTPUT',
   'DEADLINE',
   'CANCELLED',
 ]);

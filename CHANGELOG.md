@@ -40,6 +40,74 @@ the buffered fallback), `client.test.ts`, `response-size.test.ts` and `loopback-
 `scripts/lib/scripted-gateway.mjs` answers the same route as SSE, so the zero-spend
 demonstration still exercises the production adapter.
 
+### Fixed — a cut-off answer is no longer usable work, at any stage
+
+The adapter can report that the provider stopped early (`finishReason: max_output_tokens`), and
+only `completeStructured` acted on it. `src/plan/plan.ts`, `src/implement/loop.ts` and
+`src/review/engine.ts` each read `completion.text` and parsed it, so text chopped mid-generation
+could still become a stored plan, an executed write or command, or a clean review — the JSON of a
+truncated action is frequently valid JSON. All three now require a finished response before
+interpreting it and name the provider's own reason: the planner returns no plan and the run
+outcome stays `INCONCLUSIVE`, the loop ends with the new `INCOMPLETE_OUTPUT` termination
+(`INCONCLUSIVE` status) before parsing or executing anything, and the reviewer is `REFUSED` with
+no body. None of them asks again: a truncation is the output budget failing, so a schema-repair
+round trip or another turn would spend on the same cut text. `src/review/engine.ts` also sends
+`maxTokens: 8192` on its request, which covers the initial review and its one schema-repair
+turn because both go through the same call site; the plan and loop were already capped at 4096.
+Because Stage 9R's repair cycle calls the same `runImplementationLoop`, a repair is bounded and
+refused by the identical rule rather than a second copy of it.
+
+Tests: the truncation cases in `tests/plan/plan.test.ts`, `tests/implement/loop.test.ts` (write
+and command), `tests/review/engine.test.ts` (output ceiling across both turns, refusal) and
+`tests/repair/stage.test.ts` (shared loop); `scriptedClient` gained a `finishReason` option so a
+test can hand over text that parses and was never finished.
+
+### Added — a live route can be proved with one request, and refused with the rest
+
+`.github/workflows/live-smoke.yml` is a `workflow_dispatch`-only job that asks the provider one
+question and stops. It exists because the full chain spends up to twelve completions and 25
+minutes, which is the wrong instrument for the question "is this route reachable and does it
+mark an answer complete". The budget is code, not configuration: `scripts/lib/live-smoke-rules.mjs`
+freezes `SMOKE_BUDGET` — the model `qwen-3.8-27b`, one completion, `max_output_tokens: 512`,
+`temperature: 0`, `enableThinking: false`, `stream: true`, `store: false`, a 90 000 ms hard ceiling
+on the credentialed phase and zero retries — and the workflow exposes no variable and no model
+choice that can widen any of it. `scripts/live-smoke.mjs` takes the model from that same object and
+refuses, at exit `78`, a `BHARATCODE_MODEL` that asks for another one. `stream` and `store` are not
+the script's to set: the adapter hard-codes them (`src/bharatcode/client.ts:956-957`), and the
+policy suite reads that file as well, so an artifact cannot describe a wire shape the shipped code
+no longer makes. `scripts/live-smoke.mjs` reads the authenticated
+catalog first and refuses a model it does not list (exit `79`) before it has asked for a
+completion, then makes the one request through the production adapter — never `fetch`, never a
+child process — and decides the outcome from the provider's own terminal event: a finish reason
+that is not `stop` is `INCOMPLETE` (exit `3`) and its partial text is never read, because a stream
+cut at a limit and a stream that answered cannot be told apart by their text. A run writes one
+sanitized JSON evidence file, re-reads every artifact file for the credential's bytes and removes
+them rather than uploading a dirty one, and prints its verdict as labelled lines. Every string the
+provider chooses — its finish reason, its model name, its answer text, the wording of a transport
+failure — is redacted and forced onto one line before it reaches the artifact or the log, because
+an answer that could open a second line could write its own `LIVE_SMOKE: PASS` into a job a reader
+trusts. The job
+holds `contents: read`, no GitHub token, and no repository-controlled command; the credential
+reaches exactly two steps, and the first of those is a preflight that refuses an unconfigured
+secret at exit `78` before install and build spend their minutes on it.
+
+**This has never been dispatched.** The switch defaults to `false`, the job only runs on `main`,
+and the operator's authorization for the specific run is a separate act.
+
+Tests: `tests/security/live-smoke-rules.test.ts` (the verdict matrix — in time, cut at the token
+limit while looking valid, no terminal event, completed but empty, late, and a clock that is
+missing; plus a planted finish reason carrying `\r\n` and a forged PASS line, which comes back as
+one line and `INCOMPLETE`) and `tests/security/live-smoke-workflow-policy.test.ts`, which reads the
+workflow, the script, the rules and the adapter as data and plants the mutations the guard exists
+for: a trigger that is not
+a manual switch, the switch defaulting to `true`, the credential reaching a build step, a widened
+scope, an unpinned action, a bound hardcoded beside the budget it should read, a second
+completion call site, a dispatch offering a model choice, a script that stops taking its model from
+the budget, an adapter that stops putting `store: false` on the wire, a provider string that stops
+being filtered, a passing exit no longer behind a PASS verdict, and a `SMOKE_BUDGET` field
+quietly widened. `tests/security/workflow-policy.test.ts` now lists `live-smoke.yml`, so the file
+cannot exist without this policy.
+
 ### Added — an approved page can become a draft pull request
 
 `mergesutra pr` could prepare and locally approve a page but had no remote: the only transport

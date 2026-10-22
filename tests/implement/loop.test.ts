@@ -713,6 +713,39 @@ describe('stopping, and what a stopped run keeps', () => {
     expect(harness.implementation.summary.modelRequests).toBe(0);
   });
 
+  it('refuses to carry out a write the provider never finished', async () => {
+    const client = scriptedClient([writeAction('src/new.ts', 'export const half = 1;\n')], {
+      finishReason: 'max_output_tokens',
+    });
+    const harness = await runLoop(tempDirs, [], { deps: { client } });
+
+    // The action parsed. That is the trap: a body cut off at the token limit can
+    // still look like a well-formed write, and only the provider's own
+    // attestation says the answer is not whole.
+    expect(harness.implementation.termination.kind).toBe('INCOMPLETE_OUTPUT');
+    expect(harness.implementation.status).toBe('INCONCLUSIVE');
+    expect(harness.implementation.termination.detail).toContain('max_output_tokens');
+    expect(harness.implementation.actions).toEqual([]);
+    expect(harness.implementation.changes).toEqual([]);
+    expect(existsSync(path.join(harness.root, 'src/new.ts'))).toBe(false);
+    // One request and no more: a truncated answer is the budget's failure, and
+    // asking again with the same budget is a second spend on the same nothing.
+    expect(client.calls).toHaveLength(1);
+    expect(harness.implementation.summary.modelRequests).toBe(1);
+  });
+
+  it('refuses to run a command the provider never finished', async () => {
+    const client = scriptedClient([checkAction(['npm', 'test'])], {
+      finishReason: 'max_output_tokens',
+    });
+    const harness = await runLoop(tempDirs, [], { deps: { client } });
+
+    expect(harness.implementation.termination.kind).toBe('INCOMPLETE_OUTPUT');
+    expect(harness.runner.calls).toEqual([]);
+    expect(harness.implementation.actions).toEqual([]);
+    expect(client.calls).toHaveLength(1);
+  });
+
   it('writes a valid record even when nothing at all was allowed to happen', async () => {
     const harness = await runLoop(tempDirs, ['not json at all', 'still not json']);
     const record = harness.implementation;

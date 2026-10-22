@@ -343,6 +343,46 @@ describe.skipIf(!AVAILABLE)('runRepairStage', () => {
     );
   });
 
+  /**
+   * The repair cycle is not a second loop with its own rules — Stage 9R calls the
+   * same `runImplementationLoop` Stage 6 runs. This test pins that shared identity
+   * where it matters most: a repair is the stage that already has approved edits
+   * queued, so a truncated answer there is the one a reader would least expect to
+   * be carried out.
+   */
+  it('refuses a repair write the model never finished, on the shared loop', async () => {
+    const fixture = await reviewedRun(tempDirs);
+    const before = fixture.gateCalls.length;
+    const client = scriptedClient(
+      [writeAction('src/scratch.ts', 'export const touched = 1;\n', [...fixture.criteria])],
+      { finishReason: 'max_output_tokens' },
+    );
+
+    const result = await runRepairStage(
+      { runId: fixture.record.runId, approvePlan: repairPlanDigest(fixture.plan) },
+      {
+        store: fixture.store,
+        client,
+        now: () => NOW,
+        runsRoot: fixture.runsRoot,
+        runFor: fixture.runFor,
+      },
+    );
+
+    expect(client.calls).toHaveLength(1);
+    await expect(
+      readFile(path.join(fixture.workspace, 'src/scratch.ts'), 'utf8'),
+    ).rejects.toThrow();
+    expect(result.execution?.patchChanged).toBe(false);
+    expect(result.round).toBeNull();
+    expect(fixture.gateCalls).toHaveLength(before);
+    // The cycle is still filed, because a request was spent and a human has to be
+    // able to see that it bought nothing.
+    expect(result.record.repairExecutions).toHaveLength(1);
+    expect(result.execution?.implementation.termination.kind).toBe('INCOMPLETE_OUTPUT');
+    expect(result.execution?.implementation.termination.detail).toContain('max_output_tokens');
+  });
+
   it('files a cycle a plan-brief refusal left no trace of, and does not re-verify it', async () => {
     const fixture = await reviewedRun(tempDirs);
     const before = fixture.gateCalls.length;

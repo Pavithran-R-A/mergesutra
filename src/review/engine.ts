@@ -36,6 +36,17 @@ import type { ReviewContext } from './context.js';
 /** Beyond this, an "answer" is a runaway generation, not a review worth parsing. */
 export const MAX_REVIEW_ANSWER_CHARS = 200_000;
 
+/**
+ * The ceiling handed to the endpoint for one review answer.
+ *
+ * The gateway will happily generate up to its published output limit if nothing
+ * asks it not to, and a runaway review is paid for twice: once in tokens and once
+ * in the run that waits on it. This number travels with every request the engine
+ * makes, including the schema-repair round trip, because a ceiling the repair can
+ * walk past is not a ceiling.
+ */
+export const REVIEW_MAX_OUTPUT_TOKENS = 8192;
+
 /** Round trips allowed after a schema refusal. One is enough to fix a shape. */
 export const REVIEW_SCHEMA_REPAIRS = 1;
 
@@ -145,6 +156,7 @@ export async function requestReview(
       answer = await deps.client.complete({
         messages: defaultRedactor.deep(messages),
         temperature: 0,
+        maxTokens: REVIEW_MAX_OUTPUT_TOKENS,
         ...(input.signal ? { signal: input.signal } : {}),
       });
     } catch (error) {
@@ -164,6 +176,17 @@ export async function requestReview(
     model = answer.model;
     promptTokens = answer.usage?.promptTokens ?? null;
     completionTokens = answer.usage?.completionTokens ?? null;
+
+    if (answer.finishReason !== 'stop') {
+      return outcome(
+        'REFUSED',
+        null,
+        `The reviewer's answer was cut short before it finished (finish reason: ` +
+          `${answer.finishReason ?? 'unknown'}). Its text was refused without being parsed, because ` +
+          'a review of part of a patch reads like a clean one, and no second request was made on ' +
+          'the same truncated budget.',
+      );
+    }
 
     if (answer.text.length > MAX_REVIEW_ANSWER_CHARS) {
       return outcome(

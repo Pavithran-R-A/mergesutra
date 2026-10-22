@@ -121,6 +121,43 @@ describe.skipIf(!AVAILABLE)('what a review request puts in front of the model', 
     expect(attempt.currentPatchIdentity).toBe(context.reviewedPatchIdentity);
   });
 
+  it('caps the reviewer at the output budget, including the schema-repair request', async () => {
+    const { fixture, context } = await oneReview();
+    const client = scriptedClient(['this is not a review', answerOn(fixture.criteria)]);
+
+    const attempt = await requestReview(
+      { context, currentPatchIdentity: stillPinned(context) },
+      { client },
+    );
+
+    expect(client.calls).toHaveLength(2);
+    expect(attempt.status).toBe('REVIEWED');
+    // A ceiling that only the first question carries is a ceiling the repair can
+    // walk past, so both turns must be bounded by the same number.
+    expect(client.calls.map((call) => call.maxTokens)).toEqual([8192, 8192]);
+  });
+
+  it('refuses a review the provider never finished, even when its JSON parses', async () => {
+    const { fixture, context } = await oneReview();
+    const client = scriptedClient([answerOn(fixture.criteria)], {
+      finishReason: 'max_output_tokens',
+    });
+
+    const attempt = await requestReview(
+      { context, currentPatchIdentity: stillPinned(context) },
+      { client },
+    );
+
+    // The finding list was well-formed and would have passed every check below
+    // it; a body the provider says it did not finish is not a second opinion on
+    // this patch, however readable the surviving text is.
+    expect(attempt.status).toBe('REFUSED');
+    expect(attempt.body).toBeNull();
+    expect(attempt.attempts).toBe(1);
+    expect(client.calls).toHaveLength(1);
+    expect(attempt.detail).toContain('max_output_tokens');
+  });
+
   it('records the id the endpoint answered with, not the one this run asked for', async () => {
     const { fixture, context } = await oneReview();
     const client = scriptedClient([answerOn(fixture.criteria)], {
