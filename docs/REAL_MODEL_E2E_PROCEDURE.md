@@ -227,6 +227,26 @@ name the gateway answered with and the usage it reported (`src/plan/plan.ts:181-
 implementation loop counts its requests (`src/implement/state.ts:134`). A gateway's own claim about
 which model served a request is provenance, not authority (S12-27).
 
+### The one-request smoke, which asks cheaper questions first
+
+`.github/workflows/live-smoke.yml` is not this chain. It answers one question — can this
+credential reach this route, and does the provider mark the answer complete — for one completion
+and nothing else, so it is the instrument for checking a route before committing to the
+12-completion, 25-minute run above. Its budget is `SMOKE_BUDGET` at
+`scripts/lib/live-smoke-rules.mjs:12`: one completion (`:14`), `max_output_tokens: 512` (`:15`),
+`temperature: 0`, reasoning off, streaming on, `store` off, a 90-second ceiling on the credentialed
+phase (`:22`) and zero retries. The workflow sets no variable that can widen any of those, and
+`scripts/live-smoke.mjs` takes every bound from that one frozen object.
+
+What it refuses, and with which exit code: a missing key is the product's own configuration
+refusal (`scripts/live-smoke.mjs:131`, exit `78`); a model the authenticated catalog does not list
+(`:174`) is refused at exit `79`, before any completion is asked; a stream that never reached
+`response.completed` is `INCOMPLETE` at exit `3` and its partial text is not read
+(`scripts/lib/live-smoke-rules.mjs:74`), because a cut stream and an answered one cannot be told
+apart by their text; and an artifact that still carries the credential's bytes is deleted rather
+than uploaded (`scripts/live-smoke.mjs:108`). It has been dispatched zero times, its switch
+defaults to off, and a run needs the operator's yes for that specific SHA.
+
 ## 6. The two approvals, and what they do not do
 
 `repair` and `pr` are the two commands that need a typed yes, and both take a 64-hex digest:
