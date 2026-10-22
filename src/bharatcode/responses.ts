@@ -11,12 +11,11 @@ import type { CompletionResult, ToolCall, Usage } from './types.js';
  * still an answer; a started stream that fails ends with `response.failed`; and queue
  * keepalive comments are not model output.
  *
- * The terminal response object is authoritative for the text it carries — it is the
- * provider's own final copy, not a reassembly of the deltas this side happened to
- * receive. When it offers no text part at all, the accumulated deltas are used instead,
- * because a gateway that streamed an answer and then summarized nothing has still
- * answered. A part that says the final text is empty is still the provider speaking, so
- * the answer stays empty rather than presenting deltas as a whole one.
+ * When the terminal response object carries a message, that message is the answer. It is
+ * the provider's own final copy — its text, an empty text, or its refusal — and the deltas
+ * this side happened to receive never stand in for it, so a partial stream cannot become a
+ * finished instruction. Deltas are used only when the terminal object carries no message at
+ * all: a gateway that streamed an answer and then summarized nothing has still answered.
  */
 
 interface ParsedResponse {
@@ -104,12 +103,14 @@ export function parseResponseObject(value: unknown): Outcome {
 
   const pieces: string[] = [];
   const calls: ToolCall[] = [];
+  let sawMessage = false;
   const output = response.output;
   if (Array.isArray(output)) {
     for (const item of output) {
       const entry = record(item);
       if (!entry) continue;
       if (entry.type === 'message') {
+        sawMessage = true;
         const content = entry.content;
         if (typeof content === 'string') {
           pieces.push(content);
@@ -120,6 +121,8 @@ export function parseResponseObject(value: unknown): Outcome {
           const piece = record(part);
           if (piece?.type === 'output_text' && typeof piece.text === 'string') {
             pieces.push(piece.text);
+          } else if (piece?.type === 'refusal' && typeof piece.refusal === 'string') {
+            pieces.push(piece.refusal);
           }
         }
         continue;
@@ -147,7 +150,7 @@ export function parseResponseObject(value: unknown): Outcome {
     kind: 'final',
     response: {
       status,
-      text: pieces.length === 0 ? undefined : pieces.join(''),
+      text: sawMessage ? pieces.join('') : undefined,
       model: text(response.model),
       finishReason,
       usage: parseUsage(response.usage),

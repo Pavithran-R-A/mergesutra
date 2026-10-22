@@ -202,7 +202,7 @@ describe('reading the documented stream', () => {
     expect(result.finishReason).toBe('stop');
   });
 
-  it('keeps the streamed deltas when the terminal message carries no part at all', async () => {
+  it('does not offer delta text as a finished answer when the terminal message speaks', async () => {
     const fixture = sseFetch(
       deltaEvent('streamed ') +
         deltaEvent('answer') +
@@ -218,7 +218,61 @@ describe('reading the documented stream', () => {
     const result = await clientWith(fixture.fetch).complete({
       messages: [{ role: 'user', content: 'shadowed' }],
     });
-    expect(result.text).toBe('streamed answer');
+    // The message is the provider's final copy and it contains nothing, so nothing is the
+    // answer. Reassembling deltas into a `stop` would let a partial become an instruction.
+    expect(result.text).toBe('');
+    expect(result.finishReason).toBe('stop');
+  });
+
+  it('reports a refusal as the answer, not the text streamed before it', async () => {
+    const fixture = sseFetch(
+      deltaEvent('streamed ') +
+        deltaEvent('answer') +
+        sseEvent('response.completed', {
+          type: 'response.completed',
+          response: {
+            status: 'completed',
+            model: 'bc-large',
+            output: [
+              {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'refusal', refusal: 'I will not help with that' }],
+              },
+            ],
+          },
+        }),
+    );
+    const result = await clientWith(fixture.fetch).complete({
+      messages: [{ role: 'user', content: 'refused' }],
+    });
+    // The decline is the provider's final copy, so it is what the caller gets to read —
+    // not the words streamed before it, and not silence.
+    expect(result.text).toBe('I will not help with that');
+    expect(result.finishReason).toBe('stop');
+  });
+
+  it('reports a refusal when nothing was streamed before it', async () => {
+    const fixture = sseFetch(
+      sseEvent('response.completed', {
+        type: 'response.completed',
+        response: {
+          status: 'completed',
+          model: 'bc-large',
+          output: [
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'refusal', refusal: 'I cannot do that' }],
+            },
+          ],
+        },
+      }),
+    );
+    const result = await clientWith(fixture.fetch).complete({
+      messages: [{ role: 'user', content: 'refused quietly' }],
+    });
+    expect(result.text).toBe('I cannot do that');
     expect(result.finishReason).toBe('stop');
   });
 
