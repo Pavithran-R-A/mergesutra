@@ -110,6 +110,10 @@ export class SseParser {
     this.eventName = undefined;
     this.dataLines = [];
     if (data.length === 0) return;
-    frames.push({ event: event === '' ? undefined : event, data: data.join('\n') });
+    // The format dispatches nothing when the data field is present but empty, so a bare
+    // `data:` heartbeat is not an event — and not a JSON parse failure.
+    const joined = data.join('\n');
+    if (joined === '') return;
+    frames.push({ event: event === '' ? undefined : event, data: joined });
   }
 }

@@ -201,6 +201,34 @@ describe('reading the documented stream', () => {
     expect(result.text).toBe('finished answer');
     expect(result.finishReason).toBe('stop');
   });
+
+  it('keeps the streamed deltas when the terminal message carries no text', async () => {
+    const fixture = sseFetch(
+      deltaEvent('streamed ') +
+        deltaEvent('answer') +
+        sseEvent('response.completed', {
+          type: 'response.completed',
+          response: {
+            status: 'completed',
+            model: 'bc-large',
+            output: [{ type: 'message', role: 'assistant', content: [] }],
+          },
+        }),
+    );
+    const result = await clientWith(fixture.fetch).complete({
+      messages: [{ role: 'user', content: 'shadowed' }],
+    });
+    expect(result.text).toBe('streamed answer');
+    expect(result.finishReason).toBe('stop');
+  });
+
+  it('does not read an empty data field as an event to parse', async () => {
+    const fixture = sseFetch('data:\n\n' + deltaEvent('kept') + completedEvent({ text: 'kept' }));
+    const result = await clientWith(fixture.fetch).complete({
+      messages: [{ role: 'user', content: 'heartbeat' }],
+    });
+    expect(result.text).toBe('kept');
+  });
 });
 
 describe('a response that stops at the output limit', () => {
@@ -308,6 +336,27 @@ describe('a response that fails', () => {
     expect(result.text).toBe('ok');
     expect(calls).toBe(2);
     expect(delays).toHaveLength(1);
+  });
+
+  it('is not retried when the provider blames the request or the account', async () => {
+    for (const code of [
+      'insufficient_quota',
+      'context_length_exceeded',
+      'data_inspection_failed',
+    ]) {
+      const fixture = sseFetch(failedEvent({ code, message: 'this request will never answer' }));
+      const { sleep, delays } = recordingSleeper();
+      const client = createBharatCodeClient({
+        config: baseConfig({ retry: { maxRetries: 2, baseDelayMs: 1, maxDelayMs: 1 } }),
+        fetch: fixture.fetch,
+        sleeper: sleep,
+      });
+      const error = await failure(client.complete({ messages: [{ role: 'user', content: 'go' }] }));
+      expect(error.kind, code).toBe('server');
+      expect(error.retryable, code).toBe(false);
+      expect(delays, code).toEqual([]);
+      expect(fixture.calls, code).toHaveLength(1);
+    }
   });
 });
 

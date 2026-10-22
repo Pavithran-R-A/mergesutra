@@ -13,8 +13,9 @@ import type { CompletionResult, ToolCall, Usage } from './types.js';
  *
  * The terminal response object is authoritative for the text it carries — it is the
  * provider's own final copy, not a reassembly of the deltas this side happened to
- * receive. When it carries no message, the accumulated deltas are used instead, because
- * a gateway that sent them and then summarized nothing has still answered.
+ * receive. When it carries no text — no message at all, or a message whose parts are
+ * empty — the accumulated deltas are used instead, because a gateway that sent them and
+ * then summarized nothing has still answered.
  */
 
 interface ParsedResponse {
@@ -100,7 +101,6 @@ export function parseResponseObject(value: unknown): Outcome {
     throw malformed('the response status was not a terminal one');
   }
 
-  let sawMessage = false;
   const pieces: string[] = [];
   const calls: ToolCall[] = [];
   const output = response.output;
@@ -109,7 +109,6 @@ export function parseResponseObject(value: unknown): Outcome {
       const entry = record(item);
       if (!entry) continue;
       if (entry.type === 'message') {
-        sawMessage = true;
         const content = entry.content;
         if (typeof content === 'string') {
           pieces.push(content);
@@ -147,7 +146,7 @@ export function parseResponseObject(value: unknown): Outcome {
     kind: 'final',
     response: {
       status,
-      text: sawMessage ? pieces.join('') : undefined,
+      text: text(pieces.join('')),
       model: text(response.model),
       finishReason,
       usage: parseUsage(response.usage),
@@ -157,12 +156,16 @@ export function parseResponseObject(value: unknown): Outcome {
 }
 
 /**
- * Client-side codes that describe the request rather than the service's condition, so a
- * retry would send the same request again rather than meet a different server.
+ * Client-side codes that describe the request or the account rather than the service's
+ * condition, so a retry would send the same request again rather than meet a different
+ * server. Quota, context-length and content-inspection refusals belong here: the next
+ * attempt carries the same tokens against the same limit.
  */
 function retryableFailure(code: string | undefined): boolean {
   if (code === undefined) return true;
-  return !/^(invalid|authentication|permission|not_found|content|unsupported|bad_)/i.test(code);
+  return !/^(invalid|authentication|permission|not_found|content|unsupported|bad_|insufficient|quota|billing|context_|data_inspection)/i.test(
+    code,
+  );
 }
 
 export class ResponseStream {
