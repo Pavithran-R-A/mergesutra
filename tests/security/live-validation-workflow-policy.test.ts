@@ -90,18 +90,20 @@ describe('the controlled live-validation workflow', () => {
     const modelStep = live.slice(live.indexOf('- name: Run the bounded real-model chain'));
     expect(modelStep).toContain('BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}');
     expect(modelStep).toContain('BHARATCODE_MODEL: ${{ inputs.model }}');
-    // Below the transport's own ceiling, not above it. Node's fetch aborts a
-    // non-streaming request whose answer never starts at ~300s with
-    // UND_ERR_HEADERS_TIMEOUT, whichever way this setting is configured — the completion
-    // request sends no `stream` flag, so the response headers arrive only when the whole
-    // answer is ready and this cap can never be the thing that waits longer. Proved
+    // Below the transport's own ceiling, not above it. Node's fetch aborts a request whose
+    // response headers never arrive at ~300s with
+    // UND_ERR_HEADERS_TIMEOUT, whichever way this setting is configured — the bound is the
+    // transport's, so this cap can never be the thing that waits longer than it. Proved
     // offline on this host: a local listener that accepts a connection and never answers,
     // Node 24 `fetch`, this variable set above the bound — rejected at about 306s with the
     // abort reason still our own sentinel unused. Run 39460563729 filled 304.5s of step
     // time with a network failure while this said 540000. A cap at exactly 300000 loses
     // that race nondeterministically (run 39445715858 reported the same wall of time as a
     // timeout), so the live job sets one below it and the failure names the budget
-    // reached. The driver runs the chain against the 25-minute wall clock: it will not
+    // reached. The route answers as a stream, so once the stream opens this budget is
+    // enforced on every read of the answer; the bound that still caps the figure is the
+    // one before the headers arrive.
+    // The driver runs the chain against the 25-minute wall clock: it will not
     // start a command once the clock is spent and gives each one the time left on it.
     expect(modelStep).toContain("BHARATCODE_TIMEOUT_MS: '290000'");
     expect(modelStep).toContain("BHARATCODE_MAX_RETRIES: '0'");
@@ -110,7 +112,9 @@ describe('the controlled live-validation workflow', () => {
   it('states the transport bound instead of promising a cap it cannot honour', () => {
     // The defect this catches is the one shipped in PR #46: a comment here and a claim in
     // README.md that a larger per-request cap buys patience, when the transport settles a
-    // non-streaming request at ~300s regardless. Every file that documents the variable
+    // request whose headers never arrive at ~300s regardless — the bound is the transport's
+    // on the headers, whichever shape the request asks the answer to arrive in. Every file
+    // that documents the variable
     // makes the promise, so all of them are swept together — the procedure document is the
     // one an operator follows by hand, and it is where the figure is actually configured.
     const prose = `${WORKFLOW}\n${README}\n${PROCEDURE}`;
