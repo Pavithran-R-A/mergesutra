@@ -369,8 +369,9 @@ The rest of the application depends only on the `BharatCodeClient` interface —
 `listModels`, `complete`, `completeStructured`, `healthCheck` — never on HTTP
 details. `fetch`, the sleeper, and the randomness source are injected so the
 entire adapter is offline-testable. This keeps MergeSutra free of any hardcoded
-provider assumption while still defaulting to BharatCode's documented
-OpenAI-compatible API at `https://bharatcode.ai/api/model/v1`.
+provider assumption while still defaulting to BharatCode's documented Responses
+API at `https://bharatcode.ai/api/model/v1`, whose `POST /responses` answers as
+a server-sent event stream.
 
 `mergesutra plan` is the first consumer, and it uses `complete` only: one
 unstructured request whose answer must parse and validate, because

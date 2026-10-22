@@ -2,36 +2,31 @@ import { describe, expect, it } from 'vitest';
 import { createBharatCodeClient, type FetchLike } from '../../src/bharatcode/client.js';
 import type { BharatCodeClientConfig } from '../../src/bharatcode/types.js';
 import { fakeFetch, TEST_KEY } from '../helpers/fetch.js';
+import { completedEvent, deltaEvent } from '../helpers/sse.js';
 
 /**
  * S12-15 — how much of a response body the adapter is willing to hold.
  *
- * `rawRequest` read the body with `await response.text()`, which asks the endpoint for as
- * much as the endpoint wants to send. Everything downstream of it is careful — the error
- * detail is clipped at 500 chars, the schema strips unknown fields, Zod refuses a
- * mis-shaped object — but the read itself had no ceiling, so the one thing a remote could
- * still dictate to this process was how many bytes it materialises before being turned down.
- *
- * The measurements here are therefore not about the error's wording. Each scripted endpoint
- * counts the bytes it has handed over, whichever method the adapter used to take them, so a
- * run that drains the whole body fails on the counter even if it happens to end up with the
- * right error class. The `text()` half of every script reads the same stream the `body` half
- * does, exactly as a real `Response` would: there is no version of this where ignoring the
- * bound is silently cheaper.
+ * The Responses transport reads an event stream, and the ceiling has to be a limit on
+ * memory rather than on what gets parsed: text deltas arrive frame by frame, so a reader
+ * that concatenated first and validated later would let an endpoint decide how many bytes
+ * this process materialises. The measurements here are therefore not about the error's
+ * wording. Each scripted endpoint counts the bytes it has handed over, whichever property
+ * the adapter reached for, so a run that drains the whole body fails on the counter even
+ * if it happens to end up with the right error class.
  *
  * Five claims, in the order a hostile endpoint would be met:
  *
  * 1. A body that never stops is refused, and the read is *stopped* — bytes stop being
  *    requested and the stream reports a cancellation.
- * 2. The bound is a real boundary: a response of exactly that size is read and parsed, one
- *    byte more is refused for being over the bound rather than for being unparseable.
+ * 2. The bound is a real boundary: a stream of exactly that size is read to its terminal
+ *    event, one byte more is refused for being over the bound rather than for being
+ *    unparseable.
  * 3. A 5xx whose error page is over the bound is still the 5xx error, still retryable, still
  *    with a short body excerpt — hitting the ceiling must not cost the caller the status.
- * 4. A read interrupted by the request's own timeout is reported as that interruption. The
- *    old `.catch(() => '')` turned "the body never arrived" into "the body was empty", which
- *    the adapter then described as a non-JSON response and refused to retry.
- * 5. Normal traffic is unharmed on both shapes of response: one that exposes a stream and
- *    one that only offers `text()`.
+ * 4. A buffered JSON response one byte past the bound is refused before it is parsed.
+ * 5. Normal traffic is unharmed on both shapes: a stream that carries deltas, and a
+ *    response that only offers `text()` with a whole response object.
  */
 
 /** The bound this stage fixes as the contract, in bytes. */
@@ -61,16 +56,17 @@ interface Delivered {
   cancelled: boolean;
 }
 
-function completionJson(content: string): string {
-  return `{"choices":[{"message":{"role":"assistant","content":${JSON.stringify(
-    content,
-  )}},"finish_reason":"stop"}],"model":"bc-large"}`;
+/** A complete, well-formed SSE response whose text is `text`. */
+function sseCompletion(text: string): string {
+  return deltaEvent(text) + completedEvent({ text });
 }
 
-/** A well-formed completion whose serialized body is exactly `bytes` long (ASCII padding). */
-function completionOfByteLength(bytes: number): string {
-  const overhead = completionJson('').length;
-  return completionJson('x'.repeat(Math.max(0, bytes - overhead)));
+/** A well-formed SSE response whose serialized body is exactly `bytes` long (ASCII padding). */
+function sseCompletionOfByteLength(bytes: number, text = 'bounded'): string {
+  const frames = sseCompletion(text);
+  const padding = bytes - frames.length;
+  if (padding < 3) throw new Error('the requested size is too small to hold the fixture');
+  return `:${'x'.repeat(padding - 3)}\n\n${frames}`;
 }
 
 interface Script {
@@ -94,6 +90,10 @@ function scriptedFetch(script: Script): { fetch: FetchLike; delivered: Delivered
   const filler = new Uint8Array(size).fill(0x61);
   const bytes = typeof script.body === 'string' ? ENCODER.encode(script.body) : new Uint8Array(0);
   const total = typeof script.body === 'string' ? bytes.byteLength : script.body.endless;
+  const headers: Record<string, string> = {
+    'content-type': 'text/event-stream',
+    ...script.headers,
+  };
 
   const makeStream = () => {
     let offset = 0;
@@ -123,8 +123,7 @@ function scriptedFetch(script: Script): { fetch: FetchLike; delivered: Delivered
       ok: script.ok,
       status: script.status,
       headers: {
-        get: (name: string) =>
-          script.headers?.[name] ?? script.headers?.[name.toLowerCase()] ?? null,
+        get: (name: string) => headers[name] ?? headers[name.toLowerCase()] ?? null,
       },
       body: stream,
       text: async () => {
@@ -152,8 +151,8 @@ function scriptedFetch(script: Script): { fetch: FetchLike; delivered: Delivered
  * A response whose body stalls until the request's own signal aborts, then fails.
  *
  * This is a server that sends headers, starts a body, and stops talking — the shape that
- * `timeoutMs` exists for. Both read paths stall the same way, because the claim is about
- * what the adapter concludes, not about which method it used.
+ * `timeoutMs` exists for. It exposes no content type, so the adapter takes the buffered
+ * path; the mid-stream timeout on an event stream is covered in `responses-stream.test.ts`.
  */
 function stallingFetch(): { fetch: FetchLike; aborts: { count: number } } {
   const aborts = { count: 0 };
@@ -209,20 +208,20 @@ describe('a response body that does not stop', () => {
     expect(delivered.cancelled).toBe(true);
   });
 
-  it('reads a body of exactly the bound, and refuses one byte past it', async () => {
+  it('reads a stream of exactly the bound, and refuses one byte past it', async () => {
     const exact = scriptedFetch({
       ok: true,
       status: 200,
-      body: completionOfByteLength(CAP),
+      body: sseCompletionOfByteLength(CAP),
     });
     const client = createBharatCodeClient({ config: config(), fetch: exact.fetch });
     const result = await client.complete({ messages: [{ role: 'user', content: 'go' }] });
-    expect(result.text.length).toBe(CAP - completionJson('').length);
+    expect(result.text).toBe('bounded');
 
     const over = scriptedFetch({
       ok: true,
       status: 200,
-      body: completionOfByteLength(CAP + 1),
+      body: sseCompletionOfByteLength(CAP + 1),
     });
     const second = createBharatCodeClient({ config: config(), fetch: over.fetch });
     const error = await second
@@ -242,7 +241,9 @@ describe('a response body that does not stop', () => {
     // client sees it, so the bound here is on what gets parsed and kept, not on what is
     // allocated. The case exists so that weaker guarantee is still a guarantee, and is
     // still checked, rather than a branch nobody exercises.
-    const { fetch } = fakeFetch([{ ok: true, status: 200, raw: completionOfByteLength(CAP + 1) }]);
+    const { fetch } = fakeFetch([
+      { ok: true, status: 200, raw: sseCompletionOfByteLength(CAP + 1) },
+    ]);
     const client = createBharatCodeClient({ config: config(), fetch });
     const error = await client
       .complete({ messages: [{ role: 'user', content: 'go' }] })
@@ -270,7 +271,12 @@ describe('a response body that does not stop', () => {
 
   it('still calls an over-bound HTML page an invalid response, and quotes it briefly', async () => {
     const page = `<html><body>${'<p>proxy</p>'.repeat(400)}</body></html>`.padEnd(CAP + 1024, ' ');
-    const { fetch, delivered } = scriptedFetch({ ok: true, status: 200, body: page });
+    const { fetch, delivered } = scriptedFetch({
+      ok: true,
+      status: 200,
+      body: page,
+      headers: { 'content-type': 'text/html' },
+    });
     const client = createBharatCodeClient({ config: config(), fetch });
     const error = await client
       .complete({ messages: [{ role: 'user', content: 'go' }] })
@@ -297,17 +303,17 @@ describe('a body that stops arriving', () => {
 });
 
 describe('ordinary traffic on both shapes of response', () => {
-  it('parses a completion that arrives as a stream', async () => {
-    const { fetch, delivered } = scriptedFetch({
+  it('parses a completion that arrives as an event stream', async () => {
+    const { fetch } = scriptedFetch({
       ok: true,
       status: 200,
-      body: completionJson('hello from the other side'),
+      body: sseCompletion('hello from the other side'),
       chunk: 16,
     });
     const client = createBharatCodeClient({ config: config(), fetch });
     const result = await client.complete({ messages: [{ role: 'user', content: 'go' }] });
     expect(result.text).toBe('hello from the other side');
-    expect(delivered.cancelled).toBe(false);
+    expect(result.finishReason).toBe('stop');
   });
 
   it('parses a completion from a response that only offers text()', async () => {
@@ -316,10 +322,9 @@ describe('ordinary traffic on both shapes of response', () => {
         ok: true,
         status: 200,
         body: {
-          choices: [
-            { message: { role: 'assistant', content: 'no stream here' }, finish_reason: 'stop' },
-          ],
+          status: 'completed',
           model: 'bc-large',
+          output: [{ type: 'message', content: [{ type: 'output_text', text: 'no stream here' }] }],
         },
       },
     ]);

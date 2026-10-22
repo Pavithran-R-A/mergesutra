@@ -9,6 +9,7 @@ import { AppError } from '../../src/core/errors.js';
 import { Redactor } from '../../src/security/redaction.js';
 import { cleanUp, contractBackedRun, NOW } from '../helpers/plan.js';
 import { planBodyFor } from '../helpers/bharatcode.js';
+import { completedEvent } from '../helpers/sse.js';
 
 /**
  * What a live run puts on the wire, and what it does with what comes back.
@@ -51,7 +52,7 @@ let server: Server | null = null;
 const tempDirs: string[] = [];
 
 async function openGateway(
-  answer: (request: Captured) => { status: number; body: string },
+  answer: (request: Captured) => { status: number; body: string; contentType?: string },
 ): Promise<Gateway> {
   const seen: Captured[] = [];
   const listener = createServer((req, res) => {
@@ -65,7 +66,7 @@ async function openGateway(
       };
       seen.push(request);
       const reply = answer(request);
-      res.writeHead(reply.status, { 'content-type': 'application/json' });
+      res.writeHead(reply.status, { 'content-type': reply.contentType ?? 'application/json' });
       res.end(reply.body);
     });
   });
@@ -76,13 +77,7 @@ async function openGateway(
 }
 
 function completion(content: string, model = 'bharatcode-loopback-model'): string {
-  return JSON.stringify({
-    id: 'chatcmpl-loopback',
-    object: 'chat.completion',
-    model,
-    choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }],
-    usage: { prompt_tokens: 120, completion_tokens: 40, total_tokens: 160 },
-  });
+  return completedEvent({ text: content, model });
 }
 
 async function envFor(base: string): Promise<NodeJS.ProcessEnv> {
@@ -118,7 +113,7 @@ describe('the credential a live run sends', () => {
     );
 
     expect(gateway.seen).toHaveLength(1);
-    expect(gateway.seen[0]!.path).toBe('/v1/chat/completions');
+    expect(gateway.seen[0]!.path).toBe('/v1/responses');
     expect(gateway.seen[0]!.authorization).toBe(`Bearer ${SENTINEL}`);
     // The prompt is not a place a credential belongs either.
     expect(gateway.seen[0]!.body).not.toContain(SENTINEL);
@@ -166,6 +161,7 @@ describe('a gateway that puts the credential in the completion', () => {
     const gateway = await openGateway(() => ({
       status: 200,
       body: completion(JSON.stringify(echoed)),
+      contentType: 'text/event-stream',
     }));
 
     const result = await runPlanStage(
@@ -202,6 +198,7 @@ describe('a gateway that puts the credential in the completion', () => {
     const gateway = await openGateway(() => ({
       status: 200,
       body: completion(JSON.stringify(echoed)),
+      contentType: 'text/event-stream',
     }));
 
     const result = await runPlanStage(

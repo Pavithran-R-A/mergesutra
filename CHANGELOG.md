@@ -6,6 +6,40 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed — the BharatCode adapter reads the documented Responses stream
+
+The adapter POSTed a chat-completions shape and read one JSON body. BharatCode's current
+documentation describes `POST /responses` with `instructions` and `input`, `store:false`,
+`stream:true`, and server-sent events. `src/bharatcode/client.ts` now sends that request and
+reads the answer incrementally: `response.output_text.delta` frames build the text, a queue
+keepalive comment is not output, `response.completed`/`response.incomplete` finish the answer
+with the provider's own final copy and usage, and `response.failed` is reported as a bounded
+server failure that is retried only when no text was produced. The byte bound applies to socket
+bytes before decoding; cancellation races every read; a gateway that answers with one JSON
+object instead of SSE is still accepted, because both shapes are documented outcomes of the
+same route. A bare `[DONE]` sentinel is refused: it belongs to the chat-completions wire, not
+to this route's terminal events, so it cannot stand in for a missing `response.completed` and
+stamp `stop` on partial delta text. A message in the terminal object is the answer whenever
+there is one — its text, an empty text, or its refusal — so words streamed before it cannot be
+relabeled a finished answer and a decline is visible downstream instead of dropped. A message
+part that names itself `output_text` or `refusal` but carries no readable string is refused as a
+malformed response rather than answered with silence. Deltas are used only when the terminal
+object carries no message at all, because a gateway that streamed an answer and summarized it as
+nothing has still answered. A failure whose code blames the request or
+the account — quota, context length, content inspection — is not retried, so a permanent refusal
+does not spend twice and is not described as temporary unavailability.
+`completeStructured` refuses a non-`stop` finish reason before parsing, so an answer cut at
+`max_output_tokens` is reported as the token limit rather than as malformed JSON.
+
+`src/bharatcode/sse.ts` (incremental framing, where an empty `data:` field dispatches no event as the
+format requires) and `src/bharatcode/responses.ts` (terminal
+objects, failures and tool calls) are new. Tool calls are exposed only for a completed
+response, and the existing command contracts and schema validation are unchanged.
+Tests: `tests/bharatcode/responses-stream.test.ts` (framing, terminals, failures, retries and
+the buffered fallback), `client.test.ts`, `response-size.test.ts` and `loopback-leak.test.ts`;
+`scripts/lib/scripted-gateway.mjs` answers the same route as SSE, so the zero-spend
+demonstration still exercises the production adapter.
+
 ### Added — an approved page can become a draft pull request
 
 `mergesutra pr` could prepare and locally approve a page but had no remote: the only transport
@@ -30,6 +64,17 @@ paths), `tests/pr/record.test.ts` (strict result schema, including refusal of `d
 non-https URLs) and `tests/pr/boundaries.test.ts` (only the `--publish` CLI path imports the
 transport). No live draft pull request has been opened by this tree at the time of writing; the
 controlled demonstration is a separate, human-approved step.
+
+### Fixed — `doctor --connect` now asks BharatCode
+
+The reachability row was only ever wired in tests. `src/cli/doctor.ts` asked its injectable
+`makeClient` whether to probe, but no production caller supplied one, so the shipped command
+printed `SKIP · not configured` and exited 0 while a key was present — and the live chain read
+that exit as a passed preflight. `runDoctor` now falls back to
+`createBharatCodeClient({ config })`, the same factory the model stages use; without a key the
+row is still `SKIP`, and without `--connect` nothing is sent. `tests/cli/doctor.test.ts` stubs
+the global fetch, runs the command with no injected factory, and asserts the one request goes to
+`<base>/models` and the row reports `PASS`. No live request was made to write this test.
 
 ### Fixed — Stage 14 qualification: a run ended on a tally meant to be a streak
 

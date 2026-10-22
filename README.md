@@ -1647,9 +1647,10 @@ about a remote is that it did not touch one.
 
 BharatCode is the intelligence; MergeSutra is the workflow/safety/evidence
 harness above it. All model access goes through a single adapter
-(`src/bharatcode/client.ts`) over BharatCode's documented OpenAI-compatible API
-(`https://bharatcode.ai/api/model/v1`), with model discovery, typed requests,
-bounded retries honouring `Retry-After`, timeouts and cancellation.
+(`src/bharatcode/client.ts`) over BharatCode's documented Responses API
+(`https://bharatcode.ai/api/model/v1`), which answers `POST /responses` as a
+server-sent event stream, with model discovery, typed requests, bounded
+retries honouring `Retry-After`, timeouts and cancellation.
 Credentials come **only** from `BHARATCODE_API_KEY` (environment) — never
 arguments, fixtures, logs, reports, or screenshots. Two mechanical properties,
 recorded under that variable in [Configuration](#configuration), are what keeps

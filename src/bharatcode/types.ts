@@ -54,9 +54,9 @@ export interface CompletionRequest {
   readonly temperature?: number;
   readonly maxTokens?: number;
   /**
-   * Optional chat-template hint for models that expose a thinking mode.
-   * The adapter maps this to the OpenAI-compatible server's chat_template_kwargs;
-   * omit it to preserve the provider default.
+   * Optional thinking preference. `false` is sent as `reasoning: { effort: "none" }`;
+   * `true` or `undefined` leaves the provider default in place, because the documented
+   * API offers effort levels rather than a boolean and this adapter does not invent one.
    */
   readonly enableThinking?: boolean;
   readonly signal?: AbortSignal;
@@ -68,11 +68,26 @@ export interface Usage {
   readonly totalTokens: number;
 }
 
+/**
+ * A function call the model asked for, never executed here.
+ *
+ * The arguments stay the raw JSON string the model produced: validating them is the
+ * caller's job, and parsing them in the adapter would turn a malformed call into a
+ * different failure than the one the stream actually carried.
+ */
+export interface ToolCall {
+  readonly callId: string;
+  readonly name: string;
+  readonly arguments: string;
+}
+
 export interface CompletionResult {
   readonly text: string;
   readonly model: string;
   readonly finishReason: string | null;
   readonly usage?: Usage;
+  /** Present only for a completed response that asked for one or more function calls. */
+  readonly toolCalls?: readonly ToolCall[];
 }
 
 /** A JSON-schema-like descriptor handed to `completeStructured`. */

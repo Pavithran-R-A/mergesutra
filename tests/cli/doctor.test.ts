@@ -65,6 +65,36 @@ describe('runDoctor', () => {
     expect(statusOf(checks, 'BharatCode reach')).toBe('PASS');
   });
 
+  it('builds the production client when connect is requested and no factory is injected', async () => {
+    // The shipped command has no dependency injection, so this is the only place the
+    // production wiring is exercised: with a key present, --connect must actually ask
+    // /models rather than report a SKIP that the live chain would read as a pass.
+    const original = globalThis.fetch;
+    let requested: string | undefined;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested = String(input);
+      return new Response(JSON.stringify({ object: 'list', data: [{ id: 'qwen-3.8-27b' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+    try {
+      const checks = await runDoctor({
+        env: {
+          BHARATCODE_API_KEY: KEY,
+          BHARATCODE_API_BASE: 'https://bharatcode.test/api/model/v1',
+        },
+        run: okRunner,
+        nodeVersion: '24.0.0',
+        connect: true,
+      });
+      expect(statusOf(checks, 'BharatCode reach')).toBe('PASS');
+      expect(requested).toBe('https://bharatcode.test/api/model/v1/models');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it('flags an old Node runtime', async () => {
     const checks = await runDoctor({ env: {}, run: okRunner, nodeVersion: '18.0.0' });
     expect(statusOf(checks, 'Node')).toBe('FAIL');

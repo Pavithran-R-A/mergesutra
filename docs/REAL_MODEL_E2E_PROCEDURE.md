@@ -32,7 +32,7 @@ general tutorial; `README.md` is that, and where the two disagree the screens pr
 | `BHARATCODE_API_KEY` | `src/config/load-config.ts:74` | yes, for `plan`, `implement`, `review`, `repair` | `doctor` FAILs that row; `plan` exits 78 before asking anything (§4) |
 | `BHARATCODE_MODEL` | `src/config/load-config.ts:91` | yes | `plan` has no `--model` flag, so the chain's fourth step ends in a configuration refusal |
 | `BHARATCODE_API_BASE` | `src/config/load-config.ts:38` | no | defaults to `https://bharatcode.ai/api/model/v1` (`src/bharatcode/types.ts:9`) |
-| `BHARATCODE_TIMEOUT_MS`, `BHARATCODE_MAX_RETRIES` | `src/config/load-config.ts:70-71` | no | `60000` ms and `3`; the live job sets `290000` and `0`. A larger value buys nothing: Node's fetch settles an unanswered non-streaming request at its own ~300 s bound (`UND_ERR_HEADERS_TIMEOUT`), and a completion sends headers only once the whole answer is ready |
+| `BHARATCODE_TIMEOUT_MS`, `BHARATCODE_MAX_RETRIES` | `src/config/load-config.ts:70-71` | no | `60000` ms and `3`; the live job sets `290000` and `0`. The Responses route answers as a stream, so headers arrive when the stream opens and this budget is enforced on every read for the whole answer. Before the headers arrive, Node's fetch still gives up at its own ~300 s `UND_ERR_HEADERS_TIMEOUT`, which no larger value here can raise |
 | `BHARATCODE_RETRY_BASE_MS`, `BHARATCODE_RETRY_MAX_MS` | `src/config/load-config.ts:95-100` | no | 500 ms and 15 000 ms |
 | `NO_COLOR` | `src/cli/render.ts:41` | no | colour stays on |
 
@@ -187,19 +187,24 @@ The ceilings are code, not estimates:
 | every other verb | 0 | — |
 
 One pass of §4, with the budgets that procedure types, therefore asks the model **at most 20
-times** (2 + 8 + 2 + 6 + 2), and the shipped defaults would allow 26. `resume` may re-enter a
-stage, but it re-enters the budget the record already holds and cannot raise a ceiling
-(`src/lifecycle/budget.ts`), so a recovered run does not silently double the bill.
+times** (2 + 8 + 2 + 6 + 2), and the shipped defaults would allow 26. The hosted live chain runs
+only `plan`, `implement` and `review`, so its own ceiling is **12** (2 + 8 + 2), enforced by
+`MAX_MODEL_COMPLETIONS` in `scripts/lib/live-qualification.mjs`; the other 8 belong to a repair
+and re-review a person would run afterwards. `resume` may re-enter a stage, but it re-enters the
+budget the record already holds and cannot raise a ceiling (`src/lifecycle/budget.ts`), so a
+recovered run does not silently double the bill.
 
-Two things this build cannot bound, stated because the ceiling above is otherwise misleading:
+What this build bounds, and what it does not:
 
-- **Tokens.** No call site sets `max_tokens` (`src/bharatcode/types.ts:55` declares it and nothing
-  passes it), so per-answer length is the gateway's default. What MergeSutra does bound is what a
-  single answer may be before it is refused as too large: 96 KB for an implementation turn
-  (`src/implement/limits.ts:58`), 64 KB for a repair turn (`src/repair/limits.ts:42`).
-- **Money.** The cost in your currency is that many requests at your provider's price, which this
-  repository cannot see. Set the ceiling before the run, in requests or in your own billing terms,
-  and treat 20 requests as the plan.
+- **Output tokens.** `plan` and `implement` send `max_output_tokens: 4096` on every request
+  (`src/plan/plan.ts:245`, `src/implement/loop.ts:276`), so ten of the hosted chain's twelve
+  completions are capped at 40,960 output tokens in all. `review` sends no token limit
+  (`src/review/engine.ts:145`); its two answers are bounded only on receipt, at 200,000
+  characters each (`src/review/engine.ts:37`), after the provider has already produced them.
+- **Money.** The cost in your currency is the provider's price for the usage the record reports,
+  which this repository cannot see. Set the ceiling before the run, in requests or in your own
+  billing terms. The dispatched workflow's hard stops are 12 completions, 25 minutes of chain
+  wall clock, 290 s per request and zero retries.
 
 Recommended hard stop: end the run at 20 completions or 10 minutes of wall clock, whichever comes
 first. The loop also stops itself at 8 minutes per `implement` entry

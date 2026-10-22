@@ -18,10 +18,15 @@ function baseConfig(over: Partial<BharatCodeClientConfig> = {}): BharatCodeClien
   };
 }
 
-const completionBody = {
-  choices: [{ message: { role: 'assistant', content: 'hi there' }, finish_reason: 'stop' }],
-  model: 'bc-large',
-};
+function responsesBody(text: string) {
+  return {
+    status: 'completed',
+    model: 'bc-large',
+    output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }],
+  };
+}
+
+const completionBody = responsesBody('hi there');
 
 /**
  * A credential-shaped value that matches none of the global secret patterns.
@@ -83,14 +88,12 @@ describe('the endpoints a default-configured client calls', () => {
     expect(calls.map((call) => call.url)).toEqual(['https://bharatcode.ai/api/model/v1/models']);
   });
 
-  it('asks the same host for a completion, at <base>/chat/completions', async () => {
+  it('asks the same host for a completion, at <base>/responses', async () => {
     const { fetch, calls } = fakeFetch([{ ok: true, status: 200, body: completionBody }]);
 
     await defaults(fetch).complete({ messages: [{ role: 'user', content: 'ping' }] });
 
-    expect(calls.map((call) => call.url)).toEqual([
-      'https://bharatcode.ai/api/model/v1/chat/completions',
-    ]);
+    expect(calls.map((call) => call.url)).toEqual(['https://bharatcode.ai/api/model/v1/responses']);
   });
 
   it('carries an overridden base through to both, without doubling a slash', async () => {
@@ -112,7 +115,7 @@ describe('the endpoints a default-configured client calls', () => {
 
     expect(calls.map((call) => call.url)).toEqual([
       'https://staging.example/api/model/v1/models',
-      'https://staging.example/api/model/v1/chat/completions',
+      'https://staging.example/api/model/v1/responses',
     ]);
   });
 });
@@ -127,7 +130,7 @@ describe('BharatCodeClient.complete', () => {
     expect(res.finishReason).toBe('stop');
   });
 
-  it('maps an explicit thinking preference into chat_template_kwargs', async () => {
+  it('maps an explicit thinking preference into the documented reasoning effort', async () => {
     const { fetch, calls } = fakeFetch([{ ok: true, status: 200, body: completionBody }]);
     const client = createBharatCodeClient({ config: baseConfig(), fetch });
 
@@ -138,8 +141,8 @@ describe('BharatCodeClient.complete', () => {
     });
 
     const body = JSON.parse(calls[0]?.init?.body ?? '{}');
-    expect(body.max_tokens).toBe(4096);
-    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(body.max_output_tokens).toBe(4096);
+    expect(body.reasoning).toEqual({ effort: 'none' });
   });
 
   it('requires a model selection', async () => {
@@ -1124,9 +1127,7 @@ describe('completeStructured (model output is untrusted)', () => {
 
   it('parses and validates well-formed structured output', async () => {
     const content = JSON.stringify({ answer: 42, ok: true });
-    const { fetch } = fakeFetch([
-      { ok: true, status: 200, body: { choices: [{ message: { content } }] } },
-    ]);
+    const { fetch } = fakeFetch([{ ok: true, status: 200, body: responsesBody(content) }]);
     const client = createBharatCodeClient({ config: baseConfig(), fetch });
     const value = await client.completeStructured({
       messages: [{ role: 'user', content: 'give JSON' }],
@@ -1137,9 +1138,7 @@ describe('completeStructured (model output is untrusted)', () => {
 
   it('flags schema-mismatched structured output as a validation error', async () => {
     const content = JSON.stringify({ answer: 'nope', ok: true });
-    const { fetch } = fakeFetch([
-      { ok: true, status: 200, body: { choices: [{ message: { content } }] } },
-    ]);
+    const { fetch } = fakeFetch([{ ok: true, status: 200, body: responsesBody(content) }]);
     const client = createBharatCodeClient({ config: baseConfig(), fetch });
     const err = await client
       .completeStructured({
@@ -1152,7 +1151,7 @@ describe('completeStructured (model output is untrusted)', () => {
 
   it('rejects non-JSON structured output', async () => {
     const { fetch } = fakeFetch([
-      { ok: true, status: 200, body: { choices: [{ message: { content: 'not json at all' } }] } },
+      { ok: true, status: 200, body: responsesBody('not json at all') },
     ]);
     const client = createBharatCodeClient({ config: baseConfig(), fetch });
     await expect(
