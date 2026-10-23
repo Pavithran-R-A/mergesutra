@@ -62,8 +62,9 @@ becomes a PR."*
 > (`run-20261021T115401Z-ea10b8`, 21 October 2026, source `eba29b7`) passed both
 > gates, the independent oracle passed all five criteria, review recorded zero
 > findings, and a digest-bound approval was filed without publishing. An
-> 88-second transcript-cut video accompanies the submission; it is selected
-> verbatim stdout, not a screen recording. See [docs/DEMO.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DEMO.md) for
+> [88-second transcript-cut video](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/assets/merge-sutra-demo-88s.mp4)
+> accompanies the submission; it is selected verbatim stdout, not a screen
+> recording, and carries a persistent **SCRIPTED-MODEL** banner. See [docs/DEMO.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DEMO.md) for
 > that run's facts, the reproducible procedure, and the earlier full-repository
 > attempt that honestly failed.
 >
@@ -171,6 +172,11 @@ run's own screens, selected and reflowed, with a persistent SCRIPTED banner, not
 screen recording.
 [docs/DEMO.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DEMO.md) records the facts and the generation method.
 
+- Video (public copy): [docs/assets/merge-sutra-demo-88s.mp4](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/assets/merge-sutra-demo-88s.mp4)
+  — 87.97 s, 1920×1080, persistent SCRIPTED banner
+- Transcript beside it: [docs/assets/merge-sutra-demo-transcript.txt](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/assets/merge-sutra-demo-transcript.txt)
+  — the run's transcript with operator paths replaced by `<scripted-demo-evidence>`
+  and `.mergesutra/runs/`
 - Harness: [scripts/demo-scripted-journey.mjs](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/scripts/demo-scripted-journey.mjs)
 - Procedure, capture map and recording notes: [docs/DEMO.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DEMO.md)
 - Evidence written by a run: `summary.json`, `transcript.txt`, `PROCEDURE.md` and

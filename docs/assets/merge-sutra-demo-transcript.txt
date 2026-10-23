@@ -1,0 +1,1059 @@
+
+==============================================================================
+MergeSutra — Scripted-model demonstration
+Issue in. Evidence-backed PR out.
+
+MODEL: a deterministic local stand-in, answered by scripts/lib/scripted-gateway.mjs.
+Everything else is the production CLI (dist/bin.js), real Git, and the repository
+own gates in the digest-pinned container. This demonstrates the workflow, not a
+model's competence; the dated real-BharatCode run is linked in the README.
+
+The journey stops after --approve. --publish is never invoked.
+==============================================================================
+
+
+==============================================================================
+Building the customer checkout
+A fresh clone of the public repository at the advertised main commit.
+==============================================================================
+
+Cloning into '<scripted-demo-evidence>\fixture'...
+
+public main at 6f3a0adb17389b93fd76b95c21a1c9eb7b161998
+
+production CLI 0.1.0 built from source HEAD eba29b7d02bcf9c8ef0b8e7a898a0a9dc6aab70f
+
+scripted gateway listening at http://127.0.0.1:62108 (loopback only)
+
+
+==============================================================================
+$ mergesutra doctor --connect
+==============================================================================
+
+MergeSutra doctor
+
+PASS          Node              v24.21.0
+PASS          Git               git version 2.55.0.windows.5
+PASS          GitHub CLI        gh version 2.96.0 (2026-07-02)
+PASS          GitHub auth       signed in
+PASS          BharatCode key    configured (source: environment, base: http://127.0.0.1:62108)
+SKIP          BharatCode reach  not configured
+
+Ready.
+
+
+==============================================================================
+1. GitHub issue → intake
+Issue #1: https://github.com/Pavithran-R-A/mergesutra-e2e-fixture/issues/1
+==============================================================================
+
+
+==============================================================================
+$ mergesutra issue https://github.com/Pavithran-R-A/mergesutra-e2e-fixture/issues/1 --repo <scripted-demo-evidence>\fixture
+==============================================================================
+
+MergeSutra — intake
+
+PASS          Issue URL           Pavithran-R-A/mergesutra-e2e-fixture#1
+PASS          Local repository    ~/Documents/Qoder/2026-09-24/demo-evidence/scripted-issue-1/fixture @ 6f3a0adb17 on main
+PASS          GitHub issue        #1 [open] slugify keeps leading and trailing hyphens
+PASS          Repository          Pavithran-R-A/mergesutra-e2e-fixture (default branch main, via GitHub)
+PASS          Repository match    clone origin is Pavithran-R-A/mergesutra-e2e-fixture
+PASS          Base commit         6f3a0adb17389b93fd76b95c21a1c9eb7b161998 (local HEAD of main)
+PASS          Working tree        clean
+PASS          Issue content trust no instruction-like patterns detected (body 1210 chars, sha256 b5659ad10dfc)
+
+Issue:        #1 [open] slugify keeps leading and trailing hyphens
+Repository:   Pavithran-R-A/mergesutra-e2e-fixture @ main
+Base commit:  6f3a0adb17389b93fd76b95c21a1c9eb7b161998 (local-git)
+Local clone:  <scripted-demo-evidence>/fixture on main
+Outcome:      INTAKE_COMPLETE
+
+What MergeSutra does not know yet
+  Issue text is data for the Acceptance Contract, not instructions to MergeSutra.
+
+Run record:   .mergesutra/runs/run-20261021T115359Z-a98cbf.json
+Next stage:   INSPECT — `mergesutra inspect <repo>` compiles the repository contract (Stage 2)
+
+Issue text was imported as data. It is never treated as instructions, and the full body is not printed.
+Stages implemented: 0 (foundation), 1 (intake), 2 (repository contract), 3 (acceptance contract), 4 (implementation plan), 5 (workspace, tool policy, write boundary), 6 (bounded implementation loop).
+This command produced no patch, verification, review or pull request. `mergesutra implement` writes files, but only inside its own workspace, and verifies nothing.
+
+run id: run-20261021T115359Z-a98cbf
+
+
+==============================================================================
+2. Repository contract
+What the repository itself declares, and what it cannot see.
+==============================================================================
+
+
+==============================================================================
+$ mergesutra inspect <scripted-demo-evidence>\fixture
+==============================================================================
+
+MergeSutra — repository contract
+
+PASS          Repository path     <scripted-demo-evidence>\fixture
+PASS          Git metadata        <scripted-demo-evidence>/fixture @ 6f3a0adb17 on main
+PASS          Issue from intake   carried from run run-20261021T115359Z-a98cbf: Pavithran-R-A/mergesutra-e2e-fixture#1 at base 6f3a0adb17
+PASS          Manifest            node, unknown, 1 script(s)
+NOT_AVAILABLE CI workflows        no GitHub Actions found
+SKIP          Contribution docs   none found
+SKIP          Protected areas     no CODEOWNERS file
+PASS          Repository contract 0 repository-required gate(s), 1 declared-only, 4 undeclared
+
+Repository:   <scripted-demo-evidence>/fixture
+Base commit:  6f3a0adb17389b93fd76b95c21a1c9eb7b161998 (local-git)
+Ecosystem:    node via unknown
+
+Gates
+  format     NOT_DECLARED         —                     nothing in the manifests or CI declares this gate
+  lint       NOT_DECLARED         —                     nothing in the manifests or CI declares this gate
+  typecheck  NOT_DECLARED         —                     nothing in the manifests or CI declares this gate
+  test       DECLARED_ONLY        node --test           package.json — 'test' exists but no CI step was found that runs it, so it is not treated as required
+  build      NOT_DECLARED         —                     nothing in the manifests or CI declares this gate
+
+CI:           none — 0 workflow(s), 0 command(s), coverage full
+  no GitHub Actions workflow found at .github/workflows
+
+Protected:    absent
+Contrib docs: none found
+Outcome:      INSPECT_COMPLETE
+
+What this contract does not know
+  The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  No CI workflow found: nothing can be marked required from CI evidence.
+  No CODEOWNERS file found: ownership of specific paths is unknown.
+  Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  The issue in this record was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage re-read no issue and did not check that it is still open.
+  The repository identity in this record, including the default branch 'main' a pull request would merge into, was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage called no API and re-read none of it.
+
+Run record:   .mergesutra/runs/run-20261021T115400Z-bdd7f4.json
+Next stage:   ACCEPTANCE CONTRACT — `mergesutra contract` derives the criteria (Stage 3)
+
+Every line above was read from a file in this repository. Repository text is data, not authority.
+MergeSutra ran nothing from this repository and changed none of its files.
+
+
+==============================================================================
+3. Acceptance contract
+Every criterion is PENDING until a gate runs against these bytes.
+==============================================================================
+
+
+==============================================================================
+$ mergesutra contract run-20261021T115400Z-bdd7f4
+==============================================================================
+
+MergeSutra — acceptance contract
+
+PASS          Source run          run-20261021T115400Z-bdd7f4 (inspect, INSPECT_COMPLETE)
+PASS          Repository contract 0 required gate(s) available
+PASS          Issue text          1210 character(s) of issue body
+PASS          Acceptance Contract 5 criteria, all PENDING
+NOT_AVAILABLE Verification        nothing has run, so no criterion is proven
+
+From run:     run-20261021T115400Z-bdd7f4
+Repository:   Pavithran-R-A/mergesutra-e2e-fixture
+Base commit:  6f3a0adb17 (local-git)
+Issue:        #1 slugify keeps leading and trailing hyphens
+
+Criteria (v1)
+  AC-1  PENDING  from the issue
+        `slugify('  Hello  World  ')` returns exactly `'hello-world'`.
+        will check: manual
+  AC-2  PENDING  from the issue
+        `slugify('a--b')` still returns exactly `'a-b'` (runs of separators stay collapsed).
+        will check: manual
+  AC-3  PENDING  from the issue
+        `slugify('--x--')` returns exactly `'x'`.
+        will check: manual
+  AC-4  PENDING  from the issue
+        `npm test` exits `0`, and the test file contains a test for each of criteria 1–3.
+        will check: manual
+  AC-5  PENDING  from the issue
+        `package.json` still declares no `dependencies` and no `devDependencies` — this is a five-line change, not a new library.
+        will check: manual
+
+Outcome:      CONTRACT_DERIVED
+
+What this contract does not claim
+  The repository requires no gate CI enforces, so nothing here is demanded by the repository.
+  Carried from run run-20261021T115400Z-bdd7f4: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  Carried from run run-20261021T115400Z-bdd7f4: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  Carried from run run-20261021T115400Z-bdd7f4: No CI workflow found: nothing can be marked required from CI evidence.
+  Carried from run run-20261021T115400Z-bdd7f4: No CODEOWNERS file found: ownership of specific paths is unknown.
+  Carried from run run-20261021T115400Z-bdd7f4: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  Carried from run run-20261021T115400Z-bdd7f4: The issue in this record was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage re-read no issue and did not check that it is still open.
+  Carried from run run-20261021T115400Z-bdd7f4: The repository identity in this record, including the default branch 'main' a pull request would merge into, was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage called no API and re-read none of it.
+  No criterion in this contract has been checked. `PENDING` is the only status MergeSutra could honestly assign.
+
+Run record:   .mergesutra/runs/run-20261021T115401Z-43dafb.json
+Next stage:   PLAN — `mergesutra plan` asks BharatCode how to satisfy these criteria (Stage 4)
+
+A criterion became a requirement only because a file, the issue, or a named human said so.
+Nothing has been verified yet: every criterion above is PENDING by design.
+
+
+==============================================================================
+4. Plan
+BharatCode-shaped request goes over HTTP to the deterministic stand-in.
+==============================================================================
+
+
+==============================================================================
+$ mergesutra plan run-20261021T115401Z-43dafb
+==============================================================================
+
+MergeSutra — implementation plan
+
+PASS          Source run          run-20261021T115401Z-43dafb (contract, CONTRACT_DERIVED)
+PASS          Acceptance Contract 5 criteria (v1)
+INFO          BharatCode          scripted-demo-model, 1 round trip(s)
+PASS          Plan schema         matched in 1 round trip(s)
+PASS          Plan coverage       all 5 criteria accounted for
+WARN          Criteria deferred   AC-5
+NOT_AVAILABLE Execution           planning runs nothing; any argv above is a proposal
+NOT_AVAILABLE Verification        no criterion changed status when a plan was written
+
+From run:     run-20261021T115401Z-43dafb
+Contract:     v1, 5 criteria
+Model:        scripted-demo-model
+
+Plan
+  Trim the hyphens that leading and trailing separators leave behind.
+
+Root cause:   slugify replaces every run of non-alphanumeric characters with a hyphen and then stops, so a separator run at either end survives as an edge hyphen.
+
+Changes proposed
+  modify  src/slugify.js                        AC-1, AC-2, AC-3
+          remove a run of hyphens from both ends after collapsing separators
+  modify  test/slugify.test.js                  AC-1, AC-2, AC-3, AC-4
+          assert each input the issue names, keeping the existing coverage
+
+Validation commands (proposed argv, never run here)
+  npm test                                AC-1, AC-2, AC-3, AC-4
+    purpose: run the package test script the issue names
+
+Covered:      AC-1, AC-2, AC-3, AC-4
+Unaddressed:  1 the plan names instead of claiming
+  AC-5: the plan edits no manifest, so nothing adds a dependency and the existing absence is unchanged
+
+Risks
+  A title that is entirely punctuation now slugs to an empty string.
+
+Assumptions
+  No caller depends on the trailing hyphen.
+
+Outcome:      PLAN_COMPLETE
+
+What this plan does not establish
+  The plan declares AC-5 unaddressed. A plan that names a gap is honest; a run that stops at a plan is not complete.
+  Carried from run run-20261021T115400Z-bdd7f4: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  Carried from run run-20261021T115400Z-bdd7f4: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  Carried from run run-20261021T115400Z-bdd7f4: No CI workflow found: nothing can be marked required from CI evidence.
+  Carried from run run-20261021T115400Z-bdd7f4: No CODEOWNERS file found: ownership of specific paths is unknown.
+  Carried from run run-20261021T115400Z-bdd7f4: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  Carried from run run-20261021T115400Z-bdd7f4: The issue in this record was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage re-read no issue and did not check that it is still open.
+  Carried from run run-20261021T115400Z-bdd7f4: The repository identity in this record, including the default branch 'main' a pull request would merge into, was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage called no API and re-read none of it.
+  The repository requires no gate CI enforces, so nothing here is demanded by the repository.
+  No criterion in this contract has been checked. `PENDING` is the only status MergeSutra could honestly assign.
+
+Run record:   .mergesutra/runs/run-20261021T115401Z-ea10b8.json
+Next stage:   IMPLEMENT — `mergesutra implement` runs the bounded loop in this run's own workspace; nothing is verified there
+
+A plan is a proposal from a model. Nothing here was executed, changed, or verified.
+Criterion statuses move only when evidence exists, and no command was run to produce any.
+
+
+==============================================================================
+5. Implementation
+The loop proposes; MergeSutra executes only what its policy allows.
+==============================================================================
+
+
+==============================================================================
+$ mergesutra implement run-20261021T115401Z-ea10b8 --repo <scripted-demo-evidence>\fixture --max-steps 8 --max-writes 4 --max-commands 3
+==============================================================================
+
+MergeSutra — bounded implementation run
+
+PASS          Workspace           .mergesutra/worktrees/run-20261021T115401Z-ea10b8 at 6f3a0adb1738 on mergesutra/run-20261021T115401Z-ea10b8
+PASS          Acceptance Contract 5 criterion(criteria) unchanged (v1); no revision was applied
+INFO          BharatCode          model scripted-demo-model, 4 turn(s), 4 request(s)
+INFO          Writes              2 file(s), 1004 byte(s), all inside the workspace
+INFO          Checks              1 developer command(s) run as argv inside the workspace
+PASS          Refused actions     nothing the model asked for was refused
+WARN          Model claim         FINISH named 5 criterion(s); a claim, not a verdict
+NOT_AVAILABLE Verification        Stage 6 runs developer checks only; no criterion was verified against its contract
+NOT_AVAILABLE Remote mutation     no push, pull request, comment or GitHub write was attempted
+INFO          Loop end            COMPLETED_BY_MODEL (FINISH): FINISH: claimed 5 criterion(s). both planned files are written and the package test script has run
+
+Run:          run-20261021T115401Z-ea10b8
+Outcome:      IMPLEMENTED_BY_MODEL
+Loop status:  COMPLETED_BY_MODEL
+Ended:        FINISH — FINISH: claimed 5 criterion(s). both planned files are written and the package test script has run
+Model:        scripted-demo-model
+Budget:       4/8 steps · 2/4 writes · 1/3 checks
+Workspace:    .mergesutra/worktrees/run-20261021T115401Z-ea10b8 on mergesutra/run-20261021T115401Z-ea10b8 at 6f3a0adb1738
+
+What happened
+   1. INFO         WRITE_FILE                src/slugify.js
+      replaced src/slugify.js: 339 bytes, sha256 48d905d9e3db
+   2. INFO         WRITE_FILE                test/slugify.test.js
+      replaced test/slugify.test.js: 665 bytes, sha256 ff02e0b69e11
+   3. INFO         RUN_CHECK                 npm test
+      npm test exited 0: > mergesutra-e2e-fixture@0.1.0 test > node --test TAP version 13 # Subtest: lowercases the input ok 1 - lowercases the input   ---   duratio…
+   4. INFO         FINISH                    both planned files are written and the package test script has run
+      FINISH: claimed 5 criterion(s). both planned files are written and the package test script has run
+
+Files written in this workspace
+  edit src/slugify.js                              339 B       AC-1, AC-2, AC-3
+  sha256 48d905d9e3dbe11fc6b2a6551a0f992c2de084a182c2cabae75f4c3a303c7e47
+  edit test/slugify.test.js                        665 B       AC-1, AC-2, AC-3, AC-4
+  sha256 ff02e0b69e11e4f23997bf22bcb3f45bd06753d60f1a3a67acfb5bf3c568881a
+
+Criteria the model claims
+  both planned files are written and the package test script has run
+  believed complete: AC-1, AC-2, AC-3, AC-4, AC-5 — MODEL CLAIM, unverified
+  no criterion changed status here; the record has no field that could claim one
+
+What this run does not establish
+  The loop ended with FINISH: FINISH: claimed 5 criterion(s). both planned files are written and the package test script has run
+  Nothing here is verified. No criterion changed status and no evidence was collected; that is Stage 7.
+  No remote mutation was attempted: nothing was pushed, no pull request was opened, no issue was commented on.
+  The Acceptance Contract was not modified. Revision proposals are stored unapplied, for a human to read.
+  The workspace is left in place with uncommitted changes; MergeSutra does not delete or reset it.
+  The model reported itself finished. That is a claim about its own work, recorded as COMPLETED_BY_MODEL, not a result.
+  Carried from run run-20261021T115400Z-bdd7f4: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  Carried from run run-20261021T115400Z-bdd7f4: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  Carried from run run-20261021T115400Z-bdd7f4: No CI workflow found: nothing can be marked required from CI evidence.
+  Carried from run run-20261021T115400Z-bdd7f4: No CODEOWNERS file found: ownership of specific paths is unknown.
+  Carried from run run-20261021T115400Z-bdd7f4: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  Carried from run run-20261021T115400Z-bdd7f4: The issue in this record was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage re-read no issue and did not check that it is still open.
+  Carried from run run-20261021T115400Z-bdd7f4: The repository identity in this record, including the default branch 'main' a pull request would merge into, was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage called no API and re-read none of it.
+  The repository requires no gate CI enforces, so nothing here is demanded by the repository.
+  No criterion in this contract has been checked. `PENDING` is the only status MergeSutra could honestly assign.
+  The plan declares AC-5 unaddressed. A plan that names a gap is honest; a run that stops at a plan is not complete.
+
+Run record:   .mergesutra/runs/run-20261021T115401Z-ea10b8.json
+Next stage:   VERIFY — the model says it is done; run `mergesutra verify`, whose gates do not read this record
+
+BharatCode chose what to look at and what to write. MergeSutra decided what was allowed to run.
+Nothing here is verified: no criterion is PASS, and no push, pull request or comment was attempted.
+Read it as a candidate: `git -C <workspace> diff` shows the bytes; `mergesutra verify` is what will judge them.
+
+
+==============================================================================
+Real Git state after the implementation loop
+Read from the worktree and the primary clone; not narrated.
+==============================================================================
+
+$ git -C <worktree> status --porcelain
+M src/slugify.js
+ M test/slugify.test.js
+
+$ git -C <worktree> diff --stat <base>
+src/slugify.js       | 8 ++++----
+ test/slugify.test.js | 8 ++++++++
+ 2 files changed, 12 insertions(+), 4 deletions(-)
+
+$ git -C <worktree> diff <base>
+diff --git a/src/slugify.js b/src/slugify.js
+index 6f8d4ef..5202953 100644
+--- a/src/slugify.js
++++ b/src/slugify.js
+@@ -1,12 +1,12 @@
+ /**
+  * Turn a title into a URL slug.
+  *
+- * Current behaviour: lowercase, replace each run of non-alphanumeric characters
+- * with a single hyphen. Leading and trailing hyphens are NOT removed, so
+- * `slugify('  Hello  ')` returns '-hello-'.
++ * Lowercase, each run of non-alphanumeric characters becomes a single hyphen,
++ * and the hyphens left by leading or trailing separators are trimmed away.
+  */
+ export function slugify(input) {
+   return String(input)
+     .toLowerCase()
+-    .replace(/[^a-z0-9]+/g, '-');
++    .replace(/[^a-z0-9]+/g, '-')
++    .replace(/^-+|-+$/g, '');
+ }
+diff --git a/test/slugify.test.js b/test/slugify.test.js
+index 044d177..251058a 100644
+--- a/test/slugify.test.js
++++ b/test/slugify.test.js
+@@ -13,3 +13,11 @@ test('collapses a run of separators into one hyphen', () => {
+ test('replaces punctuation with a hyphen', () => {
+   assert.equal(slugify('a.b,c'), 'a-b-c');
+ });
++
++test('trims the hyphens left by surrounding spaces', () => {
++  assert.equal(slugify('  Hello  World  '), 'hello-world');
++});
++
++test('trims hyphens from both ends of a punctuation-wrapped title', () => {
++  assert.equal(slugify('--x--'), 'x');
++});
+
+$ git -C <primary clone> status --porcelain
+(clean)
+
+$ git -C <primary clone> worktree list --porcelain
+worktree <scripted-demo-evidence>/fixture
+HEAD 6f3a0adb17389b93fd76b95c21a1c9eb7b161998
+branch refs/heads/main
+
+worktree <scripted-demo-evidence>/fixture/.mergesutra/worktrees/run-20261021T115401Z-ea10b8
+HEAD 6f3a0adb17389b93fd76b95c21a1c9eb7b161998
+branch refs/heads/mergesutra/run-20261021T115401Z-ea10b8
+
+
+==============================================================================
+6. Verification — consent first
+The product names every repository command and refuses to run one without an explicit --allow.
+==============================================================================
+
+
+==============================================================================
+$ mergesutra verify run-20261021T115401Z-ea10b8 --repo <scripted-demo-evidence>\fixture
+==============================================================================
+
+MergeSutra — deterministic verification run
+
+PASS          Verification plan   2 gates at revision 1, bound to patch a930dcbd1b1b
+WARN          Execution consent   no gate ids were named — repository commands stay unexecuted, and the record says so
+WARN          Verification run    1/2 gates executed, 1 passed — verdict BLOCKED
+INFO          Acceptance evidence 0/5 criteria carry enough receipts to be called PASS; the rest keep their own status
+
+Run:        run-20261021T115401Z-ea10b8
+Verdict:    BLOCKED
+Outcome:    VERIFICATION_BLOCKED
+Workspace:  <scripted-demo-evidence>\fixture\.mergesutra\worktrees\run-20261021T115401Z-ea10b8
+Patch:      a930dcbd1b1b on 6f3a0adb1738
+Plan:       revision 1 · 2 gates · 2 receipts
+Consent:    none given — repository commands were not run
+
+Gates
+  WARN          VG-001  npm test  not executed — Gate VG-001 would run `npm test`, a command that came from package.json (package script) — not from MergeSutra. Nothing…
+  PASS          VG-002  git diff --check  exit 0 — MergeSutra wrote this check itself, so the operator already knows what it runs.
+
+To run the gates above
+  mergesutra verify run-20261021T115401Z-ea10b8 --allow VG-001
+  each id consents to that gate's exact command, and to nothing else on this machine.
+  the workspace is checked separately against the patch this plan describes, so continuing to implement voids a run rather than reusing its receipts.
+
+Criteria — what the receipts carry
+  WARN          AC-1  MANUAL_REVIEW_REQUIRED  This criterion asks for manual from a person (copied from the issue, not yet bound to a command); no command MergeSutra ran can stand in for one.
+  WARN          AC-2  MANUAL_REVIEW_REQUIRED  This criterion asks for manual from a person (copied from the issue, not yet bound to a command); no command MergeSutra ran can stand in for one.
+  WARN          AC-3  MANUAL_REVIEW_REQUIRED  This criterion asks for manual from a person (copied from the issue, not yet bound to a command); no command MergeSutra ran can stand in for one.
+  WARN          AC-4  MANUAL_REVIEW_REQUIRED  This criterion asks for manual from a person (copied from the issue, not yet bound to a command); no command MergeSutra ran can stand in for one.
+  WARN          AC-5  MANUAL_REVIEW_REQUIRED  This criterion asks for manual from a person (copied from the issue, not yet bound to a command); no command MergeSutra ran can stand in for one.
+
+What the model said (a claim; decided nothing)
+  implement loop — the model's FINISH action (a claim; nothing below read it): both planned files are written and the package test script has run Believed complete: AC-1, AC-2, AC-3, AC-4, AC-5.
+
+  No node_modules directory: a gate that reaches a local binary will fail for want of installed dependencies. MergeSutra will not install anything to make a gate run — a human sets the workspace up, and the report says so.
+  This says what deterministic gates established. Calling a change contribution-ready is a later stage reading this record along with review and packaging, not a conclusion available here.
+
+Run record: .mergesutra/runs/run-20261021T115401Z-ea10b8.json
+Next stage: REVIEW — a human weighs this evidence next; verification passed the gates, and nothing in this record calls the contribution ready
+
+A gate PASS is one command's exit code. A criterion PASS is that command plus the mapping this record publishes.
+No gate here saw a model. The model's FINISH sits in the claims section, weighted nothing.
+The judgement of whether this is worth submitting arrives later, with a human.
+
+
+==============================================================================
+7. Verification — run
+Each gate runs with --network=none in the pinned image. Exit codes, not prose, decide.
+==============================================================================
+
+
+==============================================================================
+$ mergesutra verify run-20261021T115401Z-ea10b8 --repo <scripted-demo-evidence>\fixture --allow VG-001
+==============================================================================
+
+MergeSutra — deterministic verification run
+
+PASS          Verification plan   2 gates at revision 1, bound to patch a930dcbd1b1b
+PASS          Execution consent   1 repository gate(s) named by the operator: VG-001
+PASS          Verification run    2/2 gates executed, 2 passed — verdict PASS
+INFO          Acceptance evidence 0/5 criteria carry enough receipts to be called PASS; the rest keep their own status
+
+Run:        run-20261021T115401Z-ea10b8
+Verdict:    PASS
+Outcome:    VERIFICATION_PASS
+Workspace:  <scripted-demo-evidence>\fixture\.mergesutra\worktrees\run-20261021T115401Z-ea10b8
+Patch:      a930dcbd1b1b on 6f3a0adb1738
+Plan:       revision 1 · 2 gates · 2 receipts
+Consent:    named by operator: VG-001
+
+Gates
+  PASS          VG-001  npm test  exit 0 — The operator consented to `npm test` for this run's plan.
+  PASS          VG-002  git diff --check  exit 0 — MergeSutra wrote this check itself, so the operator already knows what it runs.
+
+Criteria — what the receipts carry
+  WARN          AC-1  MANUAL_REVIEW_REQUIRED  This criterion asks for manual from a person (copied from the issue, not yet bound to a command); no command MergeSutra ran can stand in for one.
+  WARN          AC-2  MANUAL_REVIEW_REQUIRED  This criterion asks for manual from a person (copied from the issue, not yet bound to a command); no command MergeSutra ran can stand in for one.
+  WARN          AC-3  MANUAL_REVIEW_REQUIRED  This criterion asks for manual from a person (copied from the issue, not yet bound to a command); no command MergeSutra ran can stand in for one.
+  WARN          AC-4  MANUAL_REVIEW_REQUIRED  This criterion asks for manual from a person (copied from the issue, not yet bound to a command); no command MergeSutra ran can stand in for one.
+  WARN          AC-5  MANUAL_REVIEW_REQUIRED  This criterion asks for manual from a person (copied from the issue, not yet bound to a command); no command MergeSutra ran can stand in for one.
+
+What the model said (a claim; decided nothing)
+  implement loop — the model's FINISH action (a claim; nothing below read it): both planned files are written and the package test script has run Believed complete: AC-1, AC-2, AC-3, AC-4, AC-5.
+
+  No node_modules directory: a gate that reaches a local binary will fail for want of installed dependencies. MergeSutra will not install anything to make a gate run — a human sets the workspace up, and the report says so.
+  This says what deterministic gates established. Calling a change contribution-ready is a later stage reading this record along with review and packaging, not a conclusion available here.
+
+Run record: .mergesutra/runs/run-20261021T115401Z-ea10b8.json
+Next stage: REVIEW — a human weighs this evidence next; verification passed the gates, and nothing in this record calls the contribution ready
+
+A gate PASS is one command's exit code. A criterion PASS is that command plus the mapping this record publishes.
+No gate here saw a model. The model's FINISH sits in the claims section, weighted nothing.
+The judgement of whether this is worth submitting arrives later, with a human.
+
+
+==============================================================================
+8. Independent acceptance evidence
+The product did not decide the issue's criteria; this harness applies the customer's own oracle to the bytes the patch left.
+==============================================================================
+
+INDEPENDENT CUSTOMER ORACLE (measured from the worktree, not from the product)
+  ORACLE-AC-1 PASS slugify("  Hello  World  ") = "hello-world"
+  ORACLE-AC-2 PASS slugify("a--b") = "a-b"
+  ORACLE-AC-3 PASS slugify("--x--") = "x"
+  ORACLE-AC-4 PASS npm test exit=0; required inputs asserted for ORACLE-AC-1, ORACLE-AC-2, ORACLE-AC-3
+  ORACLE-AC-5 PASS no dependencies or devDependencies declared
+  changes stay inside src/slugify.js, test/slugify.test.js: yes
+
+
+==============================================================================
+9. Independent review
+The reviewer reads the exact patch; it edits nothing.
+==============================================================================
+
+
+==============================================================================
+$ mergesutra review run-20261021T115401Z-ea10b8 --repo <scripted-demo-evidence>\fixture --max-review-cycles 1 --max-repair-cycles 1
+==============================================================================
+
+MergeSutra — independent review of these bytes
+
+INFO          Independent review      0 finding(s) from scripted-demo-model in 1 answer(s) against a930dcbd1b1b… — The reviewer filed 0 finding(s) against the patch it was shown.
+INFO          Patch binding           the bytes on disk are the bytes the reviewer was shown (a930dcbd1b1b…)
+INFO          Disposition and routing 0 candidate(s), 0 for a human
+
+Run         run-20261021T115401Z-ea10b8
+Outcome     REVIEW_RECORDED
+Workspace   <scripted-demo-evidence>\fixture\.mergesutra\worktrees\run-20261021T115401Z-ea10b8
+Reviewed    a930dcbd1b1b… on 6f3a0adb17
+On disk now a930dcbd1b1b… · MATCHED
+
+Reviewer    scripted-demo-model · 1 answer · 2026-10-21T11:54:17.821Z
+Its summary the two edits match the plan: separators are trimmed at both ends, the three inputs are asserted, and the existing punctuation assertion survives
+
+Findings — the reviewer’s words, MergeSutra’s disposition
+  (none)
+
+Limits on what this review could see
+  - Carried from run run-20261021T115400Z-bdd7f4: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  - Carried from run run-20261021T115400Z-bdd7f4: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  - Carried from run run-20261021T115400Z-bdd7f4: No CI workflow found: nothing can be marked required from CI evidence.
+  - Carried from run run-20261021T115400Z-bdd7f4: No CODEOWNERS file found: ownership of specific paths is unknown.
+  - Carried from run run-20261021T115400Z-bdd7f4: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  - Carried from run run-20261021T115400Z-bdd7f4: The issue in this record was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage re-read no issue and did not check that it is still open.
+  - Carried from run run-20261021T115400Z-bdd7f4: The repository identity in this record, including the default branch 'main' a pull request would merge into, was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage called no API and re-read none of it.
+  - The repository requires no gate CI enforces, so nothing here is demanded by the repository.
+  - No criterion in this contract has been checked. `PENDING` is the only status MergeSutra could honestly assign.
+  - The plan declares AC-5 unaddressed. A plan that names a gap is honest; a run that stops at a plan is not complete.
+  - The loop ended with FINISH: FINISH: claimed 5 criterion(s). both planned files are written and the package test script has run
+  - Nothing here is verified. No criterion changed status and no evidence was collected; that is Stage 7.
+  - No remote mutation was attempted: nothing was pushed, no pull request was opened, no issue was commented on.
+  - The Acceptance Contract was not modified. Revision proposals are stored unapplied, for a human to read.
+  - The workspace is left in place with uncommitted changes; MergeSutra does not delete or reset it.
+  - The model reported itself finished. That is a claim about its own work, recorded as COMPLETED_BY_MODEL, not a result.
+  - No node_modules directory: a gate that reaches a local binary will fail for want of installed dependencies. MergeSutra will not install anything to make a gate run — a human sets the workspace up, and the report says so.
+  - REVIEW-EMPTY: the reviewer filed no findings against a930dcbd1b1b…. That is the absence of findings, not the absence of defects; a second reader that had nothing to say is not a sign-off.
+
+Record      .mergesutra/runs/run-20261021T115401Z-ea10b8.json
+Next        REPORT — the review is filed and nothing was routed from it; a run stays unfinished until a human closes it
+
+review: 0 findings, no repair plan
+
+
+==============================================================================
+10. Status and evidence pack
+Read-only observation, then the pack a reviewer can open.
+==============================================================================
+
+
+==============================================================================
+$ mergesutra status run-20261021T115401Z-ea10b8 --repo <scripted-demo-evidence>\fixture
+==============================================================================
+
+MergeSutra — where this run stands
+
+What the stages recorded
+  Stage                 review
+  Outcome               REVIEW_RECORDED
+  Recorded at           2026-10-21T11:54:01.971Z
+  Version               0.1.0
+  Next stage            REPORT — the review is filed and nothing was routed from it; a run stays unfinished until a human closes it
+
+What is here now, read without changing it
+  Run lock              UNHELD
+  No lock directory for this run, and looking at it did not make one.
+  Workspace             PRESENT_MATCHED
+  The bytes here measure a930dcbd1b1b, which is what this run last wrote down.
+  Base                  6f3a0adb1738 recorded / 6f3a0adb1738 at HEAD
+  Patch                 a930dcbd1b1b recorded / a930dcbd1b1b here now
+  Patch status          CURRENT
+  Evidence pack         not on disk
+  The pack is rendered from the record, so losing it costs a command, not work.
+
+Whether each recorded thing still describes these bytes
+  verification         CURRENT             The verification names a930dcbd1b1b, which is what the patch in the workspace measures.
+  evidence             CURRENT             The evidence names a930dcbd1b1b, which is what the patch in the workspace measures.
+  review               CURRENT             The review names a930dcbd1b1b, which is what the patch the reviewer read measures.
+  repairPlan           NOT RECORDED        No repair plan has been recorded for this run.
+  executionConsent     CURRENT             The execution consent names 00a310b03106, which is what the verification plan scope measures.
+  pack                 NOT RECORDED        No evidence pack has been recorded for this run.
+  candidate            NOT RECORDED        No PR candidate has been recorded for this run.
+  publicationApproval  NOT RECORDED        No publication approval has been recorded for this run.
+  repairApproval       NOT RECORDED        No repair approval has been recorded for this run.
+
+Contract
+  Criteria              5 derived, 1 limitations, schema v1
+  Untrusted             yes — derived from issue text, which this build treats as data and never as an instruction
+
+Plan
+  Shape                 2 proposed changes, 4 criteria covered, 1 unaddressed, 1 attempts
+  Model                 scripted-demo-model (bharatcode)
+  A plan is a proposal a model made. Nothing here confirms it ran.
+
+Implementation loop
+  Status                COMPLETED_BY_MODEL
+  Termination           FINISH
+  Used                  4 steps, 2 writes, 1 commands, 0 refused
+  Left                  4 steps, 2 writes, 2 commands
+
+Verification
+  Gates                 PASS — 2 gates (2 PASS, 0 FAIL, 0 BLOCKED, 0 REFUSED, 0 NOT_RUN, 0 INCONCLUSIVE) for patch a930dcbd1b1b, CURRENT for these bytes
+  Plan                  revision 1
+  Consent               1 gate ids, granted 2026-10-21T11:54:11.014Z — CURRENT
+
+Criterion evidence
+  Mapped                0 verified, 0 partial, 0 unverified, 0 failed, 0 blocked, 5 for a human
+  Contribution ready    never — no field in this build can set it
+
+Review
+  Findings              0 findings recorded, CURRENT for these bytes
+  Disposition           nothing was routed to repair
+  Escalated to a human  no
+  Attempts              1 by scripted-demo-model
+  Read                  a930dcbd1b1b reviewed against a930dcbd1b1b now on the page
+
+The page, the approval, and the remote — three separate facts
+  Candidates            0 assembled
+  Page                  none assembled — nothing has been proposed
+  Human approval        NOT RECORDED — nobody has named a page
+  Remote publication    DISABLED — this build has no remote to act on
+
+Safe next actions
+  mergesutra report run-20261021T115401Z-ea10b8
+  No evidence pack has been rendered from this run’s record, so there is nothing on disk for a page to point at. `mergesutra report` renders the pack from the run record: no model call, no repository command, and nothing written outside the run’s own directory.
+  costs: LOCAL_ONLY
+
+Run                   run-20261021T115401Z-ea10b8
+Observed at           2026-10-21T11:54:18.907Z
+
+  Everything above is read from the run record, Git and the files in this directory. An old receipt stays an old receipt however neatly it is printed here.
+
+No files were changed.
+
+
+==============================================================================
+$ mergesutra report run-20261021T115401Z-ea10b8
+==============================================================================
+
+MergeSutra — evidence report
+
+# MergeSutra evidence pack — run-20261021T115401Z-ea10b8
+
+- Issue: Pavithran-R-A/mergesutra-e2e-fixture#1
+- Stage: review · Outcome: REVIEW_RECORDED
+- Verification: PASS
+- Consent: operator named VG-001
+- Review: 0 finding(s) recorded against a930dcbd1b1b
+- Patch: a930dcbd1b1b850699826074055d62bd11e14b9917d5ee0c900b27be6f6f8d32 (base 6f3a0adb17389b93fd76b95c21a1c9eb7b161998) · observed a930dcbd1b1b850699826074055d62bd11e14b9917d5ee0c900b27be6f6f8d32 · MATCHED
+
+## Gates
+
+| Gate | Command | Exit | Result |
+| --- | --- | --- | --- |
+| VG-001 | npm test | exit 0 | PASS |
+| VG-002 | git diff --check | exit 0 | PASS |
+
+## Criteria
+
+| Criterion | Status | Evidence | Gates |
+| --- | --- | --- | --- |
+| AC-1 `slugify('  Hello  World  ')` returns exactly `'hello-world'`. | NOT_AVAILABLE | MANUAL_REVIEW_REQUIRED | — |
+| AC-2 `slugify('a--b')` still returns exactly `'a-b'` (runs of separators stay collapsed). | NOT_AVAILABLE | MANUAL_REVIEW_REQUIRED | — |
+| AC-3 `slugify('--x--')` returns exactly `'x'`. | NOT_AVAILABLE | MANUAL_REVIEW_REQUIRED | — |
+| AC-4 `npm test` exits `0`, and the test file contains a test for each of criteria 1–3. | NOT_AVAILABLE | MANUAL_REVIEW_REQUIRED | — |
+| AC-5 `package.json` still declares no `dependencies` and no `devDependencies` — this is a five-line change, not a new library. | NOT_AVAILABLE | MANUAL_REVIEW_REQUIRED | — |
+
+Every row above is copied from the run record this pack was built from; nothing here adds a verdict. Readiness to contribute is decided by a human at a later stage, and no row in this table means it.
+
+## What the model said about its own work (a claim; decided nothing)
+
+- implement loop — the model's FINISH action (a claim; nothing below read it): both planned files are written and the package test script has run Believed complete: AC-1, AC-2, AC-3, AC-4, AC-5.
+
+## Review — a second reading of these bytes (a model's account; it decided nothing)
+
+- Reviewed patch: a930dcbd1b1b850699826074055d62bd11e14b9917d5ee0c900b27be6f6f8d32 · current a930dcbd1b1b850699826074055d62bd11e14b9917d5ee0c900b27be6f6f8d32 · MATCHED
+- Asked of `scripted-demo-model` on 2026-10-21T11:54:17.821Z (attempt 1)
+
+the two edits match the plan: separators are trimmed at both ends, the three inputs are asserted, and the existing punctuation assertion survives
+
+The reviewer filed no findings. That is not the same claim as "there are none".
+
+## What these rows do not claim
+
+From the evidence mapper, about the rows above:
+
+- No node_modules directory: a gate that reaches a local binary will fail for want of installed dependencies. MergeSutra will not install anything to make a gate run — a human sets the workspace up, and the report says so.
+- This says what deterministic gates established. Calling a change contribution-ready is a later stage reading this record along with review and packaging, not a conclusion available here.
+- This criterion asks for manual from a person (copied from the issue, not yet bound to a command); no command MergeSutra ran can stand in for one.
+
+Recorded by the stages of this run, oldest first:
+
+- Carried from run run-20261021T115400Z-bdd7f4: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+- Carried from run run-20261021T115400Z-bdd7f4: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+- Carried from run run-20261021T115400Z-bdd7f4: No CI workflow found: nothing can be marked required from CI evidence.
+- Carried from run run-20261021T115400Z-bdd7f4: No CODEOWNERS file found: ownership of specific paths is unknown.
+- Carried from run run-20261021T115400Z-bdd7f4: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+- Carried from run run-20261021T115400Z-bdd7f4: The issue in this record was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage re-read no issue and did not check that it is still open.
+- Carried from run run-20261021T115400Z-bdd7f4: The repository identity in this record, including the default branch 'main' a pull request would merge into, was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage called no API and re-read none of it.
+- The repository requires no gate CI enforces, so nothing here is demanded by the repository.
+- No criterion in this contract has been checked. `PENDING` is the only status MergeSutra could honestly assign.
+- The plan declares AC-5 unaddressed. A plan that names a gap is honest; a run that stops at a plan is not complete.
+- The loop ended with FINISH: FINISH: claimed 5 criterion(s). both planned files are written and the package test script has run
+- Nothing here is verified. No criterion changed status and no evidence was collected; that is Stage 7.
+- No remote mutation was attempted: nothing was pushed, no pull request was opened, no issue was commented on.
+- The Acceptance Contract was not modified. Revision proposals are stored unapplied, for a human to read.
+- The workspace is left in place with uncommitted changes; MergeSutra does not delete or reset it.
+- The model reported itself finished. That is a claim about its own work, recorded as COMPLETED_BY_MODEL, not a result.
+- REVIEW-EMPTY: the reviewer filed no findings against a930dcbd1b1b…. That is the absence of findings, not the absence of defects; a second reader that had nothing to say is not a sign-off.
+
+Pack written to .mergesutra\runs\run-20261021T115401Z-ea10b8
+Written from the run record; this command decided nothing.
+
+
+==============================================================================
+11. The page, before any approval
+Readiness is read from the bytes and the records now.
+==============================================================================
+
+
+==============================================================================
+$ mergesutra pr run-20261021T115401Z-ea10b8 --repo <scripted-demo-evidence>\fixture
+==============================================================================
+
+MergeSutra — the pull request a human approves
+
+INFO          Readiness · patch-measured            The patch on disk is a930dcbd1b1b….
+INFO          Readiness · verification-current      The verification on record is for a930dcbd1b1b…, which is the patch now.
+INFO          Readiness · verification-passed       The recorded verdict is PASS, which covers the gates this run actually ran.
+INFO          Readiness · review-current            The independent review on record was written against the patch now.
+INFO          Readiness · no-repair-candidate-left  Nothing at BLOCKER or HIGH is still marked a repair candidate.
+INFO          Readiness · no-scope-violation        No repair cycle ran on this run, so no scope was ever crossed.
+INFO          Readiness · pack-current              The evidence pack (5c488c75c6a2…) describes the patch now.
+WARN          Readiness · human-approved            No approval has been given for this proposal, so nothing is ready to publish.
+INFO          Publication proposal                  slugify keeps leading and trailing hyphens — mergesutra/run-20261021T115401Z-ea10b8 into main (Pavithran-R-A/mergesutra-e2e-fixture); patch a930dcbd1b1b…, evidence pack 5c488c75c6a2…, body 5543 characters. Digest 46e27c326c4b9d5f015e8b0de015c03944516e1e46fccaff025a20fee067163e.
+WARN          Publication approval                  No approval has been given for this candidate, so nothing will be published. Read the page above and run `mergesutra pr run-20261021T115401Z-ea10b8 --approve 46e27c326c4b9d5f015e8b0de015c03944516e1e46fccaff025a20fee067163e` to record that you approved exactly it.
+INFO          Publication next step                 Every fact this stage reads is current, so the page above is the page a human is asked about. To agree to exactly it: `mergesutra pr run-20261021T115401Z-ea10b8 --approve <digest>`, then `mergesutra pr run-20261021T115401Z-ea10b8 --publish` to open a draft. Without --publish, nothing is sent: this command records a decision and performs no remote action.
+INFO          Publication boundary                  No branch was pushed and no pull request was opened: --publish was not passed, so this command assembled a page and recorded a decision without performing a remote action.
+
+Run         run-20261021T115401Z-ea10b8
+Outcome     PR_CANDIDATE_RECORDED
+Readiness   NOT_READY_FOR_PUBLICATION
+Page        mergesutra/run-20261021T115401Z-ea10b8 → main (Pavithran-R-A/mergesutra-e2e-fixture)
+
+The page a reviewer would read
+  slugify keeps leading and trailing hyphens
+
+  ## Summary
+  
+  MergeSutra drafted this change from a run record. Every status below was written by the stage that measured it; this page adds no verdict of its own, and a human still has to read it.
+  
+  - Repository: Pavithran-R-A/mergesutra-e2e-fixture → `main`
+  - Run: run-20261021T115401Z-ea10b8
+  - Files: 2 files changed since the base commit
+  - Verification: PASS: 2 gate(s) recorded, 2 ran, over plan revision 1 on patch a930dcbd1b1b… — 2 gates ran, 0 gates did not
+  - Review: cycle 1, 0 findings filed
+  
+  ## Issue
+  
+  Related to #1.
+  
+  This draft does not claim to close it: the run does not record every criterion on that issue as met on these bytes.
+  
+  https://github.com/Pavithran-R-A/mergesutra-e2e-fixture/issues/1
+  
+  ## Acceptance Contract
+  
+  Statuses are the ones the run record holds, copied without change:
+  
+  - `AC-1` — NOT_AVAILABLE — \`slugify(' Hello World ')\` returns exactly \`'hello-world'\`.
+  - `AC-2` — NOT_AVAILABLE — \`slugify('a--b')\` still returns exactly \`'a-b'\` (runs of separators stay collapsed).
+  - `AC-3` — NOT_AVAILABLE — \`slugify('--x--')\` returns exactly \`'x'\`.
+  - `AC-4` — NOT_AVAILABLE — \`npm test\` exits \`0\`, and the test file contains a test for each of criteria 1–3.
+  - `AC-5` — NOT_AVAILABLE — \`package.json\` still declares no \`dependencies\` and no \`devDependencies\` — this is a five-line change, not a new library.
+  
+  ## Implementation
+  
+  2 files differ from the base commit `6f3a0adb1738`, as Git reported them:
+  
+  - `src/slugify.js` — modified
+  - `test/slugify.test.js` — modified
+  
+  Line counts are not restated here, because the diff on this page is the authority for them.
+  
+  ## Verification
+  
+  Each row is one command the run started, with the exit code it returned:
+  
+  - `VG-001` — PASS — `npm test` — exit 0
+  - `VG-002` — PASS — `git diff --check` — exit 0
+  
+  The run recorded these receipts against patch `a930dcbd1b1b`. That is the whole of what passed: no row here says anything about a test that did not appear above.
+  
+  ## Independent Review
+  
+  Independent BharatCode review completed; no additional findings were recorded. Review cycle 1, by `scripted-demo-model`.
+  
+  ## Evidence
+  
+  - Patch these receipts describe: `a930dcbd1b1b` — full identity `a930dcbd1b1b850699826074055d62bd11e14b9917d5ee0c900b27be6f6f8d32`
+  - Base commit: `6f3a0adb17389b93fd76b95c21a1c9eb7b161998` · target branch `main` in Pavithran-R-A/mergesutra-e2e-fixture
+  - The evidence pack (`report.md`, `report.json`, `commands.jsonl`) is in `.mergesutra/runs/run-20261021T115401Z-ea10b8/`, which is Git-ignored: it is kept local and is not committed, so it is not published with this pull request. Ask the author for it, or run MergeSutra on this checkout yourself.
+  
+  <!-- mergesutra:publication-metadata {"schemaVersion":1,"runId":"run-20261021T115401Z-ea10b8","baseSha":"6f3a0adb17389b93fd76b95c21a1c9eb7b161998","patchIdentity":"a930dcbd1b1b850699826074055d62bd11e14b9917d5ee0c900b27be6f6f8d32","targetBranch":"main"} -->
+  
+  ## Limitations / Manual review
+  
+  - Carried from run run-20261021T115400Z-bdd7f4: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  - Carried from run run-20261021T115400Z-bdd7f4: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  - Carried from run run-20261021T115400Z-bdd7f4: No CI workflow found: nothing can be marked required from CI evidence.
+  - Carried from run run-20261021T115400Z-bdd7f4: No CODEOWNERS file found: ownership of specific paths is unknown.
+  - Carried from run run-20261021T115400Z-bdd7f4: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  - Carried from run run-20261021T115400Z-bdd7f4: The issue in this record was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage re-read no issue and did not check that it is still open.
+  - Carried from run run-20261021T115400Z-bdd7f4: The repository identity in this record, including the default branch 'main' a pull request would merge into, was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage called no API and re-read none of it.
+  - The repository requires no gate CI enforces, so nothing here is demanded by the repository.
+  - No criterion in this contract has been checked. \`PENDING\` is the only status MergeSutra could honestly assign.
+  - The plan declares AC-5 unaddressed. A plan that names a gap is honest; a run that stops at a plan is not complete.
+  - The loop ended with FINISH: FINISH: claimed 5 criterion(s). both planned files are written and the package test script has run
+  - Nothing here is verified. No criterion changed status and no evidence was collected; that is Stage 7.
+  - No remote mutation was attempted: nothing was pushed, no pull request was opened, no issue was commented on.
+  - The Acceptance Contract was not modified. Revision proposals are stored unapplied, for a human to read.
+  - The workspace is left in place with uncommitted changes; MergeSutra does not delete or reset it.
+  - The model reported itself finished. That is a claim about its own work, recorded as COMPLETED_BY_MODEL, not a result.
+  - No node_modules directory: a gate that reaches a local binary will fail for want of installed dependencies. MergeSutra will not install anything to make a gate run — a human sets the workspace up, and the report says so.
+  - REVIEW-EMPTY: the reviewer filed no findings against a930dcbd1b1b…. That is the absence of findings, not the absence of defects; a second reader that had nothing to say is not a sign-off.
+  
+
+  to record that you approve exactly the page above: mergesutra pr run-20261021T115401Z-ea10b8 --approve 46e27c326c4b9d5f015e8b0de015c03944516e1e46fccaff025a20fee067163e
+
+What the run itself could not settle
+  - Carried from run run-20261021T115400Z-bdd7f4: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  - Carried from run run-20261021T115400Z-bdd7f4: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  - Carried from run run-20261021T115400Z-bdd7f4: No CI workflow found: nothing can be marked required from CI evidence.
+  - Carried from run run-20261021T115400Z-bdd7f4: No CODEOWNERS file found: ownership of specific paths is unknown.
+  - Carried from run run-20261021T115400Z-bdd7f4: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  - Carried from run run-20261021T115400Z-bdd7f4: The issue in this record was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage re-read no issue and did not check that it is still open.
+  - Carried from run run-20261021T115400Z-bdd7f4: The repository identity in this record, including the default branch 'main' a pull request would merge into, was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage called no API and re-read none of it.
+  - The repository requires no gate CI enforces, so nothing here is demanded by the repository.
+  - No criterion in this contract has been checked. `PENDING` is the only status MergeSutra could honestly assign.
+  - The plan declares AC-5 unaddressed. A plan that names a gap is honest; a run that stops at a plan is not complete.
+  - The loop ended with FINISH: FINISH: claimed 5 criterion(s). both planned files are written and the package test script has run
+  - Nothing here is verified. No criterion changed status and no evidence was collected; that is Stage 7.
+  - No remote mutation was attempted: nothing was pushed, no pull request was opened, no issue was commented on.
+  - The Acceptance Contract was not modified. Revision proposals are stored unapplied, for a human to read.
+  - The workspace is left in place with uncommitted changes; MergeSutra does not delete or reset it.
+  - The model reported itself finished. That is a claim about its own work, recorded as COMPLETED_BY_MODEL, not a result.
+  - No node_modules directory: a gate that reaches a local binary will fail for want of installed dependencies. MergeSutra will not install anything to make a gate run — a human sets the workspace up, and the report says so.
+  - REVIEW-EMPTY: the reviewer filed no findings against a930dcbd1b1b…. That is the absence of findings, not the absence of defects; a second reader that had nothing to say is not a sign-off.
+
+Record      .mergesutra/runs/run-20261021T115401Z-ea10b8.json
+Next        NEEDS_HUMAN_APPROVAL — read the page, then run `mergesutra pr run-20261021T115401Z-ea10b8 --approve 46e27c326c4b9d5f015e8b0de015c03944516e1e46fccaff025a20fee067163e`, then `mergesutra pr run-20261021T115401Z-ea10b8 --publish` if it is what you mean to publish. No branch was pushed and no pull request was opened: --publish was not passed, so this command assembled a page and recorded a decision without performing a remote action.
+
+  An approval here records a decision about one page. Without --publish no remote is asked, and no read of this screen can be mistaken for an event that did not happen.
+
+NO HUMAN APPROVAL RECORDED
+REMOTE PUBLICATION NOT ATTEMPTED
+NO REMOTE CHANGE HAS BEEN MADE.
+
+approval digest: 46e27c326c4b9d5f015e8b0de015c03944516e1e46fccaff025a20fee067163e
+
+
+==============================================================================
+12. Digest-bound human approval
+The only way to say yes is to type the digest of the page above.
+==============================================================================
+
+
+==============================================================================
+$ mergesutra pr run-20261021T115401Z-ea10b8 --repo <scripted-demo-evidence>\fixture --approve 46e27c326c4b9d5f015e8b0de015c03944516e1e46fccaff025a20fee067163e
+==============================================================================
+
+MergeSutra — the pull request a human approves
+
+INFO          Readiness · patch-measured            The patch on disk is a930dcbd1b1b….
+INFO          Readiness · verification-current      The verification on record is for a930dcbd1b1b…, which is the patch now.
+INFO          Readiness · verification-passed       The recorded verdict is PASS, which covers the gates this run actually ran.
+INFO          Readiness · review-current            The independent review on record was written against the patch now.
+INFO          Readiness · no-repair-candidate-left  Nothing at BLOCKER or HIGH is still marked a repair candidate.
+INFO          Readiness · no-scope-violation        No repair cycle ran on this run, so no scope was ever crossed.
+INFO          Readiness · pack-current              The evidence pack (5c488c75c6a2…) describes the patch now.
+INFO          Readiness · human-approved            A human approved this exact publication proposal.
+INFO          Publication proposal                  slugify keeps leading and trailing hyphens — mergesutra/run-20261021T115401Z-ea10b8 into main (Pavithran-R-A/mergesutra-e2e-fixture); patch a930dcbd1b1b…, evidence pack 5c488c75c6a2…, body 5543 characters. Digest 46e27c326c4b9d5f015e8b0de015c03944516e1e46fccaff025a20fee067163e.
+INFO          Publication approval                  A human approved this exact candidate (46e27c326c4b) at 2026-10-21T11:54:22.336Z.
+INFO          Publication next step                 Every fact this stage reads is current, so the page above is the page a human is asked about. The approval on file matches this page. To ask GitHub for a draft pull request: `mergesutra pr run-20261021T115401Z-ea10b8 --publish`. Without --publish, nothing is sent: this command records a decision and performs no remote action.
+INFO          Publication boundary                  No branch was pushed and no pull request was opened: --publish was not passed, so this command assembled a page and recorded a decision without performing a remote action.
+
+Run         run-20261021T115401Z-ea10b8
+Outcome     PR_APPROVED_LOCAL
+Readiness   HUMAN_APPROVED_FOR_PR
+Page        mergesutra/run-20261021T115401Z-ea10b8 → main (Pavithran-R-A/mergesutra-e2e-fixture)
+
+The page a reviewer would read
+  slugify keeps leading and trailing hyphens
+
+  ## Summary
+  
+  MergeSutra drafted this change from a run record. Every status below was written by the stage that measured it; this page adds no verdict of its own, and a human still has to read it.
+  
+  - Repository: Pavithran-R-A/mergesutra-e2e-fixture → `main`
+  - Run: run-20261021T115401Z-ea10b8
+  - Files: 2 files changed since the base commit
+  - Verification: PASS: 2 gate(s) recorded, 2 ran, over plan revision 1 on patch a930dcbd1b1b… — 2 gates ran, 0 gates did not
+  - Review: cycle 1, 0 findings filed
+  
+  ## Issue
+  
+  Related to #1.
+  
+  This draft does not claim to close it: the run does not record every criterion on that issue as met on these bytes.
+  
+  https://github.com/Pavithran-R-A/mergesutra-e2e-fixture/issues/1
+  
+  ## Acceptance Contract
+  
+  Statuses are the ones the run record holds, copied without change:
+  
+  - `AC-1` — NOT_AVAILABLE — \`slugify(' Hello World ')\` returns exactly \`'hello-world'\`.
+  - `AC-2` — NOT_AVAILABLE — \`slugify('a--b')\` still returns exactly \`'a-b'\` (runs of separators stay collapsed).
+  - `AC-3` — NOT_AVAILABLE — \`slugify('--x--')\` returns exactly \`'x'\`.
+  - `AC-4` — NOT_AVAILABLE — \`npm test\` exits \`0\`, and the test file contains a test for each of criteria 1–3.
+  - `AC-5` — NOT_AVAILABLE — \`package.json\` still declares no \`dependencies\` and no \`devDependencies\` — this is a five-line change, not a new library.
+  
+  ## Implementation
+  
+  2 files differ from the base commit `6f3a0adb1738`, as Git reported them:
+  
+  - `src/slugify.js` — modified
+  - `test/slugify.test.js` — modified
+  
+  Line counts are not restated here, because the diff on this page is the authority for them.
+  
+  ## Verification
+  
+  Each row is one command the run started, with the exit code it returned:
+  
+  - `VG-001` — PASS — `npm test` — exit 0
+  - `VG-002` — PASS — `git diff --check` — exit 0
+  
+  The run recorded these receipts against patch `a930dcbd1b1b`. That is the whole of what passed: no row here says anything about a test that did not appear above.
+  
+  ## Independent Review
+  
+  Independent BharatCode review completed; no additional findings were recorded. Review cycle 1, by `scripted-demo-model`.
+  
+  ## Evidence
+  
+  - Patch these receipts describe: `a930dcbd1b1b` — full identity `a930dcbd1b1b850699826074055d62bd11e14b9917d5ee0c900b27be6f6f8d32`
+  - Base commit: `6f3a0adb17389b93fd76b95c21a1c9eb7b161998` · target branch `main` in Pavithran-R-A/mergesutra-e2e-fixture
+  - The evidence pack (`report.md`, `report.json`, `commands.jsonl`) is in `.mergesutra/runs/run-20261021T115401Z-ea10b8/`, which is Git-ignored: it is kept local and is not committed, so it is not published with this pull request. Ask the author for it, or run MergeSutra on this checkout yourself.
+  
+  <!-- mergesutra:publication-metadata {"schemaVersion":1,"runId":"run-20261021T115401Z-ea10b8","baseSha":"6f3a0adb17389b93fd76b95c21a1c9eb7b161998","patchIdentity":"a930dcbd1b1b850699826074055d62bd11e14b9917d5ee0c900b27be6f6f8d32","targetBranch":"main"} -->
+  
+  ## Limitations / Manual review
+  
+  - Carried from run run-20261021T115400Z-bdd7f4: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  - Carried from run run-20261021T115400Z-bdd7f4: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  - Carried from run run-20261021T115400Z-bdd7f4: No CI workflow found: nothing can be marked required from CI evidence.
+  - Carried from run run-20261021T115400Z-bdd7f4: No CODEOWNERS file found: ownership of specific paths is unknown.
+  - Carried from run run-20261021T115400Z-bdd7f4: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  - Carried from run run-20261021T115400Z-bdd7f4: The issue in this record was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage re-read no issue and did not check that it is still open.
+  - Carried from run run-20261021T115400Z-bdd7f4: The repository identity in this record, including the default branch 'main' a pull request would merge into, was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage called no API and re-read none of it.
+  - The repository requires no gate CI enforces, so nothing here is demanded by the repository.
+  - No criterion in this contract has been checked. \`PENDING\` is the only status MergeSutra could honestly assign.
+  - The plan declares AC-5 unaddressed. A plan that names a gap is honest; a run that stops at a plan is not complete.
+  - The loop ended with FINISH: FINISH: claimed 5 criterion(s). both planned files are written and the package test script has run
+  - Nothing here is verified. No criterion changed status and no evidence was collected; that is Stage 7.
+  - No remote mutation was attempted: nothing was pushed, no pull request was opened, no issue was commented on.
+  - The Acceptance Contract was not modified. Revision proposals are stored unapplied, for a human to read.
+  - The workspace is left in place with uncommitted changes; MergeSutra does not delete or reset it.
+  - The model reported itself finished. That is a claim about its own work, recorded as COMPLETED_BY_MODEL, not a result.
+  - No node_modules directory: a gate that reaches a local binary will fail for want of installed dependencies. MergeSutra will not install anything to make a gate run — a human sets the workspace up, and the report says so.
+  - REVIEW-EMPTY: the reviewer filed no findings against a930dcbd1b1b…. That is the absence of findings, not the absence of defects; a second reader that had nothing to say is not a sign-off.
+  
+
+  to ask GitHub for a draft pull request carrying exactly the page above: mergesutra pr run-20261021T115401Z-ea10b8 --publish
+
+What the run itself could not settle
+  - Carried from run run-20261021T115400Z-bdd7f4: The contract records what the repository declares. MergeSutra adds no requirement of its own to this list.
+  - Carried from run run-20261021T115400Z-bdd7f4: Contribution documents were scanned for shape, not obeyed; their prose does not become a check.
+  - Carried from run run-20261021T115400Z-bdd7f4: No CI workflow found: nothing can be marked required from CI evidence.
+  - Carried from run run-20261021T115400Z-bdd7f4: No CODEOWNERS file found: ownership of specific paths is unknown.
+  - Carried from run run-20261021T115400Z-bdd7f4: Branch protection, required reviewers and merge policies live in repository settings and were not queried.
+  - Carried from run run-20261021T115400Z-bdd7f4: The issue in this record was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage re-read no issue and did not check that it is still open.
+  - Carried from run run-20261021T115400Z-bdd7f4: The repository identity in this record, including the default branch 'main' a pull request would merge into, was carried from run run-20261021T115359Z-a98cbf, which read it from GitHub. This stage called no API and re-read none of it.
+  - The repository requires no gate CI enforces, so nothing here is demanded by the repository.
+  - No criterion in this contract has been checked. `PENDING` is the only status MergeSutra could honestly assign.
+  - The plan declares AC-5 unaddressed. A plan that names a gap is honest; a run that stops at a plan is not complete.
+  - The loop ended with FINISH: FINISH: claimed 5 criterion(s). both planned files are written and the package test script has run
+  - Nothing here is verified. No criterion changed status and no evidence was collected; that is Stage 7.
+  - No remote mutation was attempted: nothing was pushed, no pull request was opened, no issue was commented on.
+  - The Acceptance Contract was not modified. Revision proposals are stored unapplied, for a human to read.
+  - The workspace is left in place with uncommitted changes; MergeSutra does not delete or reset it.
+  - The model reported itself finished. That is a claim about its own work, recorded as COMPLETED_BY_MODEL, not a result.
+  - No node_modules directory: a gate that reaches a local binary will fail for want of installed dependencies. MergeSutra will not install anything to make a gate run — a human sets the workspace up, and the report says so.
+  - REVIEW-EMPTY: the reviewer filed no findings against a930dcbd1b1b…. That is the absence of findings, not the absence of defects; a second reader that had nothing to say is not a sign-off.
+
+Record      .mergesutra/runs/run-20261021T115401Z-ea10b8.json
+Next        HUMAN_APPROVED_FOR_PR — a human approved digest 46e27c326c4b… for this run, and the page is filed. To ask GitHub for a draft pull request: `mergesutra pr run-20261021T115401Z-ea10b8 --publish`. No branch was pushed and no pull request was opened: --publish was not passed, so this command assembled a page and recorded a decision without performing a remote action.
+
+  An approval here records a decision about one page. Without --publish no remote is asked, and no read of this screen can be mistaken for an event that did not happen.
+
+HUMAN APPROVAL RECORDED
+REMOTE PUBLICATION NOT ATTEMPTED
+NO REMOTE CHANGE HAS BEEN MADE.
+
+publication capability is shown on screen; it was not invoked.
+
+
+==============================================================================
+13. No customer damage
+The primary clone and its tracked bytes are measured again.
+==============================================================================
+
+tracked bytes unchanged: true
+
+primary clone status: (clean)
