@@ -1,0 +1,9 @@
+{
+  "name": "mergesutra-bench-b02",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

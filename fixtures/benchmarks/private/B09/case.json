@@ -1,0 +1,7 @@
+{
+  "id": "B09",
+  "title": "Previously green but insufficient test coverage",
+  "baseline": ["--test"],
+  "reference": ["src/median.js", "test/median.test.js"],
+  "wrong": ["src/median.js", "test/median.test.js"]
+}

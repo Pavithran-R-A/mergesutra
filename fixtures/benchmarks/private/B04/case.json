@@ -1,0 +1,7 @@
+{
+  "id": "B04",
+  "title": "Async timeout or cancellation defect",
+  "baseline": ["--test"],
+  "reference": ["src/timeout.js"],
+  "wrong": ["src/timeout.js"]
+}

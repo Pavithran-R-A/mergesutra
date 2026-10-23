@@ -1,0 +1,7 @@
+{
+  "id": "B03",
+  "title": "CLI argument and help regression",
+  "baseline": ["--test"],
+  "reference": ["src/cli.js"],
+  "wrong": ["src/cli.js"]
+}

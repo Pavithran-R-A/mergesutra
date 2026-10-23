@@ -1,0 +1,7 @@
+{
+  "id": "B06",
+  "title": "File path safety boundary",
+  "baseline": ["--test"],
+  "reference": ["src/resolve.js"],
+  "wrong": ["src/resolve.js"]
+}

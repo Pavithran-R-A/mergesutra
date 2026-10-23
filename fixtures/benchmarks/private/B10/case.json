@@ -1,0 +1,7 @@
+{
+  "id": "B10",
+  "title": "Reviewer catches an incomplete fix and repair succeeds",
+  "baseline": ["--test"],
+  "reference": ["src/truncate.js"],
+  "wrong": ["src/truncate.js"]
+}

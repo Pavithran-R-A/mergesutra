@@ -1,0 +1,7 @@
+{
+  "id": "B01",
+  "title": "String normalization edge cases",
+  "baseline": ["--test"],
+  "reference": ["src/normalize.js"],
+  "wrong": ["src/normalize.js"]
+}
