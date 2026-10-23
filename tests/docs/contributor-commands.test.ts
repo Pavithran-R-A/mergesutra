@@ -172,7 +172,10 @@ describe('the manifest scripts that start the program from source', () => {
   function executableSourceModule(): string {
     const entry = manifest().bin?.mergesutra;
     expect(entry, 'the manifest registers no executable entry').toBeTruthy();
-    return `src/${(entry ?? '').replace(/^\.\/dist\//, '').replace(/\.js$/, '.ts')}`;
+    return `src/${(entry ?? '')
+      .replace(/^\.\//, '')
+      .replace(/^dist\//, '')
+      .replace(/\.js$/, '.ts')}`;
   }
 
   function sourceRunnerBodies(): Array<[string, string]> {
