@@ -91,6 +91,18 @@ node dist/bin.js doctor
 
 The jump-to-workflow version is [Quick start](#quick-start).
 
+Commands that execute a repository's own checks — `verify`, `resume --execute`,
+`repair`, and `implement` when the model proposes a check — additionally need
+Docker with a **digest-pinned image already present locally**. MergeSutra never
+pulls one: set `MERGESUTRA_SANDBOX_IMAGE=node@sha256:<digest>` and
+`MERGESUTRA_DOCKER_EXECUTABLE` to the absolute Docker executable, and fetch that
+exact digest once yourself with `docker pull node@sha256:<digest>`. If either
+variable is missing or invalid, the command refuses with `SANDBOX_UNAVAILABLE`
+instead of running the gate on the host. The demonstration pins
+`node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7`.
+What the sandbox has and has not been qualified for is recorded in
+[docs/SANDBOX_EXECUTION.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/SANDBOX_EXECUTION.md).
+
 BharatCode-backed stages need the **current user's own** `BHARATCODE_API_KEY`
 and `BHARATCODE_MODEL`; no developer key is shared with CLI users or shipped
 in the npm artifact. **There is no default BharatCode model.** Choose an exact

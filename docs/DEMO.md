@@ -22,8 +22,15 @@ and no draft pull request is opened.
 ## Prerequisites
 
 - Node.js 22 or newer, Git, and Docker.
-- The pinned image already present:
-  `node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7`
+- The pinned image already present. MergeSutra never pulls an image itself, so
+  fetch this exact digest once:
+
+  ```bash
+  docker pull node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
+  ```
+
+  The driver passes that digest as `MERGESUTRA_SANDBOX_IMAGE` unless you set the
+  variable to a different digest-pinned image.
 - A built CLI: `npm run build` (creates `dist/bin.js`).
 - Network access for the public clone. The fixture declares no dependencies, so
   no install step runs.
