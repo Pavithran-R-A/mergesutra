@@ -221,6 +221,11 @@ export function buildInitialMessages(input: {
   ];
 }
 
+export interface ActionRepairOptions {
+  /** The refusal was a WRITE_FILE whose `content` field was absent or not a string. */
+  readonly missingWriteContent?: boolean;
+}
+
 /**
  * The turn after an action was refused before execution.
  *
@@ -233,6 +238,7 @@ export function withActionRepairFeedback(
   messages: readonly ChatMessage[],
   problem: string,
   remainingPlannedPaths: readonly string[] = [],
+  options: ActionRepairOptions = {},
 ): ChatMessage[] {
   return trimTranscript([
     ...messages,
@@ -256,7 +262,7 @@ export function withActionRepairFeedback(
               'If you cannot supply those bytes, use READ_FILE for the unfinished path instead.',
             ]
           : []),
-        ...(problem.includes('content: Required')
+        ...(options.missingWriteContent === true
           ? [
               'A WRITE_FILE action must include the `content` field as a STRING containing',
               'the COMPLETE new file bytes, not a patch, summary or omitted field.',

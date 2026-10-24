@@ -28,6 +28,7 @@ import {
 } from './prompt.js';
 import {
   actionIdentity,
+  isMissingWriteContent,
   parseAction,
   unknownActionCriterionIds,
   type LoopAction,
@@ -329,6 +330,7 @@ export async function runImplementationLoop(
           messages,
           reasonOf(error),
           unwrittenPlannedPaths(input.plan, state),
+          isMissingWriteContent(error),
         );
         continue;
       }
@@ -492,6 +494,7 @@ function repair(
   messages: ChatMessage[],
   problem: string,
   remainingPlannedPaths: readonly string[] = [],
+  missingWriteContent = false,
 ): ChatMessage[] {
   state.rejectedAnswers += 1;
   state.rejectionStreak += 1;
@@ -507,6 +510,7 @@ function repair(
     messages,
     bound(problem, MAX_LOG_DETAIL_CHARS),
     remainingPlannedPaths,
+    { missingWriteContent },
   );
 }
 
