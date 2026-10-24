@@ -16,6 +16,7 @@ assert.equal(normalizeLabel('\fA\vB\f'), 'a b', 'form feed and vertical tab');
 assert.equal(normalizeLabel('x__y---z'), 'x-y-z', 'hyphen and underscore runs');
 assert.equal(normalizeLabel('under_score'), 'under-score', 'single underscore');
 assert.equal(normalizeLabel('MiXeD Case'), 'mixed case', 'mixed case');
+assert.equal(normalizeLabel('a.b/c@d'), 'a.b/c@d', 'other characters are left alone');
 
 assert.throws(
   () => normalizeLabel(42),

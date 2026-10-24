@@ -24,7 +24,7 @@ assert.equal(encodeRecord({ 'a;=': 'v' }), 'a\\;\\==v', 'separators are escaped 
 const complex = { 'x;y': '1=2', z: 'line\nbreak', 'back\\slash': 'a\\b' };
 assert.deepEqual(decodeRecord(encodeRecord(complex)), complex, 'a complex record round trips');
 
-for (const text of ['a', 'a=1;', '=x', 'a=1;b', 'a=\\q', 'a=1\\']) {
+for (const text of ['a', 'a=1;', '=x', 'a=1;b', 'a=1=2', 'a=\\q', 'a=1\\']) {
   assert.throws(
     () => decodeRecord(text),
     (error) => error instanceof SyntaxError && error.message === 'invalid record',

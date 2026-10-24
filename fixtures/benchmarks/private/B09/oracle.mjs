@@ -46,31 +46,44 @@ for (const values of [
 
 const baseTestPath = path.join(baseRoot, 'test', 'median.test.js');
 const candidateTestPath = path.join(root, 'test', 'median.test.js');
-const baseTestText = fs.readFileSync(baseTestPath, 'utf8');
-const candidateTestText = fs.readFileSync(candidateTestPath, 'utf8');
-
-assert.ok(
-  candidateTestText.includes(baseTestText.trimEnd()),
-  'every original test is preserved byte for byte',
-);
-assert.notEqual(candidateTestText, baseTestText, 'the change adds at least one test');
+fs.accessSync(baseTestPath);
+fs.accessSync(candidateTestPath);
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-b09-'));
 try {
-  const copy = path.join(scratch, 'candidate');
-  fs.cpSync(baseRoot, copy, { recursive: true });
-  fs.copyFileSync(candidateTestPath, path.join(copy, 'test', 'median.test.js'));
-  const result = spawnSync(process.execPath, ['--test'], {
-    cwd: copy,
+  // The issue asks that the existing tests keep passing, not that the test file
+  // keep its exact bytes. Run the original suite against the candidate
+  // implementation so a correct fix that reformats or reorganises the test file
+  // is accepted.
+  const preserved = path.join(scratch, 'original-tests');
+  fs.cpSync(root, preserved, { recursive: true });
+  fs.rmSync(path.join(preserved, 'test'), { recursive: true, force: true });
+  fs.cpSync(path.join(baseRoot, 'test'), path.join(preserved, 'test'), { recursive: true });
+  const original = spawnSync(process.execPath, ['--test'], {
+    cwd: preserved,
     encoding: 'utf8',
     timeout: 30_000,
     windowsHide: true,
   });
-  assert.notEqual(
-    result.status,
+  assert.equal(
+    original.status,
     0,
-    'the added tests must fail against the original implementation',
+    `the original tests must still pass against the candidate:\n${original.stdout ?? ''}${original.stderr ?? ''}`,
   );
+
+  // The change must add at least one regression test, and it must fail against
+  // the original implementation. That is the behaviour this case is about.
+  const regression = path.join(scratch, 'regression');
+  fs.cpSync(baseRoot, regression, { recursive: true });
+  fs.rmSync(path.join(regression, 'test'), { recursive: true, force: true });
+  fs.cpSync(path.join(root, 'test'), path.join(regression, 'test'), { recursive: true });
+  const added = spawnSync(process.execPath, ['--test'], {
+    cwd: regression,
+    encoding: 'utf8',
+    timeout: 30_000,
+    windowsHide: true,
+  });
+  assert.notEqual(added.status, 0, 'the added tests must fail against the original implementation');
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
 }
