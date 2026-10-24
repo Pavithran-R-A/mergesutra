@@ -21,7 +21,12 @@ the Docker client environment; one fresh isolated Docker config is used
 per launch.
 
 Missing or invalid configuration produces `SANDBOX_UNAVAILABLE`, **not host
-execution**. A refused Stage 6 `RUN_CHECK` cannot be treated as a successful
+execution**. `mergesutra doctor` reports the same configuration as a
+`Repository sandbox` row: unconfigured is a WARN, a set-but-malformed pair is a
+FAIL, and PASS means both variables have the required shape. That check reads
+configuration and file metadata only — it never launches Docker — so image
+availability in the local daemon is still verified when a repository command
+runs. A refused Stage 6 `RUN_CHECK` cannot be treated as a successful
 check. Stage 7 records a command it could not execute as inconclusive, rather
 than a PASS. Operator verification consent remains required and separate from
 container isolation. The one thing Stage 7 reads outside the sandbox is

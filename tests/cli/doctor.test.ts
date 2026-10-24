@@ -1,10 +1,25 @@
-import { describe, it, expect } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import process from 'node:process';
+import { afterAll, describe, it, expect } from 'vitest';
 import { runDoctor, formatDoctor, doctorAction, type Runner } from '../../src/cli/doctor.js';
 import { createRenderer } from '../../src/cli/render.js';
 import type { BharatCodeClient } from '../../src/bharatcode/client.js';
 import { NAMED_SECRET_ENV_NAMES } from '../helpers/credentialScan.js';
 
 const KEY = 'sk-doctor-SECRETNOTSHOWN-000';
+const DIGEST = `node@sha256:${'a'.repeat(64)}`;
+
+const dirs: string[] = [];
+async function scratch(): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'mergesutra-doctor-sandbox-'));
+  dirs.push(dir);
+  return dir;
+}
+afterAll(async () => {
+  for (const dir of dirs) await rm(dir, { recursive: true, force: true });
+});
 
 const okRunner: Runner = async (file, args) => {
   if (file === 'git') return { code: 0, stdout: 'git version 2.55.0', stderr: '' };
@@ -23,7 +38,7 @@ function statusOf(checks: { name: string; status: string }[], name: string): str
 }
 
 describe('runDoctor', () => {
-  it('passes when the environment is complete (offline, reach skipped)', async () => {
+  it('passes the checks that need no sandbox (offline, reach skipped)', async () => {
     const checks = await runDoctor({
       env: { BHARATCODE_API_KEY: KEY },
       run: okRunner,
@@ -101,6 +116,112 @@ describe('runDoctor', () => {
   });
 });
 
+describe('repository sandbox readiness', () => {
+  it('warns that repository commands will refuse when the sandbox is unconfigured', async () => {
+    const checks = await runDoctor({
+      env: { BHARATCODE_API_KEY: KEY },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toContain('MERGESUTRA_SANDBOX_IMAGE');
+    expect(detail).toContain('MERGESUTRA_DOCKER_EXECUTABLE');
+    expect(detail).toContain('SANDBOX_UNAVAILABLE');
+  });
+
+  it('does not call the environment ready when repository execution is unconfigured', async () => {
+    const checks = await runDoctor({
+      env: { BHARATCODE_API_KEY: KEY },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+    });
+    const text = formatDoctor(checks, createRenderer({ color: false }));
+    expect(text).toContain('Ready with warnings.');
+    expect(text).not.toMatch(/^Ready\.$/m);
+  });
+
+  it('fails when only one mandatory variable is set', async () => {
+    const cases = [
+      { env: { MERGESUTRA_SANDBOX_IMAGE: DIGEST }, missing: 'MERGESUTRA_DOCKER_EXECUTABLE' },
+      {
+        env: { MERGESUTRA_DOCKER_EXECUTABLE: process.execPath },
+        missing: 'MERGESUTRA_SANDBOX_IMAGE',
+      },
+    ];
+    for (const { env, missing } of cases) {
+      const checks = await runDoctor({ env, run: okRunner, nodeVersion: '24.0.0' });
+      expect(statusOf(checks, 'Repository sandbox'), missing).toBe('FAIL');
+      const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+      expect(detail, missing).toContain(missing);
+    }
+  });
+
+  it('fails a mutable image tag, naming the digest requirement', async () => {
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: 'node:22',
+        MERGESUTRA_DOCKER_EXECUTABLE: process.execPath,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/digest/i);
+  });
+
+  it('fails a Docker executable selected by a relative path', async () => {
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: 'docker',
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/absolute/i);
+  });
+
+  it('fails an absolute Docker path that is not an existing file', async () => {
+    const cases = [path.join(await scratch(), 'docker-not-installed'), await scratch()];
+    for (const dockerExecutable of cases) {
+      const checks = await runDoctor({
+        env: {
+          MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+          MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+        },
+        run: okRunner,
+        nodeVersion: '24.0.0',
+      });
+      expect(statusOf(checks, 'Repository sandbox'), dockerExecutable).toBe('FAIL');
+      const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+      expect(detail, dockerExecutable).toMatch(/not an existing file/i);
+    }
+  });
+
+  it('passes a digest-pinned image with an existing absolute Docker CLI, without running it', async () => {
+    const dir = await scratch();
+    const dockerExecutable = path.join(dir, 'docker');
+    await writeFile(dockerExecutable, 'not executed by doctor');
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+    });
+    // `okRunner` answers a docker invocation with code 1, so a PASS here is also
+    // evidence that the check inspected the configured path instead of launching it.
+    expect(statusOf(checks, 'Repository sandbox')).toBe('PASS');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/fail-closed/i);
+  });
+});
+
 describe('formatDoctor', () => {
   it('renders all check names and never leaks the API key value', async () => {
     const checks = await runDoctor({
@@ -158,7 +279,7 @@ describe('doctorAction exit codes', () => {
     expect(code).not.toBe(0);
   });
 
-  it('returns zero when everything passes or is skipped', async () => {
+  it('returns zero when nothing fails (warnings and skips allowed)', async () => {
     const code = await doctorAction(
       { noColor: true },
       { env: { BHARATCODE_API_KEY: KEY }, run: okRunner, nodeVersion: '24.0.0' },
