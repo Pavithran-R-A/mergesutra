@@ -117,6 +117,39 @@ describe('a gateway that renames itself', () => {
   });
 });
 
+/**
+ * Token counts are measurements, and a count nobody sent is not zero.
+ *
+ * The envelope reports usage; it does not always report every field. Zero-filling an
+ * absent field turns "the endpoint did not say" into "the endpoint said none were used",
+ * and a run record that carries that zero is evidence of a measurement that never
+ * happened. The planner already stores an unreported count as `null`; these cases make the
+ * parser hand it an absence instead of a fabricated number.
+ */
+describe('what the envelope says about tokens', () => {
+  it('keeps a count the envelope did not report absent, not zero', () => {
+    const parsed = parseCompletion(
+      {
+        choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 12 },
+      },
+      'asked-for',
+    );
+    expect(parsed.usage).toEqual({ promptTokens: 12 });
+  });
+
+  it('reports no usage at all when the envelope carries an empty usage object', () => {
+    const parsed = parseCompletion(
+      {
+        choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }],
+        usage: {},
+      },
+      'asked-for',
+    );
+    expect(parsed.usage).toBeUndefined();
+  });
+});
+
 describe('what the answer text may name', () => {
   it('is never its own model, because a body carrying that key is refused whole', async () => {
     const prepared = await contractBackedRun(tempDirs);

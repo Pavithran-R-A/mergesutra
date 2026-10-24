@@ -65,16 +65,19 @@ function count(value: unknown): number | undefined {
 function parseUsage(value: unknown): Usage | undefined {
   const usage = record(value);
   if (!usage) return undefined;
-  const input = count(usage.input_tokens);
-  const output = count(usage.output_tokens);
-  const total = count(usage.total_tokens);
-  if (input === undefined && output === undefined && total === undefined) return undefined;
-  const promptTokens = input ?? 0;
-  const completionTokens = output ?? 0;
+  const promptTokens = count(usage.input_tokens);
+  const completionTokens = count(usage.output_tokens);
+  const totalTokens = count(usage.total_tokens);
+  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) {
+    return undefined;
+  }
+  // Only what arrived. The absent fields stay absent rather than becoming zeroes, and the
+  // total is never derived: a sum of one reported count and one invented zero is still an
+  // invented number.
   return {
-    promptTokens,
-    completionTokens,
-    totalTokens: total ?? promptTokens + completionTokens,
+    ...(promptTokens === undefined ? {} : { promptTokens }),
+    ...(completionTokens === undefined ? {} : { completionTokens }),
+    ...(totalTokens === undefined ? {} : { totalTokens }),
   };
 }
 

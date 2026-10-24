@@ -96,13 +96,18 @@ export function parseCompletion(unknown: unknown, requestedModel: string): Compl
   }
   let usage: Usage | undefined;
   if (data.usage) {
-    const prompt = data.usage.prompt_tokens ?? 0;
-    const completion = data.usage.completion_tokens ?? 0;
-    usage = {
-      promptTokens: prompt,
-      completionTokens: completion,
-      totalTokens: data.usage.total_tokens ?? prompt + completion,
-    };
+    // Absent counts stay absent: a zero here would be this adapter's invention, and a
+    // record carrying it would claim a measurement the endpoint never reported.
+    const promptTokens = data.usage.prompt_tokens;
+    const completionTokens = data.usage.completion_tokens;
+    const totalTokens = data.usage.total_tokens;
+    if (promptTokens !== undefined || completionTokens !== undefined || totalTokens !== undefined) {
+      usage = {
+        ...(promptTokens === undefined ? {} : { promptTokens }),
+        ...(completionTokens === undefined ? {} : { completionTokens }),
+        ...(totalTokens === undefined ? {} : { totalTokens }),
+      };
+    }
   }
   return {
     text: content,

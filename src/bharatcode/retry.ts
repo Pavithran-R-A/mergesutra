@@ -105,12 +105,50 @@ export async function runWithRetry<T>(
   }
 }
 
-export function throwIfCancelled(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw new AppError({
-      kind: 'cancelled',
-      message: 'Operation was cancelled.',
+/**
+ * What a caller's abort means, in the caller's own terms.
+ *
+ * Two different events sit behind `signal.aborted`. `AbortSignal.timeout()` aborts with a
+ * `TimeoutError`; anything else is a cancellation. Reporting both as "Operation was
+ * cancelled." tells an operator that somebody stopped the run when the deadline they
+ * configured had expired — live smoke 39909412225 ended exactly that way at 89059 ms,
+ * under a 90-second `AbortSignal.timeout`, and the report said `cancelled`.
+ *
+ * A caller's deadline is also not retryable: the next attempt would run past the bound the
+ * caller set. The internal per-request budget keeps its own retryable classification.
+ */
+export function abortOutcome(signal: AbortSignal, cause?: unknown): AppError {
+  const reason: unknown = signal.reason;
+  const fallbackCause = cause ?? (reason instanceof Error ? reason : undefined);
+  if (reasonName(reason) === 'TimeoutError') {
+    return new AppError({
+      kind: 'timeout',
+      message:
+        "BharatCode request stopped at the caller's deadline; this build did not time it out.",
       retryable: false,
+      cause: fallbackCause,
+      details: { clock: 'caller' },
     });
   }
+  return new AppError({
+    kind: 'cancelled',
+    message: 'Operation was cancelled.',
+    retryable: false,
+    cause: fallbackCause,
+  });
+}
+
+/** The reason's `name`, or nothing — a foreign value is allowed to refuse the read. */
+function reasonName(reason: unknown): string | undefined {
+  if (reason === null || typeof reason !== 'object') return undefined;
+  try {
+    const name = (reason as { name?: unknown }).name;
+    return typeof name === 'string' ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function throwIfCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortOutcome(signal);
 }

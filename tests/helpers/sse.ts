@@ -151,6 +151,44 @@ export function sseFetch(body: string, script: SseScript = {}): ScriptedSse {
   };
 }
 
+/** A body that delivers `first`, waits `delayMs`, then delivers `rest` and closes. */
+export function delayedSseFetch(
+  first: string,
+  rest: string,
+  delayMs: number,
+): { fetch: FetchLike; delivered: { readonly cancelled: boolean } } {
+  const encoder = new TextEncoder();
+  let cancelled = false;
+  const fetch: FetchLike = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get: (name: string) => (name.toLowerCase() === 'content-type' ? 'text/event-stream' : null),
+    },
+    text: async () => first + rest,
+    body: new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(encoder.encode(first));
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        if (cancelled) return;
+        controller.enqueue(encoder.encode(rest));
+        controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }),
+  });
+  return {
+    fetch,
+    delivered: {
+      get cancelled() {
+        return cancelled;
+      },
+    },
+  };
+}
+
 /** A body that delivers `first`, then stalls until the request signal aborts. */
 export function stallingSseFetch(first: string): {
   fetch: FetchLike;

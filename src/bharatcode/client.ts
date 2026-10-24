@@ -3,7 +3,7 @@ import { Redactor } from '../security/redaction.js';
 import { terminalSafeSingleLine } from '../security/terminal-safety.js';
 import { ResponseStream } from './responses.js';
 import { parseModelList } from './schemas.js';
-import { parseRetryAfter, runWithRetry, throwIfCancelled } from './retry.js';
+import { abortOutcome, parseRetryAfter, runWithRetry, throwIfCancelled } from './retry.js';
 import { SseParser, type SseFrame } from './sse.js';
 import {
   DEFAULT_BASE_URL,
@@ -86,23 +86,24 @@ interface BodyRead {
 /** One read from a body stream, named without relying on a DOM-only global type. */
 type ChunkRead = Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']>>;
 
-const defaultSleeper: Sleeper = (ms, signal) =>
-  new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) return reject(cancelled());
+const defaultSleeper: Sleeper = (ms, signal) => {
+  if (!signal) return new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const active: AbortSignal = signal;
+  return new Promise<void>((resolve, reject) => {
+    if (active.aborted) return reject(abortOutcome(active));
     const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
+      active.removeEventListener('abort', onAbort);
       resolve();
     }, ms);
     function onAbort() {
       clearTimeout(timer);
-      reject(cancelled());
+      // The sleep ends with whatever the abort means: a caller's deadline is a timeout,
+      // not a cancellation, and the classification has to survive the wait.
+      reject(abortOutcome(active));
     }
-    signal?.addEventListener('abort', onAbort, { once: true });
+    active.addEventListener('abort', onAbort, { once: true });
   });
-
-function cancelled(): AppError {
-  return new AppError({ kind: 'cancelled', message: 'Operation was cancelled.', retryable: false });
-}
+};
 
 /** Unique sentinel so an internal timeout abort is never confused with a user cancellation. */
 const TIMEOUT_REASON: { readonly mergesutra: 'timeout' } = { mergesutra: 'timeout' };
@@ -382,12 +383,19 @@ export class HttpBharatCodeClient implements BharatCodeClient {
    *
    * A fetch implementation with no stream is read with `text()`, which materialises the body
    * first; the bound then applies to what is parsed and stored, not to what is allocated.
+   *
+   * Every read is raced against the request signal. A source that ignores the abort would
+   * otherwise hold the run forever: `timeoutMs` would fire with nobody listening, which is
+   * the stall the per-request budget exists to end.
    */
-  private async readBody(response: Awaited<ReturnType<FetchLike>>): Promise<BodyRead> {
+  private async readBody(
+    response: Awaited<ReturnType<FetchLike>>,
+    signal?: AbortSignal,
+  ): Promise<BodyRead> {
     const stream = response.body;
-    if (!stream) return this.readText(response);
+    if (!stream) return this.readText(response, signal);
     try {
-      return await this.readStream(stream);
+      return await this.readStream(stream, signal);
     } catch (error) {
       // `getReader()` refuses outright on a locked or detached body. That is the transport
       // failing one step later than the fetch, and an error escaping unconverted reaches
@@ -399,7 +407,9 @@ export class HttpBharatCodeClient implements BharatCodeClient {
 
   private async readStream(
     stream: NonNullable<Awaited<ReturnType<FetchLike>>['body']>,
+    signal?: AbortSignal,
   ): Promise<BodyRead> {
+    if (signal?.aborted) return { text: '', over: false, failed: abortError(signal) };
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     const parts: string[] = [];
@@ -407,7 +417,7 @@ export class HttpBharatCodeClient implements BharatCodeClient {
     for (;;) {
       let next: Awaited<ReturnType<typeof reader.read>>;
       try {
-        next = await reader.read();
+        next = await this.nextChunk(reader, signal);
       } catch (error) {
         await reader.cancel().catch(() => undefined);
         return { text: '', over: false, failed: error };
@@ -425,9 +435,12 @@ export class HttpBharatCodeClient implements BharatCodeClient {
     }
   }
 
-  private async readText(response: Awaited<ReturnType<FetchLike>>): Promise<BodyRead> {
+  private async readText(
+    response: Awaited<ReturnType<FetchLike>>,
+    signal?: AbortSignal,
+  ): Promise<BodyRead> {
     try {
-      const text = await response.text();
+      const text = await raceAbort(response.text(), signal);
       if (Buffer.byteLength(text, 'utf8') > MAX_RESPONSE_BYTES) {
         return { text: '', over: true, failed: undefined };
       }
@@ -463,7 +476,7 @@ export class HttpBharatCodeClient implements BharatCodeClient {
       throw this.toAppError(error, init.signal, init.callerSignal);
     }
 
-    const body = await this.readBody(response);
+    const body = await this.readBody(response, init.signal);
     if (!response.ok) throw this.httpError(response, body);
     // A body that stopped arriving is not a body that arrived empty: the first is the
     // transport failing, and the retry policy has to be told which one it is looking at.
@@ -516,14 +529,14 @@ export class HttpBharatCodeClient implements BharatCodeClient {
     }
 
     if (!response.ok) {
-      const body = await this.readBody(response);
+      const body = await this.readBody(response, init.signal);
       throw this.httpError(response, body);
     }
     if ((readHeader(response, 'content-type') ?? '').includes('text/event-stream')) {
       return this.consumeStream(response, init);
     }
 
-    const body = await this.readBody(response);
+    const body = await this.readBody(response, init.signal);
     if (body.failed)
       throw this.toAppError(body.failed, init.signal, init.callerSignal, 'response-body');
     if (body.over) throw this.overBound(response.status);
@@ -557,7 +570,7 @@ export class HttpBharatCodeClient implements BharatCodeClient {
       // A gateway that declares a stream but offers no readable one. The bytes are read
       // through the same bound, then replayed into the same parser, so the framing and
       // terminal rules do not depend on which property the fetcher exposed.
-      const buffered = await this.readBody(response);
+      const buffered = await this.readBody(response, init.signal);
       if (buffered.failed)
         throw this.toAppError(buffered.failed, init.signal, init.callerSignal, 'response-body');
       if (buffered.over) throw this.overBound(response.status);
@@ -723,25 +736,12 @@ export class HttpBharatCodeClient implements BharatCodeClient {
     callerSignal?: AbortSignal,
     phase: 'request' | 'response-body' = 'request',
   ): AppError {
-    // Caller explicitly cancelled → not a timeout, never retried.
-    if (callerSignal?.aborted) {
-      return new AppError({
-        kind: 'cancelled',
-        message: 'Operation was cancelled.',
-        retryable: false,
-        cause: error,
-      });
-    }
-    // Internal timeout sentinel → retryable timeout.
+    // The caller's abort ends the request in the caller's own terms: a deadline is a
+    // timeout on the caller's clock (never retried), anything else is a cancellation.
+    if (callerSignal?.aborted) return abortOutcome(callerSignal, error);
+    // Internal timeout sentinel → retryable timeout, named by the phase it fired in.
     const isTimeout = signal?.aborted === true && signal.reason === TIMEOUT_REASON;
-    if (isTimeout) {
-      return new AppError({
-        kind: 'timeout',
-        message: `BharatCode request timed out after ${this.config.timeoutMs}ms.`,
-        retryable: true,
-        cause: error,
-      });
-    }
+    if (isTimeout) return this.internalTimeout(phase, error);
     // Same reason the field readers exist: `name` is a string a foreign error is allowed
     // to withhold behind a getter that throws, and a cancelled run is decided by a word.
     if (readForeignString(error, 'name') === 'AbortError') {
@@ -763,6 +763,28 @@ export class HttpBharatCodeClient implements BharatCodeClient {
       )}`,
       retryable: true,
       cause: error,
+    });
+  }
+
+  /**
+   * This build's own budget fired, named by the phase it fired in.
+   *
+   * No headers arriving and a body that never completes are different failures with the
+   * same configured number. Saying which one happened keeps an operator from waiting
+   * longer for a response that already arrived, or hunting the body when nothing ever
+   * answered.
+   */
+  private internalTimeout(phase: 'request' | 'response-body', cause: unknown): AppError {
+    const message =
+      phase === 'request'
+        ? `BharatCode request timed out after ${this.config.timeoutMs}ms.`
+        : `BharatCode answered, but its response body did not finish arriving within ${this.config.timeoutMs}ms.`;
+    return new AppError({
+      kind: 'timeout',
+      message,
+      retryable: true,
+      cause,
+      details: { clock: 'request', phase, budgetMs: this.config.timeoutMs },
     });
   }
 
@@ -973,6 +995,38 @@ function abortError(signal: AbortSignal): Error {
   const reason: unknown = signal.reason;
   if (reason instanceof Error) return reason;
   return Object.assign(new Error('The response read was aborted.'), { name: 'AbortError' });
+}
+
+/**
+ * Settle with `work`, or reject as soon as `signal` aborts.
+ *
+ * The abandoned promise keeps a rejection handler attached: a read that fails after this
+ * side stopped waiting must not surface as an unhandled rejection and take down a run that
+ * is already reporting the abort.
+ */
+function raceAbort<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return work;
+  if (signal.aborted) {
+    void work.catch(() => undefined);
+    return Promise.reject(abortError(signal));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      void work.catch(() => undefined);
+      reject(abortError(signal));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function cancelQuietly(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
