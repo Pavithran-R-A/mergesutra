@@ -1866,9 +1866,9 @@ opened.
 Planned initial target:
 Node/TypeScript/JavaScript projects on **public** GitHub repos. The hosted gate
 runs Windows, Linux and macOS on Node 22 and Node 24. The Docker sandbox is a
-narrower claim: its hosted container proofs run on Linux, the three digest-pinned
-images have also been exercised on a Windows Docker Desktop host, and no
-container has been started on macOS. A repository whose own gate is a `git`
+narrower claim: its hosted container proofs run on Linux; a Windows Docker
+Desktop host has exercised its own three local images (one shared with the hosted
+pins, two different digests), and no container has been started on macOS. A repository whose own gate is a `git`
 command fails closed inside the sandbox on every platform. The per-host matrix
 is in [docs/SANDBOX_EXECUTION.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/SANDBOX_EXECUTION.md).
 
