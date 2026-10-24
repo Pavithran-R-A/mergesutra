@@ -419,7 +419,7 @@ export class HttpBharatCodeClient implements BharatCodeClient {
       try {
         next = await this.nextChunk(reader, signal);
       } catch (error) {
-        await reader.cancel().catch(() => undefined);
+        cancelQuietly(reader);
         return { text: '', over: false, failed: error };
       }
       if (next.done) {
@@ -428,7 +428,7 @@ export class HttpBharatCodeClient implements BharatCodeClient {
       }
       taken += next.value.byteLength;
       if (taken > MAX_RESPONSE_BYTES) {
-        await reader.cancel().catch(() => undefined);
+        cancelQuietly(reader);
         return { text: parts.join(''), over: true, failed: undefined };
       }
       parts.push(decoder.decode(next.value, { stream: true }));
@@ -477,6 +477,12 @@ export class HttpBharatCodeClient implements BharatCodeClient {
     }
 
     const body = await this.readBody(response, init.signal);
+    // A read a clock stopped is that clock's failure, even when the response began with an
+    // error status: the status arrived, but reporting it would send the operator to a
+    // credential, or a service, that the deadline never let this side hear about.
+    if (body.failed !== undefined && clockAborted(init.signal, init.callerSignal)) {
+      throw this.toAppError(body.failed, init.signal, init.callerSignal, 'response-body');
+    }
     if (!response.ok) throw this.httpError(response, body);
     // A body that stopped arriving is not a body that arrived empty: the first is the
     // transport failing, and the retry policy has to be told which one it is looking at.
@@ -530,6 +536,9 @@ export class HttpBharatCodeClient implements BharatCodeClient {
 
     if (!response.ok) {
       const body = await this.readBody(response, init.signal);
+      if (body.failed !== undefined && clockAborted(init.signal, init.callerSignal)) {
+        throw this.toAppError(body.failed, init.signal, init.callerSignal, 'response-body');
+      }
       throw this.httpError(response, body);
     }
     if ((readHeader(response, 'content-type') ?? '').includes('text/event-stream')) {
@@ -594,7 +603,7 @@ export class HttpBharatCodeClient implements BharatCodeClient {
         try {
           next = await this.nextChunk(reader, init.signal);
         } catch (error) {
-          await cancelQuietly(reader);
+          cancelQuietly(reader);
           throw this.toAppError(error, init.signal, init.callerSignal, 'response-body');
         }
         if (next.done) {
@@ -611,8 +620,10 @@ export class HttpBharatCodeClient implements BharatCodeClient {
       return stream.result();
     } finally {
       // The terminal event is the end of the answer, whether or not the socket has closed;
-      // a stream that is still offering more is released rather than drained.
-      if (!drained) await cancelQuietly(reader);
+      // a stream that is still offering more is released rather than drained. The release
+      // is not awaited: a provider whose `cancel()` never settles must not hold a run that
+      // already has its answer, and `timeoutMs` has nothing left to interrupt.
+      if (!drained) cancelQuietly(reader);
     }
   }
 
@@ -1029,8 +1040,13 @@ function raceAbort<T>(work: Promise<T>, signal: AbortSignal | undefined): Promis
   });
 }
 
-async function cancelQuietly(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
-  await reader.cancel().catch(() => undefined);
+function cancelQuietly(reader: ReadableStreamDefaultReader<Uint8Array>): void {
+  void reader.cancel().catch(() => undefined);
+}
+
+/** Whether either clock this request runs on has fired. */
+function clockAborted(signal?: AbortSignal, callerSignal?: AbortSignal): boolean {
+  return signal?.aborted === true || callerSignal?.aborted === true;
 }
 
 function withJsonInstruction<T>(request: StructuredRequest<T>) {

@@ -236,6 +236,30 @@ describe('a response body that does not stop', () => {
     expect(over.delivered.produced).toBeLessThanOrEqual(CAP + READ_AHEAD);
   });
 
+  it('refuses an over-bound body without waiting on a release that never settles', async () => {
+    // The refusal is decided by the byte count alone. A `cancel()` that never resolves is
+    // the endpoint's problem; waiting for it would turn a bounded read into an unbounded
+    // one and leave the caller's budget with nothing to interrupt.
+    const fetch: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.enqueue(new Uint8Array(CHUNK).fill(0x61));
+        },
+        cancel: () => new Promise<void>(() => {}),
+      }),
+      text: async () => '',
+    });
+    const client = createBharatCodeClient({ config: config({ timeoutMs: 200 }), fetch });
+    const error = await client.listModels().catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ kind: 'invalid-response', retryable: false });
+    expect(String((error as { message?: string }).message)).toContain(String(CAP));
+  }, 1000);
+
   it('refuses one past the bound on the path that has no stream to stop', async () => {
     // A `fetch` that only offers `text()` has already materialised the body before this
     // client sees it, so the bound here is on what gets parsed and kept, not on what is

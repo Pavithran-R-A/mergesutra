@@ -1222,6 +1222,55 @@ describe('a stalled buffered response body (offline)', () => {
   }, 1000);
 });
 
+/**
+ * A non-2xx response is still an answer, but its body may never finish arriving.
+ *
+ * The status arrived; what ended the read is a clock. Reporting `401` because the response
+ * began with one would tell the operator to fix a credential when the caller's deadline —
+ * or this build's own budget — is what stopped the request.
+ */
+describe('a non-2xx response whose body stops arriving (offline)', () => {
+  function failingStallingFetch(status: number): FetchLike {
+    return async () => ({
+      ok: false,
+      status,
+      headers: { get: () => null },
+      text: () => new Promise<string>(() => {}),
+      body: new ReadableStream<Uint8Array>({ start() {} }),
+    });
+  }
+
+  it("names the caller's deadline rather than the status when an error body is cut short", async () => {
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 5000,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch: failingStallingFetch(401),
+    });
+    const err = await client
+      .complete({ messages: [], signal: AbortSignal.timeout(25) })
+      .catch((e) => e);
+    expect(err.kind).toBe('timeout');
+    expect(err.retryable).toBe(false);
+    expect(err.message).toContain("caller's deadline");
+  }, 1000);
+
+  it('names its own budget rather than the status when an error body stops arriving', async () => {
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 25,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch: failingStallingFetch(503),
+    });
+    const err = await client.listModels().catch((e) => e);
+    expect(err.kind).toBe('timeout');
+    expect(err.retryable).toBe(true);
+    expect(err.message).toContain('response body');
+  }, 1000);
+});
+
 describe('Config guard', () => {
   it('throws a config error when no API key is present', async () => {
     const { fetch } = fakeFetch([{ ok: true, status: 200, body: { data: [] } }]);

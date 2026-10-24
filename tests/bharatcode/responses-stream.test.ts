@@ -581,6 +581,49 @@ describe('a stream that does not finish cleanly', () => {
   });
 });
 
+/**
+ * Releasing a stream is courtesy toward the endpoint, not part of the answer.
+ *
+ * A provider that has already sent its terminal event may still hand back a `cancel()`
+ * that never settles. Waiting on that release would hold the run past `timeoutMs` with
+ * nothing left to read — the timer fires with nobody listening — so the answer must be
+ * returned without it.
+ */
+function neverReleasingSseFetch(body: string): FetchLike {
+  const bytes = new TextEncoder().encode(body);
+  let sent = false;
+  return async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get: (name: string) => (name.toLowerCase() === 'content-type' ? 'text/event-stream' : null),
+    },
+    text: async () => body,
+    body: new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(bytes);
+          return;
+        }
+        return new Promise<void>(() => {});
+      },
+      cancel: () => new Promise<void>(() => {}),
+    }),
+  });
+}
+
+describe('a stream whose release never settles', () => {
+  it('returns the terminal answer without waiting for the release', async () => {
+    const client = clientWith(neverReleasingSseFetch(completedEvent({ text: 'stubborn answer' })), {
+      timeoutMs: 200,
+      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
+    });
+    const result = await client.complete({ messages: [{ role: 'user', content: 'go' }] });
+    expect(result.text).toBe('stubborn answer');
+  }, 1000);
+});
+
 describe('cancellation and the per-request budget, mid-stream', () => {
   it('reports a caller abort as cancelled and stops reading', async () => {
     const fixture = stallingSseFetch(deltaEvent('partial'));
