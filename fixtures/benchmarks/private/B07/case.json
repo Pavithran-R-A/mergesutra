@@ -1,0 +1,7 @@
+{
+  "id": "B07",
+  "title": "Configuration precedence bug",
+  "baseline": ["--test"],
+  "reference": ["src/settings.js"],
+  "wrong": ["src/settings.js"]
+}

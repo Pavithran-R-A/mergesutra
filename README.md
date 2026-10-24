@@ -62,8 +62,9 @@ becomes a PR."*
 > (`run-20261021T115401Z-ea10b8`, 21 October 2026, source `eba29b7`) passed both
 > gates, the independent oracle passed all five criteria, review recorded zero
 > findings, and a digest-bound approval was filed without publishing. An
-> 88-second transcript-cut video accompanies the submission; it is selected
-> verbatim stdout, not a screen recording. See [docs/DEMO.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DEMO.md) for
+> [88-second transcript-cut video](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/assets/merge-sutra-demo-88s.mp4)
+> accompanies the submission; it is selected verbatim stdout, not a screen
+> recording, and carries a persistent **SCRIPTED-MODEL** banner. See [docs/DEMO.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DEMO.md) for
 > that run's facts, the reproducible procedure, and the earlier full-repository
 > attempt that honestly failed.
 >
@@ -89,6 +90,18 @@ node dist/bin.js doctor
 ```
 
 The jump-to-workflow version is [Quick start](#quick-start).
+
+Commands that execute a repository's own checks — `verify`, `resume --execute`,
+`repair`, and `implement` when the model proposes a check — additionally need
+Docker with a **digest-pinned image already present locally**. MergeSutra never
+pulls one: set `MERGESUTRA_SANDBOX_IMAGE=node@sha256:<digest>` and
+`MERGESUTRA_DOCKER_EXECUTABLE` to the absolute Docker executable, and fetch that
+exact digest once yourself with `docker pull node@sha256:<digest>`. If either
+variable is missing or invalid, the command refuses with `SANDBOX_UNAVAILABLE`
+instead of running the gate on the host. The demonstration pins
+`node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7`.
+What the sandbox has and has not been qualified for is recorded in
+[docs/SANDBOX_EXECUTION.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/SANDBOX_EXECUTION.md).
 
 BharatCode-backed stages need the **current user's own** `BHARATCODE_API_KEY`
 and `BHARATCODE_MODEL`; no developer key is shared with CLI users or shipped
@@ -171,6 +184,11 @@ run's own screens, selected and reflowed, with a persistent SCRIPTED banner, not
 screen recording.
 [docs/DEMO.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DEMO.md) records the facts and the generation method.
 
+- Video (public copy): [docs/assets/merge-sutra-demo-88s.mp4](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/assets/merge-sutra-demo-88s.mp4)
+  — 87.97 s, 1920×1080, persistent SCRIPTED banner
+- Transcript beside it: [docs/assets/merge-sutra-demo-transcript.txt](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/assets/merge-sutra-demo-transcript.txt)
+  — the run's transcript with operator paths replaced by `<scripted-demo-evidence>`
+  and `.mergesutra/runs/`
 - Harness: [scripts/demo-scripted-journey.mjs](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/scripts/demo-scripted-journey.mjs)
 - Procedure, capture map and recording notes: [docs/DEMO.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/DEMO.md)
 - Evidence written by a run: `summary.json`, `transcript.txt`, `PROCEDURE.md` and
@@ -1847,8 +1865,12 @@ committed, pushed or
 opened.
 Planned initial target:
 Node/TypeScript/JavaScript projects on **public** GitHub repos. The hosted gate
-runs Windows and Linux on Node 22 and Node 24. Nothing is claimed about macOS:
-no gate in this repository runs there, so no sentence here could be checked.
+runs Windows, Linux and macOS on Node 22 and Node 24. The Docker sandbox is a
+narrower claim: its hosted container proofs run on Linux; a Windows Docker
+Desktop host has exercised its own three local images (one shared with the hosted
+pins, two different digests), and no container has been started on macOS. A repository whose own gate is a `git`
+command fails closed inside the sandbox on every platform. The per-host matrix
+is in [docs/SANDBOX_EXECUTION.md](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/SANDBOX_EXECUTION.md).
 
 ## What a run leaves behind, and how to remove it
 

@@ -22,8 +22,15 @@ and no draft pull request is opened.
 ## Prerequisites
 
 - Node.js 22 or newer, Git, and Docker.
-- The pinned image already present:
-  `node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7`
+- The pinned image already present. MergeSutra never pulls an image itself, so
+  fetch this exact digest once:
+
+  ```bash
+  docker pull node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
+  ```
+
+  The driver passes that digest as `MERGESUTRA_SANDBOX_IMAGE` unless you set the
+  variable to a different digest-pinned image.
 - A built CLI: `npm run build` (creates `dist/bin.js`).
 - Network access for the public clone. The fixture declares no dependencies, so
   no install step runs.
@@ -96,14 +103,26 @@ An 88-second MP4 was produced from this run for the submission. It is a
 **transcript cut, not a screen recording**: each displayed line is either
 selected from the run's `logs/` or `summary.json` by a helper that refuses a line
 the evidence does not contain (`line()`, `oracleLine()`), or is a layout label or
-a transcription of a recorded value written into the generator. `transcript.txt`
-is published beside the video so every fact-bearing line can be checked against
-the run. A persistent banner labels the model **SCRIPTED**. The
+a transcription of a recorded value written into the generator. A sanitized copy
+of `transcript.txt` is published beside the public video copy, so every
+fact-bearing line can be checked against the run. A persistent banner labels the
+model **SCRIPTED**. The
 thirteen recorded CLI stages took about 25 seconds in this run, so there are no
 long waits to condense; each slide simply holds a real line set long enough to
 read.
 
-The video and its generator live beside the evidence, outside the repository.
+The public copy of the cut is
+[`docs/assets/merge-sutra-demo-88s.mp4`](assets/merge-sutra-demo-88s.mp4)
+(1,605,962 bytes, 87.97 s, sha256
+`37846e5433ee263b6fdeae663719d6a5fddb554362ad221e4e6b06331fb5ace0`), with the
+sanitized transcript at
+[`docs/assets/merge-sutra-demo-transcript.txt`](assets/merge-sutra-demo-transcript.txt).
+The transcript is the run's own file with 29 operator-path strings replaced
+mechanically: the evidence root becomes `<scripted-demo-evidence>` (19
+occurrences) and the run-record directory becomes `.mergesutra/runs/` (10
+occurrences); every other byte is unchanged. The generator and the full evidence
+bundle remain beside the evidence, outside the repository.
+
 If you prefer a terminal recording on a machine with a display:
 
 1. **Preparation.** Use a neutral output path (`C:/demo/...`), close notification

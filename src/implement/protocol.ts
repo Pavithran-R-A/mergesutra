@@ -218,7 +218,40 @@ export function parseAction(value: unknown): LoopAction {
     kind: 'validation',
     message: `Rejected model action: ${detail}`,
     remediation: 'Ask for exactly one JSON object with an `action` field from the allowed list.',
+    // The issue path and code survive a change of schema library or wording, so a
+    // caller that needs to recognise one specific refusal does not have to match
+    // this build's prose. `action` is the raw discriminator, when one was supplied.
+    details: {
+      action: unknownKind,
+      issues: parsed.error.issues.slice(0, 5).map((problem) => ({
+        path: problem.path.map((segment) => String(segment)).join('.'),
+        code: problem.code,
+      })),
+    },
   });
+}
+
+/**
+ * Whether a rejection is a WRITE_FILE that omitted its `content` field.
+ *
+ * Structural, not textual: the message for a missing required field read
+ * `content: Required` under zod 3 and reads `Invalid input: expected string`
+ * under zod 4, and the repair guidance must not depend on which version
+ * produced the refusal.
+ */
+export function isMissingWriteContent(error: unknown): boolean {
+  if (!(error instanceof AppError) || error.details?.['action'] !== 'WRITE_FILE') return false;
+  const issues = error.details['issues'];
+  return (
+    Array.isArray(issues) &&
+    issues.some(
+      (issue) =>
+        typeof issue === 'object' &&
+        issue !== null &&
+        (issue as { path?: unknown }).path === 'content' &&
+        (issue as { code?: unknown }).code === 'invalid_type',
+    )
+  );
 }
 
 /** Criterion ids the action names, so they can be checked against the contract. */

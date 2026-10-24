@@ -1,0 +1,7 @@
+{
+  "id": "B08",
+  "title": "Multiple-file bug with existing regression suite",
+  "baseline": ["--test"],
+  "reference": ["src/range.js", "src/format.js"],
+  "wrong": ["src/range.js"]
+}

@@ -4,6 +4,7 @@ import {
   ACTION_KINDS,
   actionCriterionIds,
   actionIdentity,
+  isMissingWriteContent,
   MAX_ACTION_CONTENT_CHARS,
   parseAction,
   unknownActionCriterionIds,
@@ -305,6 +306,55 @@ describe('sizes a single action may not exceed', () => {
     expect(() => parseAction({ action: 'SEARCH', query: 'a'.repeat(201), reason: 'r' })).toThrow(
       AppError,
     );
+  });
+});
+
+describe('recognising one refusal without matching its prose', () => {
+  function rejectionOf(value: unknown): AppError {
+    try {
+      parseAction(value);
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      return error as AppError;
+    }
+    throw new Error(`expected ${JSON.stringify(value)} to be rejected`);
+  }
+
+  it('flags a WRITE_FILE that omitted content from the parse structure', () => {
+    // The repair prompt must fire whichever wording the schema library uses for a
+    // missing field — zod 3 said "Required", zod 4 says "Invalid input: expected
+    // string". The issue path and code are the version-independent evidence.
+    const error = rejectionOf({
+      action: 'WRITE_FILE',
+      path: 'src/parse.ts',
+      replaces: { expectedAbsent: true },
+      reason: 'add the guard',
+    });
+    expect(isMissingWriteContent(error)).toBe(true);
+    expect(error.details?.['action']).toBe('WRITE_FILE');
+    expect(error.details?.['issues']).toContainEqual({ path: 'content', code: 'invalid_type' });
+  });
+
+  it('does not flag other refusals, including one whose message has the old wording', () => {
+    const noPrecondition = rejectionOf({
+      action: 'WRITE_FILE',
+      path: 'src/parse.ts',
+      content: 'x\n',
+      reason: 'add the guard',
+    });
+    expect(isMissingWriteContent(noPrecondition)).toBe(false);
+
+    const readWithoutReason = rejectionOf({ action: 'READ_FILE', path: 'src/parse.ts' });
+    expect(isMissingWriteContent(readWithoutReason)).toBe(false);
+
+    // Prose alone is not the signal, and neither is a foreign error value.
+    const proseOnly = new AppError({
+      kind: 'validation',
+      message: 'Rejected model action: WRITE_FILE: content: Required',
+    });
+    expect(isMissingWriteContent(proseOnly)).toBe(false);
+    expect(isMissingWriteContent(new Error('content: Required'))).toBe(false);
+    expect(isMissingWriteContent(undefined)).toBe(false);
   });
 });
 

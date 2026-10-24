@@ -1,5 +1,5 @@
 import { execFile, spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -201,6 +201,33 @@ describe('the packed artifact installs where no source is present', () => {
     for (const name of Object.keys(manifest.devDependencies)) {
       expect(existsSync(path.join(modules, name)), `${name} leaked into a consumer`).toBe(false);
     }
+  });
+});
+
+/**
+ * `npm pack` packs the manifest as written, but `npm publish` runs it through
+ * npm's `prepare()` step first, which may silently correct it. Measured with npm
+ * 11.19.0: `"bin": {"mergesutra": "./dist/bin.js"}` was rewritten to
+ * `dist/bin.js`, with a warning that read as though the entry had been removed.
+ * The entry survived, but a customer reading package.json would not have been
+ * reading the manifest the registry received. `npm pkg fix` runs the same
+ * correction; on a fixed manifest it must write nothing. The scratch copy keeps
+ * the fix away from the checkout, and includes the bin target because npm warns
+ * about a target it cannot see.
+ */
+describe('the manifest npm would publish is the manifest this repository declares', () => {
+  it('needs no correction at publish time', () => {
+    const scratch = path.join(staging, 'manifest');
+    mkdirSync(path.join(scratch, 'dist'), { recursive: true });
+    copyFileSync(path.join(ROOT, 'package.json'), path.join(scratch, 'package.json'));
+    copyFileSync(path.join(ROOT, 'dist', 'bin.js'), path.join(scratch, 'dist', 'bin.js'));
+    const fixed = npm(['pkg', 'fix'], scratch);
+    expect(fixed.status, `npm pkg fix exited ${String(fixed.status)}: ${fixed.stderr}`).toBe(0);
+    const corrected = JSON.parse(readFileSync(path.join(scratch, 'package.json'), 'utf8'));
+    expect(
+      corrected,
+      'npm would rewrite package.json at publish time; fix the declaration, not the copy',
+    ).toEqual(manifest);
   });
 });
 

@@ -3334,7 +3334,7 @@ launcher that runs when started *either* way would import-and-run the library on
 `import 'mergesutra'`). The two jobs were separated: `src/bin.ts` is now the executable the
 manifest registers and runs the command line **unconditionally**, and `src/index.ts` is
 exports-only, so importing the library can never start a CLI and starting the CLI can never
-be declined. `package.json`'s `bin` points at `./dist/bin.js` while `main`/`exports` stay at
+be declined. `package.json`'s `bin` points at `dist/bin.js` while `main`/`exports` stay at
 `./dist/index.js`, `package-lock.json`'s root `bin` entry moved with it, all 30 `node
 dist/index.js …` instructions in the shipped README became `node dist/bin.js …`, and
 `docs/SECURITY_MODEL.md` records that the entry point the artifact contract names changed
@@ -3835,7 +3835,7 @@ future rename moves the rule rather than breaking it:
 
 - *start the same program the installed package starts* — every script whose body launches a module
   under `src/` through `tsx` or `node` must launch the module the `bin` field registers, computed
-  from `bin.mergesutra` (`./dist/bin.js` → `src/bin.ts`).
+  from `bin.mergesutra` (`dist/bin.js` → `src/bin.ts`).
 - *do not launch the library entry, which runs no command line* — the complement, computed from
   `main` (`./dist/index.js` → `src/index.ts`), with the symptom named in the failure message.
 

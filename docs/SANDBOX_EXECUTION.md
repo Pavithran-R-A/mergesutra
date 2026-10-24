@@ -39,6 +39,34 @@ an image's own entrypoint may otherwise substitute an interpreter for a command
 it does not recognise (measured on the pinned digest, a gate that asked for
 `git --version` executed `node git --version`).
 
+## Supported platform matrix
+
+"Supported" here means a real container was started on that host and the boundary
+proofs passed. Fail-closed and unmeasured are not synonyms for supported, and a
+passing unit suite on a host is not a container reading.
+
+| Host | Hosted test gate (Node 22 / 24) | Docker host measured | Repository `node`/npm command | Repository `git` command |
+| --- | --- | --- | --- | --- |
+| Linux | qualified — 2 hosted cells | yes: GitHub `ubuntu-latest`, classic image store | **qualified** for the three digest-pinned images in `.github/workflows/sandbox-runtime.yml` | **fail-closed, not qualified**: the Alpine pin has no `git` (exit 127), and no hosted leg drives a git-native gate |
+| Windows | qualified — 2 hosted cells | yes: Docker Desktop 29.8.1, containerd store, local only | **qualified** for the three digests that daemon held (`a4fb14143ee2…`, `363e15874946…`, `64af3819f927…`) — not the hosted `node:22` / `node:24` pins | **fail-closed, not qualified**: exit 127 on the Alpine pin and exit 128 on a git-bearing digest, because a linked worktree's `.git` points at a host path the single bind mount withholds |
+| macOS | qualified — 2 hosted cells | **none** | **NOT MEASURED**: no container has been started on a macOS Docker host | **NOT MEASURED**: the same fail-closed routing applies, but it has not been read on this host |
+
+The test-gate cells are the six jobs of `ci.yml` on `cd03393` (run
+[39803105743](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39803105743), all six
+`success`). The Linux container readings are proof run
+[39051920854](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39051920854) on `5579a75`,
+three image legs. The Windows readings are six local legs recorded in
+`SECURITY_GAP_REGISTER.md` S16-11; no GitHub-hosted Windows or macOS job starts a container, so the
+macOS cells qualify only the test gate.
+
+Two narrower facts follow from the same evidence. Image qualification is per digest, not per tag:
+`sandbox-runtime.yml` pins `node@sha256:a4fb14143ee2…` (Alpine, Node 26.6.0, no `git`),
+`node@sha256:0e5f90657369…` and `node@sha256:14078204b6bb…`, and the Windows daemon's two Debian
+digests are not those hosted pins. And a git-native gate is not something an operator can enable by
+choosing a git-bearing image: the worktree's metadata lives outside the one bind mount, so the gate
+still cannot see the repository. MergeSutra's own patch check is not in that column — it is a host
+measurement, as described above and in S16-4.
+
 ## Limitations requiring dedicated acceptance before consumer launch
 
 - The controlled real Docker adversarial fixture proves a specific Linux

@@ -8,7 +8,7 @@ import {
   withStepFeedback,
 } from '../../src/implement/prompt.js';
 import { assembleInitialContext } from '../../src/implement/context.js';
-import { ACTION_KINDS } from '../../src/implement/protocol.js';
+import { ACTION_KINDS, isMissingWriteContent, parseAction } from '../../src/implement/protocol.js';
 import { DEFAULT_LIMITS, resolveLimits, type LoopLimits } from '../../src/implement/limits.js';
 import { openConfinedReader } from '../../src/security/reader.js';
 import { sha256Hex } from '../../src/security/digest.js';
@@ -387,6 +387,30 @@ describe('turn-to-turn feedback', () => {
     ];
   }
 
+  /**
+   * The refusal a real missing-content write produces, not a hand-written stand-in.
+   *
+   * The repair guidance used to key on the literal `content: Required`, which was
+   * zod 3's wording. A test that feeds that literal keeps passing after the schema
+   * library rewords it, while the live loop silently loses the guidance.
+   */
+  function rejectedWriteWithoutContent(): { problem: string; missingWriteContent: boolean } {
+    try {
+      parseAction({
+        action: 'WRITE_FILE',
+        path: 'fixtures/stage14-e2e/check.mjs',
+        replaces: { expectedAbsent: true },
+        reason: 'add the assertion',
+      });
+    } catch (error) {
+      return {
+        problem: error instanceof Error ? error.message : String(error),
+        missingWriteContent: isMissingWriteContent(error),
+      };
+    }
+    throw new Error('a WRITE_FILE without content must be rejected');
+  }
+
   it('tells a rejected action why without replaying the rejected text', async () => {
     const before = opening();
     const after = withActionRepairFeedback(before, 'WRITE_FILE: content: too small');
@@ -404,10 +428,14 @@ describe('turn-to-turn feedback', () => {
   });
 
   it('reminds rejected model actions of unwritten test files without repeating rejected text', () => {
-    const after = withActionRepairFeedback(opening(), 'content: Required', [
-      'fixtures/stage14-e2e/check.mjs',
-      'fixtures/stage14-e2e/README.md',
-    ]);
+    const rejection = rejectedWriteWithoutContent();
+    expect(rejection.missingWriteContent).toBe(true);
+    const after = withActionRepairFeedback(
+      opening(),
+      rejection.problem,
+      ['fixtures/stage14-e2e/check.mjs', 'fixtures/stage14-e2e/README.md'],
+      { missingWriteContent: rejection.missingWriteContent },
+    );
     const feedback = after.at(-1)?.content ?? '';
     expect(feedback).toContain('Planned file changes NOT YET WRITTEN');
     expect(feedback).toContain('fixtures/stage14-e2e/check.mjs');
@@ -441,7 +469,11 @@ describe('turn-to-turn feedback', () => {
   });
 
   it('gives a bounded corrective instruction for a missing WRITE_FILE content field', () => {
-    const after = withActionRepairFeedback(opening(), 'content: Required');
+    const rejection = rejectedWriteWithoutContent();
+    expect(rejection.missingWriteContent).toBe(true);
+    const after = withActionRepairFeedback(opening(), rejection.problem, [], {
+      missingWriteContent: rejection.missingWriteContent,
+    });
     const feedback = after[3]?.content ?? '';
     expect(feedback).toContain('`content` field');
     expect(feedback).toContain('COMPLETE new file bytes');
@@ -450,6 +482,19 @@ describe('turn-to-turn feedback', () => {
     expect(feedback).toContain('Example of the required JSON shape');
     expect(feedback).toContain('"content"');
     expect(feedback).not.toContain('force-write');
+  });
+
+  it('does not select the write-specific guidance from an error message’s wording', () => {
+    // Control: the identical problem text without the parse structure that says
+    // it was a WRITE_FILE missing `content`. If this fires, the previous test
+    // could pass through prose matching rather than the structural refusal.
+    const after = withActionRepairFeedback(
+      opening(),
+      'Rejected model action: WRITE_FILE: content: Required',
+    );
+    const feedback = after[3]?.content ?? '';
+    expect(feedback).not.toContain('COMPLETE new file bytes');
+    expect(feedback).not.toContain('Example of the required JSON shape');
   });
 
   it('tells a stale writer to read again without authorizing an overwrite', () => {

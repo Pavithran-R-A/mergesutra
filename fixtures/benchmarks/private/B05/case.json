@@ -1,0 +1,7 @@
+{
+  "id": "B05",
+  "title": "Structured data serialization mismatch",
+  "baseline": ["--test"],
+  "reference": ["src/record.js"],
+  "wrong": ["src/record.js"]
+}

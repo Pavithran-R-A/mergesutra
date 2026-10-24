@@ -1,6 +1,7 @@
 # BharatCode Build League — submission pack
 
-Source of requirements: <https://bharatcode.ai/hackathon>, read on 21 October 2026.
+Source of requirements: <https://bharatcode.ai/hackathon>, read on 21 October 2026 and
+re-read on 23 October 2026 (the deadline moved from 25 October to 10 November).
 This file prepares the entry; it does not claim that any account-linked
 submission has been made.
 
@@ -14,7 +15,7 @@ submission has been made.
 | Working project | PASS | `npm run build`; completed scripted-model journey `run-20261021T115401Z-ea10b8` (2/2 gates, 5/5 oracle checks, 0 review findings); hosted CI on `main` |
 | Submission form fields | READY | Name, URL and summary below |
 | Submission made | **NO** | No account-linked entry exists until the organiser's site confirms one |
-| Deadline | 25 October 2026, 11:59 PM IST | Must be submitted from the organiser's site by the account holder |
+| Deadline | 10 November 2026, 11:59 PM IST | Must be submitted from the organiser's site by the account holder; re-verified on <https://bharatcode.ai/hackathon> on 23 October 2026 |
 
 Eligibility: students and other builders. Judging: GitHub stars, website votes,
 and judges' evaluation. No video is required by the stated rules; the
@@ -90,9 +91,13 @@ reliability claim, and no proof of latency under the current 290-second cap.
 - Review: 0 findings; approval digest
   `46e27c326c4b9d5f015e8b0de015c03944516e1e46fccaff025a20fee067163e`;
   `--publish` never invoked
-- Video: 88-second MP4, 1920×1080, **transcript cut** from the run's literal
+- Video: [88-second MP4](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/assets/merge-sutra-demo-88s.mp4),
+  1920×1080, **transcript cut** from the run's literal
   stdout, selected and reflowed, with a persistent SCRIPTED banner; not a screen
   recording
+- Transcript: [sanitized copy](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/docs/assets/merge-sutra-demo-transcript.txt)
+  beside the video; 29 operator-path strings replaced mechanically, every other
+  byte unchanged
 - Harness: `scripts/demo-scripted-journey.mjs`
 - Procedure and provenance: `docs/DEMO.md`
 - The demonstration is a **Scripted-model demonstration**; the model is a local
@@ -102,6 +107,6 @@ reliability claim, and no proof of latency under the current 290-second cap.
 
 1. Open <https://bharatcode.ai/hackathon> while signed in.
 2. Submit the name, public repository URL and short summary above before
-   **25 October 2026, 11:59 PM IST**.
+   **10 November 2026, 11:59 PM IST** (re-verified 23 October 2026).
 3. Confirm the site shows a submitted-entry state; only that confirmation should
    be treated as a successful entry.

@@ -1,0 +1,7 @@
+{
+  "id": "B02",
+  "title": "Input validation of malformed values",
+  "baseline": ["--test"],
+  "reference": ["src/port.js"],
+  "wrong": ["src/port.js"]
+}
