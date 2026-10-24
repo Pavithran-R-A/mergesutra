@@ -1107,6 +1107,168 @@ describe('Timeout & cancellation (offline)', () => {
     expect(err.kind).toBe('cancelled');
     expect(err.retryable).toBe(false);
   });
+
+  /**
+   * A caller's deadline is not a cancellation, and the difference is not cosmetic.
+   *
+   * `AbortSignal.timeout()` aborts with a `TimeoutError` reason. The live smoke run
+   * 39909412225 carried exactly that signal, expired at 89059 ms, and was reported as
+   * `kind=cancelled` — a word that tells the operator somebody stopped the run, when in
+   * fact the clock the operator configured had run out. These cases pin the report to
+   * the clock that actually fired, and keep a plain abort meaning what it says.
+   */
+  it("reports an already-expired caller deadline as the caller's timeout, not a cancellation", async () => {
+    const controller = new AbortController();
+    controller.abort(new DOMException('The operation timed out.', 'TimeoutError'));
+    const client = createBharatCodeClient({ config: baseConfig(), fetch: hangingFetch() });
+    const err = await client.complete({ messages: [], signal: controller.signal }).catch((e) => e);
+    expect(err.kind).toBe('timeout');
+    expect(err.retryable).toBe(false);
+    expect(err.message).toContain("caller's deadline");
+  });
+
+  it("names the caller's clock when a live deadline expires before any headers arrive", async () => {
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 5000,
+        retry: { maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch: hangingFetch(),
+    });
+    const err = await client
+      .complete({ messages: [], signal: AbortSignal.timeout(25) })
+      .catch((e) => e);
+    expect(err.kind).toBe('timeout');
+    expect(err.retryable).toBe(false);
+    expect(err.message).toContain("caller's deadline");
+    // The internal budget had 5000ms left: quoting it would blame a clock that had not
+    // fired and send the operator to raise a number that was never the bound.
+    expect(err.message).not.toContain('5000ms');
+  });
+
+  it("classifies a deadline that expires during retry backoff as the caller's timeout", async () => {
+    const { fetch } = fakeFetch([
+      Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),
+    ]);
+    const client = createBharatCodeClient({
+      // Backoff of 2000ms, so the caller's 25ms deadline can only fire inside the sleep.
+      config: baseConfig({ retry: { maxRetries: 1, baseDelayMs: 2000, maxDelayMs: 2000 } }),
+      fetch,
+      random: () => 1,
+    });
+    const err = await client
+      .complete({ messages: [], signal: AbortSignal.timeout(25) })
+      .catch((e) => e);
+    expect(err.kind).toBe('timeout');
+    expect(err.retryable).toBe(false);
+    expect(err.message).toContain("caller's deadline");
+  });
+});
+
+/**
+ * A body that stops arriving must end at the adapter's own budget.
+ *
+ * The event-stream read races every chunk against the request signal; the buffered reads
+ * used by `/models`, error bodies and JSON-answered `/responses` calls did not, so a
+ * source that ignores the abort held the run past `timeoutMs` with no way out. Both shapes
+ * are pinned here: a stream that never yields, and a fetcher that exposes only `text()`.
+ */
+describe('a stalled buffered response body (offline)', () => {
+  function stallingStreamFetch(): FetchLike {
+    return async () => ({
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
+      text: async () => '{}',
+      body: new ReadableStream<Uint8Array>({ start() {} }),
+    });
+  }
+
+  function stallingTextFetch(): FetchLike {
+    return async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: () => new Promise<string>(() => {}),
+    });
+  }
+
+  it('stops a body stream that never yields inside the configured budget', async () => {
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 25,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch: stallingStreamFetch(),
+    });
+    const err = await client.listModels().catch((e) => e);
+    expect(err.kind).toBe('timeout');
+    expect(err.message).toContain('response body');
+  }, 1000);
+
+  it('stops a text()-only body that never resolves inside the configured budget', async () => {
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 25,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch: stallingTextFetch(),
+    });
+    const err = await client.listModels().catch((e) => e);
+    expect(err.kind).toBe('timeout');
+    expect(err.message).toContain('response body');
+  }, 1000);
+});
+
+/**
+ * A non-2xx response is still an answer, but its body may never finish arriving.
+ *
+ * The status arrived; what ended the read is a clock. Reporting `401` because the response
+ * began with one would tell the operator to fix a credential when the caller's deadline —
+ * or this build's own budget — is what stopped the request.
+ */
+describe('a non-2xx response whose body stops arriving (offline)', () => {
+  function failingStallingFetch(status: number): FetchLike {
+    return async () => ({
+      ok: false,
+      status,
+      headers: { get: () => null },
+      text: () => new Promise<string>(() => {}),
+      body: new ReadableStream<Uint8Array>({ start() {} }),
+    });
+  }
+
+  it("names the caller's deadline rather than the status when an error body is cut short", async () => {
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 5000,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch: failingStallingFetch(401),
+    });
+    const err = await client
+      .complete({ messages: [], signal: AbortSignal.timeout(25) })
+      .catch((e) => e);
+    expect(err.kind).toBe('timeout');
+    expect(err.retryable).toBe(false);
+    expect(err.message).toContain("caller's deadline");
+  }, 1000);
+
+  it('names its own budget rather than the status when an error body stops arriving', async () => {
+    const client = createBharatCodeClient({
+      config: baseConfig({
+        timeoutMs: 25,
+        retry: { maxRetries: 0, baseDelayMs: 0, maxDelayMs: 0 },
+      }),
+      fetch: failingStallingFetch(503),
+    });
+    const err = await client.listModels().catch((e) => e);
+    expect(err.kind).toBe('timeout');
+    expect(err.retryable).toBe(true);
+    expect(err.message).toContain('response body');
+  }, 1000);
 });
 
 describe('Config guard', () => {

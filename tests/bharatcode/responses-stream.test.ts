@@ -5,6 +5,7 @@ import type { BharatCodeClientConfig } from '../../src/bharatcode/types.js';
 import { fakeFetch, recordingSleeper, TEST_KEY } from '../helpers/fetch.js';
 import {
   completedEvent,
+  delayedSseFetch,
   deltaEvent,
   endlessSseFetch,
   failedEvent,
@@ -139,6 +140,47 @@ describe('reading the documented stream', () => {
       messages: [{ role: 'user', content: 'quiet' }],
     });
     expect(result.text).toBe('');
+  });
+
+  /**
+   * The provider queues work before it serves it. A `response.queued` or
+   * `response.in_progress` event says the request is alive, not that anything was
+   * produced; the answer is still the terminal object's. The live runs that died at the
+   * smoke deadline were waiting on exactly this phase, so the adapter's behaviour there
+   * is pinned offline: queue events are ignored and a terminal object arriving after the
+   * stream has gone quiet is still accepted while the budget holds.
+   */
+  it('ignores queue and progress events and finishes on the terminal response that follows', async () => {
+    const fixture = sseFetch(
+      sseEvent('response.queued', {
+        type: 'response.queued',
+        response: { id: 'resp_queued', status: 'queued' },
+      }) +
+        sseEvent('response.in_progress', {
+          type: 'response.in_progress',
+          response: { id: 'resp_queued', status: 'in_progress' },
+        }) +
+        deltaEvent('queued answer') +
+        completedEvent({ text: 'queued answer' }),
+    );
+    const result = await clientWith(fixture.fetch).complete({
+      messages: [{ role: 'user', content: 'go' }],
+    });
+    expect(result.text).toBe('queued answer');
+    expect(result.finishReason).toBe('stop');
+  });
+
+  it('waits for a terminal event that arrives after the stream has gone quiet', async () => {
+    const fixture = delayedSseFetch(
+      deltaEvent('slow '),
+      completedEvent({ text: 'slow answer' }),
+      30,
+    );
+    const result = await clientWith(fixture.fetch, { timeoutMs: 500 }).complete({
+      messages: [{ role: 'user', content: 'go' }],
+    });
+    expect(result.text).toBe('slow answer');
+    expect(result.finishReason).toBe('stop');
   });
 
   it('survives frames split at every byte, including inside a multi-byte character', async () => {
@@ -539,6 +581,49 @@ describe('a stream that does not finish cleanly', () => {
   });
 });
 
+/**
+ * Releasing a stream is courtesy toward the endpoint, not part of the answer.
+ *
+ * A provider that has already sent its terminal event may still hand back a `cancel()`
+ * that never settles. Waiting on that release would hold the run past `timeoutMs` with
+ * nothing left to read — the timer fires with nobody listening — so the answer must be
+ * returned without it.
+ */
+function neverReleasingSseFetch(body: string): FetchLike {
+  const bytes = new TextEncoder().encode(body);
+  let sent = false;
+  return async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get: (name: string) => (name.toLowerCase() === 'content-type' ? 'text/event-stream' : null),
+    },
+    text: async () => body,
+    body: new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(bytes);
+          return;
+        }
+        return new Promise<void>(() => {});
+      },
+      cancel: () => new Promise<void>(() => {}),
+    }),
+  });
+}
+
+describe('a stream whose release never settles', () => {
+  it('returns the terminal answer without waiting for the release', async () => {
+    const client = clientWith(neverReleasingSseFetch(completedEvent({ text: 'stubborn answer' })), {
+      timeoutMs: 200,
+      retry: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 1 },
+    });
+    const result = await client.complete({ messages: [{ role: 'user', content: 'go' }] });
+    expect(result.text).toBe('stubborn answer');
+  }, 1000);
+});
+
 describe('cancellation and the per-request budget, mid-stream', () => {
   it('reports a caller abort as cancelled and stops reading', async () => {
     const fixture = stallingSseFetch(deltaEvent('partial'));
@@ -639,6 +724,28 @@ describe('a gateway that answers /responses with JSON instead of SSE', () => {
     expect(result.text).toBe('buffered');
     expect(result.finishReason).toBe('stop');
     expect(result.usage).toEqual({ promptTokens: 3, completionTokens: 4, totalTokens: 7 });
+  });
+
+  it('records only the token counts the gateway reported', async () => {
+    const { fetch } = fakeFetch([
+      {
+        ok: true,
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+        body: {
+          status: 'completed',
+          model: 'bc-large',
+          output: [{ type: 'message', content: [{ type: 'output_text', text: 'buffered' }] }],
+          usage: { input_tokens: 12 },
+        },
+      },
+    ]);
+    const result = await clientWith(fetch).complete({
+      messages: [{ role: 'user', content: 'go' }],
+    });
+    // The other two were not reported. A zero here would be this adapter's invention, and
+    // a run record that carries it would testify to a measurement nobody made.
+    expect(result.usage).toEqual({ promptTokens: 12 });
   });
 
   it('parses an incomplete response object as the partial result it is', async () => {

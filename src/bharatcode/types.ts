@@ -62,10 +62,16 @@ export interface CompletionRequest {
   readonly signal?: AbortSignal;
 }
 
+/**
+ * What the endpoint reported spending.
+ *
+ * A field is absent when the endpoint did not report it. An unreported count is not zero:
+ * substituting one would make a run record testify to a measurement nobody made.
+ */
 export interface Usage {
-  readonly promptTokens: number;
-  readonly completionTokens: number;
-  readonly totalTokens: number;
+  readonly promptTokens?: number;
+  readonly completionTokens?: number;
+  readonly totalTokens?: number;
 }
 
 /**
