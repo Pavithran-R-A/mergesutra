@@ -1,7 +1,10 @@
+import { statSync } from 'node:fs';
+import path from 'node:path';
 import { loadBharatCodeConfig, summarizeConfig } from '../config/load-config.js';
 import { createBharatCodeClient, type BharatCodeClient } from '../bharatcode/client.js';
 import type { BharatCodeClientConfig } from '../bharatcode/types.js';
 import type { RenderOptions, Renderer, Status } from './render.js';
+import { DIGEST_IMAGE } from '../security/sandbox.js';
 import { terminalSafeDocument } from '../security/terminal-safety.js';
 import { createRenderer, resolveColor } from './render.js';
 import {
@@ -111,6 +114,11 @@ export async function runDoctor(deps: DoctorDeps): Promise<DoctorCheck[]> {
         },
   );
 
+  // Repository execution boundary: Stage 6/7 commands refuse without it, so a
+  // diagnosis that stays silent here can call an environment ready while every
+  // repository command will fail closed.
+  checks.push(sandboxReadiness(env));
+
   // Reachability (opt-in, and only meaningful with a key)
   if (!deps.connect) {
     checks.push({ name: 'BharatCode reach', status: 'SKIP', detail: 'pass --connect to test' });
@@ -142,6 +150,66 @@ export async function runDoctor(deps: DoctorDeps): Promise<DoctorCheck[]> {
 
 function firstLine(text: string): string {
   return text.split(/\r?\n/)[0]?.trim() ?? '';
+}
+
+function sandboxReadiness(env: NodeJS.ProcessEnv): DoctorCheck {
+  const name = 'Repository sandbox';
+  const image = env.MERGESUTRA_SANDBOX_IMAGE;
+  const dockerExecutable = env.MERGESUTRA_DOCKER_EXECUTABLE;
+  if (!image && !dockerExecutable) {
+    return {
+      name,
+      status: 'WARN',
+      detail:
+        'not configured — repository commands will refuse with SANDBOX_UNAVAILABLE. ' +
+        'Set MERGESUTRA_SANDBOX_IMAGE=<image>@sha256:<digest> and ' +
+        'MERGESUTRA_DOCKER_EXECUTABLE=<absolute path to docker>.',
+    };
+  }
+  if (!image || !dockerExecutable) {
+    const missing = image ? 'MERGESUTRA_DOCKER_EXECUTABLE' : 'MERGESUTRA_SANDBOX_IMAGE';
+    return {
+      name,
+      status: 'FAIL',
+      detail: `${missing} is not set — repository commands will refuse with SANDBOX_UNAVAILABLE.`,
+    };
+  }
+  if (!DIGEST_IMAGE.test(image)) {
+    return {
+      name,
+      status: 'FAIL',
+      detail:
+        'MERGESUTRA_SANDBOX_IMAGE must be digest-pinned (<name>@sha256:<64 hex>); ' +
+        'a mutable tag is refused.',
+    };
+  }
+  if (!path.isAbsolute(dockerExecutable)) {
+    return {
+      name,
+      status: 'FAIL',
+      detail: 'MERGESUTRA_DOCKER_EXECUTABLE must be an absolute path to the Docker CLI.',
+    };
+  }
+  let present = false;
+  try {
+    present = statSync(dockerExecutable).isFile();
+  } catch {
+    present = false;
+  }
+  if (!present) {
+    return {
+      name,
+      status: 'FAIL',
+      detail: `MERGESUTRA_DOCKER_EXECUTABLE is not an existing file: ${dockerExecutable}`,
+    };
+  }
+  return {
+    name,
+    status: 'PASS',
+    detail:
+      'configured (digest-pinned image; Docker CLI present). Image availability is checked ' +
+      'when a repository command runs; git-based repository gates remain fail-closed.',
+  };
 }
 
 export function formatDoctor(input: readonly DoctorCheck[], renderer: Renderer): string {

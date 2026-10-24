@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — doctor reports whether repository commands can run at all
+
+`mergesutra doctor` could say "Ready." while every Stage 6/7 repository command would
+refuse, because the two sandbox variables were never checked. The screen now has a
+`Repository sandbox` row: `WARN` when neither variable is set (naming both and the
+`SANDBOX_UNAVAILABLE` refusal an operator will meet), `FAIL` when only one is set, when the
+image is a mutable tag, or when the Docker path is not an absolute existing file, and
+`PASS` when both have the required shape. The check reads configuration and file metadata
+only; it does not launch Docker or execute a repository command. `PASS` also states that
+image availability is checked when a command runs and that git-based repository gates
+remain fail-closed.
+
+Tests: `tests/cli/doctor.test.ts` (unconfigured warning and footer, half configuration,
+mutable tag, relative path, missing path and directory, and a valid configuration; the
+valid case would fail if the check launched the injected runner).
+
 ### Changed — the BharatCode adapter reads the documented Responses stream
 
 The adapter POSTed a chat-completions shape and read one JSON body. BharatCode's current
