@@ -1,4 +1,4 @@
-import { statSync } from 'node:fs';
+import { accessSync, constants, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { loadBharatCodeConfig, summarizeConfig } from '../config/load-config.js';
 import { createBharatCodeClient, type BharatCodeClient } from '../bharatcode/client.js';
@@ -37,6 +37,8 @@ export interface DoctorDeps {
   readonly makeClient?: (config: BharatCodeClientConfig) => BharatCodeClient | undefined;
   readonly connect?: boolean;
   readonly nodeVersion?: string;
+  /** Repository working directory; only used to explain a forbidden Docker CLI location. */
+  readonly cwd?: string;
 }
 
 const MIN_NODE_MAJOR = 22;
@@ -117,7 +119,7 @@ export async function runDoctor(deps: DoctorDeps): Promise<DoctorCheck[]> {
   // Repository execution boundary: Stage 6/7 commands refuse without it, so a
   // diagnosis that stays silent here can call an environment ready while every
   // repository command will fail closed.
-  checks.push(sandboxReadiness(env));
+  checks.push(sandboxReadiness(env, deps.cwd ?? process.cwd()));
 
   // Reachability (opt-in, and only meaningful with a key)
   if (!deps.connect) {
@@ -152,7 +154,7 @@ function firstLine(text: string): string {
   return text.split(/\r?\n/)[0]?.trim() ?? '';
 }
 
-function sandboxReadiness(env: NodeJS.ProcessEnv): DoctorCheck {
+function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string): DoctorCheck {
   const name = 'Repository sandbox';
   const image = env.MERGESUTRA_SANDBOX_IMAGE;
   const dockerExecutable = env.MERGESUTRA_DOCKER_EXECUTABLE;
@@ -203,13 +205,75 @@ function sandboxReadiness(env: NodeJS.ProcessEnv): DoctorCheck {
       detail: `MERGESUTRA_DOCKER_EXECUTABLE is not an existing file: ${dockerExecutable}`,
     };
   }
+  // Windows has no Unix execute bit; there, existence is all this check can read.
+  if (process.platform !== 'win32') {
+    try {
+      accessSync(dockerExecutable, constants.X_OK);
+    } catch {
+      return {
+        name,
+        status: 'FAIL',
+        detail:
+          `MERGESUTRA_DOCKER_EXECUTABLE is not executable on this host: ${dockerExecutable}. ` +
+          'Select an executable Docker CLI.',
+      };
+    }
+  }
+  let resolvedDocker: string;
+  try {
+    resolvedDocker = realpathSync(dockerExecutable);
+  } catch {
+    return {
+      name,
+      status: 'FAIL',
+      detail: `MERGESUTRA_DOCKER_EXECUTABLE cannot be resolved to a real path: ${dockerExecutable}`,
+    };
+  }
+  let resolvedCwd: string;
+  try {
+    resolvedCwd = realpathSync(cwd);
+  } catch {
+    resolvedCwd = path.resolve(cwd);
+  }
+  const worktrees = path.join(resolvedCwd, '.mergesutra', 'worktrees');
+  if (isWithin(worktrees, resolvedDocker)) {
+    return {
+      name,
+      status: 'FAIL',
+      detail:
+        `MERGESUTRA_DOCKER_EXECUTABLE resolves inside ${worktrees}, where this repository's ` +
+        'run workspaces are created; the sandbox refuses a Docker CLI inside its own untrusted ' +
+        'workspace. Select an installed Docker CLI outside the repository.',
+    };
+  }
+  if (isWithin(resolvedCwd, resolvedDocker)) {
+    return {
+      name,
+      status: 'WARN',
+      detail:
+        `MERGESUTRA_DOCKER_EXECUTABLE resolves inside this repository: ${dockerExecutable}. ` +
+        'doctor cannot verify that this file is a genuine Docker client, and a path inside the ' +
+        'run workspace (.mergesutra/worktrees) is refused at runtime. Select an installed Docker ' +
+        'CLI outside the repository.',
+    };
+  }
   return {
     name,
     status: 'PASS',
     detail:
-      'configured (digest-pinned image; Docker CLI present). Image availability is checked ' +
-      'when a repository command runs; git-based repository gates remain fail-closed.',
+      'configured (digest-pinned image; executable Docker CLI outside this repository). ' +
+      'Image availability is checked when a repository command runs; the sandbox also refuses ' +
+      'a Docker CLI that resolves inside the run workspace (.mergesutra/worktrees), and ' +
+      'git-based repository gates remain fail-closed.',
   };
+}
+
+function isWithin(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return (
+    relative === '' ||
+    (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  );
 }
 
 export function formatDoctor(input: readonly DoctorCheck[], renderer: Renderer): string {

@@ -1,4 +1,5 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -202,10 +203,61 @@ describe('repository sandbox readiness', () => {
     }
   });
 
-  it('passes a digest-pinned image with an existing absolute Docker CLI, without running it', async () => {
+  it('passes a digest-pinned image with an executable absolute Docker CLI, without invoking it', async () => {
     const dir = await scratch();
     const dockerExecutable = path.join(dir, 'docker');
-    await writeFile(dockerExecutable, 'not executed by doctor');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const calls: string[] = [];
+    const recordingRunner: Runner = async (file, args) => {
+      calls.push(file);
+      return okRunner(file, args);
+    };
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: recordingRunner,
+      nodeVersion: '24.0.0',
+      cwd: await scratch(),
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('PASS');
+    expect(calls).not.toContain(dockerExecutable);
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/fail-closed/i);
+    expect(detail).toMatch(/run workspace/i);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'fails a Docker CLI file that exists but is not executable on a POSIX host',
+    async () => {
+      const dir = await scratch();
+      const dockerExecutable = path.join(dir, 'docker');
+      await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+      await chmod(dockerExecutable, 0o644);
+      const checks = await runDoctor({
+        env: {
+          MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+          MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+        },
+        run: okRunner,
+        nodeVersion: '24.0.0',
+        cwd: await scratch(),
+      });
+      expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
+      const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+      expect(detail).toMatch(/not executable|permission/i);
+    },
+  );
+
+  it("fails a Docker CLI inside the repository's run-workspace root", async () => {
+    const repo = await scratch();
+    const worktrees = path.join(repo, '.mergesutra', 'worktrees');
+    await mkdir(worktrees, { recursive: true });
+    const dockerExecutable = path.join(worktrees, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
     const checks = await runDoctor({
       env: {
         MERGESUTRA_SANDBOX_IMAGE: DIGEST,
@@ -213,13 +265,61 @@ describe('repository sandbox readiness', () => {
       },
       run: okRunner,
       nodeVersion: '24.0.0',
+      cwd: repo,
     });
-    // `okRunner` answers a docker invocation with code 1, so a PASS here is also
-    // evidence that the check inspected the configured path instead of launching it.
-    expect(statusOf(checks, 'Repository sandbox')).toBe('PASS');
+    expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
     const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
-    expect(detail).toMatch(/fail-closed/i);
+    expect(detail).toMatch(/\.mergesutra[\\/]worktrees/);
+    expect(detail).toMatch(/refuses|refused/i);
   });
+
+  it('warns about a Docker CLI inside the repository but outside the run-workspace root', async () => {
+    const repo = await scratch();
+    const dockerExecutable = path.join(repo, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: repo,
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/inside this repository/i);
+    expect(detail).toMatch(/cannot verify/i);
+    expect(detail).toMatch(/run workspace/i);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'never launches the configured Docker CLI to check configuration',
+    async () => {
+      // No runner is injected: if the check spawned Docker through the production
+      // runner, this marker would appear. The path is outside the working tree.
+      const dir = await scratch();
+      const marker = path.join(dir, 'docker-was-launched');
+      const dockerExecutable = path.join(dir, 'docker');
+      await writeFile(
+        dockerExecutable,
+        `#!/bin/sh\nprintf launched > ${JSON.stringify(marker)}\nexit 0\n`,
+      );
+      await chmod(dockerExecutable, 0o755);
+      const checks = await runDoctor({
+        env: {
+          BHARATCODE_API_KEY: KEY,
+          MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+          MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+        },
+        nodeVersion: '24.0.0',
+        cwd: await scratch(),
+      });
+      expect(statusOf(checks, 'Repository sandbox')).toBe('PASS');
+      expect(existsSync(marker)).toBe(false);
+    },
+  );
 });
 
 describe('formatDoctor', () => {
@@ -280,11 +380,18 @@ describe('doctorAction exit codes', () => {
   });
 
   it('returns zero when nothing fails (warnings and skips allowed)', async () => {
+    const lines: string[] = [];
     const code = await doctorAction(
       { noColor: true },
       { env: { BHARATCODE_API_KEY: KEY }, run: okRunner, nodeVersion: '24.0.0' },
-      () => {},
+      (line) => lines.push(line),
     );
     expect(code).toBe(0);
+    const text = lines.join('\n');
+    // The warning is the point of this test: an unconfigured sandbox leaves the
+    // repository path blocked, but the documented contract is exit 1 only on FAIL.
+    expect(text).toMatch(/WARN\s+Repository sandbox/);
+    expect(text).toContain('Ready with warnings.');
+    expect(text).not.toMatch(/^Ready\.$/m);
   });
 });

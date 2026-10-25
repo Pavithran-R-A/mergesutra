@@ -339,8 +339,18 @@ Not ready. Resolve the FAIL items above.
 ```
 
 The `Repository sandbox` row reports whether Stage 6/7 repository commands have the
-mandatory container boundary: unconfigured is a warning, a malformed configuration is a
-failure, and the check reads configuration and file metadata without launching Docker.
+mandatory container boundary. It is a warning when neither variable is set, and a failure
+when only one is set (naming the missing variable), when the image is not digest-pinned,
+or when the Docker path is relative, missing, not executable on a POSIX host, or inside
+`.mergesutra/worktrees/` — the directory where runs create their workspaces, which the
+sandbox refuses to treat as trusted. A Docker path inside the repository but outside that
+directory is a warning: `doctor` can read the file's metadata, but it cannot verify that
+the file is a genuine Docker client. The check never launches Docker, so image
+availability is still proven when a repository command runs.
+
+`doctor` exits `1` only when a row is `FAIL`. An unconfigured sandbox is a `WARN`, so the
+command exits `0` even though repository commands remain blocked with
+`SANDBOX_UNAVAILABLE`; read the row, not just the exit code.
 
 Real `issue` output (this machine, a clone with no `origin` remote and uncommitted
 work — so it truthfully reports what it could not establish, and exits `3`; the

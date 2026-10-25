@@ -11,16 +11,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 `mergesutra doctor` could say "Ready." while every Stage 6/7 repository command would
 refuse, because the two sandbox variables were never checked. The screen now has a
 `Repository sandbox` row: `WARN` when neither variable is set (naming both and the
-`SANDBOX_UNAVAILABLE` refusal an operator will meet), `FAIL` when only one is set, when the
-image is a mutable tag, or when the Docker path is not an absolute existing file, and
-`PASS` when both have the required shape. The check reads configuration and file metadata
-only; it does not launch Docker or execute a repository command. `PASS` also states that
-image availability is checked when a command runs and that git-based repository gates
-remain fail-closed.
+`SANDBOX_UNAVAILABLE` refusal an operator will meet), when only one is set, when the
+image is a mutable tag, when the Docker path is not an absolute existing file, on POSIX
+when that file is not executable, or when it resolves inside `.mergesutra/worktrees` —
+the directory where the runtime creates the workspaces it refuses to trust. A Docker
+path inside the repository but outside that directory is a `WARN` because doctor cannot
+verify the file is a genuine Docker client. `PASS` requires a digest-pinned image and an
+executable Docker CLI outside the repository. The check reads configuration and file
+metadata only; it does not launch Docker or execute a repository command. `PASS` also
+states that image availability is checked when a command runs and that git-based
+repository gates remain fail-closed. Warnings do not change the documented exit code:
+`doctor` exits `1` only for a `FAIL`, so an unconfigured sandbox exits `0` while
+repository commands remain blocked.
 
 Tests: `tests/cli/doctor.test.ts` (unconfigured warning and footer, half configuration,
-mutable tag, relative path, missing path and directory, and a valid configuration; the
-valid case would fail if the check launched the injected runner).
+mutable tag, relative path, missing path and directory, POSIX non-executable file,
+run-workspace path, repository-local warning, a valid configuration whose runner records
+every invocation, and a POSIX probe proving the configured Docker CLI was never spawned;
+the valid case asserts the injected runner was not asked to launch Docker).
 
 ### Changed — the BharatCode adapter reads the documented Responses stream
 
