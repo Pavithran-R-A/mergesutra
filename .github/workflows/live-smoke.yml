@@ -39,8 +39,9 @@ jobs:
     name: single bounded request
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && inputs.run_smoke == true
-    # The credentialed phase is capped at 90 seconds by the script's own clock. What is left of
-    # this ceiling is install and build, which take a few minutes and never hold the credential.
+    # The credentialed phase is capped by the selected variant's own clock (90 s standard, 270 s
+    # availability). What is left of this ceiling is install and build, which take a few minutes
+    # and never hold the credential.
     timeout-minutes: 15
     permissions:
       contents: read

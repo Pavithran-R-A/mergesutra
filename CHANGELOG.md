@@ -22,6 +22,22 @@ Tests: `tests/cli/doctor.test.ts` (unconfigured warning and footer, half configu
 mutable tag, relative path, missing path and directory, and a valid configuration; the
 valid case would fail if the check launched the injected runner).
 
+### Changed — the one-request smoke offers a second frozen clock
+
+The smoke had one budget and a dispatch could choose nothing about it. The workflow now offers a
+`variant` choice between two frozen blocks: `standard` (90 s) and `availability` (270 s). The
+variant is a name looked up in `SMOKE_VARIANTS`, never a number: an unknown name is refused at exit
+`78` before a client is constructed, and every bound the request uses comes from the chosen block,
+so the artifact cannot describe a clock the client did not run under. 270 s stays under the
+measured ~300 s bound on Node's read of response headers; the model, token ceiling, reasoning
+mode, stream flag and retry count are identical in both blocks.
+
+Tests: `tests/security/live-smoke-rules.test.ts` (exactly two budgets whose long one changes only
+the clock, a third cannot be added, a latency the standard clock refuses passes under
+`availability` and the evidence records which clock ran); `tests/security/live-smoke-workflow-policy.test.ts`
+(the selector offers names and not numbers, a known name resolves to its own block, no standard
+fallback after the choice, and planted mutations that widen either).
+
 ### Changed — the BharatCode adapter reads the documented Responses stream
 
 The adapter POSTed a chat-completions shape and read one JSON body. BharatCode's current
