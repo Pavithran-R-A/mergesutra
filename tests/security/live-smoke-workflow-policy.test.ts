@@ -227,11 +227,20 @@ function smokeViolations(workflow: string, script: string, rules: string, wire =
   if (!/\? SMOKE_VARIANTS\[variantChoice\]\s*:\s*null;/.test(script)) {
     problems.push('a known smoke variant does not resolve to its own frozen budget');
   }
-  // Every bound after the variant is chosen must come from that choice. A fallback to the
-  // standard budget would let the artifact describe a 90 s request that the client ran at 270 s.
+  // Every bound after the variant is chosen must come from that choice. A fallback to either
+  // global budget would let the artifact describe a 90 s request that the client ran at 270 s.
   const variantAt = script.indexOf('const variantChoice');
-  if (variantAt === -1 || /\bSMOKE_BUDGET\b/.test(script.slice(variantAt))) {
-    problems.push('the smoke reads the standard budget after choosing a variant');
+  if (variantAt === -1 || /\bSMOKE_BUDGET\w*/.test(script.slice(variantAt))) {
+    problems.push('the smoke reads a global budget after choosing a variant');
+  }
+  // ...and the two places the chosen object is handed on must name it directly. An alias lifted
+  // before the choice, or a dropped argument, silently falls back to the module's standard
+  // defaults, so a 270 s run could be judged and described against the 90 s clock.
+  if (
+    !script.includes('smokeVerdict(answer, { elapsedMs, budget })') ||
+    !script.includes('    budget,\n  });')
+  ) {
+    problems.push('the smoke hands the verdict or the evidence a budget other than its chosen one');
   }
   if (/Number\(process\.env|parseInt\(process\.env|parseFloat\(process\.env/.test(script)) {
     problems.push('the smoke reads a request bound from the environment as a number');
@@ -695,7 +704,39 @@ describe('the policy fires on the mutations it exists for', () => {
     ).toContain('a known smoke variant does not resolve to its own frozen budget');
     expect(
       onScript((text) => text.replace('    budget,\n  });', '    budget: SMOKE_BUDGET,\n  });')),
-    ).toContain('the smoke reads the standard budget after choosing a variant');
+    ).toContain('the smoke reads a global budget after choosing a variant');
+    expect(
+      onScript((text) =>
+        text.replace(
+          'smokeVerdict(answer, { elapsedMs, budget })',
+          'smokeVerdict(answer, { elapsedMs, budget: SMOKE_BUDGET_AVAILABILITY })',
+        ),
+      ),
+    ).toContain('the smoke reads a global budget after choosing a variant');
+  });
+
+  it('fires when the chosen budget is not the object handed to the verdict or the evidence', () => {
+    // A lifted alias is defined before the choice, so a scan that only starts at `variantChoice`
+    // never sees it; the call sites themselves have to name the chosen object.
+    expect(
+      onScript((text) =>
+        text
+          .replace(
+            '  const variantChoice',
+            '  const liftedBudget = SMOKE_BUDGET;\n  const variantChoice',
+          )
+          .replace('    budget,\n  });', '    budget: liftedBudget,\n  });'),
+      ),
+    ).toContain('the smoke hands the verdict or the evidence a budget other than its chosen one');
+    // Dropping the argument is the quiet version of the same fallback: the rules module's
+    // default is the standard budget, so a 270 s run would be judged against 90 s.
+    expect(onScript((text) => text.replace('    budget,\n  });', '  });'))).toContain(
+      'the smoke hands the verdict or the evidence a budget other than its chosen one',
+    );
+    // The verdict is the other place a default can quietly replace the chosen clock.
+    expect(onScript((text) => text.replace(', budget })', ', budget: liftedBudget })'))).toContain(
+      'the smoke hands the verdict or the evidence a budget other than its chosen one',
+    );
   });
 
   it('fires when the smoke is handed a transport of its own or a provider string stops being filtered', () => {

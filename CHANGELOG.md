@@ -27,8 +27,9 @@ valid case would fail if the check launched the injected runner).
 The smoke had one budget and a dispatch could choose nothing about it. The workflow now offers a
 `variant` choice between two frozen blocks: `standard` (90 s) and `availability` (270 s). The
 variant is a name looked up in `SMOKE_VARIANTS`, never a number: an unknown name is refused at exit
-`78` before a client is constructed, and every bound the request uses comes from the chosen block,
-so the artifact cannot describe a clock the client did not run under. 270 s stays under the
+`78` before a client is constructed, and every bound the request uses comes from the chosen block
+— the model is read from the standard block, whose value both blocks share — so the artifact cannot
+describe a clock the client did not run under. 270 s stays under the
 measured ~300 s bound on Node's read of response headers; the model, token ceiling, reasoning
 mode, stream flag and retry count are identical in both blocks.
 
@@ -123,8 +124,10 @@ holds `contents: read`, no GitHub token, and no repository-controlled command; t
 reaches exactly two steps, and the first of those is a preflight that refuses an unconfigured
 secret at exit `78` before install and build spend their minutes on it.
 
-**This has never been dispatched.** The switch defaults to `false`, the job only runs on `main`,
-and the operator's authorization for the specific run is a separate act.
+The switch defaults to `false`, the job only runs on `main`, and the operator's authorization for a
+specific run is a separate act. One dispatch has been made: run 39909412225 on 2026-10-23 failed at
+89,059 ms against the 90 s clock, and `docs/REAL_MODEL_E2E_PROCEDURE.md` records what it proved and
+what it did not.
 
 Tests: `tests/security/live-smoke-rules.test.ts` (the verdict matrix — in time, cut at the token
 limit while looking valid, no terminal event, completed but empty, late, and a clock that is

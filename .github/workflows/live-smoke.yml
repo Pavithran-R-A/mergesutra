@@ -79,7 +79,8 @@ jobs:
       - name: Send the one bounded request
         env:
           # Only this step holds the credential, and only the script reads it. Neither the budget
-          # nor the model is configurable from here: both are frozen in SMOKE_BUDGET in
+          # nor the model is configurable from here: the model is frozen in SMOKE_BUDGET and the
+          # clock comes from the frozen block the variant names in SMOKE_VARIANTS, both in
           # scripts/lib/live-smoke-rules.mjs, which tests/security/live-smoke-rules.test.ts runs
           # against planted answers and tests/security/live-smoke-workflow-policy.test.ts re-reads.
           BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
