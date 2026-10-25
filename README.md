@@ -339,14 +339,17 @@ Not ready. Resolve the FAIL items above.
 ```
 
 The `Repository sandbox` row reports whether Stage 6/7 repository commands have the
-mandatory container boundary. It is a warning when neither variable is set, and a failure
-when only one is set (naming the missing variable), when the image is not digest-pinned,
-or when the Docker path is relative, missing, not executable on a POSIX host, or inside
-`.mergesutra/worktrees/` — the directory where runs create their workspaces, which the
-sandbox refuses to treat as trusted. A Docker path inside the repository but outside that
-directory is a warning: `doctor` can read the file's metadata, but it cannot verify that
-the file is a genuine Docker client. The check never launches Docker, so image
-availability is still proven when a repository command runs.
+mandatory container boundary. It is a warning when neither variable is set, when the
+working directory cannot be resolved, or when the Docker path is inside the repository
+but outside a run workspace — `doctor` can read the file's metadata, but it cannot verify
+that the file is a genuine Docker client. It is a failure when only one variable is set
+(naming the missing variable), when the image is not digest-pinned, or when the Docker
+path is relative, missing, not executable on a POSIX host, or inside a run workspace at
+`.mergesutra/worktrees/<run-id>/` — the one directory a run mounts, which the sandbox
+refuses to trust with a Docker CLI inside it. `PASS` requires a digest-pinned image and a
+Docker CLI outside the repository; on POSIX the file must also be executable, while
+Windows has no Unix execute bit and only existence can be read. The check never launches
+Docker, so image availability is still proven when a repository command runs.
 
 `doctor` exits `1` only when a row is `FAIL`. An unconfigured sandbox is a `WARN`, so the
 command exits `0` even though repository commands remain blocked with

@@ -1,7 +1,8 @@
-import { accessSync, constants, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { loadBharatCodeConfig, summarizeConfig } from '../config/load-config.js';
 import { createBharatCodeClient, type BharatCodeClient } from '../bharatcode/client.js';
+import { isInsideRoot } from '../security/path-safety.js';
 import type { BharatCodeClientConfig } from '../bharatcode/types.js';
 import type { RenderOptions, Renderer, Status } from './render.js';
 import { DIGEST_IMAGE } from '../security/sandbox.js';
@@ -233,47 +234,81 @@ function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string): DoctorCheck {
   try {
     resolvedCwd = realpathSync(cwd);
   } catch {
-    resolvedCwd = path.resolve(cwd);
-  }
-  const worktrees = path.join(resolvedCwd, '.mergesutra', 'worktrees');
-  if (isWithin(worktrees, resolvedDocker)) {
     return {
       name,
-      status: 'FAIL',
+      status: 'WARN',
       detail:
-        `MERGESUTRA_DOCKER_EXECUTABLE resolves inside ${worktrees}, where this repository's ` +
-        'run workspaces are created; the sandbox refuses a Docker CLI inside its own untrusted ' +
-        'workspace. Select an installed Docker CLI outside the repository.',
+        `cannot resolve the working directory (${cwd}), so the Docker CLI's location was not ` +
+        'compared with the run-workspace root. Run doctor from inside the repository to check it.',
     };
   }
-  if (isWithin(resolvedCwd, resolvedDocker)) {
+  const repositoryRoot = findRepositoryRoot(resolvedCwd);
+  const worktrees = path.join(repositoryRoot, '.mergesutra', 'worktrees');
+  let resolvedWorktrees: string | null = null;
+  try {
+    if (statSync(worktrees).isDirectory()) resolvedWorktrees = realpathSync(worktrees);
+  } catch {
+    resolvedWorktrees = null;
+  }
+  if (resolvedWorktrees !== null && isInsideRoot(resolvedWorktrees, resolvedDocker)) {
+    const relative = path.relative(resolvedWorktrees, resolvedDocker);
+    const segments = relative.split(path.sep).filter(Boolean);
+    // A run mounts exactly one directory, `<base>/<run-id>`. A linked worktree
+    // carries `.git` at its root; a bare directory directly under the base is
+    // not a workspace any run created, so it stays a repository-local warning.
+    const runWorkspace =
+      segments.length >= 2 ? path.join(resolvedWorktrees, segments[0]!) : undefined;
+    if (runWorkspace !== undefined && existsSync(path.join(runWorkspace, '.git'))) {
+      return {
+        name,
+        status: 'FAIL',
+        detail:
+          `MERGESUTRA_DOCKER_EXECUTABLE resolves inside the run workspace ${runWorkspace}, ` +
+          'which a run mounts; the sandbox refuses a Docker CLI inside its own untrusted ' +
+          'workspace. Select an installed Docker CLI outside the repository.',
+      };
+    }
+  }
+  if (isInsideRoot(repositoryRoot, resolvedDocker)) {
     return {
       name,
       status: 'WARN',
       detail:
         `MERGESUTRA_DOCKER_EXECUTABLE resolves inside this repository: ${dockerExecutable}. ` +
-        'doctor cannot verify that this file is a genuine Docker client, and a path inside the ' +
-        'run workspace (.mergesutra/worktrees) is refused at runtime. Select an installed Docker ' +
-        'CLI outside the repository.',
+        'doctor cannot verify that this file is a genuine Docker client, and a Docker CLI ' +
+        'inside a run workspace under .mergesutra/worktrees is refused at runtime. Select an ' +
+        'installed Docker CLI outside the repository.',
     };
   }
+  const cliDescription =
+    process.platform === 'win32'
+      ? 'existing Docker CLI outside this repository; Windows has no Unix execute bit, so only ' +
+        'existence is checked'
+      : 'executable Docker CLI outside this repository';
   return {
     name,
     status: 'PASS',
     detail:
-      'configured (digest-pinned image; executable Docker CLI outside this repository). ' +
+      `configured (digest-pinned image; ${cliDescription}). ` +
       'Image availability is checked when a repository command runs; the sandbox also refuses ' +
-      'a Docker CLI that resolves inside the run workspace (.mergesutra/worktrees), and ' +
+      'a Docker CLI that resolves inside a run workspace under .mergesutra/worktrees, and ' +
       'git-based repository gates remain fail-closed.',
   };
 }
 
-function isWithin(root: string, target: string): boolean {
-  const relative = path.relative(root, target);
-  return (
-    relative === '' ||
-    (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
-  );
+/**
+ * The root Git metadata lives in: `.git` is a directory in a normal checkout and
+ * a file in a linked worktree. The repository toplevel Stage 6/7 record is this
+ * directory, not whichever subdirectory doctor happened to run in.
+ */
+function findRepositoryRoot(start: string): string {
+  let current = start;
+  for (;;) {
+    if (existsSync(path.join(current, '.git'))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return start;
+    current = parent;
+  }
 }
 
 export function formatDoctor(input: readonly DoctorCheck[], renderer: Renderer): string {
@@ -316,6 +351,7 @@ export async function doctorAction(
     makeClient: deps.makeClient,
     connect: options.connect,
     nodeVersion: deps.nodeVersion,
+    cwd: deps.cwd,
   });
   const renderer = createRenderer({ color: resolveColor(options.noColor, process.env) });
   write(formatDoctor(checks, renderer));

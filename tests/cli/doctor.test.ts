@@ -251,8 +251,38 @@ describe('repository sandbox readiness', () => {
     },
   );
 
-  it("fails a Docker CLI inside the repository's run-workspace root", async () => {
+  it('fails a Docker CLI inside a run workspace, even from a repository subdirectory', async () => {
     const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    const subdir = path.join(repo, 'src');
+    await mkdir(subdir);
+    const workspace = path.join(repo, '.mergesutra', 'worktrees', 'run-20260101T000000Z-abcdef');
+    await mkdir(workspace, { recursive: true });
+    // A run workspace is a linked worktree; its `.git` file is what tells the
+    // sandbox check that this directory is one a run would mount.
+    await writeFile(path.join(workspace, '.git'), 'gitdir: /elsewhere\n');
+    const dockerExecutable = path.join(workspace, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: subdir,
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/\.mergesutra[\\/]worktrees/);
+    expect(detail).toMatch(/run workspace/i);
+    expect(detail).toMatch(/refuses|refused/i);
+  });
+
+  it('warns about a Docker CLI directly in the run-workspace root, which no run mounts', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
     const worktrees = path.join(repo, '.mergesutra', 'worktrees');
     await mkdir(worktrees, { recursive: true });
     const dockerExecutable = path.join(worktrees, 'docker');
@@ -267,10 +297,30 @@ describe('repository sandbox readiness', () => {
       nodeVersion: '24.0.0',
       cwd: repo,
     });
-    expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
+    expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
     const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
-    expect(detail).toMatch(/\.mergesutra[\\/]worktrees/);
-    expect(detail).toMatch(/refuses|refused/i);
+    expect(detail).toMatch(/inside this repository/i);
+    expect(detail).toMatch(/run workspace/i);
+  });
+
+  it('warns when the working directory cannot be resolved instead of claiming the path is safe', async () => {
+    const dir = await scratch();
+    const dockerExecutable = path.join(dir, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: path.join(dir, 'missing-directory'),
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/working directory/i);
+    expect(detail).toMatch(/not established|cannot resolve|unresolved/i);
   });
 
   it('warns about a Docker CLI inside the repository but outside the run-workspace root', async () => {
@@ -298,14 +348,12 @@ describe('repository sandbox readiness', () => {
     'never launches the configured Docker CLI to check configuration',
     async () => {
       // No runner is injected: if the check spawned Docker through the production
-      // runner, this marker would appear. The path is outside the working tree.
+      // runner, this marker would appear. `$0` is the path the runner executed, so
+      // the script needs no interpolation and works under any TMPDIR.
       const dir = await scratch();
-      const marker = path.join(dir, 'docker-was-launched');
       const dockerExecutable = path.join(dir, 'docker');
-      await writeFile(
-        dockerExecutable,
-        `#!/bin/sh\nprintf launched > ${JSON.stringify(marker)}\nexit 0\n`,
-      );
+      const marker = `${dockerExecutable}.marker`;
+      await writeFile(dockerExecutable, '#!/bin/sh\nprintf launched > "$0.marker"\nexit 0\n');
       await chmod(dockerExecutable, 0o755);
       const checks = await runDoctor({
         env: {
@@ -393,5 +441,32 @@ describe('doctorAction exit codes', () => {
     expect(text).toMatch(/WARN\s+Repository sandbox/);
     expect(text).toContain('Ready with warnings.');
     expect(text).not.toMatch(/^Ready\.$/m);
+  });
+
+  it('forwards the injected working directory to the sandbox location check', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    const dockerExecutable = path.join(repo, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const lines: string[] = [];
+    const code = await doctorAction(
+      { noColor: true },
+      {
+        env: {
+          BHARATCODE_API_KEY: KEY,
+          MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+          MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+        },
+        run: okRunner,
+        nodeVersion: '24.0.0',
+        cwd: repo,
+      },
+      (line) => lines.push(line),
+    );
+    expect(code).toBe(0);
+    // Without the forwarded cwd, the check would compare against process.cwd()
+    // and report PASS for a CLI that lives inside the injected repository.
+    expect(lines.join('\n')).toMatch(/WARN\s+Repository sandbox/);
   });
 });

@@ -10,25 +10,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 `mergesutra doctor` could say "Ready." while every Stage 6/7 repository command would
 refuse, because the two sandbox variables were never checked. The screen now has a
-`Repository sandbox` row: `WARN` when neither variable is set (naming both and the
-`SANDBOX_UNAVAILABLE` refusal an operator will meet), when only one is set, when the
+`Repository sandbox` row. It is a `WARN` when neither variable is set (naming both and
+the `SANDBOX_UNAVAILABLE` refusal an operator will meet), when the working directory
+cannot be resolved, or when the Docker path is inside the repository but outside a run
+workspace — doctor can read the file's metadata but cannot verify it is a genuine Docker
+client. It is a `FAIL` when only one variable is set (naming the missing one), when the
 image is a mutable tag, when the Docker path is not an absolute existing file, on POSIX
-when that file is not executable, or when it resolves inside `.mergesutra/worktrees` —
-the directory where the runtime creates the workspaces it refuses to trust. A Docker
-path inside the repository but outside that directory is a `WARN` because doctor cannot
-verify the file is a genuine Docker client. `PASS` requires a digest-pinned image and an
-executable Docker CLI outside the repository. The check reads configuration and file
-metadata only; it does not launch Docker or execute a repository command. `PASS` also
-states that image availability is checked when a command runs and that git-based
-repository gates remain fail-closed. Warnings do not change the documented exit code:
-`doctor` exits `1` only for a `FAIL`, so an unconfigured sandbox exits `0` while
-repository commands remain blocked.
+when that file is not executable, or when it resolves inside a run workspace at
+`.mergesutra/worktrees/<run-id>/` — the one directory a run mounts, which the sandbox
+refuses to trust with a Docker CLI inside it. `PASS` requires a digest-pinned image and a
+Docker CLI outside the repository; on POSIX the file must also be executable, while
+Windows has no Unix execute bit and only existence can be read. The check reads
+configuration and file metadata only; it does not launch Docker or execute a repository
+command. `PASS` also states that image availability is checked when a command runs and
+that git-based repository gates remain fail-closed. Warnings do not change the documented
+exit code: `doctor` exits `1` only for a `FAIL`, so an unconfigured sandbox exits `0`
+while repository commands remain blocked.
 
 Tests: `tests/cli/doctor.test.ts` (unconfigured warning and footer, half configuration,
-mutable tag, relative path, missing path and directory, POSIX non-executable file,
-run-workspace path, repository-local warning, a valid configuration whose runner records
-every invocation, and a POSIX probe proving the configured Docker CLI was never spawned;
-the valid case asserts the injected runner was not asked to launch Docker).
+mutable tag, relative path, missing path and directory, POSIX non-executable file, a run
+workspace reached from a repository subdirectory, a run-workspace root that is not a run
+workspace, an unresolvable working directory, repository-local warning, a valid
+configuration whose runner records every invocation, and a POSIX probe proving the
+configured Docker CLI was never spawned; the valid case asserts the injected runner was
+not asked to launch Docker).
 
 ### Changed — the BharatCode adapter reads the documented Responses stream
 
