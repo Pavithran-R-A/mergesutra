@@ -379,13 +379,14 @@ describe('repository sandbox readiness', () => {
     expect(detail).toMatch(/run workspace/i);
   });
 
-  it('names the run workspace rather than “this repository” when run from inside one', async () => {
+  it('warns about a repository-local Docker CLI even when doctor runs from inside a run workspace', async () => {
     const repo = await scratch();
     await mkdir(path.join(repo, '.git'));
     const workspace = path.join(repo, '.mergesutra', 'worktrees', 'run-20260101T000000Z-abcdef');
     await mkdir(workspace, { recursive: true });
     await writeFile(path.join(workspace, '.git'), 'gitdir: /elsewhere\n');
-    // Outside the workspace the runtime mounts, but still inside the repository.
+    // Outside the workspace the runtime mounts, but still inside the repository
+    // that owns it — so the same caution as a repository-root reading applies.
     const dockerExecutable = path.join(repo, 'bin', 'docker');
     await mkdir(path.dirname(dockerExecutable), { recursive: true });
     await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
@@ -399,10 +400,39 @@ describe('repository sandbox readiness', () => {
       nodeVersion: '24.0.0',
       cwd: workspace,
     });
-    expect(statusOf(checks, 'Repository sandbox')).toBe('PASS');
+    expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
     const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
-    expect(detail).toMatch(/outside this run workspace/i);
-    expect(detail).not.toMatch(/outside this repository/i);
+    expect(detail).toMatch(/inside this repository/i);
+    expect(detail).not.toMatch(/inside this run workspace/i);
+    expect(detail).toMatch(/genuine Docker client/i);
+  });
+
+  it('fails a Docker CLI reached through a link into a run workspace', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    const workspace = path.join(repo, '.mergesutra', 'worktrees', 'run-20260101T000000Z-abcdef');
+    await mkdir(workspace, { recursive: true });
+    await writeFile(path.join(workspace, '.git'), 'gitdir: /elsewhere\n');
+    const dockerExecutable = path.join(workspace, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    // The configured path looks like an ordinary repository-local file; only
+    // resolving the link shows that the file the runtime would launch lives
+    // inside the mounted workspace.
+    const link = path.join(repo, 'tools');
+    await symlink(workspace, link, process.platform === 'win32' ? 'junction' : 'dir');
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: path.join(link, 'docker'),
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: repo,
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/run workspace/i);
   });
 
   it.skipIf(process.platform === 'win32')(

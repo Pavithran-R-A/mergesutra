@@ -243,22 +243,27 @@ function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string): DoctorCheck {
     };
   }
   const discoveredRoot = findRepositoryRoot(resolvedCwd);
-  const inRunWorkspace = discoveredRoot !== null && isRunWorkspaceRoot(discoveredRoot);
-  const repositoryRoot = discoveredRoot ?? resolvedCwd;
+  const workspaceRoot =
+    discoveredRoot !== null && isRunWorkspaceRoot(discoveredRoot) ? discoveredRoot : null;
+  // From inside a run workspace the nearest `.git` is the workspace, not the
+  // repository that owns it; a CLI in that repository is outside the mounted
+  // directory but is still a repository file, so the same warning must apply.
+  const repositoryRoot =
+    workspaceRoot !== null
+      ? path.resolve(workspaceRoot, '..', '..', '..')
+      : (discoveredRoot ?? resolvedCwd);
   const rootLabel =
     discoveredRoot === null
       ? 'the working directory (no Git root was found above it)'
-      : inRunWorkspace
-        ? 'this run workspace'
-        : 'this repository';
+      : 'this repository';
   // Running inside a run workspace makes that workspace the nearest `.git`; a
   // Docker CLI inside it is the same conflict the runtime refuses for the run.
-  if (inRunWorkspace && discoveredRoot !== null && isInsideRoot(discoveredRoot, resolvedDocker)) {
+  if (workspaceRoot !== null && isInsideRoot(workspaceRoot, resolvedDocker)) {
     return {
       name,
       status: 'FAIL',
       detail:
-        `MERGESUTRA_DOCKER_EXECUTABLE resolves inside the run workspace ${discoveredRoot}, ` +
+        `MERGESUTRA_DOCKER_EXECUTABLE resolves inside the run workspace ${workspaceRoot}, ` +
         'which a run mounts; the sandbox refuses a Docker CLI inside its own untrusted ' +
         'workspace. Select an installed Docker CLI outside the repository.',
     };

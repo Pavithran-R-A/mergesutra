@@ -32,7 +32,8 @@ while repository commands remain blocked.
 Tests: `tests/cli/doctor.test.ts` (unconfigured warning and footer, half configuration,
 mutable tag, relative path, missing path and directory, POSIX non-executable file, a run
 workspace reached from a repository subdirectory, a run-workspace root that is not a run
-workspace, an unresolvable working directory, repository-local warning, a valid
+workspace, a linked path into a run workspace, an unresolvable working directory, a
+repository-local warning, the same warning read from inside a run workspace, a valid
 configuration whose runner records every invocation, and a POSIX probe proving the
 configured Docker CLI was never spawned; the valid case asserts the injected runner was
 not asked to launch Docker).

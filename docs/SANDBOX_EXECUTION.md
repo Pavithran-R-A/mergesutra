@@ -35,8 +35,10 @@ repository; on POSIX the file must also be executable, while Windows has no Unix
 execute bit and only existence can be read. When no Git root can be found above
 the working directory, the row compares against that directory and says so
 rather than claiming a repository; when the working directory is itself a run
-workspace, it says "this run workspace" rather than "this repository", because
-that is the directory a run mounts. PASS does not mean the image is present in
+workspace, the row compares the CLI with the repository that owns the
+workspace — a CLI inside the mounted workspace is a FAIL, and one elsewhere in
+that repository gets the same WARN as a reading from the repository root.
+PASS does not mean the image is present in
 the daemon. That check reads configuration and file metadata only —
 it never launches Docker — so image availability is still verified when a
 repository command runs. `doctor` exits `1` only when a row is FAIL; an
