@@ -204,17 +204,31 @@ function smokeViolations(workflow: string, script: string, rules: string, wire =
   if ((script.match(/client\.listModels\(\)/g) ?? []).length !== 1) {
     problems.push('the smoke script must read the authenticated catalog exactly once');
   }
-  for (const wired of [
-    'maxTokens: budget.maxOutputTokens',
-    'enableThinking: budget.enableThinking',
-    'temperature: budget.temperature',
-    'timeoutMs: budget.deadlineMs',
-    'maxRetries: budget.maxRetries',
-    'AbortSignal.timeout(budget.deadlineMs)',
-  ]) {
-    if (!script.includes(wired)) {
-      problems.push(`the smoke script no longer takes its bound from the rules module: ${wired}`);
+  // A bound has to be read exactly once, and that one reading has to be the bare budget field.
+  // Presence alone keeps two holes open: a duplicated key whose later value wins, and an
+  // arithmetic widening such as `timeoutMs: budget.deadlineMs * 3`. Both leave every `includes`
+  // test green while the client runs a wider clock than the freeze exists to bound.
+  for (const [key, value] of [
+    ['maxTokens', 'budget.maxOutputTokens'],
+    ['enableThinking', 'budget.enableThinking'],
+    ['temperature', 'budget.temperature'],
+    ['timeoutMs', 'budget.deadlineMs'],
+    ['maxRetries', 'budget.maxRetries'],
+  ] as const) {
+    const assigned = [...script.matchAll(new RegExp(`\\b${key}:\\s*([^,\\n})]+)`, 'g'))].map(
+      (m) => m[1]?.trim() ?? '',
+    );
+    if (assigned.length !== 1 || assigned[0] !== value) {
+      problems.push(
+        `the smoke script no longer takes its bound from the rules module: ${key}: ${value}`,
+      );
     }
+  }
+  if (!script.includes('AbortSignal.timeout(budget.deadlineMs)')) {
+    problems.push(
+      'the smoke script no longer takes its bound from the rules module: ' +
+        'AbortSignal.timeout(budget.deadlineMs)',
+    );
   }
   // The variant is a name looked up in a frozen map. There must be no path from an environment
   // value to a number, or the dispatcher could widen the clock the freeze exists to bound.
@@ -728,6 +742,32 @@ describe('the policy fires on the mutations it exists for', () => {
         ),
       ),
     ).toContain('the smoke script hardcodes a request bound next to the budget it should read');
+  });
+
+  it('fires when a bound is the frozen field scaled by a number', () => {
+    // `budget.deadlineMs` is still in the text, so a presence test stays green while the client
+    // runs a clock three times the one the freeze bounds.
+    expect(
+      onScript((text) =>
+        text.replace('timeoutMs: budget.deadlineMs,', 'timeoutMs: budget.deadlineMs * 3,'),
+      ),
+    ).toContain(
+      'the smoke script no longer takes its bound from the rules module: timeoutMs: budget.deadlineMs',
+    );
+  });
+
+  it('fires when a bound key is set twice and the later value wins', () => {
+    // No digits, so only counting the assignments can see the second key overriding the first.
+    expect(
+      onScript((text) =>
+        text.replace(
+          'timeoutMs: budget.deadlineMs,',
+          'timeoutMs: budget.deadlineMs,\n      timeoutMs: deadlineOverride,',
+        ),
+      ),
+    ).toContain(
+      'the smoke script no longer takes its bound from the rules module: timeoutMs: budget.deadlineMs',
+    );
   });
 
   it('fires when the budget lookup is only a decoy', () => {
