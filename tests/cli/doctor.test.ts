@@ -379,6 +379,32 @@ describe('repository sandbox readiness', () => {
     expect(detail).toMatch(/run workspace/i);
   });
 
+  it('names the run workspace rather than “this repository” when run from inside one', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    const workspace = path.join(repo, '.mergesutra', 'worktrees', 'run-20260101T000000Z-abcdef');
+    await mkdir(workspace, { recursive: true });
+    await writeFile(path.join(workspace, '.git'), 'gitdir: /elsewhere\n');
+    // Outside the workspace the runtime mounts, but still inside the repository.
+    const dockerExecutable = path.join(repo, 'bin', 'docker');
+    await mkdir(path.dirname(dockerExecutable), { recursive: true });
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: workspace,
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('PASS');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/outside this run workspace/i);
+    expect(detail).not.toMatch(/outside this repository/i);
+  });
+
   it.skipIf(process.platform === 'win32')(
     'fails a run workspace reached through a symlinked worktree base',
     async () => {

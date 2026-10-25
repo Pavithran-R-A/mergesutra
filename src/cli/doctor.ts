@@ -243,18 +243,17 @@ function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string): DoctorCheck {
     };
   }
   const discoveredRoot = findRepositoryRoot(resolvedCwd);
+  const inRunWorkspace = discoveredRoot !== null && isRunWorkspaceRoot(discoveredRoot);
   const repositoryRoot = discoveredRoot ?? resolvedCwd;
   const rootLabel =
     discoveredRoot === null
       ? 'the working directory (no Git root was found above it)'
-      : 'this repository';
+      : inRunWorkspace
+        ? 'this run workspace'
+        : 'this repository';
   // Running inside a run workspace makes that workspace the nearest `.git`; a
   // Docker CLI inside it is the same conflict the runtime refuses for the run.
-  if (
-    discoveredRoot !== null &&
-    isRunWorkspaceRoot(discoveredRoot) &&
-    isInsideRoot(discoveredRoot, resolvedDocker)
-  ) {
+  if (inRunWorkspace && discoveredRoot !== null && isInsideRoot(discoveredRoot, resolvedDocker)) {
     return {
       name,
       status: 'FAIL',
