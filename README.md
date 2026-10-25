@@ -327,15 +327,20 @@ Real `doctor` output (this machine, no secrets shown):
 ```text
 MergeSutra doctor
 
-PASS    Node              v24.21.0
-PASS    Git               git version 2.55.0.windows.5
-PASS    GitHub CLI        gh version 2.96.0 (2026-07-02)
-PASS    GitHub auth       signed in
-FAIL    BharatCode key    BHARATCODE_API_KEY is not set.
-SKIP    BharatCode reach  pass --connect to test
+PASS          Node                v24.21.0
+PASS          Git                 git version 2.55.0.windows.5
+PASS          GitHub CLI          gh version 2.96.0 (2026-07-02)
+PASS          GitHub auth         signed in
+FAIL          BharatCode key      BHARATCODE_API_KEY is not set.
+WARN          Repository sandbox  not configured — repository commands will refuse with SANDBOX_UNAVAILABLE. Set MERGESUTRA_SANDBOX_IMAGE=<image>@sha256:<digest> and MERGESUTRA_DOCKER_EXECUTABLE=<absolute path to docker>.
+SKIP          BharatCode reach    pass --connect to test
 
 Not ready. Resolve the FAIL items above.
 ```
+
+The `Repository sandbox` row reports whether Stage 6/7 repository commands have the
+mandatory container boundary: unconfigured is a warning, a malformed configuration is a
+failure, and the check reads configuration and file metadata without launching Docker.
 
 Real `issue` output (this machine, a clone with no `origin` remote and uncommitted
 work — so it truthfully reports what it could not establish, and exits `3`; the

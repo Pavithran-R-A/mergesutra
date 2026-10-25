@@ -29,7 +29,7 @@ export interface SandboxedRunnerOptions extends RunnerOptions {
   readonly hostRun?: Runner;
 }
 
-const DIGEST_IMAGE = /^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$/;
+export const DIGEST_IMAGE = /^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$/;
 const SANDBOX_ROOT = '/workspace';
 
 function unavailable(reason: string): AppError {
