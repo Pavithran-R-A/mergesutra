@@ -153,6 +153,36 @@ function smokeViolations(workflow: string, script: string, rules: string, wire =
   if (!workflow.includes('run: node scripts/live-smoke.mjs')) {
     problems.push('the credentialed step is not the one-request smoke script');
   }
+  // The dispatch may choose a frozen clock by name. It may not offer a number, a free-text name,
+  // or any other smoke setting, because every one of those is code in the rules module.
+  const variantInput = /^ {6}variant:\n(?: {8}.*\n)+/m.exec(workflow)?.[0] ?? '';
+  if (variantInput === '') {
+    problems.push('the dispatch offers no bounded variant selector');
+  } else {
+    const options = [...variantInput.matchAll(/^ {10}- (\S+)$/gm)].map((match) => match[1]);
+    if (options.join(',') !== 'standard,availability') {
+      problems.push(
+        `the dispatch variant names ${options.join(',') || '(none)'}, not exactly standard,availability`,
+      );
+    }
+    if (!/type:\s*choice/.test(variantInput)) {
+      problems.push('the dispatch variant is not a closed choice');
+    }
+    if (!/default:\s*standard/.test(variantInput)) {
+      problems.push('the dispatch variant does not default to the standard clock');
+    }
+  }
+  if ((workflow.match(/MERGESUTRA_LIVE_SMOKE_VARIANT:/g) ?? []).length !== 1) {
+    problems.push('the variant name does not reach exactly one step');
+  }
+  if (!workflow.includes('MERGESUTRA_LIVE_SMOKE_VARIANT: ${{ inputs.variant }}')) {
+    problems.push('the smoke step does not receive the dispatch’s variant name');
+  }
+  for (const name of workflow.matchAll(/MERGESUTRA_LIVE_SMOKE_[A-Z_]+/g)) {
+    if (name[0] !== 'MERGESUTRA_LIVE_SMOKE_VARIANT') {
+      problems.push(`the workflow configures ${name[0]}; the budget is code, not an input`);
+    }
+  }
   if (/run:\s*(?:npm run check|npm test|node scripts\/e2e-validation)/.test(workflow)) {
     problems.push('the smoke re-runs the offline suite or the full chain instead of one request');
   }
@@ -174,19 +204,66 @@ function smokeViolations(workflow: string, script: string, rules: string, wire =
   if ((script.match(/client\.listModels\(\)/g) ?? []).length !== 1) {
     problems.push('the smoke script must read the authenticated catalog exactly once');
   }
-  for (const wired of [
-    'maxTokens: SMOKE_BUDGET.maxOutputTokens',
-    'enableThinking: SMOKE_BUDGET.enableThinking',
-    'temperature: SMOKE_BUDGET.temperature',
-    'timeoutMs: SMOKE_BUDGET.deadlineMs',
-    'maxRetries: SMOKE_BUDGET.maxRetries',
-    'AbortSignal.timeout(SMOKE_BUDGET.deadlineMs)',
-  ]) {
-    if (!script.includes(wired)) {
-      problems.push(`the smoke script no longer takes its bound from the rules module: ${wired}`);
+  // A bound has to be read exactly once, and that one reading has to be the bare budget field.
+  // Presence alone keeps two holes open: a duplicated key whose later value wins, and an
+  // arithmetic widening such as `timeoutMs: budget.deadlineMs * 3`. Both leave every `includes`
+  // test green while the client runs a wider clock than the freeze exists to bound.
+  for (const [key, value] of [
+    ['maxTokens', 'budget.maxOutputTokens'],
+    ['enableThinking', 'budget.enableThinking'],
+    ['temperature', 'budget.temperature'],
+    ['timeoutMs', 'budget.deadlineMs'],
+    ['maxRetries', 'budget.maxRetries'],
+  ] as const) {
+    const assigned = [...script.matchAll(new RegExp(`\\b${key}:\\s*([^,\\n})]+)`, 'g'))].map(
+      (m) => m[1]?.trim() ?? '',
+    );
+    if (assigned.length !== 1 || assigned[0] !== value) {
+      problems.push(
+        `the smoke script no longer takes its bound from the rules module: ${key}: ${value}`,
+      );
     }
   }
-  if (/maxTokens:\s*\d|temperature:\s*\d|timeoutMs:\s*\d/.test(script)) {
+  if (!script.includes('AbortSignal.timeout(budget.deadlineMs)')) {
+    problems.push(
+      'the smoke script no longer takes its bound from the rules module: ' +
+        'AbortSignal.timeout(budget.deadlineMs)',
+    );
+  }
+  // The variant is a name looked up in a frozen map. There must be no path from an environment
+  // value to a number, or the dispatcher could widen the clock the freeze exists to bound.
+  if (
+    !/const budget = Object\.hasOwn\(SMOKE_VARIANTS, variantChoice\)\s*\n\s*\? SMOKE_VARIANTS\[variantChoice\]\s*\n\s*: null;/.test(
+      script,
+    )
+  ) {
+    problems.push('the smoke variant is not looked up in the frozen budget map');
+  }
+  if (!/if \(budget === null\) \{\s*refuse\(/.test(script)) {
+    problems.push('an unknown smoke variant is not refused before any request is sent');
+  }
+  if (!/\? SMOKE_VARIANTS\[variantChoice\]\s*:\s*null;/.test(script)) {
+    problems.push('a known smoke variant does not resolve to its own frozen budget');
+  }
+  // Every bound after the variant is chosen must come from that choice. A fallback to either
+  // global budget would let the artifact describe a 90 s request that the client ran at 270 s.
+  const variantAt = script.indexOf('const variantChoice');
+  if (variantAt === -1 || /\bSMOKE_BUDGET\w*/.test(script.slice(variantAt))) {
+    problems.push('the smoke reads a global budget after choosing a variant');
+  }
+  // ...and the two places the chosen object is handed on must name it directly. An alias lifted
+  // before the choice, or a dropped argument, silently falls back to the module's standard
+  // defaults, so a 270 s run could be judged and described against the 90 s clock.
+  if (
+    !script.includes('smokeVerdict(answer, { elapsedMs, budget })') ||
+    !script.includes('    budget,\n  });')
+  ) {
+    problems.push('the smoke hands the verdict or the evidence a budget other than its chosen one');
+  }
+  if (/Number\(process\.env|parseInt\(process\.env|parseFloat\(process\.env/.test(script)) {
+    problems.push('the smoke reads a request bound from the environment as a number');
+  }
+  if (/maxTokens:\s*\d|temperature:\s*\d|timeoutMs:\s*\d|deadlineMs:\s*\d/.test(script)) {
     problems.push('the smoke script hardcodes a request bound next to the budget it should read');
   }
   if (!script.includes('adapter.requireApiKey(')) {
@@ -248,6 +325,27 @@ function smokeViolations(workflow: string, script: string, rules: string, wire =
       problems.push(`SMOKE_BUDGET.${field} is ${budget[field] ?? '(absent)'}, not ${value}`);
     }
   }
+  // The long clock is the same budget with one field replaced. Written as a spread rather than a
+  // second literal so a field added to the standard budget cannot go missing from this variant;
+  // pinned as literal text so nothing else can be changed alongside the clock.
+  if (
+    !/export const SMOKE_BUDGET_AVAILABILITY = Object\.freeze\(\{\s*\.\.\.SMOKE_BUDGET,\s*deadlineMs: 270_000,\s*\}\);/.test(
+      rules,
+    )
+  ) {
+    problems.push(
+      'the availability variant is not the standard budget with only its clock replaced by 270_000',
+    );
+  }
+  if (
+    !/export const SMOKE_VARIANTS = Object\.freeze\(\{\s*standard: SMOKE_BUDGET,\s*availability: SMOKE_BUDGET_AVAILABILITY,\s*\}\);/.test(
+      rules,
+    )
+  ) {
+    problems.push(
+      'the frozen variant map does not name exactly the standard and availability budgets',
+    );
+  }
   if (!rules.includes("if (finish !== 'stop')")) {
     problems.push('the verdict no longer requires the provider’s own completed terminal event');
   }
@@ -262,10 +360,13 @@ function smokeViolations(workflow: string, script: string, rules: string, wire =
       'the smoke no longer routes every provider-chosen string through both redaction and the one-line filter',
     );
   }
-  // The ceiling has to fit the job that runs it, with room for install and build.
-  const deadlineSeconds = Number((budget.deadlineMs ?? '0').replace(/_/g, '')) / 1000;
-  if (Number.isFinite(deadlineSeconds) && deadlineSeconds * 2 > JOB_CEILING_MINUTES * 60) {
-    problems.push('the job ceiling no longer leaves the request room to fail inside it');
+  // The ceiling has to fit the longest budget, with room for install and build.
+  const deadlineMilliseconds = [...rules.matchAll(/deadlineMs:\s*([\d_]+)/g)].map((match) =>
+    Number((match[1] ?? '').replace(/_/g, '')),
+  );
+  const deadlineSeconds = Math.max(...deadlineMilliseconds) / 1000;
+  if (!Number.isFinite(deadlineSeconds) || deadlineSeconds * 2 > JOB_CEILING_MINUTES * 60) {
+    problems.push('the job ceiling no longer leaves the longest request room to fail inside it');
   }
 
   return problems;
@@ -334,8 +435,22 @@ describe('the one-request live smoke', () => {
       deadlineMs: '90_000',
       maxRetries: '0',
     });
-    expect(SCRIPT).toContain('maxTokens: SMOKE_BUDGET.maxOutputTokens');
-    expect(SCRIPT).toContain('AbortSignal.timeout(SMOKE_BUDGET.deadlineMs)');
+    expect(SCRIPT).toContain('maxTokens: budget.maxOutputTokens');
+    expect(SCRIPT).toContain('AbortSignal.timeout(budget.deadlineMs)');
+  });
+
+  it('offers exactly two frozen clocks, chosen by name and never by number', () => {
+    expect(RULES).toMatch(
+      /export const SMOKE_BUDGET_AVAILABILITY = Object\.freeze\(\{\s*\.\.\.SMOKE_BUDGET,\s*deadlineMs: 270_000,\s*\}\);/,
+    );
+    expect(RULES).toMatch(
+      /export const SMOKE_VARIANTS = Object\.freeze\(\{\s*standard: SMOKE_BUDGET,\s*availability: SMOKE_BUDGET_AVAILABILITY,\s*\}\);/,
+    );
+    expect(WORKFLOW).toContain('MERGESUTRA_LIVE_SMOKE_VARIANT: ${{ inputs.variant }}');
+    expect(SCRIPT).toContain('Object.hasOwn(SMOKE_VARIANTS, variantChoice)');
+    expect(SCRIPT).toMatch(/\? SMOKE_VARIANTS\[variantChoice\]\s*:\s*null;/);
+    expect(SCRIPT.slice(SCRIPT.indexOf('const variantChoice'))).not.toMatch(/\bSMOKE_BUDGET\b/);
+    expect(SCRIPT).not.toMatch(/Number\(process\.env|parseInt\(process\.env/);
   });
 
   it('cannot run a repository command, by construction', () => {
@@ -453,8 +568,8 @@ describe('the policy fires on the mutations it exists for', () => {
     expect(
       onWorkflow((text) =>
         text.replace(
-          '          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}\n        run: node scripts/live-smoke.mjs',
-          '          BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}\n          BHARATCODE_MODEL: ${{ inputs.model }}\n        run: node scripts/live-smoke.mjs',
+          '          MERGESUTRA_LIVE_SMOKE_VARIANT: ${{ inputs.variant }}',
+          '          BHARATCODE_MODEL: ${{ inputs.model }}\n          MERGESUTRA_LIVE_SMOKE_VARIANT: ${{ inputs.variant }}',
         ),
       ),
     ).toContain('the workflow configures BHARATCODE_MODEL; the budget is code, not an input');
@@ -502,11 +617,9 @@ describe('the policy fires on the mutations it exists for', () => {
       ),
     ).toContain('the smoke script does not hold to exactly one completion call site');
     expect(
-      onScript((text) =>
-        text.replace('maxTokens: SMOKE_BUDGET.maxOutputTokens', 'maxTokens: 100000'),
-      ),
+      onScript((text) => text.replace('maxTokens: budget.maxOutputTokens', 'maxTokens: 100000')),
     ).toContain(
-      'the smoke script no longer takes its bound from the rules module: maxTokens: SMOKE_BUDGET.maxOutputTokens',
+      'the smoke script no longer takes its bound from the rules module: maxTokens: budget.maxOutputTokens',
     );
   });
 
@@ -559,6 +672,144 @@ describe('the policy fires on the mutations it exists for', () => {
         ),
       ),
     ).toContain('the elapsed time is no longer compared with the ceiling it was given');
+  });
+
+  it('fires when the long clock, the variant map, or the dispatch selector is widened', () => {
+    expect(onRules((text) => text.replace('deadlineMs: 270_000', 'deadlineMs: 600_000'))).toContain(
+      'the availability variant is not the standard budget with only its clock replaced by 270_000',
+    );
+    expect(
+      onRules((text) =>
+        text.replace(
+          'availability: SMOKE_BUDGET_AVAILABILITY,',
+          'availability: SMOKE_BUDGET_AVAILABILITY,\n  turbo: SMOKE_BUDGET,',
+        ),
+      ),
+    ).toContain(
+      'the frozen variant map does not name exactly the standard and availability budgets',
+    );
+    expect(onWorkflow((text) => text.replace('type: choice', 'type: string'))).toContain(
+      'the dispatch variant is not a closed choice',
+    );
+    expect(
+      onWorkflow((text) =>
+        text.replace('          - availability', '          - availability\n          - turbo'),
+      ),
+    ).toContain(
+      'the dispatch variant names standard,availability,turbo, not exactly standard,availability',
+    );
+    expect(
+      onScript((text) =>
+        text.replace(
+          'const budget = Object.hasOwn(SMOKE_VARIANTS, variantChoice)',
+          'const budget = { ...SMOKE_BUDGET, deadlineMs: Number(process.env.DEADLINE_MS) } ?? Object.hasOwn(SMOKE_VARIANTS, variantChoice)',
+        ),
+      ),
+    ).toContain('the smoke reads a request bound from the environment as a number');
+    expect(
+      onScript((text) => text.replace('Object.hasOwn(SMOKE_VARIANTS, variantChoice)', 'true')),
+    ).toContain('the smoke variant is not looked up in the frozen budget map');
+    expect(onScript((text) => text.replace('if (budget === null) {', 'if (false) {'))).toContain(
+      'an unknown smoke variant is not refused before any request is sent',
+    );
+    expect(
+      onScript((text) =>
+        text.replace(
+          '    ? SMOKE_VARIANTS[variantChoice]\n    : null;',
+          '    ? SMOKE_VARIANTS[variantChoice]\n    : SMOKE_BUDGET_AVAILABILITY;',
+        ),
+      ),
+    ).toContain('a known smoke variant does not resolve to its own frozen budget');
+    expect(
+      onScript((text) => text.replace('    budget,\n  });', '    budget: SMOKE_BUDGET,\n  });')),
+    ).toContain('the smoke reads a global budget after choosing a variant');
+    expect(
+      onScript((text) =>
+        text.replace(
+          'smokeVerdict(answer, { elapsedMs, budget })',
+          'smokeVerdict(answer, { elapsedMs, budget: SMOKE_BUDGET_AVAILABILITY })',
+        ),
+      ),
+    ).toContain('the smoke reads a global budget after choosing a variant');
+  });
+
+  it('fires when a deadline is hardcoded next to the budget', () => {
+    expect(
+      onScript((text) =>
+        text.replace(
+          'timeoutMs: budget.deadlineMs,',
+          'timeoutMs: budget.deadlineMs,\n      deadlineMs: 270_000,',
+        ),
+      ),
+    ).toContain('the smoke script hardcodes a request bound next to the budget it should read');
+  });
+
+  it('fires when a bound is the frozen field scaled by a number', () => {
+    // `budget.deadlineMs` is still in the text, so a presence test stays green while the client
+    // runs a clock three times the one the freeze bounds.
+    expect(
+      onScript((text) =>
+        text.replace('timeoutMs: budget.deadlineMs,', 'timeoutMs: budget.deadlineMs * 3,'),
+      ),
+    ).toContain(
+      'the smoke script no longer takes its bound from the rules module: timeoutMs: budget.deadlineMs',
+    );
+  });
+
+  it('fires when a bound key is set twice and the later value wins', () => {
+    // No digits, so only counting the assignments can see the second key overriding the first.
+    expect(
+      onScript((text) =>
+        text.replace(
+          'timeoutMs: budget.deadlineMs,',
+          'timeoutMs: budget.deadlineMs,\n      timeoutMs: deadlineOverride,',
+        ),
+      ),
+    ).toContain(
+      'the smoke script no longer takes its bound from the rules module: timeoutMs: budget.deadlineMs',
+    );
+  });
+
+  it('fires when the budget lookup is only a decoy', () => {
+    // The lookup string is present, but the object it resolves is not the one the request uses.
+    expect(
+      onScript((text) =>
+        text.replace(
+          `  const budget = Object.hasOwn(SMOKE_VARIANTS, variantChoice)
+    ? SMOKE_VARIANTS[variantChoice]
+    : null;`,
+          `  const budget = null;
+  const decoy = Object.hasOwn(SMOKE_VARIANTS, variantChoice)
+    ? SMOKE_VARIANTS[variantChoice]
+    : null;
+  if (decoy === null) return;`,
+        ),
+      ),
+    ).toContain('the smoke variant is not looked up in the frozen budget map');
+  });
+
+  it('fires when the chosen budget is not the object handed to the verdict or the evidence', () => {
+    // A lifted alias is defined before the choice, so a scan that only starts at `variantChoice`
+    // never sees it; the call sites themselves have to name the chosen object.
+    expect(
+      onScript((text) =>
+        text
+          .replace(
+            '  const variantChoice',
+            '  const liftedBudget = SMOKE_BUDGET;\n  const variantChoice',
+          )
+          .replace('    budget,\n  });', '    budget: liftedBudget,\n  });'),
+      ),
+    ).toContain('the smoke hands the verdict or the evidence a budget other than its chosen one');
+    // Dropping the argument is the quiet version of the same fallback: the rules module's
+    // default is the standard budget, so a 270 s run would be judged against 90 s.
+    expect(onScript((text) => text.replace('    budget,\n  });', '  });'))).toContain(
+      'the smoke hands the verdict or the evidence a budget other than its chosen one',
+    );
+    // The verdict is the other place a default can quietly replace the chosen clock.
+    expect(onScript((text) => text.replace(', budget })', ', budget: liftedBudget })'))).toContain(
+      'the smoke hands the verdict or the evidence a budget other than its chosen one',
+    );
   });
 
   it('fires when the smoke is handed a transport of its own or a provider string stops being filtered', () => {
