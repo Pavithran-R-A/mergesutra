@@ -6,6 +6,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — the runtime sandbox compares one canonical spelling of each path
+
+Windows keeps an 8.3 short-name alias for a long directory, and Node's plain
+`realpathSync` preserves whichever spelling it is handed. The sandbox guard that
+refuses a Docker CLI resolving inside the run's own untrusted workspace resolved
+the CLI and the workspace that way, so on a Windows host whose workspace path has
+an alias, a CLI inside the workspace spelled one way and the workspace spelled the
+other way read as two unrelated directories — and the guard accepted it. Both
+resolutions now use `realpathSync.native`, which expands the alias, so the
+comparison sees the canonical spelling of each path whichever spelling the caller
+used. The guard's decision order, its refusal message and every container flag are
+unchanged.
+
+`docs/SANDBOX_EXECUTION.md` now also states doctor's known limit: started from a
+checkout that is itself a linked worktree whose worktree base is a link, doctor
+cannot see the run-workspace shape, so a CLI inside the mounted workspace
+downgrades from `FAIL` to `WARN` and one elsewhere in the checkout reports
+`PASS`. The runtime sandbox refuses both, so this is a diagnosis limit rather
+than a boundary limit.
+
+Tests: `tests/security/sandbox.test.ts` (two Windows-only cells that build a real
+scratch directory under a long name, obtain its 8.3 alias from the filesystem's own
+`ShortPath`, plant a Docker CLI inside a run workspace under it and hand the two
+sides in opposite spellings — both RED before the fix, and each proven
+non-vacuous by reverting its own resolution);
+`tests/git/workspace-git-dir.test.ts` (two Windows-only cells pinning that the
+trusted Git directory read already canonicalizes its inputs, one cell per
+resolution). No production byte of `src/git/workspace-git-dir.ts` changed.
+S19-1, S19-2 and S19-3 in `docs/SECURITY_GAP_REGISTER.md`.
+
 ### Added — doctor reports whether repository commands can run at all
 
 `mergesutra doctor` could say "Ready." while every Stage 6/7 repository command would

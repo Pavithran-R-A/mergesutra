@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -38,6 +39,44 @@ afterAll(async () => {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
 });
+
+/**
+ * A scratch directory long enough that Windows also holds an 8.3 spelling for
+ * it, written the way the module under test spells a directory: `mkdtemp` can
+ * hand back a short home component, and a fixture that planted that spelling
+ * would differ from the module's own canonicalization for a reason that has
+ * nothing to do with the alias the cell is about.
+ */
+async function spacedScratch(): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'Trusted Gitdir '));
+  created.push(dir);
+  return await realpath(dir);
+}
+
+/**
+ * The 8.3 spelling Windows keeps for a directory, or null when the volume does
+ * not generate one. Requiring the `~` keeps the fixture honest on a host that
+ * answers with a case-normalised long path instead: the cell skips rather than
+ * compare one string with itself.
+ */
+function shortSpelling(target: string): string | null {
+  try {
+    const quoted = target.replace(/'/g, "''");
+    const out = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `(New-Object -ComObject Scripting.FileSystemObject).GetFolder('${quoted}').ShortPath`,
+      ],
+      { encoding: 'utf8', timeout: 10_000 },
+    ).trim();
+    return out === '' || out === target || !out.includes('~') ? null : out;
+  } catch {
+    return null;
+  }
+}
 
 /** A committed repository plus the workspace Stage 5 actually created in it. */
 async function stage5Workspace(
@@ -208,6 +247,61 @@ describe('resolveTrustedGitDir: what it refuses', () => {
       await resolveTrustedGitDir(path.join(tmpdir(), 'mergesutra-no-such-workspace')),
     ).toBeNull();
   });
+
+  // Windows keeps an 8.3 spelling for a long directory name. `realpathSync`
+  // hands back whichever spelling it is given, while the async `realpath` this
+  // module uses expands it. The "outside the writable area" test is a string
+  // comparison, so a resolution that stopped expanding the alias would let a
+  // run spell one side of its own path with the alias and make a planted admin
+  // directory read as if it lived outside the workspace. Each cell pins one of
+  // the two resolutions, and each was checked by mutating that resolution to
+  // `realpathSync`: the planted directory is then accepted as trusted.
+  it.skipIf(process.platform !== 'win32')(
+    'refuses a planted admin directory whose pointer reaches it through an alias spelling',
+    async (ctx) => {
+      const root = await spacedScratch();
+      const shortRoot = shortSpelling(root);
+      if (shortRoot === null) {
+        ctx.skip();
+        return;
+      }
+      const workspace = path.join(root, 'ws-alias-target');
+      const admin = path.join(workspace, 'planted', 'admin');
+      await mkdir(admin, { recursive: true });
+      // The back-pointer matches the workspace exactly as this module spells it,
+      // so the alias inside the pointer target is the only thing that can make
+      // the planted directory look outside.
+      await writeFile(path.join(admin, 'gitdir'), path.join(workspace, '.git') + '\n', 'utf8');
+      await writeFile(
+        path.join(workspace, '.git'),
+        `gitdir: ${path.join(shortRoot, 'ws-alias-target', 'planted', 'admin')}\n`,
+        'utf8',
+      );
+      expect(await resolveTrustedGitDir(workspace)).toBeNull();
+    },
+  );
+
+  it.skipIf(process.platform !== 'win32')(
+    'refuses a workspace handed to it in an alias spelling of its own directory',
+    async (ctx) => {
+      const root = await spacedScratch();
+      const shortRoot = shortSpelling(root);
+      if (shortRoot === null) {
+        ctx.skip();
+        return;
+      }
+      const workspace = path.join(root, 'ws-alias-input');
+      const admin = path.join(workspace, 'planted', 'admin');
+      await mkdir(admin, { recursive: true });
+      await writeFile(
+        path.join(admin, 'gitdir'),
+        path.join(shortRoot, 'ws-alias-input', '.git') + '\n',
+        'utf8',
+      );
+      await writeFile(path.join(workspace, '.git'), `gitdir: ${admin}\n`, 'utf8');
+      expect(await resolveTrustedGitDir(path.join(shortRoot, 'ws-alias-input'))).toBeNull();
+    },
+  );
 });
 
 describe('resolveTrustedGitDir: the pointer forms Git itself writes', () => {

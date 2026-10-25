@@ -152,9 +152,13 @@ export function createSandboxedRunner(options: SandboxedRunnerOptions): Runner {
   }
   let dockerExecutable: string;
   try {
-    dockerExecutable = realpathSync(options.dockerExecutable);
+    // Plain `realpathSync` keeps the 8.3 spelling Windows hands back, so a
+    // workspace and a binary inside it can reach this comparison as two
+    // spellings of one directory and `path.relative` answers `..\`. The
+    // containment guard must see one canonical spelling on both sides.
+    dockerExecutable = realpathSync.native(options.dockerExecutable);
     if (!statSync(dockerExecutable).isFile()) throw unavailable('Docker binary is not a file');
-    const workspace = realpathSync(options.workspace);
+    const workspace = realpathSync.native(options.workspace);
     const relative = path.relative(workspace, dockerExecutable);
     if (
       relative === '' ||

@@ -28,9 +28,11 @@ the missing one, as are a mutable image tag, a relative Docker path, a path that
 is not an existing file, and on POSIX a file without execute permission. A path
 that resolves inside a run workspace at `.mergesutra/worktrees/<run-id>/` — the
 one directory a run mounts — is a FAIL, because the runtime refuses a Docker CLI
-inside its own untrusted workspace. A path inside the repository but outside a
-run workspace is a WARN: doctor cannot verify the file is a genuine Docker
-client. PASS means a digest-pinned image plus a Docker CLI outside the
+inside its own untrusted workspace. That runtime refusal compares the canonical
+spelling of each path, so a Windows 8.3 short-name alias for a directory cannot
+make a CLI inside the workspace read as one outside it. A path inside the
+repository but outside a run workspace is a WARN: doctor cannot verify the file
+is a genuine Docker client. PASS means a digest-pinned image plus a Docker CLI outside the
 repository; on POSIX the file must also be executable, while Windows has no Unix
 execute bit and only existence can be read. When no Git root can be found above
 the working directory, the row compares against that directory and says so
@@ -51,6 +53,14 @@ sandbox is MergeSutra's own check of the workspace's patch, and it is not a
 command that failed to be isolated: it is a measurement of Git metadata a run
 could not have written, which the sandbox is never given. A repository's command
 — including one that runs `git` — has no path to the host.
+
+One known limit, recorded rather than hidden. When doctor is started from a
+checkout that is itself a linked worktree and the worktree base is a link, the
+run-workspace shape is not visible from that starting point: a CLI inside the
+run's mounted workspace downgrades from `FAIL` to `WARN`, and a CLI elsewhere in
+the checkout reports `PASS`. The runtime sandbox refuses both, so this is a
+diagnosis limit rather than a boundary limit — but doctor does not name the shape
+there, and the row has to be read with that in mind.
 
 The isolated container uses a digest-pinned image, no host network, no elevated
 capabilities, an unprivileged user, a read-only container filesystem and a
