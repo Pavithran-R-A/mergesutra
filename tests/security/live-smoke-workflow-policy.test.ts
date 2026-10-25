@@ -218,7 +218,11 @@ function smokeViolations(workflow: string, script: string, rules: string, wire =
   }
   // The variant is a name looked up in a frozen map. There must be no path from an environment
   // value to a number, or the dispatcher could widen the clock the freeze exists to bound.
-  if (!script.includes('Object.hasOwn(SMOKE_VARIANTS, variantChoice)')) {
+  if (
+    !/const budget = Object\.hasOwn\(SMOKE_VARIANTS, variantChoice\)\s*\n\s*\? SMOKE_VARIANTS\[variantChoice\]\s*\n\s*: null;/.test(
+      script,
+    )
+  ) {
     problems.push('the smoke variant is not looked up in the frozen budget map');
   }
   if (!/if \(budget === null\) \{\s*refuse\(/.test(script)) {
@@ -245,7 +249,7 @@ function smokeViolations(workflow: string, script: string, rules: string, wire =
   if (/Number\(process\.env|parseInt\(process\.env|parseFloat\(process\.env/.test(script)) {
     problems.push('the smoke reads a request bound from the environment as a number');
   }
-  if (/maxTokens:\s*\d|temperature:\s*\d|timeoutMs:\s*\d/.test(script)) {
+  if (/maxTokens:\s*\d|temperature:\s*\d|timeoutMs:\s*\d|deadlineMs:\s*\d/.test(script)) {
     problems.push('the smoke script hardcodes a request bound next to the budget it should read');
   }
   if (!script.includes('adapter.requireApiKey(')) {
@@ -713,6 +717,35 @@ describe('the policy fires on the mutations it exists for', () => {
         ),
       ),
     ).toContain('the smoke reads a global budget after choosing a variant');
+  });
+
+  it('fires when a deadline is hardcoded next to the budget', () => {
+    expect(
+      onScript((text) =>
+        text.replace(
+          'timeoutMs: budget.deadlineMs,',
+          'timeoutMs: budget.deadlineMs,\n      deadlineMs: 270_000,',
+        ),
+      ),
+    ).toContain('the smoke script hardcodes a request bound next to the budget it should read');
+  });
+
+  it('fires when the budget lookup is only a decoy', () => {
+    // The lookup string is present, but the object it resolves is not the one the request uses.
+    expect(
+      onScript((text) =>
+        text.replace(
+          `  const budget = Object.hasOwn(SMOKE_VARIANTS, variantChoice)
+    ? SMOKE_VARIANTS[variantChoice]
+    : null;`,
+          `  const budget = null;
+  const decoy = Object.hasOwn(SMOKE_VARIANTS, variantChoice)
+    ? SMOKE_VARIANTS[variantChoice]
+    : null;
+  if (decoy === null) return;`,
+        ),
+      ),
+    ).toContain('the smoke variant is not looked up in the frozen budget map');
   });
 
   it('fires when the chosen budget is not the object handed to the verdict or the evidence', () => {
