@@ -224,6 +224,15 @@ function smokeViolations(workflow: string, script: string, rules: string, wire =
   if (!/if \(budget === null\) \{\s*refuse\(/.test(script)) {
     problems.push('an unknown smoke variant is not refused before any request is sent');
   }
+  if (!/\? SMOKE_VARIANTS\[variantChoice\]\s*:\s*null;/.test(script)) {
+    problems.push('a known smoke variant does not resolve to its own frozen budget');
+  }
+  // Every bound after the variant is chosen must come from that choice. A fallback to the
+  // standard budget would let the artifact describe a 90 s request that the client ran at 270 s.
+  const variantAt = script.indexOf('const variantChoice');
+  if (variantAt === -1 || /\bSMOKE_BUDGET\b/.test(script.slice(variantAt))) {
+    problems.push('the smoke reads the standard budget after choosing a variant');
+  }
   if (/Number\(process\.env|parseInt\(process\.env|parseFloat\(process\.env/.test(script)) {
     problems.push('the smoke reads a request bound from the environment as a number');
   }
@@ -412,6 +421,8 @@ describe('the one-request live smoke', () => {
     );
     expect(WORKFLOW).toContain('MERGESUTRA_LIVE_SMOKE_VARIANT: ${{ inputs.variant }}');
     expect(SCRIPT).toContain('Object.hasOwn(SMOKE_VARIANTS, variantChoice)');
+    expect(SCRIPT).toMatch(/\? SMOKE_VARIANTS\[variantChoice\]\s*:\s*null;/);
+    expect(SCRIPT.slice(SCRIPT.indexOf('const variantChoice'))).not.toMatch(/\bSMOKE_BUDGET\b/);
     expect(SCRIPT).not.toMatch(/Number\(process\.env|parseInt\(process\.env/);
   });
 
@@ -674,6 +685,17 @@ describe('the policy fires on the mutations it exists for', () => {
     expect(onScript((text) => text.replace('if (budget === null) {', 'if (false) {'))).toContain(
       'an unknown smoke variant is not refused before any request is sent',
     );
+    expect(
+      onScript((text) =>
+        text.replace(
+          '    ? SMOKE_VARIANTS[variantChoice]\n    : null;',
+          '    ? SMOKE_VARIANTS[variantChoice]\n    : SMOKE_BUDGET_AVAILABILITY;',
+        ),
+      ),
+    ).toContain('a known smoke variant does not resolve to its own frozen budget');
+    expect(
+      onScript((text) => text.replace('    budget,\n  });', '    budget: SMOKE_BUDGET,\n  });')),
+    ).toContain('the smoke reads the standard budget after choosing a variant');
   });
 
   it('fires when the smoke is handed a transport of its own or a provider string stops being filtered', () => {
