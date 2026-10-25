@@ -22,18 +22,35 @@ per launch.
 
 Missing or invalid configuration produces `SANDBOX_UNAVAILABLE`, **not host
 execution**. `mergesutra doctor` reports the same configuration as a
-`Repository sandbox` row: unconfigured is a WARN, a set-but-malformed pair is a
-FAIL, and PASS means both variables have the required shape. That check reads
-configuration and file metadata only — it never launches Docker — so image
-availability in the local daemon is still verified when a repository command
-runs. A refused Stage 6 `RUN_CHECK` cannot be treated as a successful
-check. Stage 7 records a command it could not execute as inconclusive, rather
-than a PASS. Operator verification consent remains required and separate from
-container isolation. The one thing Stage 7 reads outside the sandbox is
-MergeSutra's own check of the workspace's patch, and it is not a command that
-failed to be isolated: it is a measurement of Git metadata a run could not have
-written, which the sandbox is never given. A repository's command — including
-one that runs `git` — has no path to the host.
+`Repository sandbox` row. Unconfigured is a WARN, as is a working directory the
+check cannot resolve. Setting only one of the two variables is a FAIL that names
+the missing one, as are a mutable image tag, a relative Docker path, a path that
+is not an existing file, and on POSIX a file without execute permission. A path
+that resolves inside a run workspace at `.mergesutra/worktrees/<run-id>/` — the
+one directory a run mounts — is a FAIL, because the runtime refuses a Docker CLI
+inside its own untrusted workspace. A path inside the repository but outside a
+run workspace is a WARN: doctor cannot verify the file is a genuine Docker
+client. PASS means a digest-pinned image plus a Docker CLI outside the
+repository; on POSIX the file must also be executable, while Windows has no Unix
+execute bit and only existence can be read. When no Git root can be found above
+the working directory, the row compares against that directory and says so
+rather than claiming a repository; when the working directory is itself a run
+workspace, the row compares the CLI with the repository that owns the
+workspace — a CLI inside the mounted workspace is a FAIL, and one elsewhere in
+that repository gets the same WARN as a reading from the repository root.
+PASS does not mean the image is present in
+the daemon. That check reads configuration and file metadata only —
+it never launches Docker — so image availability is still verified when a
+repository command runs. `doctor` exits `1` only when a row is FAIL; an
+unconfigured sandbox is a WARN, so the exit code is `0` while repository
+commands remain blocked. Read the row rather than only the exit code. A refused Stage 6 `RUN_CHECK` cannot be
+treated as a successful check. Stage 7 records a command it could not execute as
+inconclusive, rather than a PASS. Operator verification consent remains required
+and separate from container isolation. The one thing Stage 7 reads outside the
+sandbox is MergeSutra's own check of the workspace's patch, and it is not a
+command that failed to be isolated: it is a measurement of Git metadata a run
+could not have written, which the sandbox is never given. A repository's command
+— including one that runs `git` — has no path to the host.
 
 The isolated container uses a digest-pinned image, no host network, no elevated
 capabilities, an unprivileged user, a read-only container filesystem and a
@@ -48,7 +65,10 @@ it does not recognise (measured on the pinned digest, a gate that asked for
 
 "Supported" here means a real container was started on that host and the boundary
 proofs passed. Fail-closed and unmeasured are not synonyms for supported, and a
-passing unit suite on a host is not a container reading.
+passing unit suite on a host is not a container reading. The `doctor` executable
+check follows the same host boundary: a POSIX host requires execute permission,
+while Windows has no Unix mode bit and only existence can be read. That
+difference affects the diagnosis, never the container routing.
 
 | Host | Hosted test gate (Node 22 / 24) | Docker host measured | Repository `node`/npm command | Repository `git` command |
 | --- | --- | --- | --- | --- |
