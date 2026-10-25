@@ -20,8 +20,10 @@ when that file is not executable, or when it resolves inside a run workspace at
 `.mergesutra/worktrees/<run-id>/` — the one directory a run mounts, which the sandbox
 refuses to trust with a Docker CLI inside it. `PASS` requires a digest-pinned image and a
 Docker CLI outside the repository; on POSIX the file must also be executable, while
-Windows has no Unix execute bit and only existence can be read. The check reads
-configuration and file metadata only; it does not launch Docker or execute a repository
+Windows has no Unix execute bit and only existence can be read. When no Git root can be
+found above the working directory, the row compares against that directory and says so
+rather than claiming a repository. The check reads configuration and file metadata only;
+it does not launch Docker or execute a repository
 command. `PASS` also states that image availability is checked when a command runs and
 that git-based repository gates remain fail-closed. Warnings do not change the documented
 exit code: `doctor` exits `1` only for a `FAIL`, so an unconfigured sandbox exits `0`

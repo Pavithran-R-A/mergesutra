@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -213,6 +213,8 @@ describe('repository sandbox readiness', () => {
       calls.push(file);
       return okRunner(file, args);
     };
+    const home = await scratch();
+    await mkdir(path.join(home, '.git'));
     const checks = await runDoctor({
       env: {
         MERGESUTRA_SANDBOX_IMAGE: DIGEST,
@@ -220,13 +222,40 @@ describe('repository sandbox readiness', () => {
       },
       run: recordingRunner,
       nodeVersion: '24.0.0',
-      cwd: await scratch(),
+      cwd: home,
     });
     expect(statusOf(checks, 'Repository sandbox')).toBe('PASS');
     expect(calls).not.toContain(dockerExecutable);
     const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
     expect(detail).toMatch(/fail-closed/i);
     expect(detail).toMatch(/run workspace/i);
+    if (process.platform === 'win32') {
+      expect(detail).toMatch(/existing Docker CLI/i);
+      expect(detail).toMatch(/only existence is checked/i);
+      expect(detail).not.toMatch(/executable Docker CLI/i);
+    } else {
+      expect(detail).toMatch(/executable Docker CLI/i);
+    }
+  });
+
+  it('does not claim a repository when no Git root exists above the working directory', async () => {
+    const dir = await scratch();
+    const dockerExecutable = path.join(dir, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: await scratch(),
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('PASS');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/no Git root was found/i);
+    expect(detail).not.toMatch(/outside this repository/i);
   });
 
   it.skipIf(process.platform === 'win32')(
@@ -303,6 +332,82 @@ describe('repository sandbox readiness', () => {
     expect(detail).toMatch(/run workspace/i);
   });
 
+  it('warns about a worktree-base subdirectory that is not a run workspace', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    const stray = path.join(repo, '.mergesutra', 'worktrees', 'not-a-run-workspace');
+    await mkdir(stray, { recursive: true });
+    const dockerExecutable = path.join(stray, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: repo,
+    });
+    // No `.git` means no run created this directory, so the runtime would not
+    // mount it as a workspace; the row must not turn that into a FAIL.
+    expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/inside this repository/i);
+  });
+
+  it('fails a Docker CLI inside the run workspace doctor is run from', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    const workspace = path.join(repo, '.mergesutra', 'worktrees', 'run-20260101T000000Z-abcdef');
+    await mkdir(workspace, { recursive: true });
+    await writeFile(path.join(workspace, '.git'), 'gitdir: /elsewhere\n');
+    const dockerExecutable = path.join(workspace, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: workspace,
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/run workspace/i);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'fails a run workspace reached through a symlinked worktree base',
+    async () => {
+      const repo = await scratch();
+      await mkdir(path.join(repo, '.git'));
+      const outsideBase = await scratch();
+      const workspace = path.join(outsideBase, 'run-20260101T000000Z-abcdef');
+      await mkdir(workspace, { recursive: true });
+      await writeFile(path.join(workspace, '.git'), 'gitdir: /elsewhere\n');
+      const dockerExecutable = path.join(workspace, 'docker');
+      await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+      await chmod(dockerExecutable, 0o755);
+      await mkdir(path.join(repo, '.mergesutra'), { recursive: true });
+      await symlink(outsideBase, path.join(repo, '.mergesutra', 'worktrees'), 'dir');
+      const checks = await runDoctor({
+        env: {
+          MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+          MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+        },
+        run: okRunner,
+        nodeVersion: '24.0.0',
+        cwd: repo,
+      });
+      expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
+      const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+      expect(detail).toMatch(/run workspace/i);
+    },
+  );
+
   it('warns when the working directory cannot be resolved instead of claiming the path is safe', async () => {
     const dir = await scratch();
     const dockerExecutable = path.join(dir, 'docker');
@@ -325,6 +430,7 @@ describe('repository sandbox readiness', () => {
 
   it('warns about a Docker CLI inside the repository but outside the run-workspace root', async () => {
     const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
     const dockerExecutable = path.join(repo, 'docker');
     await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
     if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);

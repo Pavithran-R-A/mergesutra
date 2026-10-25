@@ -32,8 +32,10 @@ inside its own untrusted workspace. A path inside the repository but outside a
 run workspace is a WARN: doctor cannot verify the file is a genuine Docker
 client. PASS means a digest-pinned image plus a Docker CLI outside the
 repository; on POSIX the file must also be executable, while Windows has no Unix
-execute bit and only existence can be read. PASS does not mean the image is
-present in the daemon. That check reads configuration and file metadata only —
+execute bit and only existence can be read. When no Git root can be found above
+the working directory, the row compares against that directory and says so
+rather than claiming a repository. PASS does not mean the image is present in
+the daemon. That check reads configuration and file metadata only —
 it never launches Docker — so image availability is still verified when a
 repository command runs. `doctor` exits `1` only when a row is FAIL; an
 unconfigured sandbox is a WARN, so the exit code is `0` while repository

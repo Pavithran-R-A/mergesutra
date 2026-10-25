@@ -348,8 +348,10 @@ path is relative, missing, not executable on a POSIX host, or inside a run works
 `.mergesutra/worktrees/<run-id>/` — the one directory a run mounts, which the sandbox
 refuses to trust with a Docker CLI inside it. `PASS` requires a digest-pinned image and a
 Docker CLI outside the repository; on POSIX the file must also be executable, while
-Windows has no Unix execute bit and only existence can be read. The check never launches
-Docker, so image availability is still proven when a repository command runs.
+Windows has no Unix execute bit and only existence can be read. When no Git root can be
+found above the working directory, the row compares against that directory and says so
+rather than claiming a repository. The check never launches Docker, so image availability
+is still proven when a repository command runs.
 
 `doctor` exits `1` only when a row is `FAIL`. An unconfigured sandbox is a `WARN`, so the
 command exits `0` even though repository commands remain blocked with
