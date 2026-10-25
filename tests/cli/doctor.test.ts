@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -18,9 +19,40 @@ async function scratch(): Promise<string> {
   dirs.push(dir);
   return dir;
 }
+/** A scratch directory long enough that Windows also holds an 8.3 spelling for it. */
+async function spacedScratch(): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'Doctor Sandbox '));
+  dirs.push(dir);
+  return dir;
+}
 afterAll(async () => {
   for (const dir of dirs) await rm(dir, { recursive: true, force: true });
 });
+
+/**
+ * The 8.3 spelling Windows keeps for a directory, or null when the volume does
+ * not generate one. Doctor resolves paths with `realpathSync`, which preserves
+ * whichever spelling it is handed, so a run under a directory with a short name
+ * can see two spellings of one path.
+ */
+function shortSpelling(target: string): string | null {
+  try {
+    const quoted = target.replace(/'/g, "''");
+    const out = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `(New-Object -ComObject Scripting.FileSystemObject).GetFolder('${quoted}').ShortPath`,
+      ],
+      { encoding: 'utf8', timeout: 60_000 },
+    ).trim();
+    return out === '' || out === target ? null : out;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * A linked worktree as Git lays one out: the workspace holds a `.git` pointer to
@@ -508,6 +540,126 @@ describe('repository sandbox readiness', () => {
     expect(detail).toMatch(/outside this repository/i);
   });
 
+  // Windows keeps an 8.3 spelling for long directory names. `realpathSync`
+  // preserves whichever spelling it is handed while `.native` expands it, so a
+  // comparison that mixes the two sees two different strings for one directory.
+  it.skipIf(process.platform !== 'win32')(
+    'fails a run-workspace Docker CLI spelled long while doctor runs in its short spelling',
+    async (ctx) => {
+      const repo = await spacedScratch();
+      await mkdir(path.join(repo, '.git'));
+      const shortRepo = shortSpelling(repo);
+      if (shortRepo === null) {
+        ctx.skip();
+        return;
+      }
+      const runId = 'run-20260101T000000Z-abcdef';
+      const workspace = await linkedWorkspace(
+        repo,
+        path.join(repo, '.mergesutra', 'worktrees'),
+        runId,
+      );
+      const dockerExecutable = path.join(workspace, 'docker');
+      await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+      const checks = await runDoctor({
+        env: {
+          MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+          MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+        },
+        run: okRunner,
+        nodeVersion: '24.0.0',
+        cwd: path.join(shortRepo, '.mergesutra', 'worktrees', runId),
+      });
+      expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
+      const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+      expect(detail).toMatch(/run workspace/i);
+    },
+  );
+
+  it.skipIf(process.platform !== 'win32')(
+    'fails a run-workspace Docker CLI spelled short while doctor runs in its long spelling',
+    async (ctx) => {
+      const repo = await spacedScratch();
+      await mkdir(path.join(repo, '.git'));
+      const shortRepo = shortSpelling(repo);
+      if (shortRepo === null) {
+        ctx.skip();
+        return;
+      }
+      const runId = 'run-20260101T000000Z-abcdef';
+      const workspace = await linkedWorkspace(
+        repo,
+        path.join(repo, '.mergesutra', 'worktrees'),
+        runId,
+      );
+      const dockerExecutable = path.join(shortRepo, '.mergesutra', 'worktrees', runId, 'docker');
+      await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+      const checks = await runDoctor({
+        env: {
+          MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+          MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+        },
+        run: okRunner,
+        nodeVersion: '24.0.0',
+        cwd: workspace,
+      });
+      expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
+    },
+  );
+
+  it.skipIf(process.platform !== 'win32')(
+    'warns about a repository-local Docker CLI spelled long while doctor runs in its short spelling',
+    async (ctx) => {
+      const repo = await spacedScratch();
+      await mkdir(path.join(repo, '.git'));
+      const shortRepo = shortSpelling(repo);
+      if (shortRepo === null) {
+        ctx.skip();
+        return;
+      }
+      const dockerExecutable = path.join(repo, 'bin', 'docker');
+      await mkdir(path.dirname(dockerExecutable), { recursive: true });
+      await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+      const checks = await runDoctor({
+        env: {
+          MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+          MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+        },
+        run: okRunner,
+        nodeVersion: '24.0.0',
+        cwd: shortRepo,
+      });
+      expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
+      const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+      expect(detail).toMatch(/inside this repository/i);
+    },
+  );
+
+  it.skipIf(process.platform !== 'win32')(
+    'passes an outside Docker CLI spelled long while doctor runs in a short spelling',
+    async (ctx) => {
+      const repo = await spacedScratch();
+      await mkdir(path.join(repo, '.git'));
+      const shortRepo = shortSpelling(repo);
+      if (shortRepo === null) {
+        ctx.skip();
+        return;
+      }
+      const dockerExecutable = path.join(await scratch(), 'docker');
+      await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+      const checks = await runDoctor({
+        env: {
+          MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+          MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+        },
+        run: okRunner,
+        nodeVersion: '24.0.0',
+        cwd: shortRepo,
+      });
+      expect(statusOf(checks, 'Repository sandbox')).toBe('PASS');
+    },
+  );
+
   it('does not accept a sibling workspace back-pointer as this workspace', async () => {
     const repo = await scratch();
     await mkdir(path.join(repo, '.git'));
@@ -552,7 +704,9 @@ describe('repository sandbox readiness', () => {
     const fakeBase = path.join(fakeOwner, '.mergesutra', 'worktrees');
     await mkdir(path.dirname(fakeBase), { recursive: true });
     await symlink(outsideBase, fakeBase, process.platform === 'win32' ? 'junction' : 'dir');
-    const fakeAdmin = path.join(fakeOwner, 'not', 'git', 'metadata');
+    // The shape passes the worktrees check and the path arithmetic lines up with
+    // the workspace, so only the `.git` ancestor can reject it.
+    const fakeAdmin = path.join(fakeOwner, 'not-a-git', 'worktrees', 'run-20260101T000000Z-cccccc');
     await mkdir(workspace, { recursive: true });
     await mkdir(fakeAdmin, { recursive: true });
     await writeFile(path.join(workspace, '.git'), `gitdir: ${fakeAdmin}\n`);

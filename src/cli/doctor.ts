@@ -240,7 +240,7 @@ function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string | null): DoctorChe
   }
   let resolvedDocker: string;
   try {
-    resolvedDocker = realpathSync(dockerExecutable);
+    resolvedDocker = realpathSync.native(dockerExecutable);
   } catch {
     return {
       name,
@@ -260,7 +260,7 @@ function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string | null): DoctorChe
   }
   let resolvedCwd: string;
   try {
-    resolvedCwd = realpathSync(cwd);
+    resolvedCwd = realpathSync.native(cwd);
   } catch {
     return {
       name,
@@ -316,7 +316,7 @@ function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string | null): DoctorChe
   const worktrees = path.join(repositoryRoot, '.mergesutra', 'worktrees');
   let resolvedWorktrees: string | null = null;
   try {
-    if (statSync(worktrees).isDirectory()) resolvedWorktrees = realpathSync(worktrees);
+    if (statSync(worktrees).isDirectory()) resolvedWorktrees = realpathSync.native(worktrees);
   } catch {
     resolvedWorktrees = null;
   }
@@ -395,7 +395,7 @@ function linkedWorkspaceOwner(root: string): LinkedWorkspace | null {
   if (target === null) return null;
   let admin: string;
   try {
-    admin = realpathSync(target);
+    admin = realpathSync.native(target);
   } catch {
     return null;
   }
@@ -433,8 +433,8 @@ function linkedWorkspaceOwner(root: string): LinkedWorkspace | null {
   let workTree: string;
   let base: string;
   try {
-    repositoryRoot = realpathSync(path.resolve(admin, '..', '..', '..'));
-    workTree = realpathSync(root);
+    repositoryRoot = realpathSync.native(path.resolve(admin, '..', '..', '..'));
+    workTree = realpathSync.native(root);
     base = realpathSync.native(path.join(repositoryRoot, '.mergesutra', 'worktrees'));
   } catch {
     return null;
@@ -467,7 +467,7 @@ function isPointerFile(file: string): boolean {
 function resolveRepositoryRoot(workspace: string): string {
   const owner = path.resolve(workspace, '..', '..', '..');
   try {
-    return realpathSync(owner);
+    return realpathSync.native(owner);
   } catch {
     return owner;
   }
