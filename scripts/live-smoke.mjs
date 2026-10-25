@@ -6,6 +6,7 @@ import {
   credentialLeakFindings,
   SMOKE_BUDGET,
   SMOKE_MESSAGES,
+  SMOKE_VARIANTS,
   smokeEvidence,
   smokeSummaryLine,
   smokeVerdict,
@@ -140,12 +141,29 @@ async function main() {
     return;
   }
 
+  // A dispatch may name one of the frozen budgets; it cannot name a number. The lookup is the
+  // only path from the environment to a clock, and an unknown name is refused before the client
+  // exists, so a typo costs nothing.
+  const variantChoice = (process.env.MERGESUTRA_LIVE_SMOKE_VARIANT ?? 'standard').trim();
+  const budget = Object.hasOwn(SMOKE_VARIANTS, variantChoice)
+    ? SMOKE_VARIANTS[variantChoice]
+    : null;
+  if (budget === null) {
+    refuse(
+      EXIT.CONFIG,
+      `LIVE_SMOKE: CONFIG — MERGESUTRA_LIVE_SMOKE_VARIANT names '${safe(variantChoice)}', and ` +
+        `this smoke only has the frozen variants ${Object.keys(SMOKE_VARIANTS).join(', ')}. ` +
+        'No request was sent.',
+    );
+    return;
+  }
+
   const client = adapter.createBharatCodeClient({
     config: {
       apiKey,
       model: requestedModel,
-      timeoutMs: SMOKE_BUDGET.deadlineMs,
-      retry: { maxRetries: SMOKE_BUDGET.maxRetries, baseDelayMs: 0, maxDelayMs: 0 },
+      timeoutMs: budget.deadlineMs,
+      retry: { maxRetries: budget.maxRetries, baseDelayMs: 0, maxDelayMs: 0 },
     },
     redactor,
   });
@@ -153,13 +171,14 @@ async function main() {
   log(
     [
       'LIVE_SMOKE: START',
+      `LIVE_SMOKE_VARIANT: ${safe(variantChoice)}`,
       `LIVE_SMOKE_MODEL: ${safe(requestedModel)}`,
-      `LIVE_SMOKE_BUDGET: completions=${String(SMOKE_BUDGET.completionsAsked)} ` +
-        `max_output_tokens=${String(SMOKE_BUDGET.maxOutputTokens)} temperature=${String(
-          SMOKE_BUDGET.temperature,
-        )} reasoning=${SMOKE_BUDGET.enableThinking === false ? 'none' : 'default'} ` +
-        `stream=${String(SMOKE_BUDGET.stream)} store=${String(SMOKE_BUDGET.store)} ` +
-        `retries=${String(SMOKE_BUDGET.maxRetries)} deadline_ms=${String(SMOKE_BUDGET.deadlineMs)}`,
+      `LIVE_SMOKE_BUDGET: completions=${String(budget.completionsAsked)} ` +
+        `max_output_tokens=${String(budget.maxOutputTokens)} temperature=${String(
+          budget.temperature,
+        )} reasoning=${budget.enableThinking === false ? 'none' : 'default'} ` +
+        `stream=${String(budget.stream)} store=${String(budget.store)} ` +
+        `retries=${String(budget.maxRetries)} deadline_ms=${String(budget.deadlineMs)}`,
     ].join('\n'),
   );
 
@@ -167,7 +186,7 @@ async function main() {
   // bounded by the client's own per-request budget, which is the same figure — so time spent
   // listing models is time taken from the completion rather than added to it, and the signal below
   // is what keeps the completion from running past the ceiling.
-  const signal = globalThis.AbortSignal.timeout(SMOKE_BUDGET.deadlineMs);
+  const signal = globalThis.AbortSignal.timeout(budget.deadlineMs);
   let catalog;
   try {
     catalog = await client.listModels();
@@ -197,9 +216,9 @@ async function main() {
     answer = await client.complete({
       messages: SMOKE_MESSAGES,
       model: requestedModel,
-      temperature: SMOKE_BUDGET.temperature,
-      maxTokens: SMOKE_BUDGET.maxOutputTokens,
-      enableThinking: SMOKE_BUDGET.enableThinking,
+      temperature: budget.temperature,
+      maxTokens: budget.maxOutputTokens,
+      enableThinking: budget.enableThinking,
       signal,
     });
     elapsedMs = Date.now() - phaseStartedAt;
@@ -211,7 +230,7 @@ async function main() {
   const catalogSeen = { models: ids.length, contains: true };
   const verdict = failure
     ? { status: 'FAILED', reason: failure }
-    : smokeVerdict(answer, { elapsedMs, budget: SMOKE_BUDGET });
+    : smokeVerdict(answer, { elapsedMs, budget });
   const evidence = smokeEvidence({
     answer,
     elapsedMs,
@@ -220,7 +239,7 @@ async function main() {
     catalog: catalogSeen,
     redact: (value) => redactor.text(String(value ?? '')),
     singleLine: (value) => adapter.terminalSafeSingleLine(String(value ?? '')),
-    budget: SMOKE_BUDGET,
+    budget,
   });
 
   const file = await writeEvidence(evidence);

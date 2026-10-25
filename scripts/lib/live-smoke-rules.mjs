@@ -31,6 +31,30 @@ export const SMOKE_BUDGET = Object.freeze({
   maxRetries: 0,
 });
 
+/**
+ * The same one request, given a clock long enough to tell a queue from a failure.
+ *
+ * The previous smoke died at 89 s without a response header, which is a fact about queueing, not
+ * a verdict on the route. 270 s is still below the ~300 s ceiling at which Node's built-in fetch
+ * stops reporting headers at all, so the client's own timer — not the runtime's — remains the
+ * thing that ends this run. Declared as a spread of the standard budget with only the deadline
+ * replaced: a field added to the standard budget is in this variant too, and the policy suite
+ * pins that the only difference is the clock.
+ */
+export const SMOKE_BUDGET_AVAILABILITY = Object.freeze({
+  ...SMOKE_BUDGET,
+  deadlineMs: 270_000,
+});
+
+/**
+ * The only budgets a smoke may name. A dispatch or an environment variable chooses a key from
+ * this frozen map; there is no path from an outside value to a number.
+ */
+export const SMOKE_VARIANTS = Object.freeze({
+  standard: SMOKE_BUDGET,
+  availability: SMOKE_BUDGET_AVAILABILITY,
+});
+
 /** A fixed prompt: a smoke that varies its own input cannot explain its own result. */
 export const SMOKE_SENTINEL = 'MERGESUTRA-LIVE-SMOKE';
 

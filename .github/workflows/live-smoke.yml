@@ -8,14 +8,24 @@ on:
         required: true
         default: false
         type: boolean
+      variant:
+        description: Which frozen budget to run — standard 90 s, or availability 270 s
+        required: true
+        default: standard
+        type: choice
+        options:
+          - standard
+          - availability
 
-# The model, the token ceiling, the reasoning mode, the streaming flag, the deadline and the retry
-# count are all frozen in `scripts/lib/live-smoke-rules.mjs`, which the offline suite reads. Nothing
-# here can widen any of them, and this smoke only ever asks for `qwen-3.8-27b`.
+# The model, the token ceiling, the reasoning mode, the streaming flag, the deadlines and the
+# retry count are all frozen in `scripts/lib/live-smoke-rules.mjs`, which the offline suite reads.
+# Nothing here can widen any of them: `variant` is a name looked up in that map, not a number, and
+# this smoke only ever asks for `qwen-3.8-27b`.
 
 # The cheapest live reading this repository can take: one completion, 512 output tokens, one
-# hard 90-second clock, no retries. It exists to answer whether the production adapter receives a
-# real `response.completed` from the production endpoint, and nothing else — it plans nothing,
+# hard clock (90 seconds standard, 270 seconds for the availability variant), no retries. It
+# exists to answer whether the production adapter receives a real `response.completed` from the
+# production endpoint, and nothing else — it plans nothing,
 # writes nothing to a repository, runs no repository command and never contacts GitHub with a
 # token at all.
 #
@@ -72,6 +82,9 @@ jobs:
           # scripts/lib/live-smoke-rules.mjs, which tests/security/live-smoke-rules.test.ts runs
           # against planted answers and tests/security/live-smoke-workflow-policy.test.ts re-reads.
           BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
+          # A name from the frozen map above — never a number. The script refuses any other name
+          # before it builds a client or spends the credential.
+          MERGESUTRA_LIVE_SMOKE_VARIANT: ${{ inputs.variant }}
         run: node scripts/live-smoke.mjs
 
       - name: Upload the sanitized smoke evidence

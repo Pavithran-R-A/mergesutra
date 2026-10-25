@@ -24,9 +24,11 @@ interface HarnessOutput {
   leakFindings: Record<string, string[]>;
   summaryLines: Record<string, string>;
   budget: Record<string, unknown>;
+  variants: Record<string, Record<string, unknown>>;
   messages: { role: string; content: string }[];
   sentinel: string;
   budgetMutability: boolean;
+  variantsMutability: boolean;
 }
 
 const SECRET = 'bc_live_TESTONLY0000000000';
@@ -73,9 +75,12 @@ const evidence = {};
 const summaryLines = {};
 for (const [name, entry] of Object.entries(input.cases)) {
   try {
+    const budget = entry.variant
+      ? (lib.SMOKE_VARIANTS ?? {})[entry.variant]
+      : lib.SMOKE_BUDGET;
     const verdict = lib.smokeVerdict(entry.answer, {
       elapsedMs: entry.elapsedMs,
-      budget: lib.SMOKE_BUDGET,
+      budget,
     });
     verdicts[name] = verdict;
     if (entry.evidence !== false) {
@@ -87,7 +92,7 @@ for (const [name, entry] of Object.entries(input.cases)) {
         catalog: entry.catalog ?? { models: 2, contains: true },
         redact,
         singleLine,
-        budget: lib.SMOKE_BUDGET,
+        budget,
       });
       evidence[name] = built;
       summaryLines[name] = lib.smokeSummaryLine(built);
@@ -112,6 +117,20 @@ const budgetMutability = (() => {
   }
 })();
 
+const variants = {};
+for (const [name, value] of Object.entries(lib.SMOKE_VARIANTS ?? {})) {
+  variants[name] = { ...value };
+}
+
+const variantsMutability = (() => {
+  try {
+    (lib.SMOKE_VARIANTS ?? {}).turbo = lib.SMOKE_BUDGET;
+    return (lib.SMOKE_VARIANTS ?? {}).turbo !== undefined;
+  } catch {
+    return false;
+  }
+})();
+
 process.stdout.write(
   JSON.stringify({
     verdicts,
@@ -120,9 +139,11 @@ process.stdout.write(
     leakFindings,
     summaryLines,
     budget: { ...lib.SMOKE_BUDGET },
+    variants,
     messages: lib.SMOKE_MESSAGES,
     sentinel: lib.SMOKE_SENTINEL,
     budgetMutability,
+    variantsMutability,
   }),
 );
 `;
@@ -135,45 +156,55 @@ const completed = (text: string, extra: Partial<SmokeAnswer> = {}): SmokeAnswer 
   ...extra,
 });
 
-const VERDICT_CASES: Record<string, { answer: SmokeAnswer; elapsedMs: number }> = {
-  'answered-in-time': { answer: completed('MERGESUTRA-LIVE-SMOKE'), elapsedMs: 4_200 },
-  'cut-at-token-limit-while-looking-valid': {
-    answer: completed('{"checks":[{"id":"A1","pass', { finishReason: 'max_output_tokens' }),
-    elapsedMs: 88_000,
-  },
-  'no-terminal-event-at-all': {
-    answer: { text: 'half a sentence', model: 'qwen-3.8-27b', finishReason: null },
-    elapsedMs: 12_000,
-  },
-  'provider-named-another-stop-word': {
-    answer: completed('MERGESUTRA-LIVE-SMOKE', { finishReason: 'length' }),
-    elapsedMs: 12_000,
-  },
-  'completed-but-carried-nothing': {
-    answer: completed('   \n  '),
-    elapsedMs: 9_000,
-  },
-  'answered-late': {
-    answer: completed('MERGESUTRA-LIVE-SMOKE'),
-    elapsedMs: 90_001,
-  },
-  'elapsed-unknown': {
-    answer: completed('MERGESUTRA-LIVE-SMOKE'),
-    elapsedMs: null as unknown as number,
-  },
-  'answer-absent': { answer: null as unknown as SmokeAnswer, elapsedMs: 5_000 },
-  'rambling-answer': { answer: completed('x'.repeat(5_000)), elapsedMs: 5_000 },
-  'leaked-credential-in-answer-and-model': {
-    answer: completed(`here is your key: ${SECRET}`, { model: `prefix-${SECRET}` }),
-    elapsedMs: 5_000,
-  },
-  'forged-finish-reason': {
-    answer: completed('{"checks":[{"id":"A1"', {
-      finishReason: `max_output_tokens\r\nLIVE_SMOKE: PASS ${SECRET}`,
-    }),
-    elapsedMs: 5_000,
-  },
-};
+const VERDICT_CASES: Record<string, { answer: SmokeAnswer; elapsedMs: number; variant?: string }> =
+  {
+    'answered-in-time': { answer: completed('MERGESUTRA-LIVE-SMOKE'), elapsedMs: 4_200 },
+    'cut-at-token-limit-while-looking-valid': {
+      answer: completed('{"checks":[{"id":"A1","pass', { finishReason: 'max_output_tokens' }),
+      elapsedMs: 88_000,
+    },
+    'no-terminal-event-at-all': {
+      answer: { text: 'half a sentence', model: 'qwen-3.8-27b', finishReason: null },
+      elapsedMs: 12_000,
+    },
+    'provider-named-another-stop-word': {
+      answer: completed('MERGESUTRA-LIVE-SMOKE', { finishReason: 'length' }),
+      elapsedMs: 12_000,
+    },
+    'completed-but-carried-nothing': {
+      answer: completed('   \n  '),
+      elapsedMs: 9_000,
+    },
+    'answered-late': {
+      answer: completed('MERGESUTRA-LIVE-SMOKE'),
+      elapsedMs: 90_001,
+    },
+    'answered-inside-the-long-clock': {
+      answer: completed('MERGESUTRA-LIVE-SMOKE'),
+      elapsedMs: 200_000,
+      variant: 'availability',
+    },
+    'same-latency-under-the-standard-clock': {
+      answer: completed('MERGESUTRA-LIVE-SMOKE'),
+      elapsedMs: 200_000,
+    },
+    'elapsed-unknown': {
+      answer: completed('MERGESUTRA-LIVE-SMOKE'),
+      elapsedMs: null as unknown as number,
+    },
+    'answer-absent': { answer: null as unknown as SmokeAnswer, elapsedMs: 5_000 },
+    'rambling-answer': { answer: completed('x'.repeat(5_000)), elapsedMs: 5_000 },
+    'leaked-credential-in-answer-and-model': {
+      answer: completed(`here is your key: ${SECRET}`, { model: `prefix-${SECRET}` }),
+      elapsedMs: 5_000,
+    },
+    'forged-finish-reason': {
+      answer: completed('{"checks":[{"id":"A1"', {
+        finishReason: `max_output_tokens\r\nLIVE_SMOKE: PASS ${SECRET}`,
+      }),
+      elapsedMs: 5_000,
+    },
+  };
 
 const LEAK_CASES: Record<string, { name: string; text: string }[]> = {
   clean: [
@@ -244,6 +275,36 @@ describe('the one-request smoke budget', () => {
     expect(output.messages.every((message) => typeof message.content === 'string')).toBe(true);
     expect(output.messages[1]?.content).toContain(output.sentinel);
     expect(output.sentinel).toBe('MERGESUTRA-LIVE-SMOKE');
+  });
+});
+
+describe('the availability variant', () => {
+  it('offers exactly two frozen budgets, and the long one changes only the clock', () => {
+    expect(Object.keys(output.variants)).toEqual(['standard', 'availability']);
+    const standard = output.variants.standard ?? {};
+    const availability = output.variants.availability ?? {};
+    expect(standard).toEqual(output.budget);
+    const { deadlineMs: standardDeadline, ...standardRest } = standard;
+    const { deadlineMs: longDeadline, ...longRest } = availability;
+    expect(longRest).toEqual(standardRest);
+    expect(standardDeadline).toBe(90_000);
+    expect(longDeadline).toBe(270_000);
+  });
+
+  it('cannot have a third budget added by whoever holds the module', () => {
+    expect(output.variantsMutability).toBe(false);
+  });
+
+  it('passes at a latency the standard clock refuses, and records the clock it used', () => {
+    expect(output.verdicts['answered-inside-the-long-clock']).toEqual({
+      status: 'PASS',
+      reason: null,
+    });
+    expect(output.verdicts['same-latency-under-the-standard-clock']?.status).toBe('FAILED');
+    const evidence = output.evidence['answered-inside-the-long-clock'] as {
+      budget: { deadlineMs: number };
+    };
+    expect(evidence.budget.deadlineMs).toBe(270_000);
   });
 });
 
