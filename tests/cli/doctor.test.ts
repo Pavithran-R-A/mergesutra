@@ -31,9 +31,12 @@ afterAll(async () => {
 
 /**
  * The 8.3 spelling Windows keeps for a directory, or null when the volume does
- * not generate one. Doctor resolves paths with `realpathSync`, which preserves
- * whichever spelling it is handed, so a run under a directory with a short name
- * can see two spellings of one path.
+ * not generate one. Before this PR doctor resolved both sides with
+ * `realpathSync`, which preserves whichever spelling it is handed, so a run
+ * under a directory with a short name could see two spellings of one path.
+ * Requiring the `~` keeps the fixture honest on a host that returns a
+ * case-normalised long path instead; the cells skip rather than test nothing.
+ * The volume must have 8.3 aliases enabled for these cells to run.
  */
 function shortSpelling(target: string): string | null {
   try {
@@ -46,9 +49,9 @@ function shortSpelling(target: string): string | null {
         '-Command',
         `(New-Object -ComObject Scripting.FileSystemObject).GetFolder('${quoted}').ShortPath`,
       ],
-      { encoding: 'utf8', timeout: 60_000 },
+      { encoding: 'utf8', timeout: 10_000 },
     ).trim();
-    return out === '' || out === target ? null : out;
+    return out === '' || out === target || !out.includes('~') ? null : out;
   } catch {
     return null;
   }
@@ -604,6 +607,8 @@ describe('repository sandbox readiness', () => {
         cwd: workspace,
       });
       expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
+      const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+      expect(detail).toMatch(/run workspace/i);
     },
   );
 
@@ -636,6 +641,34 @@ describe('repository sandbox readiness', () => {
   );
 
   it.skipIf(process.platform !== 'win32')(
+    'warns about a repository-local Docker CLI spelled short while doctor runs in its long spelling',
+    async (ctx) => {
+      const repo = await spacedScratch();
+      await mkdir(path.join(repo, '.git'));
+      const shortRepo = shortSpelling(repo);
+      if (shortRepo === null) {
+        ctx.skip();
+        return;
+      }
+      const dockerExecutable = path.join(shortRepo, 'bin', 'docker');
+      await mkdir(path.dirname(dockerExecutable), { recursive: true });
+      await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+      const checks = await runDoctor({
+        env: {
+          MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+          MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+        },
+        run: okRunner,
+        nodeVersion: '24.0.0',
+        cwd: repo,
+      });
+      expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
+      const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+      expect(detail).toMatch(/inside this repository/i);
+    },
+  );
+
+  it.skipIf(process.platform !== 'win32')(
     'passes an outside Docker CLI spelled long while doctor runs in a short spelling',
     async (ctx) => {
       const repo = await spacedScratch();
@@ -657,6 +690,8 @@ describe('repository sandbox readiness', () => {
         cwd: shortRepo,
       });
       expect(statusOf(checks, 'Repository sandbox')).toBe('PASS');
+      const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+      expect(detail).toMatch(/outside this repository/i);
     },
   );
 
