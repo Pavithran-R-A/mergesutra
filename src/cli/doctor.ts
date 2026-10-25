@@ -1,8 +1,16 @@
-import { accessSync, constants, existsSync, realpathSync, statSync } from 'node:fs';
+import {
+  accessSync,
+  constants,
+  existsSync,
+  lstatSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
 import path from 'node:path';
 import { loadBharatCodeConfig, summarizeConfig } from '../config/load-config.js';
 import { createBharatCodeClient, type BharatCodeClient } from '../bharatcode/client.js';
-import { isInsideRoot } from '../security/path-safety.js';
+import { isInsideRoot, isSamePath } from '../security/path-safety.js';
 import type { BharatCodeClientConfig } from '../bharatcode/types.js';
 import type { RenderOptions, Renderer, Status } from './render.js';
 import { DIGEST_IMAGE } from '../security/sandbox.js';
@@ -120,7 +128,7 @@ export async function runDoctor(deps: DoctorDeps): Promise<DoctorCheck[]> {
   // Repository execution boundary: Stage 6/7 commands refuse without it, so a
   // diagnosis that stays silent here can call an environment ready while every
   // repository command will fail closed.
-  checks.push(sandboxReadiness(env, deps.cwd ?? process.cwd()));
+  checks.push(sandboxReadiness(env, workingDirectory(deps.cwd)));
 
   // Reachability (opt-in, and only meaningful with a key)
   if (!deps.connect) {
@@ -155,7 +163,17 @@ function firstLine(text: string): string {
   return text.split(/\r?\n/)[0]?.trim() ?? '';
 }
 
-function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string): DoctorCheck {
+/** `null` means the process has no working directory it can report. */
+function workingDirectory(injected: string | undefined): string | null {
+  if (injected !== undefined) return injected;
+  try {
+    return process.cwd();
+  } catch {
+    return null;
+  }
+}
+
+function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string | null): DoctorCheck {
   const name = 'Repository sandbox';
   const image = env.MERGESUTRA_SANDBOX_IMAGE;
   const dockerExecutable = env.MERGESUTRA_DOCKER_EXECUTABLE;
@@ -230,6 +248,16 @@ function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string): DoctorCheck {
       detail: `MERGESUTRA_DOCKER_EXECUTABLE cannot be resolved to a real path: ${dockerExecutable}`,
     };
   }
+  if (cwd === null) {
+    return {
+      name,
+      status: 'WARN',
+      detail:
+        'cannot resolve the working directory (the process could not report it), so the Docker ' +
+        "CLI's location was not compared with the run-workspace root. Run doctor from inside the " +
+        'repository to check it.',
+    };
+  }
   let resolvedCwd: string;
   try {
     resolvedCwd = realpathSync(cwd);
@@ -243,15 +271,32 @@ function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string): DoctorCheck {
     };
   }
   const discoveredRoot = findRepositoryRoot(resolvedCwd);
-  const workspaceRoot =
-    discoveredRoot !== null && isRunWorkspaceRoot(discoveredRoot) ? discoveredRoot : null;
+  // A run workspace is a linked worktree, whose `.git` is a pointer file. A
+  // plain checkout that happens to sit under the worktree base was not created
+  // by a run and is not mounted by one.
+  const literalWorkspace =
+    discoveredRoot !== null &&
+    isRunWorkspaceRoot(discoveredRoot) &&
+    isPointerFile(path.join(discoveredRoot, '.git'))
+      ? discoveredRoot
+      : null;
+  // Resolving the working directory erases the literal `.mergesutra/worktrees/
+  // <run-id>` spelling when the base is itself a link, so fall back to the path
+  // the worktree's admin directory recorded.
+  const linked =
+    literalWorkspace === null && discoveredRoot !== null
+      ? linkedWorkspaceOwner(discoveredRoot)
+      : null;
+  const workspaceRoot = literalWorkspace ?? linked?.workTree ?? null;
   // From inside a run workspace the nearest `.git` is the workspace, not the
   // repository that owns it; a CLI in that repository is outside the mounted
   // directory but is still a repository file, so the same warning must apply.
   const repositoryRoot =
-    workspaceRoot !== null
-      ? path.resolve(workspaceRoot, '..', '..', '..')
-      : (discoveredRoot ?? resolvedCwd);
+    literalWorkspace !== null
+      ? resolveRepositoryRoot(literalWorkspace)
+      : linked !== null
+        ? linked.repositoryRoot
+        : (discoveredRoot ?? resolvedCwd);
   const rootLabel =
     discoveredRoot === null
       ? 'the working directory (no Git root was found above it)'
@@ -279,11 +324,12 @@ function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string): DoctorCheck {
     const relative = path.relative(resolvedWorktrees, resolvedDocker);
     const segments = relative.split(path.sep).filter(Boolean);
     // A run mounts exactly one directory, `<base>/<run-id>`. A linked worktree
-    // carries `.git` at its root; a bare directory directly under the base is
-    // not a workspace any run created, so it stays a repository-local warning.
+    // carries a `.git` pointer file at its root; a plain checkout or a bare
+    // directory directly under the base is not a workspace any run created, so
+    // it stays a repository-local warning.
     const runWorkspace =
       segments.length >= 2 ? path.join(resolvedWorktrees, segments[0]!) : undefined;
-    if (runWorkspace !== undefined && existsSync(path.join(runWorkspace, '.git'))) {
+    if (runWorkspace !== undefined && isPointerFile(path.join(runWorkspace, '.git'))) {
       return {
         name,
         status: 'FAIL',
@@ -320,6 +366,106 @@ function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string): DoctorCheck {
   };
 }
 
+interface LinkedWorkspace {
+  /** The workspace the worktree describes, resolved. */
+  readonly workTree: string;
+  /** The repository whose worktree base holds the workspace, resolved. */
+  readonly repositoryRoot: string;
+}
+
+const GIT_POINTER = /^gitdir:[ \t]*(.+?)[ \t]*$/;
+
+/**
+ * The run workspace a linked worktree names, when the checkout at `root` is one.
+ *
+ * The runtime's `resolveTrustedGitDir` compares the pointer and its back-pointer
+ * literally. Doctor cannot: it resolves its own working directory first, so a
+ * worktree base that is itself a link leaves a workspace that no longer spells
+ * `.mergesutra/worktrees/<run-id>`. The admin directory's back-pointer still
+ * records the literal path Git created, and that file lives outside the
+ * directory a run may write in. Comparing both sides after resolving links keeps
+ * a linked base valid without accepting a pointer to a sibling run's metadata.
+ */
+function linkedWorkspaceOwner(root: string): LinkedWorkspace | null {
+  const pointerPath = path.join(root, '.git');
+  if (!isPointerFile(pointerPath)) return null;
+  const target = pointerTarget(pointerPath, root);
+  if (target === null) return null;
+  let admin: string;
+  try {
+    admin = realpathSync(target);
+  } catch {
+    return null;
+  }
+  let adminIsDirectory = false;
+  try {
+    adminIsDirectory = statSync(admin).isDirectory();
+  } catch {
+    adminIsDirectory = false;
+  }
+  if (!adminIsDirectory || isInsideRoot(root, admin)) return null;
+  let recorded: string;
+  try {
+    recorded = readFileSync(path.join(admin, 'gitdir'), 'utf8').trim();
+  } catch {
+    return null;
+  }
+  if (recorded === '' || recorded.includes('\0')) return null;
+  const recordedPointer = path.isAbsolute(recorded) ? recorded : path.resolve(admin, recorded);
+  if (foldCase(path.basename(recordedPointer)) !== '.git') return null;
+  let recordedResolved: string;
+  try {
+    recordedResolved = realpathSync(recordedPointer);
+  } catch {
+    return null;
+  }
+  if (!isSamePath(recordedResolved, pointerPath)) return null;
+  const literalWorkspace = path.dirname(recordedPointer);
+  if (!isRunWorkspaceRoot(literalWorkspace)) return null;
+  try {
+    return {
+      workTree: realpathSync(literalWorkspace),
+      repositoryRoot: realpathSync(path.resolve(literalWorkspace, '..', '..', '..')),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function pointerTarget(pointerPath: string, workTree: string): string | null {
+  let contents: string;
+  try {
+    contents = readFileSync(pointerPath, 'utf8');
+  } catch {
+    return null;
+  }
+  const first = (contents.split(/\r?\n/)[0] ?? '').trim();
+  const raw = GIT_POINTER.exec(first)?.[1]?.trim();
+  if (!raw || raw.includes('\0')) return null;
+  return path.isAbsolute(raw) ? raw : path.resolve(workTree, raw);
+}
+
+function isPointerFile(file: string): boolean {
+  try {
+    return lstatSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function resolveRepositoryRoot(workspace: string): string {
+  const owner = path.resolve(workspace, '..', '..', '..');
+  try {
+    return realpathSync(owner);
+  } catch {
+    return owner;
+  }
+}
+
+function foldCase(value: string): string {
+  return process.platform === 'win32' ? value.toLowerCase() : value;
+}
+
 /**
  * The root Git metadata lives in: `.git` is a directory in a normal checkout and
  * a file in a linked worktree. The repository toplevel Stage 6/7 record is this
@@ -338,7 +484,10 @@ function findRepositoryRoot(start: string): string | null {
 /** `<repo>/.mergesutra/worktrees/<run-id>` is the directory a run mounts. */
 function isRunWorkspaceRoot(candidate: string): boolean {
   const base = path.dirname(candidate);
-  return path.basename(base) === 'worktrees' && path.basename(path.dirname(base)) === '.mergesutra';
+  return (
+    foldCase(path.basename(base)) === 'worktrees' &&
+    foldCase(path.basename(path.dirname(base))) === '.mergesutra'
+  );
 }
 
 export function formatDoctor(input: readonly DoctorCheck[], renderer: Renderer): string {

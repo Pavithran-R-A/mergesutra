@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { afterAll, describe, it, expect } from 'vitest';
+import { afterAll, describe, it, expect, vi } from 'vitest';
 import { runDoctor, formatDoctor, doctorAction, type Runner } from '../../src/cli/doctor.js';
 import { createRenderer } from '../../src/cli/render.js';
 import type { BharatCodeClient } from '../../src/bharatcode/client.js';
@@ -21,6 +21,22 @@ async function scratch(): Promise<string> {
 afterAll(async () => {
   for (const dir of dirs) await rm(dir, { recursive: true, force: true });
 });
+
+/**
+ * A linked worktree as Git lays one out: the workspace holds a `.git` pointer to
+ * an admin directory outside it, and that directory records the workspace path
+ * Git created. `base` may itself be a link, in which case `workspace` is the
+ * literal path a user sees while the bytes land wherever the link resolves.
+ */
+async function linkedWorkspace(repo: string, base: string, runId: string): Promise<string> {
+  const workspace = path.join(base, runId);
+  const admin = path.join(repo, '.git', 'worktrees', runId);
+  await mkdir(workspace, { recursive: true });
+  await mkdir(admin, { recursive: true });
+  await writeFile(path.join(workspace, '.git'), `gitdir: ${admin}\n`);
+  await writeFile(path.join(admin, 'gitdir'), `${path.join(workspace, '.git')}\n`);
+  return workspace;
+}
 
 const okRunner: Runner = async (file, args) => {
   if (file === 'git') return { code: 0, stdout: 'git version 2.55.0', stderr: '' };
@@ -407,6 +423,114 @@ describe('repository sandbox readiness', () => {
     expect(detail).toMatch(/genuine Docker client/i);
   });
 
+  it('fails a Docker CLI inside a linked run workspace reached through a linked worktree base', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    const outsideBase = await scratch();
+    const base = path.join(repo, '.mergesutra', 'worktrees');
+    await mkdir(path.dirname(base), { recursive: true });
+    await symlink(outsideBase, base, process.platform === 'win32' ? 'junction' : 'dir');
+    const workspace = await linkedWorkspace(repo, base, 'run-20260101T000000Z-abcdef');
+    const dockerExecutable = path.join(workspace, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    // Doctor resolves its working directory before it compares paths, so from
+    // inside this workspace the resolved spelling no longer ends in
+    // `.mergesutra/worktrees/<run-id>`. The worktree's admin directory records
+    // that literal path outside the writable area; the check has to read it.
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: workspace,
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('FAIL');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/run workspace/i);
+  });
+
+  it('warns about a repository-local Docker CLI seen from inside a linked workspace on a linked base', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    const outsideBase = await scratch();
+    const base = path.join(repo, '.mergesutra', 'worktrees');
+    await mkdir(path.dirname(base), { recursive: true });
+    await symlink(outsideBase, base, process.platform === 'win32' ? 'junction' : 'dir');
+    const workspace = await linkedWorkspace(repo, base, 'run-20260101T000000Z-abcdef');
+    // Outside the directory a run mounts, but still inside the repository that
+    // owns the worktree — the old resolved-path reading called this "outside
+    // this repository" and passed it.
+    const dockerExecutable = path.join(repo, 'bin', 'docker');
+    await mkdir(path.dirname(dockerExecutable), { recursive: true });
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: workspace,
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/inside this repository/i);
+    expect(detail).not.toMatch(/outside this repository/i);
+  });
+
+  it('passes a Docker CLI outside the repository that owns a linked run workspace', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    const outsideBase = await scratch();
+    const base = path.join(repo, '.mergesutra', 'worktrees');
+    await mkdir(path.dirname(base), { recursive: true });
+    await symlink(outsideBase, base, process.platform === 'win32' ? 'junction' : 'dir');
+    const workspace = await linkedWorkspace(repo, base, 'run-20260101T000000Z-abcdef');
+    const dockerExecutable = path.join(await scratch(), 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: workspace,
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('PASS');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/outside this repository/i);
+  });
+
+  it('does not call a plain checkout under the worktree base a run workspace', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    // Runs create linked worktrees, whose `.git` is a pointer file. A checkout
+    // with a `.git` directory was not created by a run and is not mounted.
+    const checkout = path.join(repo, '.mergesutra', 'worktrees', 'run-20260101T000000Z-abcdef');
+    await mkdir(path.join(checkout, '.git'), { recursive: true });
+    const dockerExecutable = path.join(checkout, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: repo,
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/inside this repository/i);
+  });
+
   it('fails a Docker CLI reached through a link into a run workspace', async () => {
     const repo = await scratch();
     await mkdir(path.join(repo, '.git'));
@@ -482,6 +606,36 @@ describe('repository sandbox readiness', () => {
     const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
     expect(detail).toMatch(/working directory/i);
     expect(detail).toMatch(/not established|cannot resolve|unresolved/i);
+  });
+
+  it('warns instead of throwing when the process cannot report its working directory', async () => {
+    const dir = await scratch();
+    const dockerExecutable = path.join(dir, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    // Production passes no cwd override. A deleted working directory makes the
+    // process-level read throw before any row is built, which used to escape
+    // doctor as an internal error instead of the documented WARN.
+    const cwd = vi.spyOn(process, 'cwd').mockImplementation(() => {
+      throw Object.assign(new Error('uv_cwd'), { code: 'ENOENT' });
+    });
+    try {
+      const checks = await runDoctor({
+        env: {
+          BHARATCODE_API_KEY: KEY,
+          MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+          MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+        },
+        run: okRunner,
+        nodeVersion: '24.0.0',
+      });
+      expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
+      const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+      expect(detail).toMatch(/working directory/i);
+      expect(detail).toMatch(/cannot resolve/i);
+    } finally {
+      cwd.mockRestore();
+    }
   });
 
   it('warns about a Docker CLI inside the repository but outside the run-workspace root', async () => {
