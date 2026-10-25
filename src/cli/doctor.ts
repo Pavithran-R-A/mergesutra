@@ -281,8 +281,8 @@ function sandboxReadiness(env: NodeJS.ProcessEnv, cwd: string | null): DoctorChe
       ? discoveredRoot
       : null;
   // Resolving the working directory erases the literal `.mergesutra/worktrees/
-  // <run-id>` spelling when the base is itself a link, so fall back to the path
-  // the worktree's admin directory recorded.
+  // <run-id>` spelling when the base is itself a link, so fall back to the
+  // worktree's admin directory, whose location names the owning repository.
   const linked =
     literalWorkspace === null && discoveredRoot !== null
       ? linkedWorkspaceOwner(discoveredRoot)
@@ -379,12 +379,14 @@ const GIT_POINTER = /^gitdir:[ \t]*(.+?)[ \t]*$/;
  * The run workspace a linked worktree names, when the checkout at `root` is one.
  *
  * The runtime's `resolveTrustedGitDir` compares the pointer and its back-pointer
- * literally. Doctor cannot: it resolves its own working directory first, so a
- * worktree base that is itself a link leaves a workspace that no longer spells
- * `.mergesutra/worktrees/<run-id>`. The admin directory's back-pointer still
- * records the literal path Git created, and that file lives outside the
- * directory a run may write in. Comparing both sides after resolving links keeps
- * a linked base valid without accepting a pointer to a sibling run's metadata.
+ * literally; doctor resolves its working directory first. When the worktree base
+ * is itself a link, the resolved workspace no longer spells
+ * `.mergesutra/worktrees/<run-id>`, and Git records the resolved spelling in the
+ * admin directory too. The repository is therefore derived from the admin
+ * directory's own location — `<repo>/.git/worktrees/<run-id>` — and the workspace
+ * must sit directly under that repository's resolved worktree base. The
+ * back-pointer still has to name this workspace, so a pointer to a sibling run's
+ * metadata is not accepted.
  */
 function linkedWorkspaceOwner(root: string): LinkedWorkspace | null {
   const pointerPath = path.join(root, '.git');
@@ -404,6 +406,8 @@ function linkedWorkspaceOwner(root: string): LinkedWorkspace | null {
     adminIsDirectory = false;
   }
   if (!adminIsDirectory || isInsideRoot(root, admin)) return null;
+  if (foldCase(path.basename(path.dirname(admin))) !== 'worktrees') return null;
+  if (foldCase(path.basename(path.dirname(path.dirname(admin)))) !== '.git') return null;
   let recorded: string;
   try {
     recorded = readFileSync(path.join(admin, 'gitdir'), 'utf8').trim();
@@ -413,23 +417,30 @@ function linkedWorkspaceOwner(root: string): LinkedWorkspace | null {
   if (recorded === '' || recorded.includes('\0')) return null;
   const recordedPointer = path.isAbsolute(recorded) ? recorded : path.resolve(admin, recorded);
   if (foldCase(path.basename(recordedPointer)) !== '.git') return null;
+  // Git may record the workspace path with 8.3 names expanded, while
+  // realpathSync keeps the spelling the process was started with, so compare the
+  // canonical native paths rather than the resolved strings.
   let recordedResolved: string;
+  let pointerResolved: string;
   try {
-    recordedResolved = realpathSync(recordedPointer);
+    recordedResolved = realpathSync.native(recordedPointer);
+    pointerResolved = realpathSync.native(pointerPath);
   } catch {
     return null;
   }
-  if (!isSamePath(recordedResolved, pointerPath)) return null;
-  const literalWorkspace = path.dirname(recordedPointer);
-  if (!isRunWorkspaceRoot(literalWorkspace)) return null;
+  if (!isSamePath(recordedResolved, pointerResolved)) return null;
+  let repositoryRoot: string;
+  let workTree: string;
+  let base: string;
   try {
-    return {
-      workTree: realpathSync(literalWorkspace),
-      repositoryRoot: realpathSync(path.resolve(literalWorkspace, '..', '..', '..')),
-    };
+    repositoryRoot = realpathSync(path.resolve(admin, '..', '..', '..'));
+    workTree = realpathSync(root);
+    base = realpathSync.native(path.join(repositoryRoot, '.mergesutra', 'worktrees'));
   } catch {
     return null;
   }
+  if (!isSamePath(base, path.dirname(realpathSync.native(workTree)))) return null;
+  return { workTree, repositoryRoot };
 }
 
 function pointerTarget(pointerPath: string, workTree: string): string | null {

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -25,8 +25,8 @@ afterAll(async () => {
 /**
  * A linked worktree as Git lays one out: the workspace holds a `.git` pointer to
  * an admin directory outside it, and that directory records the workspace path
- * Git created. `base` may itself be a link, in which case `workspace` is the
- * literal path a user sees while the bytes land wherever the link resolves.
+ * Git created. `base` may itself be a link: Git resolves the path before writing
+ * it, so the admin directory records the target spelling, not the literal one.
  */
 async function linkedWorkspace(repo: string, base: string, runId: string): Promise<string> {
   const workspace = path.join(base, runId);
@@ -34,7 +34,8 @@ async function linkedWorkspace(repo: string, base: string, runId: string): Promi
   await mkdir(workspace, { recursive: true });
   await mkdir(admin, { recursive: true });
   await writeFile(path.join(workspace, '.git'), `gitdir: ${admin}\n`);
-  await writeFile(path.join(admin, 'gitdir'), `${path.join(workspace, '.git')}\n`);
+  const resolved = await realpath(workspace);
+  await writeFile(path.join(admin, 'gitdir'), `${path.join(resolved, '.git')}\n`);
   return workspace;
 }
 
@@ -505,6 +506,106 @@ describe('repository sandbox readiness', () => {
     expect(statusOf(checks, 'Repository sandbox')).toBe('PASS');
     const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
     expect(detail).toMatch(/outside this repository/i);
+  });
+
+  it('does not accept a sibling workspace back-pointer as this workspace', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    const outsideBase = await scratch();
+    const base = path.join(repo, '.mergesutra', 'worktrees');
+    await mkdir(path.dirname(base), { recursive: true });
+    await symlink(outsideBase, base, process.platform === 'win32' ? 'junction' : 'dir');
+    const workspace = await linkedWorkspace(repo, base, 'run-20260101T000000Z-aaaaaa');
+    const sibling = await linkedWorkspace(repo, base, 'run-20260101T000000Z-bbbbbb');
+    await writeFile(
+      path.join(repo, '.git', 'worktrees', 'run-20260101T000000Z-aaaaaa', 'gitdir'),
+      `${path.join(await realpath(sibling), '.git')}\n`,
+    );
+    const dockerExecutable = path.join(workspace, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: workspace,
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/inside this repository/i);
+  });
+
+  it('does not trust Git metadata outside a repository .git/worktrees directory', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    const outsideBase = await scratch();
+    const base = path.join(repo, '.mergesutra', 'worktrees');
+    await mkdir(path.dirname(base), { recursive: true });
+    await symlink(outsideBase, base, process.platform === 'win32' ? 'junction' : 'dir');
+    const workspace = path.join(base, 'run-20260101T000000Z-cccccc');
+    // A fake owner whose path arithmetic would line up with the workspace, but
+    // whose "admin" directory is not shaped like <repo>/.git/worktrees/<run-id>.
+    const fakeOwner = await scratch();
+    const fakeBase = path.join(fakeOwner, '.mergesutra', 'worktrees');
+    await mkdir(path.dirname(fakeBase), { recursive: true });
+    await symlink(outsideBase, fakeBase, process.platform === 'win32' ? 'junction' : 'dir');
+    const fakeAdmin = path.join(fakeOwner, 'not', 'git', 'metadata');
+    await mkdir(workspace, { recursive: true });
+    await mkdir(fakeAdmin, { recursive: true });
+    await writeFile(path.join(workspace, '.git'), `gitdir: ${fakeAdmin}\n`);
+    await writeFile(
+      path.join(fakeAdmin, 'gitdir'),
+      `${path.join(await realpath(workspace), '.git')}\n`,
+    );
+    const dockerExecutable = path.join(workspace, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: workspace,
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/inside this repository/i);
+  });
+
+  it('does not call a linked worktree outside the worktree base a run workspace', async () => {
+    const repo = await scratch();
+    await mkdir(path.join(repo, '.git'));
+    await mkdir(path.join(repo, '.mergesutra', 'worktrees'), { recursive: true });
+    const elsewhere = await scratch();
+    const workspace = path.join(elsewhere, 'run-20260101T000000Z-dddddd');
+    const admin = path.join(repo, '.git', 'worktrees', 'run-20260101T000000Z-dddddd');
+    await mkdir(workspace, { recursive: true });
+    await mkdir(admin, { recursive: true });
+    await writeFile(path.join(workspace, '.git'), `gitdir: ${admin}\n`);
+    await writeFile(
+      path.join(admin, 'gitdir'),
+      `${path.join(await realpath(workspace), '.git')}\n`,
+    );
+    const dockerExecutable = path.join(workspace, 'docker');
+    await writeFile(dockerExecutable, '#!/bin/sh\nexit 0\n');
+    if (process.platform !== 'win32') await chmod(dockerExecutable, 0o755);
+    const checks = await runDoctor({
+      env: {
+        MERGESUTRA_SANDBOX_IMAGE: DIGEST,
+        MERGESUTRA_DOCKER_EXECUTABLE: dockerExecutable,
+      },
+      run: okRunner,
+      nodeVersion: '24.0.0',
+      cwd: workspace,
+    });
+    expect(statusOf(checks, 'Repository sandbox')).toBe('WARN');
+    const detail = checks.find((c) => c.name === 'Repository sandbox')?.detail ?? '';
+    expect(detail).toMatch(/inside this repository/i);
   });
 
   it('does not call a plain checkout under the worktree base a run workspace', async () => {
