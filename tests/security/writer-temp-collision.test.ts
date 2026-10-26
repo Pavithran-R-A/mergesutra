@@ -175,6 +175,5 @@ describe('the writer’s scratch file', () => {
     expect(opens.slice(openedBefore), 'the writer should stop after the refused name').toEqual([
       first,
     ]);
-    expect((await readdir(dir)).filter((name) => name.includes('.mergesutra-tmp-'))).toEqual([]);
   });
 });

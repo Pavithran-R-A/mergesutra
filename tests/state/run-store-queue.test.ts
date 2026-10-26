@@ -29,8 +29,10 @@ import { TEST_REPO } from '../helpers/github.js';
  *    run must not delay a save of an unrelated run.
  * 3. **Two spellings of one file share one queue** on the platforms whose
  *    filesystems fold names; otherwise the queue protects the string and not the
- *    file it names. The observation folds names the same way, because the second
- *    save constructs its scratch string from the other spelling.
+ *    file it names. Whether the second save began is read from the `mkdir` every
+ *    save issues as its first call, recorded by the mock on entry, so the answer
+ *    does not depend on a timer. The write count still folds names, because the
+ *    second save constructs its scratch string from the other spelling.
  *
  * The hold and the rename failure are injected by wrapping those two calls and
  * delegating everything else to the real module, so the bytes on disk are real. As
@@ -47,14 +49,20 @@ interface Gate {
 
 const gates = vi.hoisted(() => new Map<string, Gate>());
 const writes = vi.hoisted(() => [] as string[]);
+const dirs = vi.hoisted(() => [] as string[]);
 const renameFaults = vi.hoisted(() => new Map<string, number>());
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const real = await importOriginal<typeof fsPromises>();
   const write = real.writeFile as (...args: unknown[]) => Promise<unknown>;
+  const make = real.mkdir as (...args: unknown[]) => Promise<unknown>;
   const move = real.rename as (...args: unknown[]) => Promise<unknown>;
   return {
     ...real,
+    async mkdir(...args: unknown[]) {
+      dirs.push(String(args[0]));
+      return make(...args);
+    },
     async writeFile(...args: unknown[]) {
       const file = String(args[0]);
       writes.push(file);
@@ -84,6 +92,7 @@ let store: RunStore;
 beforeEach(async () => {
   gates.clear();
   writes.length = 0;
+  dirs.length = 0;
   renameFaults.clear();
   root = await mkdtemp(path.join(tmpdir(), 'mergesutra-runs-queue-'));
   store = createFileRunStore(path.join(root, 'runs'));
@@ -149,23 +158,11 @@ function failRenameOnce(from: string): void {
 }
 
 /**
- * Watch for another start at `file` for a bounded interval, without pausing it.
- *
- * Names are folded because the case test makes the second save spell the same
- * scratch path differently; the platform's filesystem would consider it the same
- * file, so the observation does too.
+ * Let microtasks and one macrotask turn run; an unqueued save issues its first
+ * call — the `mkdir` every save begins with — in that turn.
  */
-async function startsWithin(
-  file: string,
-  milliseconds: number,
-): Promise<'started' | 'not-started'> {
-  const seen = (): boolean => writes.some((entry) => entry.toLowerCase() === file.toLowerCase());
-  const deadline = Date.now() + milliseconds;
-  while (Date.now() < deadline) {
-    if (seen()) return 'started';
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  return seen() ? 'started' : 'not-started';
+async function turn(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 describe('the run store save queue', () => {
@@ -235,18 +232,20 @@ describe('the run store save queue', () => {
       await gate.reached;
       // Observe only what the second save does from here on.
       writes.length = 0;
+      const dirsBefore = dirs.length;
 
       const second = store.save(otherSpelling);
-      const observed = await startsWithin(scratch, 300);
+      await turn();
+      const started = dirs.length > dirsBefore;
 
       gate.release();
       await expect(first).resolves.toBe(targetOf(held.runId));
       await expect(second).resolves.toBe(targetOf(otherSpelling.runId));
 
       expect(
-        observed,
+        started,
         'a case-only spelling reached the held scratch path while the first save held it',
-      ).toBe('not-started');
+      ).toBe(false);
       expect(
         writes.filter((entry) => entry.toLowerCase() === scratch.toLowerCase()),
         'the second save should stage once, after the first finished',

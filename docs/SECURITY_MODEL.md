@@ -1153,11 +1153,14 @@ no workspace, one JSON file per run — and its guarantees are stated at that si
   key is a string, so two spellings that reach one file through different symlinked
   roots are still two keys. Nor does the queue cross a process boundary: the run lock
   (§2.6) has one operation, `resume`, and the stage commands that save do not take
-  it, so two processes saving one run id are last-rename-wins and this queue claims
-  nothing about them. The case fold is a platform assumption, not a filesystem
-  probe: it trusts `win32` and `darwin` to fold names, and a case-insensitive mount
-  on Linux — or a filesystem that normalises Unicode differently from the strings
-  compared here — is outside what the key can see.
+  it, so two processes saving one run id are not ordered at all: each stages at its
+  own pid-suffixed name, the target ends up holding whichever rename succeeded last,
+  and a losing rename can fail on its own — Windows refuses one over a target
+  another handle holds open. This queue claims nothing about them. The case fold is
+  a platform assumption, not a filesystem probe: it trusts `win32` and `darwin` to
+  fold names, and a case-insensitive mount on Linux — or a filesystem that normalises
+  Unicode differently from the strings compared here — is outside what the key can
+  see.
 - **What is *not* guaranteed, stated plainly.** Nothing in the run store calls
   `fsync`. The confined writer of §4 does sync a handle before it renames; the run
   store writes, renames and returns, so a `save` that succeeds has proved the bytes

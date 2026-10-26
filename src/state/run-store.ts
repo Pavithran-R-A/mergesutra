@@ -56,7 +56,9 @@ export const RUN_STATE_DIRNAME = '.mergesutra';
  * spellings that reach one file through different symlinked roots are still two
  * keys, and a second process is a different pid with a different scratch name:
  * neither is serialised here. The run lock spans one `resume` only and stage saves
- * do not take it, so two processes saving one run are last-rename-wins. This queue
+ * do not take it, so two processes saving one run are not ordered at all: the target
+ * ends up with whichever rename succeeded last, and a losing rename can fail on its
+ * own — Windows refuses one over a target another handle holds open. This queue
  * makes no cross-process claim.
  */
 const saveQueues = new Map<string, Promise<void>>();

@@ -23,13 +23,13 @@ import { TEST_REPO } from '../helpers/github.js';
  * to rename, and the loser fails with a raw ENOENT although its record was written.
  *
  * The first save is held inside `writeFile` — after the path is chosen, before any
- * byte is written — and the second is started while it is held. Without
- * serialisation the second save reaches the same scratch path immediately, which
- * `startsWithin` observes and the assertion fails; with the queue it cannot start
- * until the first save has settled. Holding at the syscall rather than racing two
- * unpaused saves is what makes the reproduction deterministic: the earlier version
- * of this file relied on scheduling and passed on the unfixed source whenever the
- * first rename happened to win.
+ * byte is written — and the second is started while it is held. Both saves call
+ * `mkdir` before `writeFile`, and the mocked `mkdir` records the call as it enters,
+ * so one event-loop turn is enough to tell whether the second save's task began.
+ * Without serialisation it has; with the queue it cannot until the first save has
+ * settled. Holding at the syscall rather than racing two unpaused saves is what
+ * makes the reproduction deterministic: the earlier version of this file relied on
+ * scheduling and passed on the unfixed source whenever the first rename won.
  *
  * Production saves once per stage boundary, so the collision is not reachable
  * through the CLI today. It is pinned here because `save` is the durability
@@ -46,12 +46,18 @@ interface Gate {
 
 const gates = vi.hoisted(() => new Map<string, Gate>());
 const writes = vi.hoisted(() => [] as string[]);
+const dirs = vi.hoisted(() => [] as string[]);
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const real = await importOriginal<typeof fsPromises>();
   const write = real.writeFile as (...args: unknown[]) => Promise<unknown>;
+  const make = real.mkdir as (...args: unknown[]) => Promise<unknown>;
   return {
     ...real,
+    async mkdir(...args: unknown[]) {
+      dirs.push(String(args[0]));
+      return make(...args);
+    },
     async writeFile(...args: unknown[]) {
       const file = String(args[0]);
       writes.push(file);
@@ -73,6 +79,7 @@ let store: RunStore;
 beforeEach(async () => {
   gates.clear();
   writes.length = 0;
+  dirs.length = 0;
   root = await mkdtemp(path.join(tmpdir(), 'mergesutra-runs-concurrent-'));
   store = createFileRunStore(path.join(root, 'runs'));
 });
@@ -127,17 +134,9 @@ function blockWritesTo(file: string): { readonly reached: Promise<void>; release
   return { reached, release };
 }
 
-/** Watch for another start at `file` for a bounded interval, without pausing it. */
-async function startsWithin(
-  file: string,
-  milliseconds: number,
-): Promise<'started' | 'not-started'> {
-  const deadline = Date.now() + milliseconds;
-  while (Date.now() < deadline) {
-    if (writes.includes(file)) return 'started';
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  return writes.includes(file) ? 'started' : 'not-started';
+/** Let microtasks and one macrotask turn run; an unqueued save issues its first call here. */
+async function turn(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 describe('createFileRunStore save concurrency', () => {
@@ -148,19 +147,19 @@ describe('createFileRunStore save concurrency', () => {
 
     const first = store.save(base);
     await gate.reached;
-    // The first save's own write is already recorded; observe what comes next.
+    // Observe only what the second save does from here on.
     writes.length = 0;
+    const dirsBefore = dirs.length;
 
     const second = store.save({ ...base, outcome: 'INCONCLUSIVE' } as RunRecord);
-    const observed = await startsWithin(scratch, 300);
+    await turn();
+    const started = dirs.length > dirsBefore;
 
     // Release before asserting so a failing run still cleans both saves up.
     gate.release();
     const [a, b] = await Promise.allSettled([first, second]);
 
-    expect(observed, 'the second save entered writeFile while the first was still held there').toBe(
-      'not-started',
-    );
+    expect(started, 'the second save began its task while the first was still held').toBe(false);
     expect(a.status, `first save: ${reasonOf(a)}`).toBe('fulfilled');
     expect(b.status, `second save: ${reasonOf(b)}`).toBe('fulfilled');
 

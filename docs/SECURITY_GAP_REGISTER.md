@@ -835,9 +835,9 @@ rather than an injected fault (unreachable in-process, and the OS's atomicity of
 the assumption the whole design rests on); durability across power loss, for which there is
 no `fsync`; and two processes saving one run id concurrently — the temp name carries only a
 pid, so the store survives a *failed* write without serialising *competing* ones, which is
-the run lock's job (§S12-09) and not a durability mechanism. A leftover temp stays invisible
-to `list()` rather than reported, so clearing artefacts remains a human looking at the
-directory.
+the run lock's job (§S12-09) and not a durability mechanism — a Stage-12 statement corrected
+under "Later change" below. A leftover temp stays invisible to `list()` rather than reported,
+so clearing artefacts remains a human looking at the directory.
 
 *Later change (2026-10-26, audit finding F02).* `save()` now takes turns within one process:
 an in-process queue keyed by the resolved target — case-folded on platforms that fold file
@@ -846,7 +846,9 @@ block the next one (`tests/state/run-store-queue.test.ts`, plus the original rep
 `tests/state/run-store-concurrent.test.ts`). The fault windows and durability sentences
 above are unchanged by that queue. This entry's earlier phrase "the run lock's job" was too
 broad and is corrected here: the lock's only operation is `resume`, and stage saves do not
-take it, so two processes saving one run id are last-rename-wins rather than serialised.
+take it, so two processes saving one run id are not ordered at all — each stages at its own
+pid-suffixed name, the target holds whichever rename succeeded last, and a losing rename can
+fail on its own (Windows refuses one over a target another handle holds open).
 The queue is in-process only, and its case fold trusts the platform rather than probing the
 filesystem. The sentence "`save()` is unchanged" earlier in this entry is the Stage-12
 record, not the current tree.
