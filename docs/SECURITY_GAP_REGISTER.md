@@ -7939,10 +7939,12 @@ resolution to plain `realpathSync` fails 17 of 42 cells, including all three ali
 **The residual limit, which is a diagnosis limit and not a boundary limit.** When doctor is started from a
 checkout that is itself a linked worktree and the worktree base is a link, the run-workspace shape is not visible
 from that starting point: a CLI inside the run's mounted workspace downgrades from `FAIL` to `WARN`, and a CLI
-elsewhere in the checkout reports `PASS`. The runtime sandbox refuses both, so nothing executes that the runtime
-would have refused; doctor simply stops being able to name the shape. PR #54 left this out on purpose — fixing
-it changes which hostile fixtures count as "inside", so it was not widened mid-review — and it is recorded here
-so the next reader inherits the limit instead of re-deriving it.
+elsewhere in the checkout reports `PASS`. The runtime sandbox still refuses the first, because that CLI resolves
+inside the workspace the run mounts (`createSandboxedRunner`); the second is outside that mounted workspace, so
+the runtime accepts it as it accepts any selected CLI outside the workspace, and the lost signal is doctor's
+advisory `WARN`, not a refusal. PR #54 left this out on purpose — fixing it changes which hostile fixtures count
+as "inside", so it was not widened mid-review — and it is recorded here so the next reader inherits the limit
+instead of re-deriving it.
 
 **Status: CLOSED — CODE + TEST + DOCUMENT.**
 
@@ -7963,7 +7965,8 @@ of each path on both sides, and no defect exists in this module. No production b
 **Evidence.** Two Windows-only cells in `tests/git/workspace-git-dir.test.ts` pin the behaviour rather than the
 fix: one hands the module a planted admin directory reached through an alias-spelled pointer while the
 back-pointer names the long spelling; the other hands it a workspace in an alias spelling of its own directory.
-Both are refused (`null`) on the current bytes (`2 passed | 9 skipped (11)`).
+Both are refused (`null`) on the current bytes — `11 passed (11)` here, where both cells run; a POSIX host
+reports `9 passed | 2 skipped (11)`, the two Windows-only cells skipping.
 
 Neither cell is vacuous. Reverting only the pointer target's resolution to plain `realpathSync` turns the first
 cell red — `expected { …(2) } to be null` — and leaves the second green; reverting only the worktree's

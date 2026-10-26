@@ -23,8 +23,10 @@ unchanged.
 checkout that is itself a linked worktree whose worktree base is a link, doctor
 cannot see the run-workspace shape, so a CLI inside the mounted workspace
 downgrades from `FAIL` to `WARN` and one elsewhere in the checkout reports
-`PASS`. The runtime sandbox refuses both, so this is a diagnosis limit rather
-than a boundary limit.
+`PASS`. The runtime still refuses the first, because it resolves inside the
+workspace the run mounts; the second is outside that workspace, so the lost
+signal is doctor's advisory `WARN`, not a refusal. This is a diagnosis limit
+rather than a boundary limit.
 
 Tests: `tests/security/sandbox.test.ts` (two Windows-only cells that build a real
 scratch directory under a long name, obtain its 8.3 alias from the filesystem's own

@@ -58,9 +58,12 @@ One known limit, recorded rather than hidden. When doctor is started from a
 checkout that is itself a linked worktree and the worktree base is a link, the
 run-workspace shape is not visible from that starting point: a CLI inside the
 run's mounted workspace downgrades from `FAIL` to `WARN`, and a CLI elsewhere in
-the checkout reports `PASS`. The runtime sandbox refuses both, so this is a
-diagnosis limit rather than a boundary limit — but doctor does not name the shape
-there, and the row has to be read with that in mind.
+the checkout reports `PASS`. The runtime still refuses the first — that CLI
+resolves inside the workspace the run mounts — while the second is outside that
+mounted workspace, so the runtime accepts it as it accepts any selected CLI
+outside the workspace; what is lost is doctor's advisory `WARN`, not a refusal.
+This is therefore a diagnosis limit rather than a boundary limit, but doctor
+does not name the shape there, and the row has to be read with that in mind.
 
 The isolated container uses a digest-pinned image, no host network, no elevated
 capabilities, an unprivileged user, a read-only container filesystem and a
