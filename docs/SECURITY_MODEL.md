@@ -582,6 +582,24 @@ counter-claim, it is met with a shape that has no field for it:
   `--publish` path in `src/cli/pr.ts`, and the fake
   transport in `tests/pr/publisher.test.ts` proves the seam is real in the other
   direction too, so "not requested" is not indistinguishable from "never wired".
+- **The branch is read back before a draft is called opened (audit finding F04).**
+  `POST /git/refs` is GitHub's word that a branch exists, not evidence about what it
+  contains. After creating the ref, `pushBranch` reads the branch, the commit and the tree
+  again: the ref must name the branch and the commit the transport received; the commit
+  must carry that SHA, the requested tree and only the recorded base as its parent; and
+  every sent path must be present with the sent type, mode and blob SHA while every deleted
+  path is absent. The tree read is projected to the sent paths so it stays inside the
+  runner's 1 MiB output bound, and a patch that would need more than 20 projected reads is
+  refused before any write; a truncated listing is a refusal, not a partial pass, and GitHub
+  sets `truncated` past its documented 100,000-entry/7 MB recursive-listing ceiling. The
+  ref-creation reply is advisory — an empty or unreadable body is not a failure while the
+  read-back stands — but a readable body that names another branch is. Any failure after
+  GitHub accepts the ref-creation request says the branch was created but could not be
+  verified, and the remediation is inspection rather than a retry that could collide with a
+  branch the request created. The read-back proves the changed paths; untouched base-tree
+  entries rest on `base_tree`'s contract rather than on a complete tree comparison, and an
+  entry GitHub silently added outside the sent paths is not seen — an entry sent but missing
+  is.
 - **What the oracle names, and what it cannot:** `src/process/tool-policy.ts` classifies
   by what a command does, so `gh …` is `REMOTE_MUTATION`, `curl`, `wget`, `nc` and the
   bare package runners are `NETWORK`, `npm publish` (and its pnpm/yarn spellings) is

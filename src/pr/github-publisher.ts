@@ -35,6 +35,17 @@ import type {
  *    shape with `draft: true`; a response that says otherwise is an error naming
  *    the URL, not a success. Merge, auto-merge, reviewers and maintainer edits are
  *    fields this module never sends.
+ * 4. **It reads back what it wrote.** Creating a ref is GitHub's word that the
+ *    branch exists; it is not evidence that the branch points at the commit the
+ *    request built, or that the commit's tree carries the approved paths, modes
+ *    and blobs. After the ref is created this module reads the branch, the commit
+ *    and the tree again and compares them to the request. The tree read projects
+ *    only the paths that were sent, because the runner's output is bounded and a
+ *    full recursive listing of a large repository is not; a patch that would need
+ *    more projected reads than this transport permits is refused before any write.
+ *    A read that fails, or a tree GitHub truncated, is reported as "the request was
+ *    accepted but could not be verified" — inspection, never a success claim and
+ *    never a retry that could collide with a branch the request created.
  *
  * Authentication is `gh`'s own. The runner preserves an environment-backed GitHub
  * login and strips model credentials, and no token is ever placed in an argument,
@@ -47,6 +58,10 @@ const REPOSITORY_PATTERN = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/;
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 /** GitHub's blob endpoint accepts larger, but a single-file patch this large is not a reviewable change. */
 const MAX_FILE_BYTES = 40 * 1024 * 1024;
+/** Keeps one `--jq` argument well inside a Windows command line. */
+const TREE_FILTER_LIMIT = 3_000;
+/** A patch this large is not reviewable, and every read-back re-lists the whole tree. */
+const MAX_TREE_READS = 20;
 const DEFAULT_HOST = 'github.com';
 
 export interface GitHubPublicationDeps {
@@ -99,6 +114,20 @@ class GitHubPublicationRemote implements PublicationRemote {
       });
     }
 
+    const filters = treeFilters(patch.files.map((file) => file.path));
+    if (filters.length > MAX_TREE_READS) {
+      throw new AppError({
+        kind: 'validation',
+        message:
+          `Cannot publish: this patch changes ${String(patch.files.length)} paths, which would ` +
+          `need ${String(filters.length)} tree read-backs, beyond the ${String(MAX_TREE_READS)} ` +
+          'this transport issues to verify a branch.',
+        remediation:
+          'Split the change into smaller approved patches, so each branch can be read back and ' +
+          'compared in full before a draft is called opened.',
+      });
+    }
+
     const baseCommit = await this.api('GET', `repos/${owner}/${name}/git/commits/${input.baseSha}`);
     const baseTree = parseOf(baseCommit, baseCommitSchema, 'the base commit');
     const entries = await this.treeEntries(input.directory, patch, owner, name);
@@ -116,21 +145,129 @@ class GitHubPublicationRemote implements PublicationRemote {
     });
     const commit = parseOf(commitReply, shaReplySchema, 'the new commit');
 
-    const refReply = await this.api('POST', `repos/${owner}/${name}/git/refs`, {
+    // From here the repository has accepted every write. The creation reply is
+    // advisory only: the read-back below is what proves what GitHub stored.
+    const refReply = await this.request('POST', `repos/${owner}/${name}/git/refs`, {
       ref: `refs/heads/${input.branch}`,
       sha: commit.sha,
     });
-    const ref = parseOf(refReply, refReplySchema, 'the new branch');
-    if (ref.ref !== `refs/heads/${input.branch}`) {
+
+    await this.verifyPublished(
+      input,
+      owner,
+      name,
+      entries,
+      tree.sha,
+      commit.sha,
+      refReply,
+      filters,
+    );
+    return { branch: input.branch, commitSha: commit.sha };
+  }
+
+  /**
+   * Re-read the branch, commit and tree after the write, and compare them to the
+   * request. Every failure here happens after GitHub accepted the ref-creation
+   * request, so the message says that plainly and the remediation is inspection
+   * rather than a retry.
+   */
+  private async verifyPublished(
+    input: PushBranchInput,
+    owner: string,
+    name: string,
+    entries: readonly TreeEntry[],
+    treeSha: string,
+    commitSha: string,
+    refReply: string,
+    filters: readonly string[],
+  ): Promise<void> {
+    const prefix = `repos/${owner}/${name}`;
+    try {
+      const creation = parseCreationReply(refReply);
+      if (creation !== undefined && creation.ref !== `refs/heads/${input.branch}`) {
+        throw new Error(`the ref-creation reply names '${bound(creation.ref)}'`);
+      }
+
+      const ref = parseOf(
+        await this.api('GET', `${prefix}/git/ref/heads/${input.branch}`),
+        refReadSchema,
+        'the created branch',
+      );
+      if (ref.ref !== `refs/heads/${input.branch}`) {
+        throw new Error(`GitHub reports the ref '${bound(ref.ref)}'`);
+      }
+      if (ref.object.sha !== commitSha) {
+        throw new Error(`the branch points at ${ref.object.sha}, not ${commitSha}`);
+      }
+
+      const commit = parseOf(
+        await this.api('GET', `${prefix}/git/commits/${commitSha}`),
+        commitReadSchema,
+        'the created commit',
+      );
+      if (commit.sha !== commitSha) {
+        throw new Error(`GitHub returned commit ${commit.sha}, not ${commitSha}`);
+      }
+      if (commit.tree.sha !== treeSha) {
+        throw new Error(`the commit carries tree ${commit.tree.sha}, not ${treeSha}`);
+      }
+      const parents = commit.parents.map((parent) => parent.sha);
+      if (parents.length !== 1 || parents[0] !== input.baseSha) {
+        throw new Error(
+          `the commit's parents are ${parents.join(', ') || 'none'}, not only ${input.baseSha}`,
+        );
+      }
+
+      const remote = new Map<string, TreeReadEntry>();
+      for (const filter of filters) {
+        const tree = parseOf(
+          await this.api('GET', `${prefix}/git/trees/${treeSha}?recursive=1`, undefined, filter),
+          treeReadSchema,
+          'the created tree',
+        );
+        if (tree.sha !== treeSha) {
+          throw new Error(`the tree read reports ${tree.sha}, not ${treeSha}`);
+        }
+        if (tree.truncated) {
+          throw new Error('GitHub truncated the tree listing, so not every path was checked');
+        }
+        for (const entry of tree.tree) remote.set(entry.path, entry);
+      }
+
+      for (const entry of entries) {
+        const stored = remote.get(entry.path);
+        if (entry.sha === null) {
+          if (stored !== undefined) {
+            throw new Error(`'${entry.path}' was deleted by the patch but is still in the tree`);
+          }
+          continue;
+        }
+        if (stored === undefined) throw new Error(`'${entry.path}' is missing from the tree`);
+        if (stored.type !== 'blob') {
+          throw new Error(`'${entry.path}' is a ${stored.type}, not a blob`);
+        }
+        if (stored.sha !== entry.sha) {
+          throw new Error(`'${entry.path}' holds blob ${stored.sha}, not ${entry.sha}`);
+        }
+        if (stored.mode !== entry.mode) {
+          throw new Error(`'${entry.path}' has mode ${stored.mode}, not ${entry.mode}`);
+        }
+      }
+    } catch (cause) {
+      const reason = cause instanceof Error ? bound(cause.message) : 'an unknown read-back failure';
       throw new AppError({
         kind: 'invalid-response',
-        message: `GitHub reported creating a branch this request did not name.`,
-        remediation: 'Inspect the repository before publishing again.',
-        details: { expected: `refs/heads/${input.branch}`, reported: ref.ref },
+        retryable: false,
+        message:
+          `GitHub accepted the request to create branch '${input.branch}' at commit ${commitSha}, ` +
+          `but MergeSutra could not verify what it stored: ${reason}.`,
+        remediation:
+          'Inspect the branch and any pull request on GitHub before retrying. MergeSutra will ' +
+          'not move, force or delete a branch it created.',
+        cause,
+        details: { branch: input.branch, commitSha, reason },
       });
     }
-
-    return { branch: input.branch, commitSha: commit.sha };
   }
 
   async createPullRequest(input: CreatePullRequestInput): Promise<PullRequestRef> {
@@ -232,7 +369,12 @@ class GitHubPublicationRemote implements PublicationRemote {
     return { content, mode: (facts.mode & 0o111) === 0 ? '100644' : '100755' };
   }
 
-  private async api(method: 'GET' | 'POST', endpoint: string, payload?: unknown): Promise<unknown> {
+  private async request(
+    method: 'GET' | 'POST',
+    endpoint: string,
+    payload?: unknown,
+    jq?: string,
+  ): Promise<string> {
     const args = ['api', '--hostname', this.host, '--method', method];
     let cleanup: (() => Promise<void>) | null = null;
     if (payload !== undefined) {
@@ -240,6 +382,7 @@ class GitHubPublicationRemote implements PublicationRemote {
       cleanup = written.cleanup;
       args.push('--input', written.file);
     }
+    if (jq !== undefined) args.push('--jq', jq);
     args.push(endpoint);
 
     let result: RunResult;
@@ -250,8 +393,16 @@ class GitHubPublicationRemote implements PublicationRemote {
     }
 
     if (result.code !== 0) throw this.failure(result, endpoint);
+    return result.stdout.trim();
+  }
 
-    const text = result.stdout.trim();
+  private async api(
+    method: 'GET' | 'POST',
+    endpoint: string,
+    payload?: unknown,
+    jq?: string,
+  ): Promise<unknown> {
+    const text = await this.request(method, endpoint, payload, jq);
     if (text.length === 0) {
       throw new AppError({
         kind: 'invalid-response',
@@ -354,11 +505,49 @@ interface TreeEntry {
   readonly sha: string | null;
 }
 
+interface TreeReadEntry {
+  readonly path: string;
+  readonly mode: string;
+  readonly type: string;
+  readonly sha: string;
+}
+
 const baseCommitSchema = z
   .object({ tree: z.object({ sha: z.string().regex(SHA_PATTERN) }) })
   .passthrough();
 const shaReplySchema = z.object({ sha: z.string().regex(SHA_PATTERN) }).passthrough();
 const refReplySchema = z.object({ ref: z.string().min(1) }).passthrough();
+const refReadSchema = z
+  .object({
+    ref: z.string().regex(/^refs\/heads\/.+$/),
+    object: z
+      .object({ sha: z.string().regex(SHA_PATTERN), type: z.literal('commit') })
+      .passthrough(),
+  })
+  .passthrough();
+const commitReadSchema = z
+  .object({
+    sha: z.string().regex(SHA_PATTERN),
+    tree: z.object({ sha: z.string().regex(SHA_PATTERN) }).passthrough(),
+    parents: z.array(z.object({ sha: z.string().regex(SHA_PATTERN) }).passthrough()),
+  })
+  .passthrough();
+const treeReadSchema = z
+  .object({
+    sha: z.string().regex(SHA_PATTERN),
+    truncated: z.boolean(),
+    tree: z.array(
+      z
+        .object({
+          path: z.string().min(1),
+          mode: z.string().min(1),
+          type: z.string().min(1),
+          sha: z.string().regex(SHA_PATTERN),
+        })
+        .passthrough(),
+    ),
+  })
+  .passthrough();
 const pullRequestReplySchema = z
   .object({
     html_url: z.string().regex(/^https:\/\/[^\s]+$/),
@@ -379,6 +568,53 @@ function parseOf<T>(value: unknown, schema: z.ZodType<T>, label: string): T {
     });
   }
   return parsed.data;
+}
+
+/**
+ * One `--jq` program per group of paths, so a filtered tree read stays inside the
+ * runner's 1 MiB output bound however large the repository is. Paths enter as JSON
+ * strings, which are also valid jq string literals, so a quote or a backslash in a
+ * filename stays data instead of becoming jq syntax.
+ */
+function treeFilters(paths: readonly string[]): string[] {
+  const groups: string[][] = [];
+  let current: string[] = [];
+  let size = 0;
+  for (const file of new Set(paths)) {
+    const addition = JSON.stringify(file).length + ' or .path == '.length;
+    if (current.length > 0 && size + addition > TREE_FILTER_LIMIT) {
+      groups.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(file);
+    size += addition;
+  }
+  if (current.length > 0) groups.push(current);
+
+  return groups.map(
+    (group) =>
+      `{sha: .sha, truncated: (.truncated // false), tree: [.tree[] | select(${group
+        .map((file) => `.path == ${JSON.stringify(file)}`)
+        .join(' or ')})]}`,
+  );
+}
+
+/**
+ * The creation reply is advisory. The read-back below is what proves the branch,
+ * so an empty or unreadable body is not a reason to fail a write that succeeded;
+ * a readable body that names another branch is.
+ */
+function parseCreationReply(text: string): { ref: string } | undefined {
+  if (text.length === 0) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+  const reply = refReplySchema.safeParse(parsed);
+  return reply.success ? { ref: reply.data.ref } : undefined;
 }
 
 function repositoryOf(repository: string): { owner: string; name: string } {
