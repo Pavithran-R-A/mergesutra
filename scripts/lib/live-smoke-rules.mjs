@@ -40,7 +40,8 @@ export const SMOKE_BUDGET = Object.freeze({
  * behind other work, but equally with a stalled transport or a gateway that accepted the connection
  * and never answered; the script observes the expiry, not the reason, so queueing stays a hypothesis
  * until a run reaches a provider-side fact. 270 s is still below the roughly 300 s point at which
- * Node's own fetch stops waiting for headers, so the client's timer is expected to end this run.
+ * Node's own fetch stops waiting for headers, so the script's own clock — the AbortSignal it creates
+ * before the catalog read — is expected to end this run, not the runtime's header wait.
  * Declared as a spread of the standard budget with only the deadline replaced, so a field added to
  * the standard budget is in this variant too; the policy suite pins that only the clock differs.
  */
