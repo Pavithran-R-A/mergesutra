@@ -1,4 +1,14 @@
-import { lstat, mkdir, open, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  stat,
+  type FileHandle,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { AppError } from '../core/errors.js';
 import { hasGitSegment, isInsideRoot, resolveInsideRoot } from './path-safety.js';
@@ -56,6 +66,13 @@ import { sha256Hex } from './digest.js';
  */
 
 export const MAX_WRITE_BYTES = 1024 * 1024;
+
+/**
+ * How many suffixes one write tries before giving up on finding a free scratch
+ * name. Only a collision can consume an attempt, and a directory holding sixteen
+ * names this writer would choose is a directory someone else is already busy in.
+ */
+const MAX_SCRATCH_ATTEMPTS = 16;
 
 /** Machine-readable conflict code, so a caller can tell stale from refused. */
 export const STALE_FILE = 'STALE_FILE';
@@ -155,17 +172,20 @@ export async function openConfinedWriter(candidateRoot: string): Promise<Confine
       }
 
       await mkdir(path.dirname(absolute), { recursive: true });
-      const temp = path.join(
-        path.dirname(absolute),
-        `.mergesutra-tmp-${process.pid}-${Date.now()}`,
-      );
+      const staged = await stageScratch(path.dirname(absolute), `${process.pid}-${Date.now()}`);
+      if (staged === null) {
+        throw refusal(
+          relativePath,
+          `${MAX_SCRATCH_ATTEMPTS} scratch names in this directory are all taken, so no write could be staged without touching a file this call did not create`,
+          'Remove the `.mergesutra-tmp-*` leftovers in that directory and try again.',
+        );
+      }
       try {
-        const handle = await open(temp, 'wx', 0o644);
         try {
-          await handle.writeFile(buffer);
-          await handle.sync();
+          await staged.handle.writeFile(buffer);
+          await staged.handle.sync();
         } finally {
-          await handle.close();
+          await staged.handle.close();
         }
         // The proof happens here, after the bytes are safe on disk and before the
         // one operation that replaces anything. Everything above is reversible.
@@ -179,9 +199,11 @@ export async function openConfinedWriter(candidateRoot: string): Promise<Confine
         // check is a transaction.
         await confine(relativePath);
         await verifyPrecondition(absolute, relativePath, precondition);
-        await renameChecked(temp, absolute, relativePath);
+        await renameChecked(staged.path, absolute, relativePath);
       } catch (error) {
-        await rmQuiet(temp);
+        // Only the scratch this call opened is removed. A name that was already
+        // taken belongs to whoever created it, and this call never owned it.
+        await rmQuiet(staged.path);
         throw error;
       }
 
@@ -211,6 +233,36 @@ async function renameChecked(from: string, to: string, relativePath: string): Pr
   } catch (error) {
     throw refusal(relativePath, error instanceof Error ? error.message : 'the rename failed');
   }
+}
+
+/**
+ * Claim a scratch file that no other write in this directory owns.
+ *
+ * The first candidate keeps the historical `<pid>-<millisecond>` name; further
+ * attempts add a suffix only after an exclusive create proved that name taken. The
+ * create is what makes the claim true, so a name lost to another write is never
+ * removed by this call — it was never this call's file.
+ *
+ * Only `EEXIST` consumes an attempt, because it is the one error that proves the
+ * name is spoken for. Every other open failure is propagated as it arrived: a
+ * permission or path failure does not become a free name on the sixteenth try, and
+ * the caller should see the operating system's own reason rather than a collision
+ * it can fix by deleting files.
+ */
+async function stageScratch(
+  directory: string,
+  stem: string,
+): Promise<{ readonly path: string; readonly handle: FileHandle } | null> {
+  for (let attempt = 0; attempt < MAX_SCRATCH_ATTEMPTS; attempt += 1) {
+    const suffix = attempt === 0 ? '' : `-${attempt}`;
+    const candidate = path.join(directory, `.mergesutra-tmp-${stem}${suffix}`);
+    try {
+      return { path: candidate, handle: await open(candidate, 'wx', 0o644) };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+  }
+  return null;
 }
 
 /**
