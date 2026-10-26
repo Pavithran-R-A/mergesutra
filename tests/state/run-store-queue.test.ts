@@ -248,7 +248,7 @@ describe('the run store save queue', () => {
       ).toBe(false);
       expect(
         writes.filter((entry) => entry.toLowerCase() === scratch.toLowerCase()),
-        'the second save should stage once, after the first finished',
+        'the second save should stage exactly once at that name',
       ).toHaveLength(1);
     },
   );

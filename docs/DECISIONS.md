@@ -2077,7 +2077,7 @@ from the act all remain in force.)*
   succeeded last and a losing rename can fail on its own (on Windows, one over a target
   another handle holds open is refused); two symlinked spellings of one root remain two keys
   because the key is a string. The case fold is a platform proxy (`win32`/`darwin`), not a
-  case-insensitive mount on Linux is outside the key's claim. This supersedes ADR-064's
-  closing note that two processes saving one run are "what the run lock is for". This changes
-  `save()`, so S12-08's sentence "`save()` is unchanged" is now historical; that entry's
-  fault-window and no-`fsync` claims are unchanged.
+  filesystem probe, so a case-insensitive mount on Linux is outside the key's claim. This
+  supersedes ADR-064's closing note that two processes saving one run are "what the run lock
+  is for". This changes `save()`, so S12-08's sentence "`save()` is unchanged" is now
+  historical; that entry's fault-window and no-`fsync` claims are unchanged.
