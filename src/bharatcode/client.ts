@@ -113,11 +113,13 @@ const TIMEOUT_REASON: { readonly mergesutra: 'timeout' } = { mergesutra: 'timeou
  *
  * Node's `fetch` reports a refused, interrupted or never-answered request as one
  * message — `fetch failed` — and puts the error that distinguishes those cases one
- * level down in `cause`. A live run that lost a paid request to the undici headers
- * timeout was reported to the operator as `Could not reach BharatCode: fetch failed`,
- * which is consistent with a dead hostname, a dropped TLS session and a gateway that
- * accepted the connection and never answered. Those need different fixes, and the
- * four words cannot tell them apart.
+ * level down in `cause`. A live run ended 304.5 seconds after it started, carrying paid
+ * work, with nothing on the operator's screen but `Could not reach BharatCode: fetch
+ * failed`: no code and no cause. That is consistent with a dead hostname, a dropped TLS
+ * session and a gateway that accepted the connection and never answered — and, given the
+ * elapsed time, with undici's roughly 300-second headers timeout, though the preserved
+ * trail does not prove that. Those need different fixes, and the four words cannot tell
+ * them apart, so the `cause` is what a reader has to be given.
  *
  * The headline names the error as well as quoting it, because the code that separates
  * those cases is not always one level down: an adapter, or a later transport, can
@@ -804,12 +806,18 @@ export class HttpBharatCodeClient implements BharatCodeClient {
    * party that stopped waiting for headers.
    *
    * The two waits are different numbers and the reader has to be able to tell them apart.
-   * Run 39460563729 was measured on one clock: it configured a 540000ms budget and was
-   * answered at 304.5s by `UND_ERR_HEADERS_TIMEOUT`, so the transport stopped waiting
-   * 235.5 seconds before this side's budget ran out. A message quoting only the configured
-   * budget would have blamed that earlier give-up on us. It was not ours — the bound
-   * belongs to the transport, and this repository cannot raise it without a dispatcher of
-   * its own, which would be a new runtime dependency.
+   * Run 39460563729 configured a 540000ms budget and its plan step ended 304.5 seconds
+   * later with `Could not reach BharatCode: fetch failed`. That elapsed time sits just past
+   * Node's default headers timeout, which makes undici giving up the most plausible
+   * explanation — as a hypothesis, not a reading: the preserved trail carries no
+   * `UND_ERR_HEADERS_TIMEOUT` code, and a dead endpoint, a dropped TLS session and a
+   * gateway that accepted the connection and never answered all leave the same four
+   * words. This method appends its sentence only when `isHeaderTimeout` finds that code,
+   * so the transport's bound is named only when the error itself names it. When the
+   * budget sits above that bound and the code does arrive, the transport gave up first,
+   * and a message quoting only the configured budget would have blamed that earlier
+   * give-up on us. The bound belongs to the transport, and this repository cannot raise
+   * it without a dispatcher of its own, which would be a new runtime dependency.
    *
    * Reaching this branch needs a budget *above* the bound. Below it, the internal timer
    * aborts first and the failure is reported as a timeout of our own, with no transport

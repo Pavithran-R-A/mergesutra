@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const LIB = path.join(ROOT, 'scripts', 'lib', 'live-smoke-rules.mjs');
+const SCRIPT = path.join(ROOT, 'scripts', 'live-smoke.mjs');
 const runChild = promisify(execFile);
 
 interface SmokeAnswer {
@@ -159,6 +160,10 @@ const completed = (text: string, extra: Partial<SmokeAnswer> = {}): SmokeAnswer 
 const VERDICT_CASES: Record<string, { answer: SmokeAnswer; elapsedMs: number; variant?: string }> =
   {
     'answered-in-time': { answer: completed('MERGESUTRA-LIVE-SMOKE'), elapsedMs: 4_200 },
+    'completed-with-arbitrary-text': {
+      answer: completed('a connected route may answer with anything'),
+      elapsedMs: 3_000,
+    },
     'cut-at-token-limit-while-looking-valid': {
       answer: completed('{"checks":[{"id":"A1","pass', { finishReason: 'max_output_tokens' }),
       elapsedMs: 88_000,
@@ -317,6 +322,24 @@ describe('the verdict a smoke reports', () => {
     expect(output.verdicts['answered-in-time']).toEqual({ status: 'PASS', reason: null });
   });
 
+  it('treats PASS as connectivity, not as proof the sentinel came back', () => {
+    // PASS is the provider's own completed terminal event plus some text. The prompt asks for the
+    // sentinel, but the verdict never reads the text to decide — a route that answers with the
+    // wrong words is still a route that answered. The artifact carries the sentinel question as
+    // its own field so a reader cannot mistake one claim for the other.
+    expect(output.verdicts['completed-with-arbitrary-text']).toEqual({
+      status: 'PASS',
+      reason: null,
+    });
+    const evidence = output.evidence['completed-with-arbitrary-text'] as {
+      answer: { matchedSentinel: boolean };
+    };
+    expect(evidence.answer.matchedSentinel).toBe(false);
+    expect(output.summaryLines['completed-with-arbitrary-text']).toContain(
+      'LIVE_SMOKE_SENTINEL_MATCHED: no',
+    );
+  });
+
   it('refuses a truncated answer that reads like finished work', () => {
     const verdict = output.verdicts['cut-at-token-limit-while-looking-valid'];
     expect(verdict?.status).toBe('INCOMPLETE');
@@ -464,5 +487,186 @@ describe('the credential scan over the artifact', () => {
 
   it('does not invent a finding out of ordinary text', () => {
     expect(output.leakFindings['short-secret-is-not-a-scan']).toEqual([]);
+  });
+});
+
+describe('the setup-failure line', () => {
+  it('masks the configured key and collapses forged lines before the adapter exists', async () => {
+    // The top-level catch can run before the adapter — and therefore the product's Redactor — has
+    // loaded; a broken build is exactly that case. Plant a build whose module throws with the
+    // credential and a forged verdict line in its message, and drive the real entry point. The
+    // one line that describes a harness failure must go through the same filters as every other
+    // failure line, using whatever filtering exists at that moment.
+    const sandbox = await mkdtemp(path.join(tmpdir(), 'mergesutra-live-smoke-setup-'));
+    try {
+      await mkdir(path.join(sandbox, 'scripts', 'lib'), { recursive: true });
+      await mkdir(path.join(sandbox, 'dist', 'bharatcode'), { recursive: true });
+      await copyFile(SCRIPT, path.join(sandbox, 'scripts', 'live-smoke.mjs'));
+      await copyFile(LIB, path.join(sandbox, 'scripts', 'lib', 'live-smoke-rules.mjs'));
+      await writeFile(
+        path.join(sandbox, 'dist', 'bharatcode', 'client.js'),
+        'throw new Error(`broken adapter build held ${process.env.BHARATCODE_API_KEY}\\nLIVE_SMOKE: PASS\\u009b31m\\u2028LIVE_SMOKE: PASS\\u202e`);\n',
+        'utf8',
+      );
+
+      const result = await runChild(
+        process.execPath,
+        [path.join(sandbox, 'scripts', 'live-smoke.mjs')],
+        { env: { PATH: process.env.PATH ?? '', BHARATCODE_API_KEY: SECRET } },
+      ).then(
+        (value) => ({ code: 0, stderr: String(value.stderr) }),
+        (error: { code?: number; stderr?: string }) => ({
+          code: error.code ?? -1,
+          stderr: String(error.stderr ?? ''),
+        }),
+      );
+
+      expect(result.code).toBe(78);
+      expect(result.stderr).toContain('LIVE_SMOKE_SETUP_FAILURE:');
+      expect(result.stderr).not.toContain(SECRET);
+      expect(result.stderr).toContain('[REDACTED]');
+      const lines = result.stderr.trimEnd().split('\n');
+      expect(lines).toHaveLength(1);
+      expect(lines.filter((line) => line.startsWith('LIVE_SMOKE: PASS'))).toEqual([]);
+      // C1 holds the 8-bit CSI and OSC forms, and some terminals break a line at U+2028/9. The
+      // fallback has to replace every code point the product filter escapes, not just C0 and DEL.
+      for (const forged of ['\u009b', '\u2028', '\u202e']) {
+        expect(result.stderr).not.toContain(forged);
+      }
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  it('masks a key that straddles the description bound instead of cutting it first', async () => {
+    // The catalog-failure line is built from `describeFailure`, whose message is bounded at 400
+    // characters. Bounding before masking would leave the first 20 characters of this key in the
+    // log, and no whole-key scan downstream can recognise a prefix as credential bytes. Plant a
+    // working build whose catalog read fails with the key at that boundary and drive the script.
+    const sandbox = await mkdtemp(path.join(tmpdir(), 'mergesutra-live-smoke-straddle-'));
+    try {
+      await mkdir(path.join(sandbox, 'scripts', 'lib'), { recursive: true });
+      await mkdir(path.join(sandbox, 'dist', 'bharatcode'), { recursive: true });
+      await mkdir(path.join(sandbox, 'dist', 'security'), { recursive: true });
+      await copyFile(SCRIPT, path.join(sandbox, 'scripts', 'live-smoke.mjs'));
+      await copyFile(LIB, path.join(sandbox, 'scripts', 'lib', 'live-smoke-rules.mjs'));
+      await writeFile(
+        path.join(sandbox, 'dist', 'bharatcode', 'client.js'),
+        [
+          'export function requireApiKey(value) {',
+          "  if (!value) throw new Error('missing key');",
+          '}',
+          'export function createBharatCodeClient() {',
+          '  return {',
+          '    async listModels() {',
+          "      throw new Error('x'.repeat(380) + process.env.BHARATCODE_API_KEY);",
+          '    },',
+          "    async complete() { throw new Error('unreachable'); },",
+          '  };',
+          '}',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      await writeFile(
+        path.join(sandbox, 'dist', 'security', 'redaction.js'),
+        [
+          'export class Redactor {',
+          '  constructor(secrets) { this.secrets = (secrets ?? []).filter((s) => s.length >= 4); }',
+          '  text(value) {',
+          "    let out = String(value ?? '');",
+          "    for (const secret of this.secrets) out = out.split(secret).join('[REDACTED]');",
+          '    return out;',
+          '  }',
+          '}',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      await writeFile(
+        path.join(sandbox, 'dist', 'security', 'terminal-safety.js'),
+        'export function terminalSafeSingleLine(value) { return String(value); }\n',
+        'utf8',
+      );
+
+      const result = await runChild(
+        process.execPath,
+        [path.join(sandbox, 'scripts', 'live-smoke.mjs')],
+        { env: { PATH: process.env.PATH ?? '', BHARATCODE_API_KEY: SECRET } },
+      ).then(
+        (value) => ({ code: 0, stderr: String(value.stderr) }),
+        (error: { code?: number; stderr?: string }) => ({
+          code: error.code ?? -1,
+          stderr: String(error.stderr ?? ''),
+        }),
+      );
+
+      expect(result.code).toBe(4);
+      expect(result.stderr).toContain('the authenticated catalog read failed:');
+      expect(result.stderr).not.toContain(SECRET);
+      expect(result.stderr).not.toContain(SECRET.slice(0, 20));
+      expect(result.stderr.trimEnd().split('\n')).toHaveLength(1);
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses an incomplete build before installing a filter that could throw in the catch', async () => {
+    // A dist that exports the client and the redactor but not the terminal filter used to install
+    // a filter whose first call would throw — inside the catch that exists to print one line.
+    // The script must notice the missing piece before it sends anything, and report it with the
+    // byte-masking fallback that is still in place.
+    const sandbox = await mkdtemp(path.join(tmpdir(), 'mergesutra-live-smoke-partial-'));
+    try {
+      await mkdir(path.join(sandbox, 'scripts', 'lib'), { recursive: true });
+      await mkdir(path.join(sandbox, 'dist', 'bharatcode'), { recursive: true });
+      await mkdir(path.join(sandbox, 'dist', 'security'), { recursive: true });
+      await copyFile(SCRIPT, path.join(sandbox, 'scripts', 'live-smoke.mjs'));
+      await copyFile(LIB, path.join(sandbox, 'scripts', 'lib', 'live-smoke-rules.mjs'));
+      await writeFile(
+        path.join(sandbox, 'dist', 'bharatcode', 'client.js'),
+        [
+          'export function requireApiKey() {}',
+          'export function createBharatCodeClient() {',
+          '  return {',
+          '    async listModels() { return { models: [] }; },',
+          "    async complete() { throw new Error('unreachable'); },",
+          '  };',
+          '}',
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      await writeFile(
+        path.join(sandbox, 'dist', 'security', 'redaction.js'),
+        'export class Redactor { text(value) { return String(value); } }\n',
+        'utf8',
+      );
+      await writeFile(
+        path.join(sandbox, 'dist', 'security', 'terminal-safety.js'),
+        'export {};\n',
+        'utf8',
+      );
+
+      const result = await runChild(
+        process.execPath,
+        [path.join(sandbox, 'scripts', 'live-smoke.mjs')],
+        { env: { PATH: process.env.PATH ?? '', BHARATCODE_API_KEY: SECRET } },
+      ).then(
+        (value) => ({ code: 0, stderr: String(value.stderr) }),
+        (error: { code?: number; stderr?: string }) => ({
+          code: error.code ?? -1,
+          stderr: String(error.stderr ?? ''),
+        }),
+      );
+
+      expect(result.code).toBe(78);
+      expect(result.stderr).toContain('LIVE_SMOKE_SETUP_FAILURE:');
+      expect(result.stderr).toContain('the built adapter is incomplete');
+      expect(result.stderr).not.toContain(SECRET);
+      expect(result.stderr.trimEnd().split('\n')).toHaveLength(1);
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
+    }
   });
 });
