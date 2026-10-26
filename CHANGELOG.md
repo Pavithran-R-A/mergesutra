@@ -154,7 +154,7 @@ freezes `SMOKE_BUDGET` — the model `qwen-3.8-27b`, one completion, `max_output
 on the credentialed phase and zero retries — and the workflow exposes no variable and no model
 choice that can widen any of it. `scripts/live-smoke.mjs` takes the model from that same object and
 refuses, at exit `78`, a `BHARATCODE_MODEL` that asks for another one. `stream` and `store` are not
-the script's to set: the adapter hard-codes them (`src/bharatcode/client.ts:956-957`), and the
+the script's to set: the adapter hard-codes them (`src/bharatcode/client.ts:997-998`), and the
 policy suite reads that file as well, so an artifact cannot describe a wire shape the shipped code
 no longer makes. `scripts/live-smoke.mjs` reads the authenticated
 catalog first and refuses a model it does not list (exit `79`) before it has asked for a

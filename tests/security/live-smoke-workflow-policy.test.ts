@@ -284,6 +284,27 @@ function smokeViolations(workflow: string, script: string, rules: string, wire =
   if (/stdout\.write\([^)]*\bapiKey\b|stderr\.write\([^)]*\bapiKey\b/.test(script)) {
     problems.push('the smoke script writes the raw key to a log');
   }
+  // A broken adapter build reaches the top-level catch before the product's redactor exists, and
+  // its message is the one piece of harness text that can carry the key. That line has to go
+  // through the fallback filter, and `main` has to replace the fallback with the product's own
+  // redactor and terminal filter once it has loaded them.
+  if (!script.includes('setupFailureSafe(describeFailure(error))')) {
+    problems.push('the setup-failure line bypasses the filter that hides the credential');
+  }
+  if (!script.includes('setupFailureSafe = safe;')) {
+    problems.push('the setup-failure filter never upgrades to the product’s redactor');
+  }
+  // Both failure descriptions are bounded at 400 characters for the log and the artifact. That
+  // bound must fall after the credential mask: a cut inside the key first leaves a prefix that no
+  // whole-key scan downstream can recognise as credential bytes.
+  if (/message\.slice\(0, 400\)/.test(script)) {
+    problems.push('the failure description cuts the message before the credential is masked');
+  }
+  if (
+    (script.match(/safe\(\s*describeFailure\(error\),?\s*\)\.slice\(0, 400\)/g) ?? []).length !== 2
+  ) {
+    problems.push('the catalog and completion failures are not both masked before being bounded');
+  }
   // A green exit is the one thing this script can claim about the provider, so it may only be
   // claimed for a verdict that says PASS — and saying it must still end the run.
   if (
@@ -833,6 +854,38 @@ describe('the policy fires on the mutations it exists for', () => {
     ).toContain(
       'the smoke no longer routes every provider-chosen string through both redaction and the one-line filter',
     );
+  });
+
+  it('fires when the setup-failure line stops being filtered', () => {
+    // The planted build failure in the rules suite is what this rule stands in front of: without
+    // the fallback, the one line that reports a broken adapter is also the one that prints a key.
+    expect(
+      onScript((text) =>
+        text.replace('setupFailureSafe(describeFailure(error))', 'describeFailure(error)'),
+      ),
+    ).toContain('the setup-failure line bypasses the filter that hides the credential');
+    expect(
+      onScript((text) => text.replace('setupFailureSafe = safe;', '// fallback stays')),
+    ).toContain('the setup-failure filter never upgrades to the product’s redactor');
+  });
+
+  it('fires when a failure is bounded before its credential is masked', () => {
+    // The straddle case in the rules suite is the proof: 380 characters of padding put the key
+    // across the 400th character, so a cut first leaves part of it in the log while the whole-key
+    // mask has nothing left to find.
+    expect(
+      onScript((text) =>
+        text.replace(
+          'failure = safe(describeFailure(error)).slice(0, 400);',
+          'failure = safe(describeFailure(error).slice(0, 400));',
+        ),
+      ),
+    ).toContain('the catalog and completion failures are not both masked before being bounded');
+    expect(
+      onScript((text) =>
+        text.replace("? message : '(no message)'", "? message.slice(0, 400) : '(no message)'"),
+      ),
+    ).toContain('the failure description cuts the message before the credential is masked');
   });
 
   it('fires when the adapter stops putting the fields the smoke reports onto the wire', () => {

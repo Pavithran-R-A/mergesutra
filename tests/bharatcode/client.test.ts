@@ -233,11 +233,13 @@ describe('Retry policy (deterministic, offline)', () => {
 
   it('names the transport cause, because "fetch failed" alone cannot be diagnosed', async () => {
     // Node's fetch reports every socket-layer failure as `TypeError: fetch failed` and puts
-    // the reason in `cause`. Run 39460563729 lost a paid plan request to a ~300 s transport
-    // headers timeout and the whole evidence trail was the four words "fetch failed", which
-    // is indistinguishable from a dead endpoint. The cause has to survive into the message —
-    // and the key inside it has to be masked by *registration*, not by shape, or this proves
-    // nothing about the client that seeds the redactor with its own configured key.
+    // the reason in `cause`. Run 39460563729 configured a 540000 ms budget and still ended
+    // 304.5 s in, with the whole preserved trail being the four words "fetch failed" — no
+    // code, no cause, so its undici headers-timeout explanation is inference from the clock
+    // rather than something the evidence states. Whatever the cause was, it has to survive
+    // into the message — and the key inside it has to be masked by *registration*, not by
+    // shape, or this proves nothing about the client that seeds the redactor with its own
+    // configured key.
     const transportFailure = Object.assign(new TypeError('fetch failed'), {
       cause: Object.assign(new Error(`Headers Timeout Error while sending ${UNSHAPED_KEY}`), {
         name: 'HeadersTimeoutError',

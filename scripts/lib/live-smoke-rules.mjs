@@ -32,14 +32,18 @@ export const SMOKE_BUDGET = Object.freeze({
 });
 
 /**
- * The same one request, given a clock long enough to tell a queue from a failure.
+ * The same one request, given a clock long enough to test whether a slow route answers at all.
  *
- * The previous smoke died at 89 s without a response header, which is a fact about queueing, not
- * a verdict on the route. 270 s is still below the ~300 s ceiling at which Node's built-in fetch
- * stops reporting headers at all, so the client's own timer — not the runtime's — remains the
- * thing that ends this run. Declared as a spread of the standard budget with only the deadline
- * replaced: a field added to the standard budget is in this variant too, and the policy suite
- * pins that the only difference is the clock.
+ * The previous smoke ended at 89 s on its own clock with no terminal event, no answer text and no
+ * token usage. Its abort carried no HTTP status, so the artifact cannot say whether response
+ * headers arrived, only that the clock expired. That is consistent with a request still waiting
+ * behind other work, but equally with a stalled transport or a gateway that accepted the connection
+ * and never answered; the script observes the expiry, not the reason, so queueing stays a hypothesis
+ * until a run reaches a provider-side fact. 270 s is still below the roughly 300 s point at which
+ * Node's own fetch stops waiting for headers, so the script's own clock — the AbortSignal it creates
+ * before the catalog read — is expected to end this run, not the runtime's header wait.
+ * Declared as a spread of the standard budget with only the deadline replaced, so a field added to
+ * the standard budget is in this variant too; the policy suite pins that only the clock differs.
  */
 export const SMOKE_BUDGET_AVAILABILITY = Object.freeze({
   ...SMOKE_BUDGET,
@@ -87,6 +91,11 @@ function textOf(answer) {
  * never carried a terminal at all. Text is never read here — a truncated answer that happens to
  * look finished is exactly the case a smoke must refuse, and a completed response that carried
  * nothing is not evidence of a working stream either.
+ *
+ * A PASS is therefore a connectivity verdict and nothing more: it says a terminal event arrived
+ * with text behind it, not that the text was the sentinel. Whether the sentinel came back is a
+ * separate field in `smokeEvidence` (`answer.matchedSentinel`) and a separate summary line, so a
+ * connected route that answers with other words still passes and is never described as matching.
  */
 export function smokeVerdict(answer, { elapsedMs, budget = SMOKE_BUDGET } = {}) {
   // A number check, not `Number.isFinite(Number(elapsedMs))`: `Number(null)` is 0, so a run that

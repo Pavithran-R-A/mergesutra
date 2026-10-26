@@ -239,29 +239,35 @@ credential reach this route, and does the provider mark the answer complete — 
 and nothing else, so it is the instrument for checking a route before committing to the
 12-completion, 25-minute run above. Its budgets are the two frozen blocks in
 `scripts/lib/live-smoke-rules.mjs`: `SMOKE_BUDGET` (`:12`) and `SMOKE_BUDGET_AVAILABILITY`
-(`:44`), both the model `qwen-3.8-27b`, one completion (`:20`), `max_output_tokens: 512` (`:23`),
+(`:47`), both the model `qwen-3.8-27b`, one completion (`:20`), `max_output_tokens: 512` (`:23`),
 `temperature: 0`, reasoning off, streaming on, `store` off, and zero retries (`:31`). They differ
 in one number: the clock on the credentialed phase, 90 seconds for `standard` (`:30`) and 270
-seconds for `availability` (`:46`). A dispatch chooses a variant by name from the frozen
-`SMOKE_VARIANTS` map (`:53`) and cannot choose a number; an unknown name is refused at exit `78`
+seconds for `availability` (`:49`). A dispatch chooses a variant by name from the frozen
+`SMOKE_VARIANTS` map (`:56`) and cannot choose a number; an unknown name is refused at exit `78`
 before a client exists. `scripts/live-smoke.mjs` takes the model from the standard block (`:37`),
 which is the model both variants share, refusing at exit `78` if a `BHARATCODE_MODEL` asks for a
 different one — so a run cannot choose its own target either. What the smoke does not set, it does
 not claim either:
-`stream` and `store` are the adapter's own hard-coded fields (`src/bharatcode/client.ts:989-990`),
+`stream` and `store` are the adapter's own hard-coded fields (`src/bharatcode/client.ts:997-998`),
 and the policy suite reads that file too, so the artifact's description of the request is checked
 against the code that builds it rather than restated by it.
 
+A `PASS` is that connectivity verdict and nothing else: a terminal `response.completed` with
+non-empty text behind it. It does not assert that the text was the sentinel — the match is
+recorded separately as `answer.matchedSentinel` in the artifact and
+`LIVE_SMOKE_SENTINEL_MATCHED` on the log, so a route that answers in other words still passes
+and is never described as having echoed the prompt.
+
 What it refuses, and with which exit code: a missing key is the product's own configuration
-refusal (`scripts/live-smoke.mjs:134`, exit `78`); a model the authenticated catalog does not list
-(`:201`) is refused at exit `79`, before any completion is asked; a stream that never reached
+refusal (`scripts/live-smoke.mjs:177`, exit `78`); a model the authenticated catalog does not list
+(`:246`) is refused at exit `79`, before any completion is asked; a stream that never reached
 `response.completed` is `INCOMPLETE` at exit `3`; its partial text never decides the verdict — it
 is read only as a length and a redacted, one-line preview of at most 200 characters
-(`scripts/lib/live-smoke-rules.mjs:207-209`) — because a cut stream and an answered one cannot be
+(`scripts/lib/live-smoke-rules.mjs:215-217`) — because a cut stream and an answered one cannot be
 told apart by their text; and an artifact that still carries the credential's bytes is deleted rather
-than uploaded (`scripts/live-smoke.mjs:111`). Every string the provider chooses — its finish reason,
+than uploaded (`scripts/live-smoke.mjs:152`). Every string the provider chooses — its finish reason,
 its model name, its answer text, the wording of a transport failure — is redacted and forced onto
-one line before it is written or printed (`scripts/lib/live-smoke-rules.mjs:180`), so an answer
+one line before it is written or printed (`scripts/lib/live-smoke-rules.mjs:188`), so an answer
 cannot forge a second `LIVE_SMOKE:` verdict line in a log a reader trusts. It has been dispatched
 once. Run 39909412225 on 2026-10-23 (`cd03393c`) ran the `standard` budget: the authenticated
 catalog listed two models and contained the requested one, then the completion failed at 89,059 ms
