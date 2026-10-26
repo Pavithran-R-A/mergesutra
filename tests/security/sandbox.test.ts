@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -22,6 +23,46 @@ async function fixture() {
 afterAll(async () => {
   for (const dir of dirs) await rm(dir, { recursive: true, force: true });
 });
+
+/** A scratch directory long enough that Windows also holds an 8.3 spelling for it. */
+async function spacedScratch(): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'Sandbox Alias '));
+  dirs.push(dir);
+  return dir;
+}
+
+/**
+ * The 8.3 spelling Windows keeps for a directory, or null when the volume does
+ * not generate one. Requiring the `~` keeps the fixture honest on a host that
+ * answers with a case-normalised long path instead: the cells skip rather than
+ * compare one string with itself.
+ */
+function shortSpelling(target: string): string | null {
+  try {
+    const quoted = target.replace(/'/g, "''");
+    const out = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `(New-Object -ComObject Scripting.FileSystemObject).GetFolder('${quoted}').ShortPath`,
+      ],
+      { encoding: 'utf8', timeout: 10_000 },
+    ).trim();
+    return out === '' || out === target || !out.includes('~') ? null : out;
+  } catch {
+    return null;
+  }
+}
+
+/** A run workspace holding the Docker CLI a repository could have written into it. */
+async function workspaceWithDockerCli(root: string): Promise<string> {
+  const workspace = path.join(root, 'run-20260101T000000Z-abcdef');
+  await mkdir(workspace);
+  await writeFile(path.join(workspace, 'docker'), 'fake');
+  return workspace;
+}
 
 describe('pinned, reduced-privilege Docker command', () => {
   it('exposes only the selected workspace and no host network, socket or credentials', async () => {
@@ -147,6 +188,51 @@ describe('pinned, reduced-privilege Docker command', () => {
       createSandboxedRunner({ workspace, image: IMAGE, dockerExecutable: fakeDocker }),
     ).toThrow(/inside the untrusted workspace/);
   });
+
+  // Windows keeps an 8.3 spelling for a long directory name, and plain
+  // `realpathSync` preserves whichever spelling it is handed. The workspace and
+  // a CLI inside it can therefore reach the containment comparison as two
+  // spellings of one directory, and `path.relative` answers `..\` — which reads
+  // as "outside" and launches the repository's own binary on the host.
+  it.skipIf(process.platform !== 'win32')(
+    'rejects a Docker executable spelled long in a workspace spelled short',
+    async (ctx) => {
+      const root = await spacedScratch();
+      const shortRoot = shortSpelling(root);
+      if (shortRoot === null) {
+        ctx.skip();
+        return;
+      }
+      const workspace = await workspaceWithDockerCli(root);
+      expect(() =>
+        createSandboxedRunner({
+          workspace: path.join(shortRoot, path.basename(workspace)),
+          image: IMAGE,
+          dockerExecutable: path.join(workspace, 'docker'),
+        }),
+      ).toThrow(/inside the untrusted workspace/);
+    },
+  );
+
+  it.skipIf(process.platform !== 'win32')(
+    'rejects a Docker executable spelled short in a workspace spelled long',
+    async (ctx) => {
+      const root = await spacedScratch();
+      const shortRoot = shortSpelling(root);
+      if (shortRoot === null) {
+        ctx.skip();
+        return;
+      }
+      const workspace = await workspaceWithDockerCli(root);
+      expect(() =>
+        createSandboxedRunner({
+          workspace,
+          image: IMAGE,
+          dockerExecutable: path.join(shortRoot, path.basename(workspace), 'docker'),
+        }),
+      ).toThrow(/inside the untrusted workspace/);
+    },
+  );
 
   it('requires an absolute Docker binary before any host probe', async () => {
     const { workspace } = await fixture();

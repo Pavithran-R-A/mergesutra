@@ -7829,3 +7829,156 @@ member. What ends it is the pull request body: it is not part of any tree, so it
 branch's actual final head without spawning another one. The rule this stage leaves in force is therefore the one
 S18-11 stated and this section proves — the merge decision belongs to the head the pull request names, on that
 head's own three hosted runs, and `git log` accounts for every head between it and `0aaee73d1178a515b3709bbf7b33d603517ad156`.
+
+## Register status, Stage 19
+
+Stage 19 asks one question about a defect class rather than about a feature. Windows keeps an 8.3 short-name
+alias for a long directory, and Node can hand two different spellings of one directory to the same comparison.
+S13-7 closed that class where it printed a home path, and PR #54 closed it where doctor decided whether a Docker
+CLI was inside the repository. What was left is the rest of the product's path comparisons, so this stage asked
+which shipped comparisons decide containment or trust by comparing two path strings, and what each of them does
+when the two strings are two spellings of one directory.
+
+The answer is direction-dependent, and that is the part worth keeping. A comparison whose pass condition is
+"outside" — is this binary outside the untrusted workspace? is this Git directory outside the writable area? —
+becomes *permissive* when one side carries an alias, because two spellings of one directory look like unrelated
+paths. A comparison whose pass condition is "inside" — does this command directory sit within the workspace? —
+becomes *refusing* on the same mismatch, which costs a legitimate command but admits nothing. The same typo class
+is a hole in one direction and a nuisance in the other, so the audit has to be read direction by direction rather
+than as one verdict for "path comparison".
+
+The class was measured before it was hunted. Three Node spellings of one directory were compared on a Windows
+host: plain `realpathSync` preserves whichever spelling it is handed, `realpathSync.native` expands the alias,
+and `fs/promises` `realpath` is the native implementation and expands it too. That single measurement decided the
+audit, because "does it call realpath" is not the question, and "it calls realpath" is not an answer either — the
+variant and the direction are both part of the verdict.
+
+Three findings came out of it. S19-1 is a defect in the runtime boundary: the guard that refuses a Docker CLI
+living inside the untrusted run workspace compared two spellings of one directory and therefore did not refuse.
+S19-2 is doctor's comparison of the same class, already repaired in PR #54 and registered here so the two
+repairs read as one class rather than as two coincidences. S19-3 is a sibling that was measured and is **not** a
+defect: the trusted Git directory read resolves through `fs/promises` `realpath`, which expands the alias, and
+two new cells pin that behaviour against a future "consistency" refactor to the sync spelling.
+
+*(This section is written on a head one commit above `8d1af62`, which is the head the repair starts from, and
+it describes the repair that this commit carries. The hosted reading of the exact head the pull request names
+is recorded in that pull request rather than here, for the reason S18-12 gave — a section is always committed
+on a head after the one it certifies.)*
+
+## S19-1 — the runtime Docker-executable guard compared two spellings of one directory — CLOSED (CODE + TEST + DOCUMENT)
+
+**Finding.** `createSandboxedRunner` decides one thing about the Docker CLI the operator selected: whether it
+resolves inside the run's own untrusted workspace, which is the one directory a run mounts read-write. It
+resolved both sides with plain `realpathSync` (`src/security/sandbox.ts:155` and `:157` before this
+change), and plain `realpathSync` preserves whichever spelling it is handed. So on a host where the
+workspace path has an 8.3
+alias, a workspace named in the short spelling and a Docker CLI inside it named in the long spelling are two
+strings that `path.relative` reads as unrelated: the relative path came back as a chain of `..` segments plus
+the long spelling of the same directory, the guard read that as "outside", and the CLI inside the untrusted
+workspace was accepted. This is the permissive direction — the pass condition of this comparison is "outside" —
+so the mismatch did not merely mis-report; it admitted the thing the guard exists to refuse.
+
+The refusal was correct in every other respect: the guard is reached only with an absolute path, it refuses a
+path that is not a file, and it refuses an executable whose canonical form is the workspace itself. What was
+missing was one spelling on both sides.
+
+**Fix.** Both resolutions now use `realpathSync.native` (`src/security/sandbox.ts:159`, `:161`), which expands a
+Windows 8.3 alias to the directory's long spelling, so the comparison sees the canonical spelling of each path
+whichever spelling the caller used. The production change is two call sites and one comment: the guard's decision
+order, its refusal message, and every flag in `sandboxDockerArgv` are unchanged. The bind-mount source in
+`sandboxDockerArgv` still resolves plainly, exactly as before, and names the same directory in either spelling,
+so the mount itself is unchanged.
+
+**Evidence.** Two Windows-only cells in `tests/security/sandbox.test.ts`. Each builds a real scratch directory
+under a long name, obtains its 8.3 alias through the filesystem's own `ShortPath`, plants a Docker CLI inside a
+run workspace under that directory, and hands `createSandboxedRunner` the two sides in opposite spellings.
+Before the change both cells failed with `expected [Function] to throw an error` — the guard accepted the CLI
+(`2 failed | 10 passed (12)`). After the change the file is `12 passed (12)`, and both files together read
+`23 passed (23)`.
+
+The cells are not green by luck, and the mutation battery is the proof. Reverting only the executable's
+resolution to plain `realpathSync` turns three cells red — the pre-existing same-spelling refusal and both new
+cells, `3 failed | 9 passed (12)`. Reverting only the workspace's resolution turns the same three red. Each
+mutation was reverted with `git checkout --` and the file restored byte-identically (SHA-256
+`5f56dda167a1601eb1348f6915483fbe3d59896ae967a43c62aa2f553cd820fb`). A cell that stayed green under the
+mutation would have proved nothing, and none did.
+
+The three spellings of one directory were also measured directly, outside the product, so the choice of `native`
+rests on a reading rather than on a docstring: plain `realpathSync` of the short spelling returns the short
+spelling, `realpathSync.native` returns the long one, and `fs/promises` `realpath` returns the long one as well.
+
+**What is not claimed.** The hosted certification of this head belongs to the pull request that carries it; this
+entry records the local reading, and the run identifiers are added there rather than here. The cells skip on a
+host whose scratch directory has no 8.3 alias, exactly as doctor's alias cells do, so a green cell on such a
+host is a skip and not a pass.
+
+**Status: CLOSED — CODE + TEST + DOCUMENT.**
+
+## S19-2 — doctor's comparison of the same class, repaired in PR #54 — CLOSED (CODE + TEST + DOCUMENT)
+
+**Finding.** `mergesutra doctor` answers a `Repository sandbox` row, and one of its answers is a `FAIL` when the
+configured Docker CLI resolves inside a run workspace. It compared the CLI and the working directory with
+different spellings, so the same alias mismatch produced two wrong answers: a CLI inside the mounted workspace,
+spelled long while doctor ran from a short-spelled path, was reported `PASS` — "outside this repository"; a
+repository-local CLI, spelled long while doctor ran from a short path, was reported `PASS` instead of `WARN`.
+Both are the permissive direction, because both are "is this outside" questions.
+
+**Fix.** PR #54 (`0c59f6f`, merged as `952d1a8`) resolves every path that reaches a comparison with
+`realpathSync.native` — the Docker CLI, the working directory, the worktree base, the admin pointer, the
+admin-derived repository root, the recorded worktree path and the repository-root helper — and adds a
+Windows-only matrix of four cells that skips when the host has no alias for the scratch directory.
+
+**Evidence.** PR #54's own readings: the doctor file at `0c59f6f` is `39 passed, 3 skipped` (the skips are the
+POSIX-only mode-bit cells) and `tests/cli` is `211 passed, 3 skipped`; at the PR's final head `922ce01` the
+doctor file is `40 passed, 3 skipped` and `tests/cli` is `212 passed, 3 skipped`. Hosted: CI run `40181264417`
+and the customer gate run `40181264367` at `0c59f6f`; CI run `40187034215` and the customer gate run
+`40187034231` at `922ce01`; and on the merge commit `952d1a8` CI `40187919254` and the customer gate
+`40187919265` — all `success`. Three of the four alias cells were RED before the fix, and reverting the CLI's
+resolution to plain `realpathSync` fails 17 of 42 cells, including all three alias cells.
+
+**The residual limit, which is a diagnosis limit and not a boundary limit.** When doctor is started from a
+checkout that is itself a linked worktree and the worktree base is a link, the run-workspace shape is not visible
+from that starting point: a CLI inside the run's mounted workspace downgrades from `FAIL` to `WARN`, and a CLI
+elsewhere in the checkout reports `PASS`. The runtime sandbox still refuses the first, because that CLI resolves
+inside the workspace the run mounts (`createSandboxedRunner`); the second is outside that mounted workspace, so
+the runtime accepts it as it accepts any selected CLI outside the workspace, and the lost signal is doctor's
+advisory `WARN`, not a refusal. PR #54 left this out on purpose — fixing it changes which hostile fixtures count
+as "inside", so it was not widened mid-review — and it is recorded here so the next reader inherits the limit
+instead of re-deriving it.
+
+**Status: CLOSED — CODE + TEST + DOCUMENT.**
+
+## S19-3 — the trusted Git directory read was measured against the same class and is not a defect — CLOSED (TEST)
+
+**Finding.** `resolveTrustedGitDir` decides which Git directory MergeSutra may trust when it measures a run
+workspace: the admin directory must sit *outside* the workspace, and its back-pointer must name the workspace.
+That is the same "is this outside" shape as S19-1, so it was audited rather than assumed.
+
+**What was measured.** It resolves the workspace and the pointer target with `fs/promises` `realpath`
+(`src/git/workspace-git-dir.ts:46`, `:60`), which is the native implementation: on the Windows host used here it
+expands an 8.3 alias to the long spelling, exactly as `realpathSync.native` does, and unlike plain
+`realpathSync`, which preserves the spelling it is handed. The comparison therefore sees the canonical spelling
+of each path on both sides, and no defect exists in this module. No production byte of
+`src/git/workspace-git-dir.ts` was changed: it is byte-identical to the head this stage started from (SHA-256
+`a0abbf7451cf25fe9b7156217a2727ce0fc753d879edd3160c5d2e39209de783`).
+
+**Evidence.** Two Windows-only cells in `tests/git/workspace-git-dir.test.ts` pin the behaviour rather than the
+fix: one hands the module a planted admin directory reached through an alias-spelled pointer while the
+back-pointer names the long spelling; the other hands it a workspace in an alias spelling of its own directory.
+Both are refused (`null`) on the current bytes — `11 passed (11)` here, where both cells run; a POSIX host
+reports `9 passed | 2 skipped (11)`, the two Windows-only cells skipping.
+
+Neither cell is vacuous. Reverting only the pointer target's resolution to plain `realpathSync` turns the first
+cell red — `expected { …(2) } to be null` — and leaves the second green; reverting only the worktree's
+resolution turns the second red and leaves the first green. Each mutation was reverted with `git checkout --`
+and the module restored byte-identically to the SHA above. So the two cells are two separate claims about two
+separate resolutions, not one claim stated twice.
+
+**What is not claimed.** These cells say that this module canonicalizes its inputs today. They do not say that
+every module does, and they do not cover the two places in `src/security/sandbox.ts` that still resolve with
+plain `realpathSync` (`sandboxDockerArgv`, `:69` and `:75`). Those two are analysed rather than changed: their
+pass condition is "inside" — the command directory must resolve within the workspace — so a spelling mismatch
+makes them refuse a legitimate command directory instead of admitting one. The cost of that mismatch is a
+refused command, and the benefit of changing it is a behaviour change this stage did not need.
+
+**Status: CLOSED — TEST.**
