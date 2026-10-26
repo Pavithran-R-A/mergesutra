@@ -41,6 +41,34 @@ export interface RunStore {
 
 export const RUN_STATE_DIRNAME = '.mergesutra';
 
+/**
+ * Saves that would share one scratch path are run one after another.
+ *
+ * Every save of a run id stages at `<target>.<pid>.tmp`, which is what lets a save
+ * that fails at the rename be cleaned up by the next one. Two saves of that run
+ * running at once in one process would therefore write two records into one file
+ * and race two renames over it. Production never does that — each stage command
+ * saves once, at its boundary, and the per-run operation lock keeps a second
+ * process out — but a durability boundary should not depend on a caller promise
+ * it does not enforce. The queue is in-process: a different pid is a different
+ * scratch name, and the operation lock covers that case.
+ */
+const saveQueues = new Map<string, Promise<void>>();
+
+function saveInTurn<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const previous = saveQueues.get(key) ?? Promise.resolve();
+  const next = previous.then(task, task);
+  const tail = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  saveQueues.set(key, tail);
+  void tail.then(() => {
+    if (saveQueues.get(key) === tail) saveQueues.delete(key);
+  });
+  return next;
+}
+
 export function defaultRunStoreRoot(cwd: string = process.cwd()): string {
   return path.join(cwd, RUN_STATE_DIRNAME, 'runs');
 }
@@ -49,12 +77,14 @@ export function createFileRunStore(root: string = defaultRunStoreRoot()): RunSto
   return {
     async save(record) {
       const runId = assertSafePathSegment(record.runId, 'run id');
-      await mkdir(root, { recursive: true });
       const target = fileForRun(root, runId);
-      const temp = `${target}.${process.pid}.tmp`;
-      await writeFile(temp, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
-      await rename(temp, target);
-      return target;
+      return saveInTurn(path.resolve(target), async () => {
+        await mkdir(root, { recursive: true });
+        const temp = `${target}.${process.pid}.tmp`;
+        await writeFile(temp, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
+        await rename(temp, target);
+        return target;
+      });
     },
 
     async load(runId) {
