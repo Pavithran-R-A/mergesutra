@@ -844,9 +844,12 @@ an in-process queue keyed by the resolved target — case-folded on platforms th
 names — runs concurrent saves of one run id one after another, and a failed save does not
 block the next one (`tests/state/run-store-queue.test.ts`, plus the original reproduction in
 `tests/state/run-store-concurrent.test.ts`). The fault windows and durability sentences
-above are unchanged by that queue, and the cross-process sentence is untouched: two
-processes saving one run id remain the run lock's case, not the store's. The sentence
-"`save()` is unchanged" earlier in this entry is the Stage-12 record, not the current tree.
+above are unchanged by that queue. This entry's earlier phrase "the run lock's job" was too
+broad and is corrected here: the lock's only operation is `resume`, and stage saves do not
+take it, so two processes saving one run id are last-rename-wins rather than serialised.
+The queue is in-process only, and its case fold trusts the platform rather than probing the
+filesystem. The sentence "`save()` is unchanged" earlier in this entry is the Stage-12
+record, not the current tree.
 
 ---
 

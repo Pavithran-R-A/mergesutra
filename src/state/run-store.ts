@@ -47,17 +47,17 @@ export const RUN_STATE_DIRNAME = '.mergesutra';
  * Every save of a run id stages at `<target>.<pid>.tmp`, which is what lets a save
  * that fails at the rename be cleaned up by the next one. Two saves of that run
  * running at once in one process would therefore write two records into one file
- * and race two renames over it. Production never does that — each stage command
- * saves once, at its boundary, and the per-run operation lock keeps a second
- * process out — but a durability boundary should not depend on a caller promise
- * it does not enforce.
+ * and race two renames over it. Production's own call sites save once per stage
+ * boundary, so this does not arise there — but a durability boundary should not
+ * depend on a caller promise it does not enforce.
  *
  * The key is the resolved target, case-folded on the platforms whose filesystems
  * fold names, so two spellings of one file share one queue instead of two. Two
  * spellings that reach one file through different symlinked roots are still two
- * keys; that is the operation lock's case, and this queue does not claim it. A
- * second process is a different pid — a different scratch name — and is likewise
- * the lock's case.
+ * keys, and a second process is a different pid with a different scratch name:
+ * neither is serialised here. The run lock spans one `resume` only and stage saves
+ * do not take it, so two processes saving one run are last-rename-wins. This queue
+ * makes no cross-process claim.
  */
 const saveQueues = new Map<string, Promise<void>>();
 

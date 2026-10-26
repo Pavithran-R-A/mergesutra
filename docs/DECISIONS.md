@@ -1779,8 +1779,9 @@ from the act all remain in force.)*
   being a refusal), and the `.json` suffix filter replaced by a no-op (four red, including a
   temp holding a complete record being listed as a run of its own). What it does not cover:
   a rename interrupted by a real crash rather than an injected fault, which no in-process
-  test can reach; two processes saving one run id at once, which the run lock is for and this
-  store does not arbitrate; and the fact that a leftover temp is invisible to `list()` rather
+  test can reach; two processes saving one run id at once, which this store does not
+  arbitrate — the run lock's only operation is `resume`, so those saves are last-rename-wins
+  (corrected in ADR-070); and the fact that a leftover temp is invisible to `list()` rather
   than reported, so an operator who wants the artefacts gone has to look at the directory.
 
 ## ADR-065 — The way a write travels is proved twice, because the way is what a link changes
@@ -2055,20 +2056,24 @@ from the act all remain in force.)*
 - **Reason:** every save stages at one `<target>.<pid>.tmp` name. Two concurrent saves of one
   run in one process would write two records into that path and race two renames over it, and
   the loser would fail with `ENOENT` even though its record was written. Production saves once
-  per stage boundary and the per-run operation lock keeps another process out, so the collision
-  was latent; but the module's atomicity should not rest on a caller promise it does not
-  enforce. ADR-064's guarantee — the target is the old record or the new one — was the property
-  at risk.
+  per stage boundary, so the collision was latent; but the module's atomicity should not rest
+  on a caller promise it does not enforce. ADR-064's guarantee — the target is the old record
+  or the new one — was the property at risk.
 - **Alternatives:** a random per-save scratch name (rejected: `SECURITY_MODEL.md` §4.2 and
   `SECURITY_GAP_REGISTER.md` S12-08 pin `<target>.<pid>.tmp` and rely on a later save reusing
   and renaming the artefact of a crashed one); a global queue (rejected: it would make
   unrelated runs wait on one another); a lock file beside the record (rejected: a durable,
-  crash-surviving claim for a hazard that exists only within one process's promises — the run
-  lock already covers the cross-process case).
+  crash-surviving claim for a hazard that exists only within one process's promises — and the
+  run lock would not answer it, because its only operation is `resume` and stage saves never
+  take it).
 - **Consequence:** `tests/state/run-store-queue.test.ts` proves a failed save does not poison
   the next one, a held save of one run does not delay another, and two case-only spellings
   share a queue on a case-insensitive platform; `tests/state/run-store-concurrent.test.ts`
-  keeps the original reproduction. The queue is in-process only: two processes remain the
-  operation lock's case, and two symlinked spellings of one root remain two keys because the
-  key is a string. This changes `save()`, so S12-08's sentence "`save()` is unchanged" is now
-  historical; that entry's fault-window and no-`fsync` claims are unchanged.
+  keeps the original reproduction. The queue is in-process only: two processes saving one run
+  are last-rename-wins, because the run lock's sole operation is `resume` and stage saves do
+  not take it; two symlinked spellings of one root remain two keys because the key is a
+  string. The case fold is a platform proxy (`win32`/`darwin`), not a filesystem probe, so a
+  case-insensitive mount on Linux is outside the key's claim. This supersedes ADR-064's
+  closing note that two processes saving one run are "what the run lock is for". This changes
+  `save()`, so S12-08's sentence "`save()` is unchanged" is now historical; that entry's
+  fault-window and no-`fsync` claims are unchanged.

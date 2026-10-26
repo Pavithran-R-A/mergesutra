@@ -1151,8 +1151,13 @@ no workspace, one JSON file per run — and its guarantees are stated at that si
   save that failed does not stop the next one: the queue's tail settles even when the
   task rejects. Two different runs are two keys and do not wait for each other. The
   key is a string, so two spellings that reach one file through different symlinked
-  roots are still two keys; keeping those apart is the operation lock's job, not this
-  queue's.
+  roots are still two keys. Nor does the queue cross a process boundary: the run lock
+  (§2.6) has one operation, `resume`, and the stage commands that save do not take
+  it, so two processes saving one run id are last-rename-wins and this queue claims
+  nothing about them. The case fold is a platform assumption, not a filesystem
+  probe: it trusts `win32` and `darwin` to fold names, and a case-insensitive mount
+  on Linux — or a filesystem that normalises Unicode differently from the strings
+  compared here — is outside what the key can see.
 - **What is *not* guaranteed, stated plainly.** Nothing in the run store calls
   `fsync`. The confined writer of §4 does sync a handle before it renames; the run
   store writes, renames and returns, so a `save` that succeeds has proved the bytes
@@ -1160,9 +1165,10 @@ no workspace, one JSON file per run — and its guarantees are stated at that si
   filesystem that reorders writes across a crash is outside what this build claims,
   and no test here pretends to cover it. The same is true of the temp name's lack of
   a random suffix: within one process the queue above puts two saves of one run id in
-  turn, across processes the pid separates their scratch names, and the run lock
-  (§2.6) is what keeps a competing stage out. That lock is a concurrency mechanism,
-  not a durability one, and a second process that ignores it is outside this claim.
+  turn, and across processes the pid separates their scratch names but nothing
+  serialises their renames. The run lock is a concurrency mechanism for one
+  operation, not a durability one, and a second process that ignores it is outside
+  this claim.
 
 ### 4.3 How wide the confinement claim is (Stage 12)
 

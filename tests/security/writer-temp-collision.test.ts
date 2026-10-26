@@ -1,4 +1,5 @@
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import type * as fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { openConfinedWriter, type ConfinedWriter } from '../../src/security/writer.js';
@@ -27,6 +28,24 @@ const SCRATCH = await makeFixtureTree({ placeholder: 'x\n' });
 const WORKSPACE = path.join(SCRATCH, 'workspace');
 let writer: ConfinedWriter;
 
+const faults = vi.hoisted(() => new Map<string, NodeJS.ErrnoException>());
+const opens = vi.hoisted(() => [] as string[]);
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const real = await importOriginal<typeof fsPromises>();
+  const open = real.open as (...args: unknown[]) => Promise<unknown>;
+  return {
+    ...real,
+    async open(...args: unknown[]) {
+      const file = String(args[0]);
+      opens.push(file);
+      const fault = faults.get(file);
+      if (fault !== undefined) throw fault;
+      return open(...args);
+    },
+  };
+});
+
 beforeAll(async () => {
   await mkdir(WORKSPACE, { recursive: true });
   writer = await openConfinedWriter(WORKSPACE);
@@ -34,6 +53,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   vi.useRealTimers();
+  faults.clear();
 });
 
 afterAll(async () => {
@@ -125,5 +145,36 @@ describe('the writer’s scratch file', () => {
     for (const name of taken) {
       expect(await readFile(path.join(dir, name), 'utf8'), name).toBe('not ours\n');
     }
+  });
+
+  it('propagates a permission failure instead of taking the next name', async () => {
+    // The writer works from its realpath root, which can differ from the fixture
+    // path on Windows (8.3 aliases); the fault key must name the path it uses.
+    const dir = path.join(writer.root, 'denied');
+    await mkdir(dir, { recursive: true });
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-26T15:00:00.000Z'));
+    const first = path.join(dir, `.mergesutra-tmp-${process.pid}-${Date.now()}`);
+    const denied = Object.assign(new Error('EACCES: permission denied, open'), { code: 'EACCES' });
+    faults.set(first, denied);
+    const openedBefore = opens.length;
+
+    const result = await writer
+      .writeText('denied/late.ts', 'late\n', { expectedAbsent: true })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    vi.useRealTimers();
+
+    // Only `EEXIST` proves a name taken. Any other open failure is the operating
+    // system's own answer and must reach the caller, not become a retry under `-1`
+    // that turns a fixable permission problem into a sixteenth-name collision.
+    expect(result, 'a permission failure must not be retried under another name').toBe(denied);
+    expect(opens.slice(openedBefore), 'the writer should stop after the refused name').toEqual([
+      first,
+    ]);
+    expect((await readdir(dir)).filter((name) => name.includes('.mergesutra-tmp-'))).toEqual([]);
   });
 });

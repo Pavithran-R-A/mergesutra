@@ -22,19 +22,20 @@ import { TEST_REPO } from '../helpers/github.js';
  * This file pins the three properties a queue can fail that a single concurrent
  * pair cannot show:
  *
- * 1. **A failed save cannot poison the queue.** The next save of the same run must
- *    run, not inherit the previous rejection as a reason to wait forever.
+ * 1. **A failed save cannot poison the queue.** A save that dies at its rename
+ *    leaves its scratch behind; the next save of the same run must run — not wait
+ *    forever on the rejection — and must reuse and rename that scratch.
  * 2. **The queue is per run, not global.** A save held inside `writeFile` for one
  *    run must not delay a save of an unrelated run.
  * 3. **Two spellings of one file share one queue** on the platforms whose
  *    filesystems fold names; otherwise the queue protects the string and not the
- *    file it names.
+ *    file it names. The observation folds names the same way, because the second
+ *    save constructs its scratch string from the other spelling.
  *
- * The hold is injected by wrapping `writeFile` for one exact scratch path and
+ * The hold and the rename failure are injected by wrapping those two calls and
  * delegating everything else to the real module, so the bytes on disk are real. As
- * with the collision itself, production's call sites save once at a stage boundary
- * and the per-run operation lock keeps a second process out; these are the module's
- * own guarantees, not a claim about the CLI.
+ * with the collision itself, production's call sites save once at a stage boundary;
+ * these are the module's own guarantees, not a claim about the CLI.
  */
 
 interface Gate {
@@ -45,19 +46,34 @@ interface Gate {
 }
 
 const gates = vi.hoisted(() => new Map<string, Gate>());
+const writes = vi.hoisted(() => [] as string[]);
+const renameFaults = vi.hoisted(() => new Map<string, number>());
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const real = await importOriginal<typeof fsPromises>();
   const write = real.writeFile as (...args: unknown[]) => Promise<unknown>;
+  const move = real.rename as (...args: unknown[]) => Promise<unknown>;
   return {
     ...real,
     async writeFile(...args: unknown[]) {
-      const gate = gates.get(String(args[0]));
+      const file = String(args[0]);
+      writes.push(file);
+      const gate = gates.get(file);
       if (gate !== undefined) {
         gate.markReached();
         await gate.hold;
       }
       return write(...args);
+    },
+    async rename(...args: unknown[]) {
+      const from = String(args[0]);
+      const remaining = renameFaults.get(from) ?? 0;
+      if (remaining > 0) {
+        if (remaining === 1) renameFaults.delete(from);
+        else renameFaults.set(from, remaining - 1);
+        throw Object.assign(new Error(`injected rename failure for ${from}`), { code: 'EIO' });
+      }
+      return move(...args);
     },
   };
 });
@@ -67,12 +83,15 @@ let store: RunStore;
 
 beforeEach(async () => {
   gates.clear();
+  writes.length = 0;
+  renameFaults.clear();
   root = await mkdtemp(path.join(tmpdir(), 'mergesutra-runs-queue-'));
   store = createFileRunStore(path.join(root, 'runs'));
 });
 
 afterEach(async () => {
   gates.clear();
+  renameFaults.clear();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -125,32 +144,45 @@ function blockWritesTo(file: string): { readonly reached: Promise<void>; release
   return { reached, release };
 }
 
-/** Resolve to `settled` only if `work` finishes within `milliseconds`. */
-async function settlesWithin(work: Promise<unknown>, milliseconds: number): Promise<string> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      work.then(
-        () => 'settled',
-        () => 'settled',
-      ),
-      new Promise<string>((resolve) => {
-        timer = setTimeout(() => resolve('waiting'), milliseconds);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
+function failRenameOnce(from: string): void {
+  renameFaults.set(from, 1);
+}
+
+/**
+ * Watch for another start at `file` for a bounded interval, without pausing it.
+ *
+ * Names are folded because the case test makes the second save spell the same
+ * scratch path differently; the platform's filesystem would consider it the same
+ * file, so the observation does too.
+ */
+async function startsWithin(
+  file: string,
+  milliseconds: number,
+): Promise<'started' | 'not-started'> {
+  const seen = (): boolean => writes.some((entry) => entry.toLowerCase() === file.toLowerCase());
+  const deadline = Date.now() + milliseconds;
+  while (Date.now() < deadline) {
+    if (seen()) return 'started';
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
+  return seen() ? 'started' : 'not-started';
 }
 
 describe('the run store save queue', () => {
   it('does not let a failed save block the next save of the same run', async () => {
     const base = record();
-    // JSON.stringify refuses a BigInt before any file is touched, which fails the
-    // queued task without leaving scratch the next save would have to cope with.
-    const unserialisable = { ...base, outcome: 1n } as unknown as RunRecord;
+    const scratch = scratchOf(base.runId);
+    // Dying at the rename is the failure that leaves something behind: the bytes
+    // reached the scratch, the target was never replaced. The next save has to run
+    // anyway, and has to reuse and rename that same artefact.
+    failRenameOnce(scratch);
 
-    await expect(store.save(unserialisable)).rejects.toThrow(/BigInt|serialize/i);
+    await expect(store.save(base)).rejects.toThrow(/injected rename failure/);
+    expect(
+      await readdir(path.join(root, 'runs')),
+      'the failed save should have left exactly its own scratch',
+    ).toEqual([path.basename(scratch)]);
+
     await expect(store.save(base)).resolves.toBe(targetOf(base.runId));
     expect((await store.load(base.runId)).outcome).toBe('INTAKE_COMPLETE');
     expect((await readdir(path.join(root, 'runs'))).filter((n) => n.includes('.tmp'))).toEqual([]);
@@ -196,20 +228,29 @@ describe('the run store save queue', () => {
     async () => {
       const held = record({ runId: 'run-case-probe' });
       const otherSpelling = record({ runId: 'RUN-CASE-PROBE', outcome: 'INCONCLUSIVE' });
-      const gate = blockWritesTo(scratchOf(held.runId));
+      const scratch = scratchOf(held.runId);
+      const gate = blockWritesTo(scratch);
 
       const first = store.save(held);
       await gate.reached;
-      const second = store.save(otherSpelling);
+      // Observe only what the second save does from here on.
+      writes.length = 0;
 
-      expect(
-        await settlesWithin(second, 300),
-        'a case-only spelling wrote through the held file',
-      ).toBe('waiting');
+      const second = store.save(otherSpelling);
+      const observed = await startsWithin(scratch, 300);
 
       gate.release();
       await expect(first).resolves.toBe(targetOf(held.runId));
       await expect(second).resolves.toBe(targetOf(otherSpelling.runId));
+
+      expect(
+        observed,
+        'a case-only spelling reached the held scratch path while the first save held it',
+      ).toBe('not-started');
+      expect(
+        writes.filter((entry) => entry.toLowerCase() === scratch.toLowerCase()),
+        'the second save should stage once, after the first finished',
+      ).toHaveLength(1);
     },
   );
 });
