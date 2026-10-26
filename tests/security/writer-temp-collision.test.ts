@@ -16,9 +16,11 @@ import { makeFixtureTree } from '../helpers/fixture.js';
  *
  * Production reaches `writeText` from one place (`src/implement/loop.ts`), one
  * action at a time, so the collision is not reachable through the CLI today. The
- * tests pin the module's own contract anyway: the writer is the boundary that
- * promises an atomic replace and no debris, and that promise should not depend on
- * its caller never running two writes at once.
+ * tests pin the module's own contract anyway: the writer promises an atomic replace
+ * and that it removes only the scratch it opened, and that promise should not
+ * depend on its caller never running two writes at once. A process that dies
+ * between the create and the rename can still leave its scratch file behind; these
+ * cases do not pretend otherwise.
  */
 
 const SCRATCH = await makeFixtureTree({ placeholder: 'x\n' });
@@ -91,5 +93,37 @@ describe('the writer’s scratch file', () => {
       foreignText,
     );
     expect(await readFile(path.join(dir, 'one.ts'), 'utf8')).toBe('one\n');
+  });
+
+  it('refuses after sixteen taken names without touching any of them', async () => {
+    const dir = path.join(WORKSPACE, 'exhausted');
+    await mkdir(dir, { recursive: true });
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-26T14:00:00.000Z'));
+    const stem = `${process.pid}-${Date.now()}`;
+    const taken = Array.from(
+      { length: 16 },
+      (_, attempt) => `.mergesutra-tmp-${stem}${attempt === 0 ? '' : `-${attempt}`}`,
+    );
+    for (const name of taken) await writeFile(path.join(dir, name), 'not ours\n', 'utf8');
+
+    const result = await writer
+      .writeText('exhausted/late.ts', 'late\n', { expectedAbsent: true })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    vi.useRealTimers();
+
+    // The bound is a refusal, not a sixteenth-plus attempt under another name, and
+    // not a cleanup of names this call never opened.
+    expect(String(result), 'the write should be refused once every candidate is taken').toMatch(
+      /16 scratch names/,
+    );
+    expect((await readdir(dir)).sort()).toEqual([...taken].sort());
+    for (const name of taken) {
+      expect(await readFile(path.join(dir, name), 'utf8'), name).toBe('not ours\n');
+    }
   });
 });

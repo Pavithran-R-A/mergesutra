@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { AppError } from '../core/errors.js';
-import { assertSafePathSegment } from '../security/path-safety.js';
+import { assertSafePathSegment, isCaseInsensitivePlatform } from '../security/path-safety.js';
 import { parseRunRecord, type RunRecord } from './run-record.js';
 
 /**
@@ -50,10 +50,21 @@ export const RUN_STATE_DIRNAME = '.mergesutra';
  * and race two renames over it. Production never does that — each stage command
  * saves once, at its boundary, and the per-run operation lock keeps a second
  * process out — but a durability boundary should not depend on a caller promise
- * it does not enforce. The queue is in-process: a different pid is a different
- * scratch name, and the operation lock covers that case.
+ * it does not enforce.
+ *
+ * The key is the resolved target, case-folded on the platforms whose filesystems
+ * fold names, so two spellings of one file share one queue instead of two. Two
+ * spellings that reach one file through different symlinked roots are still two
+ * keys; that is the operation lock's case, and this queue does not claim it. A
+ * second process is a different pid — a different scratch name — and is likewise
+ * the lock's case.
  */
 const saveQueues = new Map<string, Promise<void>>();
+
+function saveKey(target: string): string {
+  const resolved = path.resolve(target);
+  return isCaseInsensitivePlatform() ? resolved.toLowerCase() : resolved;
+}
 
 function saveInTurn<T>(key: string, task: () => Promise<T>): Promise<T> {
   const previous = saveQueues.get(key) ?? Promise.resolve();
@@ -78,7 +89,7 @@ export function createFileRunStore(root: string = defaultRunStoreRoot()): RunSto
     async save(record) {
       const runId = assertSafePathSegment(record.runId, 'run id');
       const target = fileForRun(root, runId);
-      return saveInTurn(path.resolve(target), async () => {
+      return saveInTurn(saveKey(target), async () => {
         await mkdir(root, { recursive: true });
         const temp = `${target}.${process.pid}.tmp`;
         await writeFile(temp, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });

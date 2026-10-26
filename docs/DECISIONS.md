@@ -2043,3 +2043,32 @@ from the act all remain in force.)*
   after a push exits 4 and says to inspect the remote before retrying. No live draft pull
   request had been opened by this tree when this ADR was written; the controlled demonstration
   is a separate, human-approved step.
+
+## ADR-070 — One run's saves take turns inside a process, and the queue is keyed by the file it names
+
+- **Decision:** `createFileRunStore` serialises concurrent saves of one run id with an
+  in-process promise queue in `src/state/run-store.ts`. The key is the resolved target path,
+  lower-cased on the platforms whose filesystems fold names (`isCaseInsensitivePlatform`), so
+  two spellings of one file share one queue. A task that rejects settles the queue's tail as
+  resolved, so one failed save does not stop the next; a save of a different run is a
+  different key and does not wait for it.
+- **Reason:** every save stages at one `<target>.<pid>.tmp` name. Two concurrent saves of one
+  run in one process would write two records into that path and race two renames over it, and
+  the loser would fail with `ENOENT` even though its record was written. Production saves once
+  per stage boundary and the per-run operation lock keeps another process out, so the collision
+  was latent; but the module's atomicity should not rest on a caller promise it does not
+  enforce. ADR-064's guarantee — the target is the old record or the new one — was the property
+  at risk.
+- **Alternatives:** a random per-save scratch name (rejected: `SECURITY_MODEL.md` §4.2 and
+  `SECURITY_GAP_REGISTER.md` S12-08 pin `<target>.<pid>.tmp` and rely on a later save reusing
+  and renaming the artefact of a crashed one); a global queue (rejected: it would make
+  unrelated runs wait on one another); a lock file beside the record (rejected: a durable,
+  crash-surviving claim for a hazard that exists only within one process's promises — the run
+  lock already covers the cross-process case).
+- **Consequence:** `tests/state/run-store-queue.test.ts` proves a failed save does not poison
+  the next one, a held save of one run does not delay another, and two case-only spellings
+  share a queue on a case-insensitive platform; `tests/state/run-store-concurrent.test.ts`
+  keeps the original reproduction. The queue is in-process only: two processes remain the
+  operation lock's case, and two symlinked spellings of one root remain two keys because the
+  key is a string. This changes `save()`, so S12-08's sentence "`save()` is unchanged" is now
+  historical; that entry's fault-window and no-`fsync` claims are unchanged.

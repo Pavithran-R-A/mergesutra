@@ -242,6 +242,12 @@ async function renameChecked(from: string, to: string, relativePath: string): Pr
  * attempts add a suffix only after an exclusive create proved that name taken. The
  * create is what makes the claim true, so a name lost to another write is never
  * removed by this call — it was never this call's file.
+ *
+ * Only `EEXIST` consumes an attempt, because it is the one error that proves the
+ * name is spoken for. Every other open failure is propagated as it arrived: a
+ * permission or path failure does not become a free name on the sixteenth try, and
+ * the caller should see the operating system's own reason rather than a collision
+ * it can fix by deleting files.
  */
 async function stageScratch(
   directory: string,
