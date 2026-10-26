@@ -2099,11 +2099,12 @@ from the act all remain in force.)*
   20 projected reads is refused before any write, because every read-back re-lists the sent
   paths and the transport bounds that cost; the test plants 400 long paths, while short paths
   fit more per read. A truncated listing refuses rather than passing a subset; GitHub
-  documents a 100,000-entry/7 MB ceiling on a recursive listing and sets `truncated` past it.
-  Any failure
-  after GitHub accepts the ref-creation request is reported as "the branch … was created …
-  but could not be verified", naming the branch and commit; the remediation is inspection,
-  and the transport never retries, forces or deletes.
+  documents a 100,000-entry/7 MB ceiling on a recursive listing and sets `truncated` past it,
+  so a repository above that ceiling cannot pass verification and publication is refused
+  there rather than partially proven. Any failure after GitHub accepts the ref-creation
+  request is reported as "the branch … was created … but could not be verified", naming the
+  branch and commit; the remediation is inspection, and the transport never retries, forces
+  or deletes.
 - **Reason:** `POST /git/refs` returning a ref is GitHub's statement that *a* branch exists.
   The stage then records `commitSha`, and the CLI prints `DRAFT PULL REQUEST OPENED`. Before
   this decision nothing read the branch back, so a response naming the right ref but a
@@ -2120,7 +2121,7 @@ from the act all remain in force.)*
   creation reply (absent, unreadable, naming another branch), ref, commit, parent, tree,
   missing path, wrong blob, wrong type, wrong mode, resurrected deletion, truncation,
   multi-chunk merge, chunk omission, read-back budget and read-failure cases; the
-  `prototype-keys` inventory counts the four new tolerant reply schemas (seven new
+  `prototype-keys` inventory counts the three new tolerant reply schemas (seven new
   `.passthrough()` sites, pinned at eleven for the file). The read-back proves the entries
   the request sent and the deletions it named. It does not prove that untouched base-tree
   entries survived — that is `base_tree`'s contract, and a complete comparison is the

@@ -591,7 +591,8 @@ counter-claim, it is met with a shape that has no field for it:
   path is absent. The tree read is projected to the sent paths so it stays inside the
   runner's 1 MiB output bound, and a patch that would need more than 20 projected reads is
   refused before any write; a truncated listing is a refusal, not a partial pass, and GitHub
-  sets `truncated` past its documented 100,000-entry/7 MB recursive-listing ceiling. The
+  sets `truncated` past its documented 100,000-entry/7 MB recursive-listing ceiling — so a
+  repository above that ceiling cannot be published through this transport. The
   ref-creation reply is advisory — an empty or unreadable body is not a failure while the
   read-back stands — but a readable body that names another branch is. Any failure after
   GitHub accepts the ref-creation request says the branch was created but could not be

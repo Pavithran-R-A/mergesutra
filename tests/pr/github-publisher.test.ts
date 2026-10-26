@@ -267,8 +267,9 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
     expect(treeReads).toHaveLength(1);
     const program = jqPrograms(treeReads)[0] ?? '';
     expect(treeReads[0]?.args.indexOf('--jq')).toBe((treeReads[0]?.args.length ?? 0) - 3);
-    expect(program).toContain('truncated: (.truncated // false)');
+    expect(program).toContain('truncated: .truncated');
     expect(program).not.toContain('\n');
+    expect(program.length).toBeLessThanOrEqual(3000);
     expect(filtersOf([program]).sort()).toEqual(patch.files.map((file) => file.path).sort());
 
     const blobs = scripted.calls.filter((call) => call.endpoint.endsWith('/git/blobs'));
@@ -291,13 +292,13 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
 
     // Each tree entry must point at the blob reply for its own file. The
     // read-back cannot catch a swapped mapping, because GitHub would store what
-    // the request sent; only an assertion against the patch order can.
+    // the request sent; only an assertion against the measured patch can.
     const treeByPath = new Map(tree.tree.map((entry) => [entry.path, entry]));
     blobs.forEach((call, index) => {
-      const file = patch.files[index];
-      expect(file).toBeDefined();
       const content = Buffer.from((call.payload as { content: string }).content, 'base64');
-      expect(sha256Hex(content)).toBe(file?.contentSha256);
+      const digest = sha256Hex(content);
+      const file = patch.files.find((candidate) => candidate.contentSha256 === digest);
+      expect(file).toBeDefined();
       expect(treeByPath.get(file?.path ?? '')?.sha).toBe(String(index + 1).padStart(40, 'b'));
     });
 
@@ -428,7 +429,7 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
     ).rejects.toThrow(/URL|url/i);
   });
 
-  it('never puts a credential in an argument and never uses a mutating verb beyond the five calls', async () => {
+  it('never puts a credential in an argument and never uses a mutating verb beyond the five Git Data writes', async () => {
     const fixture = await implementedRun(tempDirs);
     const input = await inputFor(fixture.repoDir, fixture.base);
     const scripted = scriptedGitHub();
@@ -444,8 +445,8 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
       expect(call.args).not.toContain('-f');
     }
     // Four reads: the base commit, then the created ref, commit and tree that
-    // prove what GitHub stored. Every write POSTs to exactly the four Git Data
-    // endpoints plus the pull request.
+    // prove what GitHub stored. The five writes are two blobs, one tree, one
+    // commit and one ref; the draft pull request is created by a separate call.
     expect(scripted.calls.filter((call) => call.method === 'GET')).toHaveLength(4);
     expect(scripted.calls.filter((call) => call.method === 'POST')).toHaveLength(5);
     expect(scripted.calls.every((call) => call.args.includes('--hostname'))).toBe(true);
@@ -595,6 +596,38 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
     expect(refusal.message).toMatch(/truncated/i);
   });
 
+  it('refuses a tree read that omits the truncation flag, rather than assuming it', async () => {
+    const fixture = await implementedRun(tempDirs);
+    const input = await inputFor(fixture.repoDir, fixture.base);
+    const scripted = scriptedGitHub();
+    scriptHappyPath(scripted, fixture.base, input.branch);
+    scripted.replies.set(READ_BACK_TREE, () =>
+      ok({
+        sha: 'c'.repeat(40),
+        tree: sentEntries(scripted).filter((entry) => entry.sha !== null),
+      }),
+    );
+    const remote = createGitHubPublicationRemote({ run: scripted.run });
+
+    const refusal = await refusalOf(remote.pushBranch(input));
+    expect(refusal.message).toMatch(/could not verify/i);
+    expect(refusal.message).toMatch(/truncated/i);
+  });
+
+  it('refuses a tree read that reports a different tree SHA', async () => {
+    const fixture = await implementedRun(tempDirs);
+    const input = await inputFor(fixture.repoDir, fixture.base);
+    const scripted = scriptedGitHub();
+    scriptHappyPath(scripted, fixture.base, input.branch);
+    scripted.replies.set(READ_BACK_TREE, ok({ sha: 'e'.repeat(40), truncated: false, tree: [] }));
+    const remote = createGitHubPublicationRemote({ run: scripted.run });
+
+    const refusal = await refusalOf(remote.pushBranch(input));
+    expect(refusal.message).toMatch(/could not verify/i);
+    expect(refusal.message).toContain('e'.repeat(40));
+    expect(refusal.message).toMatch(/tree read reports/i);
+  });
+
   it('refuses a tree read that still carries a path the approved patch deleted', async () => {
     const fixture = await implementedRun(tempDirs);
     await rm(path.join(fixture.repoDir, 'README.md'));
@@ -637,30 +670,39 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
     expect(refusal.message).toContain(input.branch);
     expect(refusal.message).toContain('d'.repeat(40));
     expect(refusal.remediation).toMatch(/inspect the branch/i);
+    expect(refusal.remediation).toMatch(/do not retry this command/i);
+    expect(refusal.remediation).not.toMatch(/before retrying|retry once|try again/i);
     expect(refusal.kind).toBe('invalid-response');
     expect(refusal.retryable).toBe(false);
   });
 
-  it('accepts a healthy branch whose creation reply cannot be read, because the read-back is the evidence', async () => {
-    const fixture = await implementedRun(tempDirs);
-    const input = await inputFor(fixture.repoDir, fixture.base);
-    const scripted = scriptedGitHub();
-    scriptHappyPath(scripted, fixture.base, input.branch);
-    scripted.replies.set(`POST repos/${REPOSITORY}/git/refs`, {
-      code: 0,
-      stdout: '',
-      stderr: '',
-      timedOut: false,
-      truncated: false,
-    });
-    const remote = createGitHubPublicationRemote({ run: scripted.run });
+  it.each([
+    ['an empty body', ''],
+    ['a body that is not JSON', 'not json'],
+    ['a JSON body of the wrong shape', '{"ref": 7}'],
+  ])(
+    'accepts a healthy branch when the creation reply is %s, because the read-back is the evidence',
+    async (_label, body) => {
+      const fixture = await implementedRun(tempDirs);
+      const input = await inputFor(fixture.repoDir, fixture.base);
+      const scripted = scriptedGitHub();
+      scriptHappyPath(scripted, fixture.base, input.branch);
+      scripted.replies.set(`POST repos/${REPOSITORY}/git/refs`, {
+        code: 0,
+        stdout: body,
+        stderr: '',
+        timedOut: false,
+        truncated: false,
+      });
+      const remote = createGitHubPublicationRemote({ run: scripted.run });
 
-    await expect(remote.pushBranch(input)).resolves.toEqual({
-      branch: input.branch,
-      commitSha: 'd'.repeat(40),
-    });
-    expect(scripted.calls.at(-1)?.endpoint).toBe(READ_BACK_TREE.slice('GET '.length));
-  });
+      await expect(remote.pushBranch(input)).resolves.toEqual({
+        branch: input.branch,
+        commitSha: 'd'.repeat(40),
+      });
+      expect(scripted.calls.at(-1)?.endpoint).toBe(READ_BACK_TREE.slice('GET '.length));
+    },
+  );
 
   it('refuses a creation reply that names another branch, and says the request was accepted', async () => {
     const fixture = await implementedRun(tempDirs);
@@ -701,6 +743,26 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
     const refusal = await refusalOf(remote.pushBranch(input));
     expect(refusal.message).toMatch(/could not verify/i);
     expect(refusal.message).toContain('refs/heads/some-other-branch');
+  });
+
+  it('refuses a read-back ref whose object is not a commit', async () => {
+    const fixture = await implementedRun(tempDirs);
+    const input = await inputFor(fixture.repoDir, fixture.base);
+    const scripted = scriptedGitHub();
+    scriptHappyPath(scripted, fixture.base, input.branch);
+    scripted.replies.set(
+      `GET repos/${REPOSITORY}/git/ref/heads/${input.branch}`,
+      ok({
+        ref: `refs/heads/${input.branch}`,
+        object: { sha: 'd'.repeat(40), type: 'tree' },
+      }),
+    );
+    const remote = createGitHubPublicationRemote({ run: scripted.run });
+
+    const refusal = await refusalOf(remote.pushBranch(input));
+    expect(refusal.message).toMatch(/could not verify/i);
+    expect(refusal.message).toMatch(/expected shape for the created branch/i);
+    expect(refusal.message).toMatch(/commit/i);
   });
 
   it('refuses a read-back commit that reports a different SHA', async () => {
@@ -761,6 +823,7 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
     expect(treeReads.length).toBeGreaterThanOrEqual(2);
     const programs = jqPrograms(treeReads);
     expect(new Set(programs).size).toBe(treeReads.length);
+    for (const program of programs) expect(program.length).toBeLessThanOrEqual(3000);
     const filtered = filtersOf(programs);
     expect(filtered.length).toBe(patch.files.length);
     expect(new Set(filtered)).toEqual(new Set(patch.files.map((file) => file.path)));

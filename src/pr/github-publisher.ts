@@ -262,8 +262,9 @@ class GitHubPublicationRemote implements PublicationRemote {
           `GitHub accepted the request to create branch '${input.branch}' at commit ${commitSha}, ` +
           `but MergeSutra could not verify what it stored: ${reason}.`,
         remediation:
-          'Inspect the branch and any pull request on GitHub before retrying. MergeSutra will ' +
-          'not move, force or delete a branch it created.',
+          'Do not retry this command; inspect the branch and any pull request on GitHub, and ' +
+          'decide what it should carry. MergeSutra will not move, force or delete a branch it ' +
+          'created.',
         cause,
         details: { branch: input.branch, commitSha, reason },
       });
@@ -570,33 +571,39 @@ function parseOf<T>(value: unknown, schema: z.ZodType<T>, label: string): T {
   return parsed.data;
 }
 
+function treeProgram(selectors: string): string {
+  return `{sha: .sha, truncated: .truncated, tree: [.tree[] | select(${selectors})]}`;
+}
+
+/** The program's fixed text, charged into every group's budget. */
+const TREE_FILTER_OVERHEAD = treeProgram('').length;
+
 /**
  * One `--jq` program per group of paths, so a filtered tree read stays inside the
  * runner's 1 MiB output bound however large the repository is. Paths enter as JSON
  * strings, which are also valid jq string literals, so a quote or a backslash in a
- * filename stays data instead of becoming jq syntax.
+ * filename stays data instead of becoming jq syntax. Each group's fixed wrapper is
+ * charged against the same limit; a single path longer than the budget is kept in a
+ * group of its own, because a filename cannot be split.
  */
 function treeFilters(paths: readonly string[]): string[] {
   const groups: string[][] = [];
   let current: string[] = [];
-  let size = 0;
+  let size = TREE_FILTER_OVERHEAD;
   for (const file of new Set(paths)) {
     const addition = JSON.stringify(file).length + ' or .path == '.length;
     if (current.length > 0 && size + addition > TREE_FILTER_LIMIT) {
       groups.push(current);
       current = [];
-      size = 0;
+      size = TREE_FILTER_OVERHEAD;
     }
     current.push(file);
     size += addition;
   }
   if (current.length > 0) groups.push(current);
 
-  return groups.map(
-    (group) =>
-      `{sha: .sha, truncated: (.truncated // false), tree: [.tree[] | select(${group
-        .map((file) => `.path == ${JSON.stringify(file)}`)
-        .join(' or ')})]}`,
+  return groups.map((group) =>
+    treeProgram(group.map((file) => `.path == ${JSON.stringify(file)}`).join(' or ')),
   );
 }
 
