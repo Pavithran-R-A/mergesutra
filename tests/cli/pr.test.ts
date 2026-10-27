@@ -330,6 +330,7 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
     const text = io.text();
     expect(text).toContain('REMOTE PUBLICATION FAILED');
     expect(text).toContain('THE REMOTE MAY HAVE CHANGED');
+    expect(text).not.toContain('--publish');
     expect(text).not.toContain('DRAFT PULL REQUEST OPENED');
     expect(code).toBe(EXIT.BLOCKED);
 
@@ -376,9 +377,33 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
     const text = io.text();
     expect(text).toContain('REMOTE PUBLICATION FAILED');
     expect(text).toMatch(/do not retry this command/i);
-    expect(text).not.toMatch(/before retrying|retry only|try again/i);
+    expect(text).not.toMatch(/before retrying|retry only|try again|then retry|retry if/i);
+    // The screen that reports a refused send must not carry a command that would ask
+    // the remote again — neither a row nor the closing words may say `--publish`.
+    expect(text).not.toContain('--publish');
     expect(text).not.toContain('DRAFT PULL REQUEST OPENED');
     expect(code).toBe(EXIT.BLOCKED);
+
+    // The same words on the machine-readable surface: a script reading this payload
+    // decides what to do next, so it carries the transport's own remediation rather
+    // than a command it could run again.
+    const asJson = capture();
+    const jsonCode = await run(
+      [
+        'node',
+        'mergesutra',
+        'pr',
+        fixture.record.runId,
+        '--approve',
+        digest,
+        '--publish',
+        '--json',
+      ],
+      { ...asJson, env: {}, pr: depsFor(fixture, remote) },
+    );
+    expect(jsonCode).toBe(EXIT.BLOCKED);
+    expect(asJson.text()).toMatch(/do not retry this command/i);
+    expect(asJson.text()).not.toContain('--publish');
   });
 
   it('shows a draft recorded earlier as history, not as an event of this read', async () => {

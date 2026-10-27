@@ -163,10 +163,18 @@ describe('mergesutra CLI', () => {
   it('has stopped treating `verify` as planned, without making it succeed', async () => {
     const c = capture();
     const err = capture();
+    // `verify [run-id]` with no id chooses the newest implemented run in the current
+    // directory, and a verification writes its record back. Pointed at the developer's
+    // own checkout that rewrites a real run and answers this test from whatever files
+    // happen to be there, so the store and the directory are both supplied here.
+    const cwd = await mkdtemp(path.join(tmpdir(), 'mergesutra-planned-'));
+    tempDirs.push(cwd);
+
     const code = await run(['node', 'mergesutra', 'verify'], {
       write: c.write,
       writeErr: err.write,
       env: { NO_COLOR: '1' },
+      verify: { store: memoryRunStore(), cwd },
     });
     expect(code).not.toBe(2);
     expect(c.out()).not.toContain('is planned, not yet implemented');
@@ -177,13 +185,23 @@ describe('mergesutra CLI', () => {
 
   it('stops treating `plan` as a planned command, without making it succeed', async () => {
     const c = capture();
+    const err = capture();
+    // Same ambient-store reason as the `verify` case above: `plan` with no run id reads
+    // the newest run in the current directory, and the answer it gives — and therefore
+    // this test's — changes with whatever records the developer happens to leave there.
+    const cwd = await mkdtemp(path.join(tmpdir(), 'mergesutra-planned-'));
+    tempDirs.push(cwd);
+
     const code = await run(['node', 'mergesutra', 'plan'], {
       write: c.write,
+      writeErr: err.write,
       env: { NO_COLOR: '1' },
+      plan: { store: memoryRunStore(), cwd },
     });
     expect(code).not.toBe(2);
     expect(c.out()).not.toContain('is planned, not yet implemented');
     expect(code).not.toBe(0);
+    expect(err.out()).toMatch(/[Rr]un/);
   });
 
   it('contract with nothing to build on fails instead of inventing criteria', async () => {

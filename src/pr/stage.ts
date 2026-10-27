@@ -274,6 +274,8 @@ export async function runPrStage(
       runId,
       approved: decision?.allowed === true,
       recorded: recordedPublication,
+      sent: result,
+      failed: publicationFailure !== null,
     }),
     publicationRow({
       requested: publishRequested,
@@ -739,9 +741,23 @@ function nextStepRow(input: {
   runId: string;
   approved: boolean;
   recorded: PublicationResult | null;
+  sent: PublicationResult | null;
+  failed: boolean;
 }): RunCheck {
   const missing = input.report.blocking.filter((row) => row.id !== 'human-approved');
   if (missing.length === 0) {
+    if (input.sent !== null) {
+      // The send this row would otherwise offer has already happened, and a second one
+      // would ask GitHub for a branch that exists.
+      return {
+        name: 'Publication next step',
+        status: 'INFO',
+        detail:
+          `Every fact this stage reads is current, and the send is settled: this command asked ` +
+          `GitHub for a draft and it opened #${String(input.sent.number)} at ${input.sent.url}. ` +
+          'Nothing further is offered for the same page: reviewing and merging are human acts in GitHub.',
+      };
+    }
     if (input.recorded !== null) {
       return {
         name: 'Publication next step',
@@ -750,6 +766,19 @@ function nextStepRow(input: {
           `Every fact this stage reads is current. This run already records draft pull request ` +
           `#${String(input.recorded.number)} at ${input.recorded.url}, so this stage will not ask ` +
           'for a second one. Merging is a human act in GitHub.',
+      };
+    }
+    if (input.failed) {
+      // The page is still the page a human agreed to, so the honest next step is the
+      // remote itself: only reading the repository says what it took.
+      return {
+        name: 'Publication next step',
+        status: 'WARN',
+        detail:
+          'Every fact this stage reads is current, but the send reported above did not end with a ' +
+          'draft, so this stage offers no command that asks the remote for anything: what GitHub ' +
+          'holds now is answerable only by reading the repository. Reviewing and merging are human ' +
+          'acts in GitHub.',
       };
     }
     const next = input.approved

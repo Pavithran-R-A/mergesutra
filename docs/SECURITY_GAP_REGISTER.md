@@ -853,6 +853,25 @@ The queue is in-process only, and its case fold trusts the platform rather than 
 filesystem. The sentence "`save()` is unchanged" earlier in this entry is the Stage-12
 record, not the current tree.
 
+*Later change (2026-10-27, found by the F04 audit gate).* Two cases in
+`tests/cli/program.test.ts` ran `mergesutra verify` and `mergesutra plan` with no store injected,
+and both stages build one from the working directory when nothing is supplied
+(`src/verify/stage.ts:66-67`, `src/plan/plan.ts:66`). Executed from this repository they chose the
+newest run in the developer's own `.mergesutra/runs`, answered from the state they found there
+rather than a state they were given, and **saved a record back** (`src/verify/stage.ts:145`,
+`src/plan/plan.ts:342`). The observed trace was one run's record carrying `stage=verify`,
+`outcome=VERIFICATION_BLOCKED` while the pack beside it still read `review` / `REVIEW_RECORDED`,
+with only the file's mtime marking the write. Both cases now pass `memoryRunStore()` and a fresh
+temporary `cwd` — the shape the `resume`, `status` and `report` cases in the same file already
+used.
+
+*What that leaves.* This entry's `save()` semantics are untouched: the unwanted write went through
+the same temp-plus-rename path and left a well-formed record, which is exactly what the durability
+claim above predicts for a save nobody asked for. The isolation is per-case discipline, not an
+enforced boundary — nothing in the suite fails when a CLI case omits the injection, and this one
+surfaced only as an unrelated red assertion. The store records no writer identity, so a file's
+mtime is the evidence a reach into the operator's state leaves behind.
+
 ---
 
 ## S12-09 — the proven-dead takeover has a read-then-write window (§19 asked exactly this)

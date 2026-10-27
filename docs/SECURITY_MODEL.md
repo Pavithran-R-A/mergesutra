@@ -8,9 +8,9 @@
 > **[DESIGNED]** is the full adversarial matrix over file *names* and
 > configuration shapes (§2). Sections 2.2 to 2.5 have been built and tested since
 > — the verification engine, the reviewer, the repair cycle and the publication
-> page — and what survives of that last clause is the boundary a real publisher
-> would stand in front of, which is a stage this build does not have: §2.5's
-> headline claim is that an approval buys no hands.
+> page — and what survives of that last clause is §2.5's headline claim: an
+> approval buys no hands. `pr --publish` asks GitHub for one branch and one draft;
+> merging, closing, releasing and deleting stay acts a person performs in GitHub.
 
 ## 1. Authority hierarchy (higher cannot be overridden by lower)
 
@@ -592,16 +592,21 @@ counter-claim, it is met with a shape that has no field for it:
   runner's 1 MiB output bound, and a patch that would need more than 20 projected reads is
   refused before any write; a truncated listing is a refusal, not a partial pass, and GitHub
   sets `truncated` past its documented 100,000-entry/7 MB recursive-listing ceiling — so a
-  repository above that ceiling cannot be published through this transport. The
-  ref-creation reply is advisory — an empty or unreadable body is not a failure while the
-  read-back stands — but a readable body that names another branch is. Any failure after
-  GitHub accepts the ref-creation request reports that the request was accepted but what it
-  stored could not be verified, naming the branch, commit and reason, and carries a
-  do-not-retry remediation: inspection rather than a retry that could collide with a branch
-  the request created. The read-back proves the changed paths; untouched base-tree
-  entries rest on `base_tree`'s contract rather than on a complete tree comparison, and an
-  entry GitHub silently added outside the sent paths is not seen — an entry sent but missing
-  is.
+  repository above that ceiling cannot be published through this transport. The ref-creation
+  reply is advisory — an empty or unreadable body is not a failure while the read-back stands —
+  but a readable body that names another branch is. A failure inside that read-back — whatever
+  its own cause — is reported as a request GitHub accepted but a result MergeSutra could not
+  verify, naming the branch, commit and reason, and carries a do-not-retry remediation the stage
+  and the screen repeat verbatim: inspection rather than a retry that could collide with a branch
+  the request created. A refusal from the pull-request call is a different answer and is carried
+  as GitHub's own, with the branch it left behind still where it is. And the row that would point
+  at a next command is told what this run's send answered: a page showing an opened draft names
+  that pull request and offers nothing further for the same page, while a page showing a refused
+  send names no command that reaches the remote — its row and the screen's closing line both
+  point at reading GitHub instead of a second ask that could collide with a branch the first one
+  made. The read-back proves the changed paths; untouched base-tree entries rest on
+  `base_tree`'s contract rather than on a complete tree comparison, and an entry GitHub silently
+  added outside the sent paths is not seen — an entry sent but missing is.
 - **What the oracle names, and what it cannot:** `src/process/tool-policy.ts` classifies
   by what a command does, so `gh …` is `REMOTE_MUTATION`, `curl`, `wget`, `nc` and the
   bare package runners are `NETWORK`, `npm publish` (and its pnpm/yarn spellings) is

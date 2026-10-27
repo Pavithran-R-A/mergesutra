@@ -2042,13 +2042,15 @@ from the act all remain in force.)*
 - **Consequence:** `pr/stage.ts` still cannot publish, and plain `pr` now prints
   `REMOTE PUBLICATION NOT ATTEMPTED`; `--publish` without an approval sends nothing and says
   the same. Success prints `DRAFT PULL REQUEST OPENED` / `NOT MERGED — MERGING IS A HUMAN ACT
-  IN GITHUB.`; a later read reports a recorded draft as history without re-sending. A failure
-  exits 4 and reports the transport's own remediation; after the ref was accepted that
-  remediation is inspection, not a retry. No live draft pull
-  request had been opened by this tree when this ADR was written; the controlled demonstration
-  is a separate, human-approved step. ADR-071 adds the post-write read-back this ADR's
-  "create" sequence did not name: the transport now reads the branch, commit and tree after
-  creating the ref and refuses a publication it cannot prove.
+  IN GITHUB.`; a later read reports a recorded draft as history without re-sending. A send that
+  the transport answers for exits 4 and reports the transport's own remediation; after the ref
+  was accepted that remediation is inspection, not a retry. A screen that has just reported a
+  send offers no second one: after a draft it names that pull request and adds nothing for the
+  same page, and after a refusal its row and its closing line name no command that reaches the
+  remote. No live draft pull request had been opened by this tree when this ADR was written; the
+  controlled demonstration is a separate, human-approved step. ADR-071 adds the post-write
+  read-back this ADR's "create" sequence did not name: the transport now reads the branch, commit
+  and tree after creating the ref and refuses a publication it cannot prove.
 
 ## ADR-070 — One run's saves take turns inside a process, and the queue is keyed by the file it names
 
@@ -2102,11 +2104,14 @@ from the act all remain in force.)*
   fit more per read. A truncated listing refuses rather than passing a subset; GitHub
   documents a 100,000-entry/7 MB ceiling on a recursive listing and sets `truncated` past it,
   so a repository above that ceiling cannot pass verification and publication is refused
-  there rather than partially proven. Any failure after GitHub accepts the ref-creation
-  request is reported as "GitHub accepted the request to create branch … but MergeSutra
-  could not verify what it stored", naming the branch, commit and reason; the stage and the
-  screen carry the transport's do-not-retry remediation verbatim, and the transport never
-  retries, forces or deletes.
+  there rather than partially proven. A failure inside that read-back — whatever its own
+  cause — is reported as "GitHub accepted the request to create branch … but MergeSutra
+  could not verify what it stored", naming the branch, commit and reason; the stage's row,
+  the filed `nextStage`, the `--json` payload and the screen carry the transport's
+  do-not-retry remediation verbatim, and the transport never retries, forces or deletes. A
+  refusal from the pull-request call is not put in that sentence: by then the branch has been
+  read back, so GitHub's own answer is what a person needs, beside a branch the request did
+  create.
 - **Reason:** `POST /git/refs` returning a ref is GitHub's statement that *a* branch exists.
   The stage then records `commitSha`, and the CLI prints `DRAFT PULL REQUEST OPENED`. Before
   this decision nothing read the branch back, so a response naming the right ref but a

@@ -359,6 +359,9 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     const rows = rowsOf(published.checks);
     expect(rows).toMatch(/draft pull request #7/);
     expect(rows).toMatch(/merging, reviewing and closing are human acts/i);
+    // The draft is now a remote fact this run owns, so no row may still offer the send
+    // that just happened — a second `--publish` would ask for a duplicate branch.
+    expect(rows).not.toMatch(/--publish|to ask GitHub for a draft pull request/i);
     expect(published.record.nextStage).toMatch(/DRAFT_PULL_REQUEST_OPENED/);
     expect(published.record.nextStage).toMatch(/Nothing was merged/);
 
@@ -487,9 +490,15 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     expect(rowsOf(failed.checks)).toMatch(/remote may have changed/i);
     // The transport supplied no remediation, so the stage must not invent a retry
     // for a failure whose write may already have landed.
-    expect(rowsOf(failed.checks)).not.toMatch(/before retrying|retry only|try again/i);
+    expect(rowsOf(failed.checks)).not.toMatch(
+      /before retrying|retry only|try again|then retry|retry if/i,
+    );
+    // And it must not offer the send that just failed as though it were the next step.
+    expect(rowsOf(failed.checks)).not.toMatch(/--publish|to ask GitHub for a draft pull request/i);
     expect(failed.record.nextStage).toMatch(/PUBLICATION_FAILED/);
-    expect(failed.record.nextStage).not.toMatch(/before retrying|retry only|try again/i);
+    expect(failed.record.nextStage).not.toMatch(
+      /before retrying|retry only|try again|then retry|retry if/i,
+    );
     expect(fake.pulls).toEqual([]);
 
     const saved = await fixture.store.load(fixture.record.runId);
@@ -535,9 +544,12 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     expect(failed.outcome).toBe('PR_PUBLICATION_BLOCKED');
     const rows = rowsOf(failed.checks);
     expect(rows).toMatch(/do not retry this command/i);
-    expect(rows).not.toMatch(/before retrying|retry only|try again/i);
+    expect(rows).not.toMatch(/before retrying|retry only|try again|then retry|retry if/i);
+    expect(rows).not.toMatch(/--publish|to ask GitHub for a draft pull request/i);
     expect(failed.record.nextStage).toMatch(/do not retry this command/i);
-    expect(failed.record.nextStage).not.toMatch(/before retrying|retry only|try again/i);
+    expect(failed.record.nextStage).not.toMatch(
+      /before retrying|retry only|try again|then retry|retry if/i,
+    );
   });
 
   it('does not report a pushed branch as nothing when only the pull request failed', async () => {
@@ -564,6 +576,7 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     expect(failed.outcome).toBe('PR_PUBLICATION_BLOCKED');
     expect(failed.publicationFailure).toMatch(/scripted pull failure/);
     expect(rowsOf(failed.checks)).toMatch(/inspect the branch and any pull request/i);
+    expect(rowsOf(failed.checks)).not.toMatch(/--publish|to ask GitHub for a draft pull request/i);
     const saved = await fixture.store.load(fixture.record.runId);
     expect(saved.publications[0]?.result).toBeNull();
     expect(saved.publications[0]?.approval).not.toBeNull();

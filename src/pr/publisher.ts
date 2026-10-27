@@ -108,25 +108,26 @@ const createPullRequestInputSchema = z
   .strict();
 
 /**
- * The one transport this build ships with: a refusal with two names.
+ * The transport for a caller that reached the stage without wiring one.
  *
- * It is the value every production call site gets, and it has nothing to fall
- * back to — no ambient token, no `gh` on PATH, no default host. A caller who wants
- * a different answer has to hand `publish` a transport, which is a decision somebody
- * makes in a test file or in a later stage's wiring, not a thing that happens
- * because a variable was unset.
+ * `mergesutra pr --publish` constructs the GitHub transport and hands it in, so this
+ * is what a caller gets when nothing was handed over — and it has nothing to fall
+ * back to: no ambient token, no `gh` on PATH, no default host. A caller who wants a
+ * different answer has to pass a transport, which is a decision somebody makes in a
+ * test file or in a wiring site, not a thing that happens because a variable was unset.
  */
 export function unavailableRemote(): PublicationRemote {
   const refusal = (what: string) =>
     new AppError({
       kind: 'not-implemented',
       message:
-        `MergeSutra has no remote configured for publishing, so it cannot ${what}. ` +
-        'This build prepares and approves a pull request; it does not open one.',
+        `This invocation reached the publication stage with no remote wired, so it cannot ${what}. ` +
+        'Nothing was sent, and nothing here looked for a credential.',
       remediation:
-        'Keep the approved candidate: `mergesutra report` prints the page and ' +
-        '`git push` plus a pull request opened by hand gets the same review. No ' +
-        'MergeSutra setting makes this stage publish.',
+        '`mergesutra pr <run-id> --publish` is the invocation that wires the GitHub transport. ' +
+        'Without it, keep the approved candidate: `mergesutra report` prints the page and ' +
+        '`git push` plus a pull request opened by hand gets the same review. No MergeSutra ' +
+        'setting turns a command that was not asked to publish into one that did.',
       details: { action: 'CREATE_PULL_REQUEST', remote: 'not-configured' },
     });
 
