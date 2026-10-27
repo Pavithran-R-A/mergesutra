@@ -339,6 +339,48 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
     expect(saved.publications[0]?.result).toBeNull();
   });
 
+  it("prints a read-back refusal's do-not-retry remediation rather than advising a retry", async () => {
+    const fixture = await proposedRun(tempDirs);
+    const first = capture();
+    await run(['node', 'mergesutra', 'pr', fixture.record.runId], {
+      ...first,
+      env: {},
+      pr: depsFor(fixture),
+    });
+    const digest = digestOnScreen(first.text());
+    const remote: PublicationRemote = {
+      async pushBranch() {
+        throw new AppError({
+          kind: 'invalid-response',
+          retryable: false,
+          message:
+            "GitHub accepted the request to create branch 'mergesutra/x' at commit " +
+            `${'d'.repeat(40)}, but MergeSutra could not verify what it stored: ` +
+            'the tree listing was truncated.',
+          remediation:
+            'Do not retry this command; inspect the branch and any pull request on GitHub, and ' +
+            'decide what it should carry. MergeSutra will not move, force or delete a branch it created.',
+        });
+      },
+      async createPullRequest() {
+        throw new Error('a read-back refusal must not reach the pull request');
+      },
+    };
+
+    const io = capture();
+    const code = await run(
+      ['node', 'mergesutra', 'pr', fixture.record.runId, '--approve', digest, '--publish'],
+      { ...io, env: {}, pr: depsFor(fixture, remote) },
+    );
+
+    const text = io.text();
+    expect(text).toContain('REMOTE PUBLICATION FAILED');
+    expect(text).toMatch(/do not retry this command/i);
+    expect(text).not.toMatch(/before retrying|retry only|try again/i);
+    expect(text).not.toContain('DRAFT PULL REQUEST OPENED');
+    expect(code).toBe(EXIT.BLOCKED);
+  });
+
   it('shows a draft recorded earlier as history, not as an event of this read', async () => {
     const fixture = await proposedRun(tempDirs);
     const first = capture();

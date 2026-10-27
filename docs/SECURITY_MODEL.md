@@ -595,9 +595,10 @@ counter-claim, it is met with a shape that has no field for it:
   repository above that ceiling cannot be published through this transport. The
   ref-creation reply is advisory — an empty or unreadable body is not a failure while the
   read-back stands — but a readable body that names another branch is. Any failure after
-  GitHub accepts the ref-creation request says the branch was created but could not be
-  verified, and the remediation is inspection rather than a retry that could collide with a
-  branch the request created. The read-back proves the changed paths; untouched base-tree
+  GitHub accepts the ref-creation request reports that the request was accepted but what it
+  stored could not be verified, naming the branch, commit and reason, and carries a
+  do-not-retry remediation: inspection rather than a retry that could collide with a branch
+  the request created. The read-back proves the changed paths; untouched base-tree
   entries rest on `base_tree`'s contract rather than on a complete tree comparison, and an
   entry GitHub silently added outside the sent paths is not seen — an entry sent but missing
   is.

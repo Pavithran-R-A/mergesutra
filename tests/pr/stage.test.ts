@@ -485,13 +485,59 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     expect(failed.publicationFailure).toMatch(/scripted push failure/);
     // A partial write is possible, so the row may not say nothing happened.
     expect(rowsOf(failed.checks)).toMatch(/remote may have changed/i);
+    // The transport supplied no remediation, so the stage must not invent a retry
+    // for a failure whose write may already have landed.
+    expect(rowsOf(failed.checks)).not.toMatch(/before retrying|retry only|try again/i);
     expect(failed.record.nextStage).toMatch(/PUBLICATION_FAILED/);
+    expect(failed.record.nextStage).not.toMatch(/before retrying|retry only|try again/i);
     expect(fake.pulls).toEqual([]);
 
     const saved = await fixture.store.load(fixture.record.runId);
     expect(saved.outcome).toBe('PR_PUBLICATION_BLOCKED');
     expect(saved.publications[0]?.approval?.publicationDigest).toBe(shown.digest);
     expect(saved.publications[0]?.result).toBeNull();
+  });
+
+  it("carries a read-back refusal's do-not-retry remediation instead of advising a retry", async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '' },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    const remote: PublicationRemote = {
+      async pushBranch() {
+        throw new AppError({
+          kind: 'invalid-response',
+          retryable: false,
+          message:
+            "GitHub accepted the request to create branch 'mergesutra/x' at commit " +
+            `${'d'.repeat(40)}, but MergeSutra could not verify what it stored: ` +
+            'the tree listing was truncated.',
+          remediation:
+            'Do not retry this command; inspect the branch and any pull request on GitHub, and ' +
+            'decide what it should carry. MergeSutra will not move, force or delete a branch it created.',
+        });
+      },
+      async createPullRequest() {
+        throw new Error('a read-back refusal must not reach the pull request');
+      },
+    };
+
+    const failed = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW, remote },
+    );
+
+    expect(failed.outcome).toBe('PR_PUBLICATION_BLOCKED');
+    const rows = rowsOf(failed.checks);
+    expect(rows).toMatch(/do not retry this command/i);
+    expect(rows).not.toMatch(/before retrying|retry only|try again/i);
+    expect(failed.record.nextStage).toMatch(/do not retry this command/i);
+    expect(failed.record.nextStage).not.toMatch(/before retrying|retry only|try again/i);
   });
 
   it('does not report a pushed branch as nothing when only the pull request failed', async () => {

@@ -224,7 +224,9 @@ export function formatPr(input: PrStageResult, renderer: Renderer): string {
     lines.push(renderer.heading('NOTHING WAS SENT BY THIS COMMAND; NOTHING HAS BEEN MERGED.'));
   } else if (result.publicationFailure) {
     lines.push(renderer.heading('REMOTE PUBLICATION FAILED'));
-    lines.push(renderer.heading('THE REMOTE MAY HAVE CHANGED — INSPECT IT BEFORE RETRYING.'));
+    lines.push(
+      renderer.heading('THE REMOTE MAY HAVE CHANGED — INSPECT IT BEFORE DECIDING WHAT TO DO.'),
+    );
   } else {
     // Both ways of arriving here — no --publish, and --publish without an approval —
     // asked no remote for anything. The capability exists; this invocation did not

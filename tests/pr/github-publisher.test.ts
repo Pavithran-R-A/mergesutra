@@ -294,12 +294,26 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
     // read-back cannot catch a swapped mapping, because GitHub would store what
     // the request sent; only an assertion against the measured patch can.
     const treeByPath = new Map(tree.tree.map((entry) => [entry.path, entry]));
+    // Keyed by digest with a per-digest cursor, so two files whose bytes are identical
+    // still have both of their tree entries asserted rather than the first file twice.
+    expect(patch.files.filter((file) => file.contentSha256 === null)).toEqual([]);
+    const pathsByDigest = new Map<string, string[]>();
+    for (const file of patch.files) {
+      const digest = file.contentSha256;
+      if (digest === null) continue;
+      const paths = pathsByDigest.get(digest) ?? [];
+      paths.push(file.path);
+      pathsByDigest.set(digest, paths);
+    }
+    const matched = new Map<string, number>();
     blobs.forEach((call, index) => {
       const content = Buffer.from((call.payload as { content: string }).content, 'base64');
       const digest = sha256Hex(content);
-      const file = patch.files.find((candidate) => candidate.contentSha256 === digest);
-      expect(file).toBeDefined();
-      expect(treeByPath.get(file?.path ?? '')?.sha).toBe(String(index + 1).padStart(40, 'b'));
+      const used = matched.get(digest) ?? 0;
+      matched.set(digest, used + 1);
+      const path = (pathsByDigest.get(digest) ?? [])[used];
+      expect(path, `no measured file for blob ${String(index)}`).toBeDefined();
+      expect(treeByPath.get(path ?? '')?.sha).toBe(String(index + 1).padStart(40, 'b'));
     });
 
     const commit = scripted.calls.find((call) => call.endpoint.endsWith('/git/commits'))
@@ -762,7 +776,9 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
     const refusal = await refusalOf(remote.pushBranch(input));
     expect(refusal.message).toMatch(/could not verify/i);
     expect(refusal.message).toMatch(/expected shape for the created branch/i);
-    expect(refusal.message).toMatch(/commit/i);
+    // The path of the failed field, not the word "commit" that the message carries
+    // anyway in the SHA it quotes.
+    expect(refusal.message).toContain('object.type');
   });
 
   it('refuses a read-back commit that reports a different SHA', async () => {

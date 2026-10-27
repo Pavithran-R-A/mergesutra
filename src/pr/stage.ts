@@ -677,12 +677,17 @@ function publicationRow(input: {
     };
   }
   if (failure !== null) {
+    // The transport knows what its own failure permits; a generic "retry" here would
+    // contradict a read-back refusal that exists precisely because a retry could
+    // collide with a branch GitHub already created.
     return {
       name: 'Remote publication',
       status: 'FAIL',
       detail:
-        `${failure.message} The remote may have changed before this failed: inspect the branch ` +
-        'and any pull request in the repository before retrying.',
+        `${failure.message} ` +
+        (failure.remediation ??
+          'The remote may have changed before this failed: inspect the branch and any pull ' +
+            'request in the repository before deciding what to do.'),
     };
   }
   if (requested && !showable) {
@@ -798,8 +803,10 @@ function nextStageFor(input: {
   }
   if (input.outcome === 'PR_PUBLICATION_BLOCKED' && input.failure !== null) {
     return (
-      `PUBLICATION_FAILED — ${input.failure.message} The remote may have changed before this ` +
-      `failed; inspect the branch and any pull request, then retry if nothing was created.`
+      `PUBLICATION_FAILED — ${input.failure.message} ` +
+      (input.failure.remediation ??
+        'The remote may have changed before this failed; inspect the branch and any pull ' +
+          'request, then decide what to do.')
     );
   }
   if (input.outcome === 'PR_APPROVED_LOCAL') {
