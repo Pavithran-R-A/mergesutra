@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { AppError, isAppError } from '../../src/core/errors.js';
+import type { RunResult } from '../../src/core/runner.js';
 import {
   parseCreatePullRequestInput,
   parsePushBranchInput,
@@ -10,8 +12,8 @@ import {
 } from '../../src/pr/publisher.js';
 import { approvePublication } from '../../src/pr/approval.js';
 import { candidateOf, type PublicationCandidate } from '../../src/pr/candidate.js';
+import { createGitHubPublicationRemote } from '../../src/pr/github-publisher.js';
 import { candidateInput, OTHER_PATCH_IDENTITY } from '../helpers/publication.js';
-import { isAppError } from '../../src/core/errors.js';
 
 /**
  * The boundary itself — Stage 10's last line of defence.
@@ -157,6 +159,160 @@ describe('the seam a publication would go through', () => {
       publish({ candidate: elsewhere, approval, directory: WORKSPACE, remote: fake.remote }),
     ).rejects.toThrow(/other run/i);
     expect(fake.calls).toEqual([]);
+  });
+});
+
+/**
+ * What a refusal says once the repository has already been changed.
+ *
+ * `publish()` asks for the draft only after `pushBranch` returned, and that return is
+ * the read-back agreeing with the request — so by the time the second call can fail,
+ * the branch exists. The transport classifies its failures for the case where nothing
+ * was written, and its advice is then correct: `gh auth login`, then run the same
+ * command. After the branch that advice asks the repository for a second one, so the
+ * words are qualified here, at the only place that knows the branch was made. The
+ * classification — which kind, which status — is what is known about the refusal and
+ * is carried through unchanged.
+ */
+describe('what a refusal says once the branch exists', () => {
+  /**
+   * The production transport, answering only the draft request.
+   *
+   * `pushBranch` is stubbed because the fixture has no Git workspace; it returns what
+   * the real one returns after its read-back, which is the whole fact the qualification
+   * depends on. Everything from the draft request onward is production code: the
+   * scripted `gh` reply goes through the transport's own classifier, so the words
+   * asserted below are the words a real refusal carries.
+   */
+  function draftRefusing(reply: RunResult): PublicationRemote {
+    const github = createGitHubPublicationRemote({
+      run: async (_file, args) => {
+        const endpoint = args.at(-1) ?? '';
+        if (!endpoint.endsWith('/pulls')) throw new Error(`unexpected gh call to ${endpoint}`);
+        return reply;
+      },
+    });
+    return {
+      async pushBranch(input) {
+        return { branch: input.branch, commitSha: 'd'.repeat(40) };
+      },
+      createPullRequest: (input) => github.createPullRequest(input),
+    };
+  }
+
+  async function refusedAfterBranch(remote: PublicationRemote): Promise<AppError> {
+    const candidate = candidateFor();
+    const failure = await publish({
+      candidate,
+      approval: approvePublication({ candidate, approvedAt: '2026-09-25T10:15:00.000Z' }),
+      directory: WORKSPACE,
+      remote,
+    }).catch((error: unknown) => error);
+    expect(isAppError(failure)).toBe(true);
+    const refusal = failure as AppError;
+    // The branch the request named is the branch the run created, not some other name.
+    expect(refusal.message).toContain(candidate.proposedBranch);
+    expect(refusal.message).toMatch(/created and read back/i);
+    expect(refusal.retryable).toBe(false);
+    expect(refusal.remediation).toMatch(/do not retry this command/i);
+    expect(refusal.remediation).not.toMatch(
+      /before retrying|retry only|retry once|try again|then retry|retry the same|retry if/i,
+    );
+    return refusal;
+  }
+
+  function ghFailure(stderr: string): RunResult {
+    return { code: 1, stdout: '', stderr, timedOut: false, truncated: false };
+  }
+
+  it('keeps an authentication refusal as one, and points at the branch instead of a second send', async () => {
+    const refusal = await refusedAfterBranch(
+      draftRefusing(
+        ghFailure('gh: HTTP 401 Bad credentials — run `gh auth login` to authenticate'),
+      ),
+    );
+
+    expect(refusal.kind).toBe('auth');
+    expect(refusal.status).toBe(401);
+  });
+
+  it('keeps a rate limit as one, and does not promise a command will work once it resets', async () => {
+    const refusal = await refusedAfterBranch(
+      draftRefusing(ghFailure('gh: HTTP 403 API rate limit exceeded for user ID 1')),
+    );
+
+    expect(refusal.kind).toBe('rate-limit');
+    expect(refusal.status).toBe(403);
+  });
+
+  it('refuses to call a server error on the draft request something a retry can settle', async () => {
+    const refusal = await refusedAfterBranch(
+      draftRefusing(ghFailure('gh: HTTP 502 upstream returned an error page')),
+    );
+
+    expect(refusal.kind).toBe('invalid-response');
+    expect(refusal.status).toBe(502);
+  });
+
+  it('qualifies a draft reply GitHub answered with something that is not a pull request', async () => {
+    const refusal = await refusedAfterBranch(
+      draftRefusing({
+        code: 0,
+        stdout: '{"number":7,"draft":true}',
+        stderr: '',
+        timedOut: false,
+        truncated: false,
+      }),
+    );
+
+    expect(refusal.kind).toBe('invalid-response');
+  });
+
+  it('names the request GitHub refused when it already holds a pull request', async () => {
+    const shown = candidateFor();
+    const refusal = await refusedAfterBranch(
+      draftRefusing(
+        ghFailure(`gh: HTTP 422 A pull request already exists for ${shown.proposedBranch}:main.`),
+      ),
+    );
+
+    expect(refusal.kind).toBe('validation');
+    expect(refusal.message).toMatch(/pull request already exists/i);
+    // The branch write is the step this run succeeded at, so a refusal that blames a
+    // branch that could not be created describes a request that was never refused.
+    expect(refusal.message).not.toMatch(/refused to create the branch/i);
+  });
+
+  it('leaves a refusal of the branch write with the advice the transport gave for it', async () => {
+    // Before the branch exists, "run the same command again" is the truest advice
+    // available, and this composition must not silence it. The pass-through is what is
+    // tested here, so the refusal is the transport's own shape rather than a scripted
+    // reply: identity is the assertion.
+    const beforeBranch = new AppError({
+      kind: 'auth',
+      message: 'GitHub refused the request because gh is not authenticated.',
+      retryable: false,
+      remediation: 'Run `gh auth login`, then retry the same approved command.',
+    });
+    const candidate = candidateFor();
+    const remote: PublicationRemote = {
+      async pushBranch() {
+        throw beforeBranch;
+      },
+      createPullRequest: () => {
+        throw new Error('a branch refusal must not reach the draft request');
+      },
+    };
+
+    const failure = await publish({
+      candidate,
+      approval: approvePublication({ candidate, approvedAt: '2026-09-25T10:15:00.000Z' }),
+      directory: WORKSPACE,
+      remote,
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBe(beforeBranch);
+    expect((failure as AppError).remediation).toMatch(/then retry the same approved command/i);
   });
 });
 

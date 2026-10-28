@@ -274,6 +274,8 @@ export async function runPrStage(
       runId,
       approved: decision?.allowed === true,
       recorded: recordedPublication,
+      sent: result,
+      failed: publicationFailure !== null,
     }),
     publicationRow({
       requested: publishRequested,
@@ -677,12 +679,17 @@ function publicationRow(input: {
     };
   }
   if (failure !== null) {
+    // The transport knows what its own failure permits; a generic "retry" here would
+    // contradict a read-back refusal that exists precisely because a retry could
+    // collide with a branch GitHub already created.
     return {
       name: 'Remote publication',
       status: 'FAIL',
       detail:
-        `${failure.message} The remote may have changed before this failed: inspect the branch ` +
-        'and any pull request in the repository before retrying.',
+        `${failure.message} ` +
+        (failure.remediation ??
+          'The remote may have changed before this failed: inspect the branch and any pull ' +
+            'request in the repository before deciding what to do.'),
     };
   }
   if (requested && !showable) {
@@ -734,9 +741,25 @@ function nextStepRow(input: {
   runId: string;
   approved: boolean;
   recorded: PublicationResult | null;
+  sent: PublicationResult | null;
+  failed: boolean;
 }): RunCheck {
   const missing = input.report.blocking.filter((row) => row.id !== 'human-approved');
   if (missing.length === 0) {
+    if (input.sent !== null) {
+      // The send this row would otherwise offer has already happened, and a second one
+      // would ask GitHub for a branch that exists. What is settled is this command's
+      // request and the answer it got — not what the draft becomes next.
+      return {
+        name: 'Publication next step',
+        status: 'INFO',
+        detail:
+          `Every fact this stage reads is current. This command asked GitHub for a draft and it ` +
+          `reported #${String(input.sent.number)} at ${input.sent.url}, so this row offers no ` +
+          'second send for the same page: what happens to that draft — review, further commits, ' +
+          'merging — is decided in GitHub.',
+      };
+    }
     if (input.recorded !== null) {
       return {
         name: 'Publication next step',
@@ -745,6 +768,20 @@ function nextStepRow(input: {
           `Every fact this stage reads is current. This run already records draft pull request ` +
           `#${String(input.recorded.number)} at ${input.recorded.url}, so this stage will not ask ` +
           'for a second one. Merging is a human act in GitHub.',
+      };
+    }
+    if (input.failed) {
+      // The page is still the page a human agreed to, so the honest next step is the
+      // remote itself: only reading the repository says what it took. The stage does
+      // still ship a command that asks the remote, so the claim this row makes is about
+      // this row — a row that said the stage had none would be false on its face.
+      return {
+        name: 'Publication next step',
+        status: 'WARN',
+        detail:
+          'Every fact this stage reads is current, but the send reported above did not end with a ' +
+          'draft, so this row offers no next command: what GitHub holds now is answerable only by ' +
+          'reading the repository. Reviewing and merging are human acts in GitHub.',
       };
     }
     const next = input.approved
@@ -798,8 +835,10 @@ function nextStageFor(input: {
   }
   if (input.outcome === 'PR_PUBLICATION_BLOCKED' && input.failure !== null) {
     return (
-      `PUBLICATION_FAILED — ${input.failure.message} The remote may have changed before this ` +
-      `failed; inspect the branch and any pull request, then retry if nothing was created.`
+      `PUBLICATION_FAILED — ${input.failure.message} ` +
+      (input.failure.remediation ??
+        'The remote may have changed before this failed; inspect the branch and any pull ' +
+          'request, then decide what to do.')
     );
   }
   if (input.outcome === 'PR_APPROVED_LOCAL') {

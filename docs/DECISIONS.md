@@ -2042,10 +2042,18 @@ from the act all remain in force.)*
 - **Consequence:** `pr/stage.ts` still cannot publish, and plain `pr` now prints
   `REMOTE PUBLICATION NOT ATTEMPTED`; `--publish` without an approval sends nothing and says
   the same. Success prints `DRAFT PULL REQUEST OPENED` / `NOT MERGED — MERGING IS A HUMAN ACT
-  IN GITHUB.`; a later read reports a recorded draft as history without re-sending. A failure
-  after a push exits 4 and says to inspect the remote before retrying. No live draft pull
-  request had been opened by this tree when this ADR was written; the controlled demonstration
-  is a separate, human-approved step.
+  IN GITHUB.`; a later read reports a recorded draft as history without re-sending. A send that
+  the transport answers for exits 4 and reports the transport's own remediation; once the branch
+  has been read back `publish()` replaces that remediation with inspection and forces the retry
+  flag off, whatever the refusal's own cause, while a refusal of the branch write keeps the
+  transport's advice untouched. A screen that has just reported a send offers no second one: after
+  a draft it names that pull request, adds nothing for the same page and names no flag in its
+  closing line, and after a refusal its row and its closing line name no command — each about
+  itself, because the stage still ships `pr --publish`. No live draft pull request had been opened
+  by this tree when this ADR was written; the
+  controlled demonstration is a separate, human-approved step. ADR-071 adds the post-write
+  read-back this ADR's "create" sequence did not name: the transport now reads the branch, commit
+  and tree after creating the ref and refuses a publication it cannot prove.
 
 ## ADR-070 — One run's saves take turns inside a process, and the queue is keyed by the file it names
 
@@ -2081,3 +2089,65 @@ from the act all remain in force.)*
   supersedes ADR-064's closing note that two processes saving one run are "what the run lock
   is for". This changes `save()`, so S12-08's sentence "`save()` is unchanged" is now
   historical; that entry's fault-window and no-`fsync` claims are unchanged.
+
+## ADR-071 — The publication transport reads back the branch, commit and tree it asked GitHub to create
+
+- **Decision:** `pushBranch` in `src/pr/github-publisher.ts` verifies a publication after
+  `POST /git/refs` rather than trusting the write responses. It reads the branch ref, the
+  created commit and the created tree again. The ref must name `refs/heads/<branch>` and
+  point at the commit the transport just returned; the commit must report that same SHA, the
+  tree the request created, and exactly the recorded base SHA as its single parent; each path
+  the request sent must appear with the sent type, mode and blob SHA, and each path the patch
+  deleted must be absent. The tree is read through `gh api --jq` with a projection containing
+  only the sent paths (grouped so one argument stays well inside a Windows command line),
+  because the runner bounds a child's output at 1 MiB and an unfiltered recursive listing of
+  a large repository would exceed that bound. A patch whose sent paths would need more than
+  20 projected reads is refused before any write, because every read-back re-lists the sent
+  paths and the transport bounds that cost; the test plants 400 long paths, while short paths
+  fit more per read. A truncated listing refuses rather than passing a subset; GitHub
+  documents a 100,000-entry/7 MB ceiling on a recursive listing and sets `truncated` past it,
+  so a repository above that ceiling cannot pass verification and publication is refused
+  there rather than partially proven. A failure inside that read-back — whatever its own
+  cause — is reported as "GitHub accepted the request to create branch … but MergeSutra
+  could not verify what it stored", naming the branch, commit and reason; the stage's row,
+  the filed `nextStage`, the `--json` payload and the screen carry the transport's
+  do-not-retry remediation verbatim, and the transport never retries, forces or deletes. A
+  refusal from the pull-request call is not put in that sentence — but it is not left as the
+  transport wrote it either: `publish()` in `src/pr/publisher.ts` catches every refusal that call
+  reports as an `AppError`, appends that the named branch at the named commit was created and read
+  back first, keeps the transport's `kind`, `status`, `retryAfterMs` and cause, and forces
+  `retryable` off with an inspection remediation, because asking again would request a branch the
+  repository already holds whatever the reason the draft request was refused. The transport's own
+  prose is endpoint-aware beside it: a 422 on `POST /pulls` names the pull request that already
+  exists rather than a branch that could not be created, and a rate limit claims only that this
+  request was limited.
+- **Reason:** `POST /git/refs` returning a ref is GitHub's statement that *a* branch exists.
+  The stage then records `commitSha`, and the CLI prints `DRAFT PULL REQUEST OPENED`. Before
+  this decision nothing read the branch back, so a response naming the right ref but a
+  different object — or a tree that did not carry the sent blobs — would still have produced
+  a success record and a draft pointing at bytes nobody approved. The write is the
+  irreversible act; the read-back is the only evidence that its result is the requested one.
+- **Alternatives:** trusting the POST responses (rejected: that is the word being checked);
+  one unfiltered recursive tree read (rejected: it turns large but legitimate repositories
+  into false failures at the runner's output bound); per-file Contents API reads (rejected:
+  they expose blob identity but not the tree entry's mode, and each response carries file
+  content); computing the expected tree SHA locally (rejected: it needs every base-tree entry,
+  which the transport never reads).
+- **Consequence:** `tests/pr/github-publisher.test.ts` scripts every read and proves the
+  creation reply (absent, unreadable, naming another branch), ref, commit, parent, tree,
+  missing path, wrong blob, wrong type, wrong mode, resurrected deletion, truncation,
+  multi-chunk merge, chunk omission, read-back budget and read-failure cases; the
+  `prototype-keys` inventory counts the three new tolerant reply schemas (seven new
+  `.passthrough()` sites, pinned at eleven for the file). The read-back proves the entries
+  the request sent and the deletions it named. It does not prove that untouched base-tree
+  entries survived — that is `base_tree`'s contract, and a complete comparison is the
+  unfiltered alternative the output bound rules out. It also cannot see an entry GitHub
+  silently added outside the sent paths; an entry sent but missing is caught. A read-back
+  failure happens after GitHub accepts the ref-creation request, so the message says that
+  and the remediation is inspection, never a retry that could collide with a branch the
+  request created. `tests/pr/publisher.test.ts`'s `what a refusal says once the branch exists`
+  drives the production transport's draft call from a scripted `gh` and judges each refusal at
+  the composition — authentication, rate limit, server error, a body that is not a pull request,
+  and a 422 for a pull request that already exists — with the control that a refusal of the
+  branch write reaches the caller as the transport wrote it; `tests/cli/pr.test.ts` checks that
+  none of that advice survives onto the printed screen.

@@ -21,8 +21,8 @@ import {
  *
  * A refusal is not a failure: it means the artifact and the request disagreed and
  * nothing was sent. A failure means the transport was reached and did not report a
- * draft; the caller must inspect the remote before retrying, because a partial
- * write is possible.
+ * draft; the caller must inspect the remote before deciding what to do, because a
+ * partial write is possible and the product's own screen carries the remediation.
  */
 
 export async function runPublication(input) {
@@ -101,7 +101,9 @@ export async function runPublication(input) {
   if (reply?.exitCode !== 0) {
     return {
       status: 'FAILED',
-      reason: `The publication command exited ${String(reply?.exitCode)}; inspect the remote before retrying.`,
+      reason:
+        `The publication command exited ${String(reply?.exitCode)}; inspect the remote before ` +
+        'deciding what to do.',
       exitCode: reply?.exitCode ?? null,
       stderr: bound(reply?.stderr ?? ''),
       bundle,
@@ -130,7 +132,7 @@ export async function runPublication(input) {
       reason:
         `The publication command reported '${String(parsed?.outcome)}' ` +
         `and ${parsed?.published === true ? 'a page GitHub did not confirm as a draft' : 'no opened draft'}; ` +
-        'inspect the remote before retrying.',
+        'inspect the remote before deciding what to do.',
       outcome: parsed?.outcome ?? null,
       bundle,
     };

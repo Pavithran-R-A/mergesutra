@@ -184,11 +184,11 @@ function offersOf(snapshot: StatusSnapshot): Offer[] {
             0,
             12,
           )}, and no approval names that digest. \`mergesutra pr\` prints the page again for a ` +
-          'reader to agree to. This build publishes nothing: an approval here binds a human’s ' +
-          'decision to a digest, and no remote is contacted by any command in it.'
+          'reader to agree to. This offer sends nothing: an approval here binds a human’s ' +
+          'decision to a digest, and the command as offered contacts no remote.'
         : 'Everything a page is assembled from is current, and no candidate has been proposed ' +
           'for these bytes yet. `mergesutra pr` builds the page from the record and prints the ' +
-          'digest a human then has to approve; nothing in this build sends it anywhere.',
+          'digest a human then has to approve; nothing in the command as offered leaves this machine.',
     });
   }
 

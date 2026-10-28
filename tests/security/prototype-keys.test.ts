@@ -622,7 +622,7 @@ describe('source shape, so a new site cannot arrive unmeasured', () => {
   const PASSTHROUGH_SITES: Record<string, number> = {
     'bharatcode/schemas.ts': 1,
     'github/schemas.ts': 5,
-    'pr/github-publisher.ts': 4,
+    'pr/github-publisher.ts': 11,
     'report/write.ts': 2,
   };
 

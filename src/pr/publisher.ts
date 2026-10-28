@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AppError } from '../core/errors.js';
+import { AppError, isAppError } from '../core/errors.js';
 import { decidePublication, type PublicationApproval } from './approval.js';
 import { branchNameProblem } from './branch.js';
 import type { PublicationCandidate } from './candidate.js';
@@ -108,25 +108,26 @@ const createPullRequestInputSchema = z
   .strict();
 
 /**
- * The one transport this build ships with: a refusal with two names.
+ * The transport for a caller that reached the stage without wiring one.
  *
- * It is the value every production call site gets, and it has nothing to fall
- * back to — no ambient token, no `gh` on PATH, no default host. A caller who wants
- * a different answer has to hand `publish` a transport, which is a decision somebody
- * makes in a test file or in a later stage's wiring, not a thing that happens
- * because a variable was unset.
+ * `mergesutra pr --publish` constructs the GitHub transport and hands it in, so this
+ * is what a caller gets when nothing was handed over — and it has nothing to fall
+ * back to: no ambient token, no `gh` on PATH, no default host. A caller who wants a
+ * different answer has to pass a transport, which is a decision somebody makes in a
+ * test file or in a wiring site, not a thing that happens because a variable was unset.
  */
 export function unavailableRemote(): PublicationRemote {
   const refusal = (what: string) =>
     new AppError({
       kind: 'not-implemented',
       message:
-        `MergeSutra has no remote configured for publishing, so it cannot ${what}. ` +
-        'This build prepares and approves a pull request; it does not open one.',
+        `This invocation reached the publication stage with no remote wired, so it cannot ${what}. ` +
+        'Nothing was sent, and nothing here looked for a credential.',
       remediation:
-        'Keep the approved candidate: `mergesutra report` prints the page and ' +
-        '`git push` plus a pull request opened by hand gets the same review. No ' +
-        'MergeSutra setting makes this stage publish.',
+        '`mergesutra pr <run-id> --publish` is the invocation that wires the GitHub transport. ' +
+        'Without it, keep the approved candidate: `mergesutra report` prints the page and ' +
+        '`git push` plus a pull request opened by hand gets the same review. No MergeSutra ' +
+        'setting turns a command that was not asked to publish into one that did.',
       details: { action: 'CREATE_PULL_REQUEST', remote: 'not-configured' },
     });
 
@@ -179,15 +180,23 @@ export async function publish(input: {
       runId: candidate.runId,
     }),
   );
-  const created = await input.remote.createPullRequest(
-    parseCreatePullRequestInput({
-      repository: candidate.repository,
-      title: candidate.prTitle,
-      body: candidate.prBody,
-      head: candidate.proposedBranch,
-      base: candidate.targetBranch,
-    }),
-  );
+  let created: PullRequestRef;
+  try {
+    created = await input.remote.createPullRequest(
+      parseCreatePullRequestInput({
+        repository: candidate.repository,
+        title: candidate.prTitle,
+        body: candidate.prBody,
+        head: candidate.proposedBranch,
+        base: candidate.targetBranch,
+      }),
+    );
+  } catch (cause) {
+    // Anything the branch write answered is already true of the repository, so a
+    // refusal of this request is news about a changed remote whatever its own cause.
+    if (isAppError(cause)) throw afterBranchCreated(cause, pushed);
+    throw cause;
+  }
 
   return {
     branch: pushed.branch,
@@ -196,6 +205,36 @@ export async function publish(input: {
     number: created.number,
     draft: created.draft,
   };
+}
+
+/**
+ * Say what a refusal of the pull request means now that the branch write answered.
+ *
+ * A transport classifies one call in isolation, so its advice for a rate limit or a
+ * 502 is "wait, then ask again" — correct for the branch push, which left nothing
+ * behind, and wrong for the request that follows it. Retrying this one would ask the
+ * repository to create a branch it already holds, and the read-back that made that
+ * certain is exactly what `pushBranch` returned before this call was ever made. The
+ * classification carries over — kind, status, the server's wait, the cause — because
+ * the reason the request was refused is still worth knowing; only the retry flag and
+ * the advice change, and both are answers about the sequence rather than the reply.
+ */
+function afterBranchCreated(cause: AppError, pushed: PushedBranch): AppError {
+  return new AppError({
+    kind: cause.kind,
+    status: cause.status,
+    retryAfterMs: cause.retryAfterMs,
+    retryable: false,
+    cause,
+    message:
+      `${cause.message} Branch '${pushed.branch}' at commit ${pushed.commitSha.slice(0, 12)}… ` +
+      'was created and read back before this request was made, so the repository holds it.',
+    details: { ...cause.details, branch: pushed.branch, commitSha: pushed.commitSha },
+    remediation:
+      'Do not retry this command: it would ask the repository for that branch again. Inspect ' +
+      'the branch and any pull request on GitHub — opening, converting or closing a draft ' +
+      'happens there. MergeSutra will not move, force or delete a branch it created.',
+  });
 }
 
 /** Validate a push request at the boundary: one branch, one directory, no verbs. */

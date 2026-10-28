@@ -292,8 +292,9 @@ approval records that a human said yes to that page; it does not itself publish.
 a second invocation, `node dist/bin.js pr <run-id> --repo <fixture-clone> --publish`, which asks
 GitHub through your own `gh` login to push the approved patch and open a **draft** pull request. It
 re-decides the digest, re-measures the workspace before sending, and records the draft's URL and
-number on the run; it never merges. If it fails after the branch was pushed, exit `4` says the
-remote may have changed — inspect it before retrying. Both are lowering-only knobs elsewhere:
+number on the run; it never merges. If it fails after the request was accepted, exit `4` carries the
+transport's own remediation: inspect the remote, and do not assume a retry is safe. Both are
+lowering-only knobs elsewhere:
 `--max-*-cycles` may reduce a budget and may not raise one above the printed ceiling.
 
 ## 7. If a step fails

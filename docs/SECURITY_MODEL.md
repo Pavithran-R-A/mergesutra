@@ -8,9 +8,9 @@
 > **[DESIGNED]** is the full adversarial matrix over file *names* and
 > configuration shapes (§2). Sections 2.2 to 2.5 have been built and tested since
 > — the verification engine, the reviewer, the repair cycle and the publication
-> page — and what survives of that last clause is the boundary a real publisher
-> would stand in front of, which is a stage this build does not have: §2.5's
-> headline claim is that an approval buys no hands.
+> page — and what survives of that last clause is §2.5's headline claim: an
+> approval buys no hands. `pr --publish` asks GitHub for one branch and one draft;
+> merging, closing, releasing and deleting stay acts a person performs in GitHub.
 
 ## 1. Authority hierarchy (higher cannot be overridden by lower)
 
@@ -582,6 +582,42 @@ counter-claim, it is met with a shape that has no field for it:
   `--publish` path in `src/cli/pr.ts`, and the fake
   transport in `tests/pr/publisher.test.ts` proves the seam is real in the other
   direction too, so "not requested" is not indistinguishable from "never wired".
+- **The branch is read back before a draft is called opened (audit finding F04).**
+  `POST /git/refs` is GitHub's word that a branch exists, not evidence about what it
+  contains. After creating the ref, `pushBranch` reads the branch, the commit and the tree
+  again: the ref must name the branch and the commit the transport received; the commit
+  must carry that SHA, the requested tree and only the recorded base as its parent; and
+  every sent path must be present with the sent type, mode and blob SHA while every deleted
+  path is absent. The tree read is projected to the sent paths so it stays inside the
+  runner's 1 MiB output bound, and a patch that would need more than 20 projected reads is
+  refused before any write; a truncated listing is a refusal, not a partial pass, and GitHub
+  sets `truncated` past its documented 100,000-entry/7 MB recursive-listing ceiling — so a
+  repository above that ceiling cannot be published through this transport. The ref-creation
+  reply is advisory — an empty or unreadable body is not a failure while the read-back stands —
+  but a readable body that names another branch is. A failure inside that read-back — whatever
+  its own cause — is reported as a request GitHub accepted but a result MergeSutra could not
+  verify, naming the branch, commit and reason, and carries a do-not-retry remediation the stage
+  and the screen repeat verbatim: inspection rather than a retry that could collide with a branch
+  the request created. A refusal from the pull-request call is a different answer, and it is not
+  left as the transport wrote it either: `publish()` catches every refusal that call reports as an
+  `AppError` and appends that the named branch at the named commit was created and read back first,
+  keeps the transport's kind, status, `retryAfterMs` and cause, forces `retryable` off and replaces
+  the advice — because asking again would send the repository a request for a branch it already
+  holds, whatever the reason the draft request was refused. A refusal of the *branch* write keeps the transport's
+  advice verbatim: before a branch exists the same command again is the truest next step, and the
+  suite pins both directions. The transport's own prose names the request it was refused — a 422
+  on `POST /pulls` is a pull request that already exists, not a branch that could not be created,
+  and a rate limit says only that this request was limited rather than that nothing was opened.
+  And the row that would point at a next command is told what this run's send answered: a page
+  showing an opened draft names that pull request, offers no second send for the same page and
+  names no flag in its closing line, while a page showing a refused send offers no command from
+  that row and none from the screen's closing line — both say so about themselves, because the
+  stage still ships `pr --publish` and a row claiming it had none would be false on its face. The
+  residual is that reading GitHub is still the only answer about what the remote holds: this
+  product never reads a branch or a pull request back after a refusal of the draft request. The
+  read-back proves the changed paths; untouched base-tree entries rest on
+  `base_tree`'s contract rather than on a complete tree comparison, and an entry GitHub silently
+  added outside the sent paths is not seen — an entry sent but missing is.
 - **What the oracle names, and what it cannot:** `src/process/tool-policy.ts` classifies
   by what a command does, so `gh …` is `REMOTE_MUTATION`, `curl`, `wget`, `nc` and the
   bare package runners are `NETWORK`, `npm publish` (and its pnpm/yarn spellings) is

@@ -298,6 +298,12 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     expect(approved.publication).toBeNull();
     expect(fake.pushes).toEqual([]);
     expect(fake.pulls).toEqual([]);
+    // The page this row is refusing to send is a page whose send is still ahead of the
+    // reader, so it names the send. Four cases below assert that a *sent* or refused
+    // page does not; without this control they would also pass on a build that had
+    // stopped naming the flag anywhere.
+    expect(rowsOf(approved.checks)).toMatch(/`mergesutra pr \S+ --publish`/);
+    expect(approved.record.nextStage).toMatch(/`mergesutra pr \S+ --publish`/);
     const saved = await fixture.store.load(fixture.record.runId);
     expect(saved.publications[0]?.approval?.publicationDigest).toBe(shown.digest);
     expect(saved.publications[0]?.result).toBeNull();
@@ -359,6 +365,14 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     const rows = rowsOf(published.checks);
     expect(rows).toMatch(/draft pull request #7/);
     expect(rows).toMatch(/merging, reviewing and closing are human acts/i);
+    // The draft is now a remote fact this run owns, so no row may still offer the send
+    // that just happened — a second `--publish` would ask for a duplicate branch.
+    expect(rows).not.toMatch(/--publish|to ask GitHub for a draft pull request/i);
+    // A draft GitHub reported is not a send that is "settled": what the page becomes
+    // next is decided in GitHub, and the only thing this row can promise is its own
+    // refusal to offer a second send.
+    expect(rows).toMatch(/this row offers no second send/i);
+    expect(rows).not.toMatch(/the send is settled|nothing further is offered/i);
     expect(published.record.nextStage).toMatch(/DRAFT_PULL_REQUEST_OPENED/);
     expect(published.record.nextStage).toMatch(/Nothing was merged/);
 
@@ -485,13 +499,68 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     expect(failed.publicationFailure).toMatch(/scripted push failure/);
     // A partial write is possible, so the row may not say nothing happened.
     expect(rowsOf(failed.checks)).toMatch(/remote may have changed/i);
+    // The transport supplied no remediation, so the stage must not invent a retry
+    // for a failure whose write may already have landed.
+    expect(rowsOf(failed.checks)).not.toMatch(
+      /before retrying|retry only|try again|then retry|retry if/i,
+    );
+    // And it must not offer the send that just failed as though it were the next step.
+    expect(rowsOf(failed.checks)).not.toMatch(/--publish|to ask GitHub for a draft pull request/i);
     expect(failed.record.nextStage).toMatch(/PUBLICATION_FAILED/);
+    expect(failed.record.nextStage).not.toMatch(
+      /before retrying|retry only|try again|then retry|retry if/i,
+    );
     expect(fake.pulls).toEqual([]);
 
     const saved = await fixture.store.load(fixture.record.runId);
     expect(saved.outcome).toBe('PR_PUBLICATION_BLOCKED');
     expect(saved.publications[0]?.approval?.publicationDigest).toBe(shown.digest);
     expect(saved.publications[0]?.result).toBeNull();
+  });
+
+  it("carries a read-back refusal's do-not-retry remediation instead of advising a retry", async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '' },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    const remote: PublicationRemote = {
+      async pushBranch() {
+        throw new AppError({
+          kind: 'invalid-response',
+          retryable: false,
+          message:
+            "GitHub accepted the request to create branch 'mergesutra/x' at commit " +
+            `${'d'.repeat(40)}, but MergeSutra could not verify what it stored: ` +
+            'the tree listing was truncated.',
+          remediation:
+            'Do not retry this command; inspect the branch and any pull request on GitHub, and ' +
+            'decide what it should carry. MergeSutra will not move, force or delete a branch it created.',
+        });
+      },
+      async createPullRequest() {
+        throw new Error('a read-back refusal must not reach the pull request');
+      },
+    };
+
+    const failed = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW, remote },
+    );
+
+    expect(failed.outcome).toBe('PR_PUBLICATION_BLOCKED');
+    const rows = rowsOf(failed.checks);
+    expect(rows).toMatch(/do not retry this command/i);
+    expect(rows).not.toMatch(/before retrying|retry only|try again|then retry|retry if/i);
+    expect(rows).not.toMatch(/--publish|to ask GitHub for a draft pull request/i);
+    expect(failed.record.nextStage).toMatch(/do not retry this command/i);
+    expect(failed.record.nextStage).not.toMatch(
+      /before retrying|retry only|try again|then retry|retry if/i,
+    );
   });
 
   it('does not report a pushed branch as nothing when only the pull request failed', async () => {
@@ -518,6 +587,12 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     expect(failed.outcome).toBe('PR_PUBLICATION_BLOCKED');
     expect(failed.publicationFailure).toMatch(/scripted pull failure/);
     expect(rowsOf(failed.checks)).toMatch(/inspect the branch and any pull request/i);
+    expect(rowsOf(failed.checks)).not.toMatch(/--publish|to ask GitHub for a draft pull request/i);
+    // The row declines to offer a send; it may not claim the stage ships no command that
+    // asks the remote at all, because `mergesutra pr <run-id> --publish` is one, and a
+    // person who reads that claim would stop looking for the answer that is in GitHub.
+    expect(rowsOf(failed.checks)).toMatch(/this row offers no next command/i);
+    expect(rowsOf(failed.checks)).not.toMatch(/no command that asks the remote/i);
     const saved = await fixture.store.load(fixture.record.runId);
     expect(saved.publications[0]?.result).toBeNull();
     expect(saved.publications[0]?.approval).not.toBeNull();

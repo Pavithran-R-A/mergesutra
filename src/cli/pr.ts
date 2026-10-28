@@ -195,13 +195,17 @@ export function formatPr(input: PrStageResult, renderer: Renderer): string {
   lines.push(
     `  ${renderer.dim(
       result.publication
-        ? 'An approval records a decision; --publish is the act that sends it. This screen reports a ' +
-            'draft that GitHub created and claims nothing further: merging is a human act.'
+        ? 'An approval records a decision, and the send was a separate act — the rows above report ' +
+            'the draft GitHub created. This screen claims nothing further: merging is a human act.'
         : result.recordedPublication
           ? 'This run already holds a draft pull request from an earlier invocation. This screen ' +
             'reports that fact; it did not send anything, and merging is a human act in GitHub.'
-          : 'An approval here records a decision about one page. Without --publish no remote is asked, ' +
-            'and no read of this screen can be mistaken for an event that did not happen.',
+          : result.publicationFailure
+            ? 'This command asked the remote for a draft, and the rows above carry what it answered. ' +
+              'This screen offers no further send: what the remote holds now is read in the remote, ' +
+              'and merging is a human act.'
+            : 'An approval here records a decision about one page. Without --publish no remote is asked, ' +
+              'and no read of this screen can be mistaken for an event that did not happen.',
     )}`,
   );
   lines.push('');
@@ -224,7 +228,9 @@ export function formatPr(input: PrStageResult, renderer: Renderer): string {
     lines.push(renderer.heading('NOTHING WAS SENT BY THIS COMMAND; NOTHING HAS BEEN MERGED.'));
   } else if (result.publicationFailure) {
     lines.push(renderer.heading('REMOTE PUBLICATION FAILED'));
-    lines.push(renderer.heading('THE REMOTE MAY HAVE CHANGED — INSPECT IT BEFORE RETRYING.'));
+    lines.push(
+      renderer.heading('THE REMOTE MAY HAVE CHANGED — INSPECT IT BEFORE DECIDING WHAT TO DO.'),
+    );
   } else {
     // Both ways of arriving here — no --publish, and --publish without an approval —
     // asked no remote for anything. The capability exists; this invocation did not
