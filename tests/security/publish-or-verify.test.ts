@@ -19,6 +19,7 @@ const fs = require('node:fs');
 const scenario = process.env.STUB_SCENARIO;
 const logPath = process.env.STUB_LOG;
 let published = false;
+let reads = 0;
 function record(kind, args) {
   fs.appendFileSync(logPath, JSON.stringify({ kind, args }) + '\\n');
 }
@@ -37,8 +38,16 @@ cp.spawnSync = function (command, args, options) {
   switch (scenario) {
     case 'read-error':
       return { status: 1, stdout: '', stderr: 'npm error code EAI_AGAIN\\nnpm error network request failed\\n' };
+    case 'e404-token':
+      return {
+        status: 1,
+        stdout: '',
+        stderr: 'npm error code EAI_AGAIN\\nnpm error request to https://registry.npmjs.org/E404-pkg failed\\n',
+      };
     case 'missing-githead':
       return ok({ version });
+    case 'null-metadata':
+      return { status: 0, stdout: 'null', stderr: '' };
     case 'matching':
       return ok({ version, gitHead: head });
     case 'mismatched':
@@ -50,6 +59,16 @@ cp.spawnSync = function (command, args, options) {
     case 'absent-then-published':
       return published
         ? ok({ version, gitHead: head })
+        : { status: 1, stdout: '', stderr: 'npm error code E404\\n' };
+    case 'absent-then-unreadable-then-published':
+      if (!published) return { status: 1, stdout: '', stderr: 'npm error code E404\\n' };
+      reads += 1;
+      return reads === 1
+        ? { status: 1, stdout: '', stderr: 'npm error code EAI_AGAIN\\n' }
+        : ok({ version, gitHead: head });
+    case 'absent-then-unreadable':
+      return published
+        ? { status: 1, stdout: '', stderr: 'npm error code EAI_AGAIN\\n' }
         : { status: 1, stdout: '', stderr: 'npm error code E404\\n' };
     default:
       throw new Error('unknown scenario ' + scenario);
@@ -85,6 +104,10 @@ function run(scenario: string): {
     timeout: 25_000,
     env: {
       ...process.env,
+      // If the preload ever stops intercepting, npm must fail to connect rather
+      // than read the real registry and republish this machine's credentials.
+      npm_config_registry: 'http://127.0.0.1:9/',
+      npm_config_cache: path.join(scratch, 'npm-cache'),
       STUB_SCENARIO: scenario,
       STUB_LOG: logPath,
       STUB_VERSION: PKG.version,
@@ -152,5 +175,36 @@ describe('the publish-or-verify helper does not invent registry facts', () => {
     expect(result.status).not.toBe(0);
     expect(result.calls.filter((call) => call.kind === 'publish')).toEqual([]);
     expect(result.stderr).toContain('non-JSON metadata');
+  });
+
+  it('does not read a null metadata body as version absence', () => {
+    const result = run('null-metadata');
+    expect(result.status).not.toBe(0);
+    expect(result.calls.filter((call) => call.kind === 'publish')).toEqual([]);
+    expect(result.stderr).toContain('Registry version mismatch');
+  });
+
+  it('does not authorize a write from an incidental E404 token in a read error', () => {
+    const result = run('e404-token');
+    expect(result.status).not.toBe(0);
+    expect(result.calls.filter((call) => call.kind === 'publish')).toEqual([]);
+    expect(result.stderr).toMatch(/could not read/i);
+  });
+
+  it('keeps retrying a registry it cannot read after a publish, then verifies', () => {
+    const result = run('absent-then-unreadable-then-published');
+    expect(result.status).toBe(0);
+    expect(result.calls.filter((call) => call.kind === 'publish')).toHaveLength(1);
+    expect(result.stdout).toContain(`Registry verified: ${PKG.name}@${PKG.version} at ${HEAD}.`);
+  });
+
+  it('says a version it published may be live when no verification read succeeds', () => {
+    const result = run('absent-then-unreadable');
+    expect(result.status).not.toBe(0);
+    expect(result.calls.filter((call) => call.kind === 'publish')).toHaveLength(1);
+    expect(result.stdout).not.toContain('Registry verified');
+    expect(result.stderr).toContain('was published');
+    expect(result.stderr).toContain('may already be live');
+    expect(result.stderr).toMatch(/re-run this helper/i);
   });
 });

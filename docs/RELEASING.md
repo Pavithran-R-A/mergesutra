@@ -60,8 +60,15 @@ bootstrap. The release event triggers `.github/workflows/publish.yml`.
 Use tag `v<package-version>` on the exact release commit. The workflow refuses a
 tag/version mismatch. When the exact npm version already exists it verifies that the
 registry metadata names that version and the checked-out `gitHead`, rather than
-trying to republish it; metadata without `gitHead`, or a registry read that fails for
-any reason other than a 404, fails the release instead of counting as version absence.
+trying to republish it. A registry read that fails for any reason other than npm's own
+`code E404` line fails the release instead of counting as version absence, and metadata
+without `gitHead` fails it as a mismatched commit does. npm answers a private read it
+cannot authorize with E404 too, so the publish that follows is still subject to npm's
+own duplicate-version refusal.
+
+If `npm publish` succeeds but no verification read succeeds, the step fails and says the
+version may already be live. Re-running the workflow verifies an existing exact version
+instead of publishing it again.
 
 ## BharatCode validation boundary
 
