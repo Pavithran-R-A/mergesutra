@@ -458,7 +458,11 @@ class GitHubPublicationRemote implements PublicationRemote {
     if (lower.includes('rate limit')) {
       return new AppError({
         kind: 'rate-limit',
-        message: 'GitHub rate limited this request; nothing was opened.',
+        // "Nothing was opened" would be a claim about the repository, and a limit can
+        // only be described by what it did to this request: the objects already
+        // uploaded for a branch stay uploaded, and a draft refused here may still be
+        // owed to a retry.
+        message: 'GitHub rate limited this request.',
         retryable: true,
         status: parsedStatus ?? 403,
         remediation: 'Wait for the limit to reset, then retry the same approved command.',
@@ -466,14 +470,22 @@ class GitHubPublicationRemote implements PublicationRemote {
       });
     }
     if (parsedStatus === 422 && lower.includes('already exists')) {
+      // GitHub answers both writes with a 422 and the same phrase, so which request was
+      // refused is only knowable from the endpoint this failure came from. Naming the
+      // other one would tell a person a write failed that in fact succeeded.
+      const draftRequest = endpoint.endsWith('/pulls');
       return new AppError({
         kind: 'validation',
-        message:
-          'GitHub refused to create the branch because a branch with that name already exists. ' +
-          'MergeSutra does not move or overwrite existing branches.',
-        remediation:
-          "Inspect the existing branch. If it is not this run's, delete it yourself or choose a " +
-          'fresh workspace branch; MergeSutra will not force the name.',
+        message: draftRequest
+          ? 'GitHub refused to open the draft because a pull request already exists for that branch and target. ' +
+            'MergeSutra does not close, reopen or replace another pull request.'
+          : 'GitHub refused to create the branch because a branch with that name already exists. ' +
+            'MergeSutra does not move or overwrite existing branches.',
+        remediation: draftRequest
+          ? 'Inspect the existing pull request on GitHub — converting it, adding to it or closing it ' +
+            'all happen there. MergeSutra will not touch a pull request it did not open.'
+          : "Inspect the existing branch. If it is not this run's, delete it yourself or choose a " +
+            'fresh workspace branch; MergeSutra will not force the name.',
         details: { endpoint, output: text },
       });
     }

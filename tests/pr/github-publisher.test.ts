@@ -443,6 +443,29 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
     ).rejects.toThrow(/URL|url/i);
   });
 
+  it('claims only what a rate limit can prove, and keeps the retry it is owed before a branch', async () => {
+    const fixture = await implementedRun(tempDirs);
+    const input = await inputFor(fixture.repoDir, fixture.base);
+    const scripted = scriptedGitHub();
+    scriptHappyPath(scripted, fixture.base, input.branch);
+    scripted.replies.set(
+      `POST repos/${REPOSITORY}/git/refs`,
+      fail('gh: HTTP 403 API rate limit exceeded for user ID 1'),
+    );
+    const remote = createGitHubPublicationRemote({ run: scripted.run });
+
+    const refusal = await refusalOf(remote.pushBranch(input));
+
+    expect(refusal.kind).toBe('rate-limit');
+    // The blobs, tree and commit this request uploaded are objects GitHub kept, so a
+    // rate limit can only be described by what it did to the request.
+    expect(refusal.message).not.toMatch(/nothing was opened|nothing was created|no change/i);
+    // No branch exists yet, so the same approved command is still the way to go on —
+    // the advice the post-branch composition has to remove, and this one must not.
+    expect(refusal.remediation).toMatch(/wait for the limit to reset, then retry/i);
+    expect(refusal.message).not.toContain(input.branch);
+  });
+
   it('never puts a credential in an argument and never uses a mutating verb beyond the five Git Data writes', async () => {
     const fixture = await implementedRun(tempDirs);
     const input = await inputFor(fixture.repoDir, fixture.base);

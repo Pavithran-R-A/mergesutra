@@ -195,8 +195,8 @@ export function formatPr(input: PrStageResult, renderer: Renderer): string {
   lines.push(
     `  ${renderer.dim(
       result.publication
-        ? 'An approval records a decision; --publish is the act that sends it. This screen reports a ' +
-            'draft that GitHub created and claims nothing further: merging is a human act.'
+        ? 'An approval records a decision, and the send was a separate act — the rows above report ' +
+            'the draft GitHub created. This screen claims nothing further: merging is a human act.'
         : result.recordedPublication
           ? 'This run already holds a draft pull request from an earlier invocation. This screen ' +
             'reports that fact; it did not send anything, and merging is a human act in GitHub.'

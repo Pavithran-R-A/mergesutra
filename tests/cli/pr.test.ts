@@ -8,6 +8,7 @@ import { AppError } from '../../src/core/errors.js';
 import { recordWith } from '../helpers/review.js';
 import { onItsOwnBranch, proposedRun, type PublicationFixture } from '../helpers/publicationRun.js';
 import { cleanUp, hasGit, implementedRun } from '../helpers/verifyRun.js';
+import { createGitHubPublicationRemote } from '../../src/pr/github-publisher.js';
 import type { PrStageDeps } from '../../src/pr/stage.js';
 import type {
   CreatePullRequestInput,
@@ -83,7 +84,10 @@ const PUSHED_SHA = 'd'.repeat(40);
  * The real transport is tested against a scripted `gh` in its own suite; here the
  * question is what the command does around it — whether a yes has to exist before a
  * transport is called at all, and whether the screen distinguishes a draft GitHub
- * reported from a merge this product cannot request.
+ * reported from a merge this product cannot request. One case below makes an exception
+ * and calls the real transport's draft request, because the sentence a refusal ends
+ * with is a screen claim as much as it is a transport claim, and a suite of typed-in
+ * fakes cannot see it.
  */
 function fakeRemote(options: { pushFails?: boolean } = {}): {
   remote: PublicationRemote;
@@ -222,6 +226,10 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
     // A draft that exists is a remote change; the old "nothing changed" footer would
     // now be false on this path.
     expect(text).not.toContain('NO REMOTE CHANGE HAS BEEN MADE.');
+    // The send this screen reports is the send that just happened, so nothing on it
+    // may name the flag again — not a row, not the closing line, not the filed next
+    // stage. `--publish` is only owed a place on a page whose send is still ahead.
+    expect(text).not.toContain('--publish');
     expect(code).toBe(EXIT.OK);
 
     const saved = await fixture.store.load(fixture.record.runId);
@@ -303,6 +311,11 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
     expect(text).toContain('REMOTE PUBLICATION NOT ATTEMPTED');
     expect(text).toContain('NO REMOTE CHANGE HAS BEEN MADE.');
     expect(text).not.toContain('DRAFT PULL REQUEST OPENED');
+    // The flag has a place on a page whose send is still ahead of the reader, which is
+    // what makes its absence on the pages that report a send — the one above this,
+    // which opened a draft, and the ones below, whose sends were refused — something
+    // other than a build that never names it.
+    expect(text).toContain('--publish');
     expect(code).toBe(EXIT.INCONCLUSIVE);
 
     const saved = await fixture.store.load(fixture.record.runId);
@@ -404,6 +417,60 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
     expect(jsonCode).toBe(EXIT.BLOCKED);
     expect(asJson.text()).toMatch(/do not retry this command/i);
     expect(asJson.text()).not.toContain('--publish');
+  });
+
+  /**
+   * The same judgement with the production transport answering the draft request.
+   *
+   * Every other failing-send case here hands the stage a refusal somebody typed into
+   * a test file, so none of them could see what GitHub's own classifier produces — and
+   * that classifier was written for a request that changed nothing, so it ends "then
+   * retry the same approved command". By the time the draft request is made the branch
+   * exists, and this screen is where a person reads that advice and acts on it. Only
+   * the branch write is stubbed below, because the fixture has no repository for the
+   * real one to measure against; the reply travels through the real transport.
+   */
+  it('does not hand back the transport retry advice once the branch it refused past exists', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const first = capture();
+    await run(['node', 'mergesutra', 'pr', fixture.record.runId], {
+      ...first,
+      env: {},
+      pr: depsFor(fixture),
+    });
+    const digest = digestOnScreen(first.text());
+    const github = createGitHubPublicationRemote({
+      run: async () => ({
+        code: 1,
+        stdout: '',
+        stderr: 'gh: HTTP 401 Bad credentials — run `gh auth login` to authenticate',
+        timedOut: false,
+        truncated: false,
+      }),
+    });
+    const remote: PublicationRemote = {
+      async pushBranch(input) {
+        return { branch: input.branch, commitSha: PUSHED_SHA };
+      },
+      createPullRequest: (input) => github.createPullRequest(input),
+    };
+
+    const io = capture();
+    const code = await run(
+      ['node', 'mergesutra', 'pr', fixture.record.runId, '--approve', digest, '--publish'],
+      { ...io, env: {}, pr: depsFor(fixture, remote) },
+    );
+
+    const text = io.text();
+    expect(code).toBe(EXIT.BLOCKED);
+    expect(text).toContain('REMOTE PUBLICATION FAILED');
+    expect(text).toContain(`mergesutra/${fixture.record.runId}`);
+    expect(text).toMatch(/created and read back/i);
+    expect(text).toMatch(/do not retry this command/i);
+    expect(text).not.toMatch(
+      /then retry|retry the same|retry only|retry once|try again|before retrying/i,
+    );
+    expect(text).not.toContain('--publish');
   });
 
   it('shows a draft recorded earlier as history, not as an event of this read', async () => {

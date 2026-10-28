@@ -748,14 +748,16 @@ function nextStepRow(input: {
   if (missing.length === 0) {
     if (input.sent !== null) {
       // The send this row would otherwise offer has already happened, and a second one
-      // would ask GitHub for a branch that exists.
+      // would ask GitHub for a branch that exists. What is settled is this command's
+      // request and the answer it got — not what the draft becomes next.
       return {
         name: 'Publication next step',
         status: 'INFO',
         detail:
-          `Every fact this stage reads is current, and the send is settled: this command asked ` +
-          `GitHub for a draft and it opened #${String(input.sent.number)} at ${input.sent.url}. ` +
-          'Nothing further is offered for the same page: reviewing and merging are human acts in GitHub.',
+          `Every fact this stage reads is current. This command asked GitHub for a draft and it ` +
+          `reported #${String(input.sent.number)} at ${input.sent.url}, so this row offers no ` +
+          'second send for the same page: what happens to that draft — review, further commits, ' +
+          'merging — is decided in GitHub.',
       };
     }
     if (input.recorded !== null) {
@@ -770,15 +772,16 @@ function nextStepRow(input: {
     }
     if (input.failed) {
       // The page is still the page a human agreed to, so the honest next step is the
-      // remote itself: only reading the repository says what it took.
+      // remote itself: only reading the repository says what it took. The stage does
+      // still ship a command that asks the remote, so the claim this row makes is about
+      // this row — a row that said the stage had none would be false on its face.
       return {
         name: 'Publication next step',
         status: 'WARN',
         detail:
           'Every fact this stage reads is current, but the send reported above did not end with a ' +
-          'draft, so this stage offers no command that asks the remote for anything: what GitHub ' +
-          'holds now is answerable only by reading the repository. Reviewing and merging are human ' +
-          'acts in GitHub.',
+          'draft, so this row offers no next command: what GitHub holds now is answerable only by ' +
+          'reading the repository. Reviewing and merging are human acts in GitHub.',
       };
     }
     const next = input.approved

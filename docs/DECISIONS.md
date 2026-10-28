@@ -2043,11 +2043,14 @@ from the act all remain in force.)*
   `REMOTE PUBLICATION NOT ATTEMPTED`; `--publish` without an approval sends nothing and says
   the same. Success prints `DRAFT PULL REQUEST OPENED` / `NOT MERGED — MERGING IS A HUMAN ACT
   IN GITHUB.`; a later read reports a recorded draft as history without re-sending. A send that
-  the transport answers for exits 4 and reports the transport's own remediation; after the ref
-  was accepted that remediation is inspection, not a retry. A screen that has just reported a
-  send offers no second one: after a draft it names that pull request and adds nothing for the
-  same page, and after a refusal its row and its closing line name no command that reaches the
-  remote. No live draft pull request had been opened by this tree when this ADR was written; the
+  the transport answers for exits 4 and reports the transport's own remediation; once the branch
+  has been read back `publish()` replaces that remediation with inspection and forces the retry
+  flag off, whatever the refusal's own cause, while a refusal of the branch write keeps the
+  transport's advice untouched. A screen that has just reported a send offers no second one: after
+  a draft it names that pull request, adds nothing for the same page and names no flag in its
+  closing line, and after a refusal its row and its closing line name no command — each about
+  itself, because the stage still ships `pr --publish`. No live draft pull request had been opened
+  by this tree when this ADR was written; the
   controlled demonstration is a separate, human-approved step. ADR-071 adds the post-write
   read-back this ADR's "create" sequence did not name: the transport now reads the branch, commit
   and tree after creating the ref and refuses a publication it cannot prove.
@@ -2109,9 +2112,15 @@ from the act all remain in force.)*
   could not verify what it stored", naming the branch, commit and reason; the stage's row,
   the filed `nextStage`, the `--json` payload and the screen carry the transport's
   do-not-retry remediation verbatim, and the transport never retries, forces or deletes. A
-  refusal from the pull-request call is not put in that sentence: by then the branch has been
-  read back, so GitHub's own answer is what a person needs, beside a branch the request did
-  create.
+  refusal from the pull-request call is not put in that sentence — but it is not left as the
+  transport wrote it either: `publish()` in `src/pr/publisher.ts` catches every refusal that call
+  reports as an `AppError`, appends that the named branch at the named commit was created and read
+  back first, keeps the transport's `kind`, `status`, `retryAfterMs` and cause, and forces
+  `retryable` off with an inspection remediation, because asking again would request a branch the
+  repository already holds whatever the reason the draft request was refused. The transport's own
+  prose is endpoint-aware beside it: a 422 on `POST /pulls` names the pull request that already
+  exists rather than a branch that could not be created, and a rate limit claims only that this
+  request was limited.
 - **Reason:** `POST /git/refs` returning a ref is GitHub's statement that *a* branch exists.
   The stage then records `commitSha`, and the CLI prints `DRAFT PULL REQUEST OPENED`. Before
   this decision nothing read the branch back, so a response naming the right ref but a
@@ -2136,4 +2145,9 @@ from the act all remain in force.)*
   silently added outside the sent paths; an entry sent but missing is caught. A read-back
   failure happens after GitHub accepts the ref-creation request, so the message says that
   and the remediation is inspection, never a retry that could collide with a branch the
-  request created.
+  request created. `tests/pr/publisher.test.ts`'s `what a refusal says once the branch exists`
+  drives the production transport's draft call from a scripted `gh` and judges each refusal at
+  the composition — authentication, rate limit, server error, a body that is not a pull request,
+  and a 422 for a pull request that already exists — with the control that a refusal of the
+  branch write reaches the caller as the transport wrote it; `tests/cli/pr.test.ts` checks that
+  none of that advice survives onto the printed screen.

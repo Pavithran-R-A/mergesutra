@@ -598,13 +598,24 @@ counter-claim, it is met with a shape that has no field for it:
   its own cause — is reported as a request GitHub accepted but a result MergeSutra could not
   verify, naming the branch, commit and reason, and carries a do-not-retry remediation the stage
   and the screen repeat verbatim: inspection rather than a retry that could collide with a branch
-  the request created. A refusal from the pull-request call is a different answer and is carried
-  as GitHub's own, with the branch it left behind still where it is. And the row that would point
-  at a next command is told what this run's send answered: a page showing an opened draft names
-  that pull request and offers nothing further for the same page, while a page showing a refused
-  send names no command that reaches the remote — its row and the screen's closing line both
-  point at reading GitHub instead of a second ask that could collide with a branch the first one
-  made. The read-back proves the changed paths; untouched base-tree entries rest on
+  the request created. A refusal from the pull-request call is a different answer, and it is not
+  left as the transport wrote it either: `publish()` catches every refusal that call reports as an
+  `AppError` and appends that the named branch at the named commit was created and read back first,
+  keeps the transport's kind, status, `retryAfterMs` and cause, forces `retryable` off and replaces
+  the advice — because asking again would send the repository a request for a branch it already
+  holds, whatever the reason the draft request was refused. A refusal of the *branch* write keeps the transport's
+  advice verbatim: before a branch exists the same command again is the truest next step, and the
+  suite pins both directions. The transport's own prose names the request it was refused — a 422
+  on `POST /pulls` is a pull request that already exists, not a branch that could not be created,
+  and a rate limit says only that this request was limited rather than that nothing was opened.
+  And the row that would point at a next command is told what this run's send answered: a page
+  showing an opened draft names that pull request, offers no second send for the same page and
+  names no flag in its closing line, while a page showing a refused send offers no command from
+  that row and none from the screen's closing line — both say so about themselves, because the
+  stage still ships `pr --publish` and a row claiming it had none would be false on its face. The
+  residual is that reading GitHub is still the only answer about what the remote holds: this
+  product never reads a branch or a pull request back after a refusal of the draft request. The
+  read-back proves the changed paths; untouched base-tree entries rest on
   `base_tree`'s contract rather than on a complete tree comparison, and an entry GitHub silently
   added outside the sent paths is not seen — an entry sent but missing is.
 - **What the oracle names, and what it cannot:** `src/process/tool-policy.ts` classifies

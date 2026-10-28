@@ -298,6 +298,12 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     expect(approved.publication).toBeNull();
     expect(fake.pushes).toEqual([]);
     expect(fake.pulls).toEqual([]);
+    // The page this row is refusing to send is a page whose send is still ahead of the
+    // reader, so it names the send. Four cases below assert that a *sent* or refused
+    // page does not; without this control they would also pass on a build that had
+    // stopped naming the flag anywhere.
+    expect(rowsOf(approved.checks)).toMatch(/`mergesutra pr \S+ --publish`/);
+    expect(approved.record.nextStage).toMatch(/`mergesutra pr \S+ --publish`/);
     const saved = await fixture.store.load(fixture.record.runId);
     expect(saved.publications[0]?.approval?.publicationDigest).toBe(shown.digest);
     expect(saved.publications[0]?.result).toBeNull();
@@ -362,6 +368,11 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     // The draft is now a remote fact this run owns, so no row may still offer the send
     // that just happened — a second `--publish` would ask for a duplicate branch.
     expect(rows).not.toMatch(/--publish|to ask GitHub for a draft pull request/i);
+    // A draft GitHub reported is not a send that is "settled": what the page becomes
+    // next is decided in GitHub, and the only thing this row can promise is its own
+    // refusal to offer a second send.
+    expect(rows).toMatch(/this row offers no second send/i);
+    expect(rows).not.toMatch(/the send is settled|nothing further is offered/i);
     expect(published.record.nextStage).toMatch(/DRAFT_PULL_REQUEST_OPENED/);
     expect(published.record.nextStage).toMatch(/Nothing was merged/);
 
@@ -577,6 +588,11 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     expect(failed.publicationFailure).toMatch(/scripted pull failure/);
     expect(rowsOf(failed.checks)).toMatch(/inspect the branch and any pull request/i);
     expect(rowsOf(failed.checks)).not.toMatch(/--publish|to ask GitHub for a draft pull request/i);
+    // The row declines to offer a send; it may not claim the stage ships no command that
+    // asks the remote at all, because `mergesutra pr <run-id> --publish` is one, and a
+    // person who reads that claim would stop looking for the answer that is in GitHub.
+    expect(rowsOf(failed.checks)).toMatch(/this row offers no next command/i);
+    expect(rowsOf(failed.checks)).not.toMatch(/no command that asks the remote/i);
     const saved = await fixture.store.load(fixture.record.runId);
     expect(saved.publications[0]?.result).toBeNull();
     expect(saved.publications[0]?.approval).not.toBeNull();
