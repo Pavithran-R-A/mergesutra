@@ -17,13 +17,22 @@ function npm(args, options = {}) {
 
 function view() {
   const result = npm(['view', spec, 'version', 'gitHead', '--json']);
-  if (result.status !== 0) return null;
-  try {
-    return JSON.parse(result.stdout);
-  } catch {
-    process.stderr.write('npm returned non-JSON metadata for the published package.\n');
-    process.exit(1);
+  if (result.status === 0) {
+    try {
+      return JSON.parse(result.stdout);
+    } catch {
+      process.stderr.write('npm returned non-JSON metadata for the published package.\n');
+      process.exit(1);
+    }
   }
+  // npm exits 1 for both a missing version and a failed read; E404 is its only
+  // signal for absence, so anything else must not be read as "not published".
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+  if (/\bE404\b/.test(output)) return null;
+  process.stderr.write(
+    `Could not read ${spec} from the registry; refusing to treat that as version absence.\n${output}\n`,
+  );
+  process.exit(1);
 }
 
 function verify(meta) {
@@ -35,11 +44,17 @@ function verify(meta) {
     );
     process.exit(1);
   }
-  if (gitHead && gitHead !== head) {
+  if (typeof gitHead !== 'string' || gitHead.length === 0) {
+    process.stderr.write(
+      `Registry metadata for ${spec} names no gitHead, so it cannot be tied to release commit ${head}.\n`,
+    );
+    process.exit(1);
+  }
+  if (gitHead !== head) {
     process.stderr.write(`Registry gitHead ${gitHead} does not match release commit ${head}.\n`);
     process.exit(1);
   }
-  process.stdout.write(`Registry verified: ${spec}${gitHead ? ` at ${gitHead}` : ''}.\n`);
+  process.stdout.write(`Registry verified: ${spec} at ${gitHead}.\n`);
 }
 
 const existing = view();

@@ -58,8 +58,10 @@ Do not publish the GitHub Release until the exact npm version exists for the fir
 bootstrap. The release event triggers `.github/workflows/publish.yml`.
 
 Use tag `v<package-version>` on the exact release commit. The workflow refuses a
-tag/version mismatch and verifies an already-existing exact npm version rather than
-trying to republish it.
+tag/version mismatch. When the exact npm version already exists it verifies that the
+registry metadata names that version and the checked-out `gitHead`, rather than
+trying to republish it; metadata without `gitHead`, or a registry read that fails for
+any reason other than a 404, fails the release instead of counting as version absence.
 
 ## BharatCode validation boundary
 
