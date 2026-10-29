@@ -187,9 +187,12 @@ run('accepts metadata whose 40-hex gitHead is the release commit', () => {
 });
 
 run('refuses metadata without gitHead', () => {
+  // The fault must be named: with the missing-commit guard deleted, an absent gitHead falls
+  // through to the malformed-commit message, which still says gitHead, so a /gitHead/
+  // expectation witnesses nothing. Same reason the two orchestration cases below pin the phrase.
   assert.throws(
     () => lib.verifyRegistryMetadata({ version: '0.2.0' }, EXPECT),
-    /gitHead/,
+    /names no gitHead/,
   );
 });
 
@@ -272,7 +275,7 @@ run('refuses to publish when the preflight metadata carries no gitHead', () => {
   assert.equal(result.code, 1);
   assert.equal(result.calls.length, 1);
   assert.doesNotMatch(result.printed, /Publishing/);
-  assert.match(result.refused, /gitHead/);
+  assert.match(result.refused, /names no gitHead/);
 });
 
 run('refuses to publish when the preflight gitHead names another commit', () => {
@@ -348,7 +351,7 @@ run('refuses post-publish metadata without gitHead', () => {
   const result = drive([viewE404(), PUBLISH_OK, viewOk({ version: '0.2.0' })]);
   assert.equal(result.code, 1);
   assert.equal(result.calls.length, 3);
-  assert.match(result.refused, /gitHead/);
+  assert.match(result.refused, /names no gitHead/);
 });
 
 process.stdout.write(JSON.stringify(out) + '\n');
