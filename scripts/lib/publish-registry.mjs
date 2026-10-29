@@ -5,10 +5,16 @@
  * collapse them: this version is absent, this version's metadata was read, or the read
  * itself failed. Only npm's own `code E404` line, alone on a line of its own, is
  * absence; an incidental token in other text is not, because a read that failed for
- * another reason must never authorize a write. Metadata is accepted only when it names
- * the package version and a full lowercase 40-hex `gitHead` equal to the release
- * commit; metadata without a `gitHead` that can be read cannot tie the published bytes
- * to the commit, so it fails verification rather than passing it.
+ * another reason must never authorize a write. Metadata is accepted when it names the
+ * package version. A `gitHead` is verified as strictly as it can be — a full lowercase
+ * 40-hex commit equal to the release commit — but it is not demanded, because npm's own
+ * publish path does not record one (`libnpmpublish` normalizes with `steps: ['fixName']`,
+ * and `@npmcli/package-json` only produces `gitHead` when its steps name it): a version
+ * this helper published correctly answers with the version alone, and refusing that left
+ * the release gate red for good, since re-running reads the same answer. A read-back with
+ * no commit says so on its own line rather than claiming a tie. Neither accepted shape
+ * authorizes a write — only an absence does that — so the fail-closed property survives
+ * the relaxed provenance rule.
  *
  * After a successful publish both an absent and a failed answer are retried within a
  * bounded poll: a version that was just published may still be propagating, and the
@@ -66,10 +72,13 @@ export function classifyViewOutcome(result) {
 }
 
 /**
- * Throws unless the registry metadata names `version` at `head`. Returns the two
- * values that were checked, so a caller prints what it verified rather than what it
- * hoped to verify. A body that is not an object — `null`, an array, a bare version
- * string — names no version, so it is refused as the version mismatch it is.
+ * Throws unless the registry metadata names `version`; when it also names a `gitHead`,
+ * that must be a full lowercase 40-hex commit equal to the release commit. Returns the
+ * values it checked, with `gitHead` undefined when the answer carried none, so a caller
+ * prints the provenance it actually has. A body that is not an object — `null`, an array
+ * — names no version, so it is refused as the version mismatch it is; a bare version
+ * string is what `npm view` prints for a version with nothing else to report, and is
+ * accepted at that version.
  */
 export function verifyRegistryMetadata(metadata, expected) {
   const object = typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata);
@@ -80,20 +89,30 @@ export function verifyRegistryMetadata(metadata, expected) {
     );
   }
   const gitHead = object ? metadata.gitHead : undefined;
-  if (typeof gitHead !== 'string' || gitHead.length === 0) {
-    throw new Error(
-      `Registry metadata for ${expected.spec} names no gitHead, so it cannot be tied to release commit ${expected.head}.`,
-    );
-  }
-  if (!GIT_HEAD.test(gitHead)) {
-    throw new Error(
-      `The registry reports gitHead '${bounded(gitHead)}', which is not a full lowercase 40-hex commit.`,
-    );
-  }
-  if (gitHead !== expected.head) {
-    throw new Error(`Registry gitHead ${gitHead} does not match release commit ${expected.head}.`);
+  if (gitHead !== undefined) {
+    if (typeof gitHead !== 'string' || !GIT_HEAD.test(gitHead)) {
+      throw new Error(
+        `The registry reports gitHead '${bounded(String(gitHead))}', which is not a full lowercase 40-hex commit.`,
+      );
+    }
+    if (gitHead !== expected.head) {
+      throw new Error(
+        `Registry gitHead ${gitHead} does not match release commit ${expected.head}.`,
+      );
+    }
   }
   return { version, gitHead };
+}
+
+/**
+ * The line printed for a verified version. Both verification points use it, so the
+ * statement of what was proven cannot drift between them.
+ */
+function verifiedLine(spec, head, verified) {
+  return verified.gitHead === undefined
+    ? `Registry verified: ${spec}. The registry reports no gitHead for this version, so the ` +
+        `published bytes are not tied to release commit ${head}. Version, not commit, was proven.\n`
+    : `Registry verified: ${spec} at ${verified.gitHead}.\n`;
 }
 
 function defaultWait() {
@@ -111,7 +130,7 @@ export function publishOrVerify(options) {
   const err = options.err ?? (() => {});
   const wait = options.wait ?? defaultWait;
   const readSpec = ['view', spec, 'version', 'gitHead', '--json'];
-  const expect = { version, head, spec };
+  const expect = { version, head };
 
   const first = classifyViewOutcome(npm(readSpec));
   if (first.kind === 'error') {
@@ -121,13 +140,14 @@ export function publishOrVerify(options) {
     return 1;
   }
   if (first.kind === 'metadata') {
+    let verified;
     try {
-      const verified = verifyRegistryMetadata(first.metadata, expect);
-      out(`Registry verified: ${spec} at ${verified.gitHead}.\n`);
+      verified = verifyRegistryMetadata(first.metadata, expect);
     } catch (error) {
       err(`${error.message}\n`);
       return 1;
     }
+    out(verifiedLine(spec, head, verified));
     out('This exact version already exists on npm; refusing to republish it.\n');
     return 0;
   }
@@ -140,13 +160,14 @@ export function publishOrVerify(options) {
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
     const next = classifyViewOutcome(npm(readSpec));
     if (next.kind === 'metadata') {
+      let verified;
       try {
-        const verified = verifyRegistryMetadata(next.metadata, expect);
-        out(`Registry verified: ${spec} at ${verified.gitHead}.\n`);
+        verified = verifyRegistryMetadata(next.metadata, expect);
       } catch (error) {
         err(`${error.message}\n`);
         return 1;
       }
+      out(verifiedLine(spec, head, verified));
       return 0;
     }
     last = next.kind;

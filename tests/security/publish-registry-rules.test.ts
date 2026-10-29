@@ -17,6 +17,18 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * version whose bytes could not be tied to the release commit still printed
  * "Registry verified".
  *
+ * The commit-tie rule was then over-corrected, and this suite also holds the repair
+ * of that (round 2026-10-29, F07): `npm publish` does not write `gitHead` into the
+ * manifest it sends — npm 11's `libnpmpublish` normalizes with `steps: ['fixName']`,
+ * and `@npmcli/package-json` only produces `gitHead` when its steps name `gitHead` —
+ * so a mandatory `gitHead` rejects a version this very script published correctly,
+ * which made the release gate unable to go green for real. A version the registry
+ * reports is now verified whether or not it carries a commit; a `gitHead` that *is*
+ * present is still checked as a full lowercase 40-hex commit equal to the release
+ * commit, and when there is none the script says so instead of claiming a tie.
+ * Absence of the field never authorizes a write, so the fail-closed property that
+ * F05 was about is preserved.
+ *
  * The decisions now live in `scripts/lib/publish-registry.mjs`, which this suite
  * drives in a real Node process against scripted `npm` results. The shipped script
  * is checked for delegating to it rather than keeping a second copy of the rules.
@@ -55,7 +67,7 @@ function meta(overrides = {}) {
   return { version: '0.2.0', gitHead: HEAD, ...overrides };
 }
 
-const EXPECT = { version: '0.2.0', head: HEAD, spec: 'mergesutra@0.2.0' };
+const EXPECT = { version: '0.2.0', head: HEAD };
 
 function viewOk(value) {
   return { status: 0, stdout: JSON.stringify(value), stderr: '' };
@@ -179,6 +191,16 @@ run('does not read malformed JSON as absence', () => {
   assert.match(result.reason, /JSON/i);
 });
 
+run('does not read a successful but empty answer as absence', () => {
+  // A killed-or-misbehaving npm can exit 0 having printed nothing. Reading that as
+  // "no such version" would authorize a publish over a version the read never ruled out.
+  for (const stdout of ['', '   ', '\n']) {
+    const result = kinds(lib.classifyViewOutcome({ status: 0, stdout, stderr: '' }));
+    assert.equal(result.kind, 'error', JSON.stringify(stdout) + ' must not be absence');
+    assert.match(result.reason, /JSON/i);
+  }
+});
+
 run('keeps a successful metadata object intact for verification', () => {
   const result = kinds(lib.classifyViewOutcome(viewOk(meta())));
   assert.equal(result.kind, 'metadata');
@@ -193,7 +215,7 @@ run('bounds the failure text it reports', () => {
   assert.ok(result.reason.length > 0, 'a failure must still say something');
 });
 
-// --- verification: a full gitHead equal to HEAD is required -----------------
+// --- verification: the version must match; a reported gitHead must be the commit --
 
 run('accepts metadata whose 40-hex gitHead is the release commit', () => {
   assert.deepEqual(lib.verifyRegistryMetadata(meta(), EXPECT), {
@@ -202,14 +224,13 @@ run('accepts metadata whose 40-hex gitHead is the release commit', () => {
   });
 });
 
-run('refuses metadata without gitHead', () => {
-  // The fault must be named: with the missing-commit guard deleted, an absent gitHead falls
-  // through to the malformed-commit message, which still says gitHead, so a /gitHead/
-  // expectation witnesses nothing. Same reason the two orchestration cases below pin the phrase.
-  assert.throws(
-    () => lib.verifyRegistryMetadata({ version: '0.2.0' }, EXPECT),
-    /names no gitHead/,
-  );
+run('accepts a matching version that reports no gitHead, and returns it commit-unbound', () => {
+  // This is the answer npm itself gives for a version it published: libnpmpublish
+  // normalizes with steps ['fixName'], so no gitHead is ever written for npm publish.
+  // Refusing it made the release gate permanently red after a successful publish.
+  const verified = lib.verifyRegistryMetadata({ version: '0.2.0' }, EXPECT);
+  assert.equal(verified.version, '0.2.0');
+  assert.equal(verified.gitHead, undefined);
 });
 
 run('refuses a gitHead that is present but not a full lowercase 40-hex commit', () => {
@@ -224,8 +245,21 @@ run('refuses a gitHead that is present but not a full lowercase 40-hex commit', 
   }
 });
 
-run('refuses an empty gitHead as the missing commit it is, not a malformed one', () => {
-  assert.throws(() => lib.verifyRegistryMetadata(meta({ gitHead: '' }), EXPECT), /names no gitHead/);
+run('refuses an empty gitHead, because a present field naming no commit is a bad claim', () => {
+  assert.throws(() => lib.verifyRegistryMetadata(meta({ gitHead: '' }), EXPECT), /not a full lowercase 40-hex commit/);
+});
+
+run('refuses a null gitHead, which is a present field naming no commit', () => {
+  assert.throws(() => lib.verifyRegistryMetadata(meta({ gitHead: null }), EXPECT), /not a full lowercase 40-hex commit/);
+});
+
+run('refuses a gitHead wrapped in a one-element array, because only a string can name a commit', () => {
+  // Without the string check the regex would coerce this body to the release commit and the
+  // refusal would fall through to the commit-equality comparison, which compares strings.
+  assert.throws(
+    () => lib.verifyRegistryMetadata(meta({ gitHead: [HEAD] }), EXPECT),
+    /not a full lowercase 40-hex commit/,
+  );
 });
 
 run('refuses an uppercase gitHead, because git and the registry record lowercase', () => {
@@ -249,12 +283,13 @@ run('refuses a version mismatch', () => {
   );
 });
 
-run('refuses a string body, which cannot carry a commit', () => {
+run('accepts the bare version string npm prints when it has no gitHead to report', () => {
+  // 'npm view mergesutra@0.2.0 version gitHead --json' answers "0.2.0", not an object,
+  // when the registry holds no gitHead for that version — measured against npm 11.
   assert.throws(() => lib.verifyRegistryMetadata('0.9.9', EXPECT), /version mismatch/);
-  // The fault is the missing commit, and a bare /gitHead/ cannot name it: all three
-  // gitHead refusals contain that word, so the missing-commit guard could be deleted
-  // and this case would still pass.
-  assert.throws(() => lib.verifyRegistryMetadata('0.2.0', EXPECT), /names no gitHead/);
+  const verified = lib.verifyRegistryMetadata('0.2.0', EXPECT);
+  assert.equal(verified.version, '0.2.0');
+  assert.equal(verified.gitHead, undefined);
 });
 
 run('refuses a null or array body as the version mismatch it is', () => {
@@ -268,6 +303,9 @@ run('publishes only after the registry says the version is absent', () => {
   const result = drive([viewE404(), PUBLISH_OK, viewOk(meta())]);
   assert.equal(result.code, 0);
   assert.deepEqual(result.calls.map((call) => call.args[0]), ['view', 'publish', 'view']);
+  // The read has to ask for the fields the rules decide on; a query narrowed to the
+  // spec alone would return the whole packument and the version check would read luck.
+  assert.deepEqual(result.calls[0].args, ['view', 'mergesutra@0.2.0', 'version', 'gitHead', '--json']);
   assert.deepEqual(result.calls[1].args, ['publish', '--access', 'public']);
   assert.equal(result.calls[1].inherit, true);
   assert.match(result.printed, /Registry verified: mergesutra@0\.2\.0 at a{40}/);
@@ -306,12 +344,23 @@ run('refuses to publish when the preflight read flushed an E404 line but never c
   assert.match(result.refused, /refusing to treat that as version absence/);
 });
 
-run('refuses to publish when the preflight metadata carries no gitHead', () => {
-  const result = drive([viewOk({ version: '0.2.0' })]);
+run('refuses to publish when the registry answers success with no body', () => {
+  const result = drive([{ status: 0, stdout: '', stderr: '' }, PUBLISH_OK, viewOk(meta())]);
   assert.equal(result.code, 1);
-  assert.equal(result.calls.length, 1);
+  assert.equal(result.calls.length, 1, 'an empty success names no version, so no write may follow it');
   assert.doesNotMatch(result.printed, /Publishing/);
-  assert.match(result.refused, /names no gitHead/);
+});
+
+run('verifies a preflight version that reports no gitHead, and says it is not commit-bound', () => {
+  const result = drive([viewOk({ version: '0.2.0' })]);
+  assert.equal(result.code, 0);
+  assert.deepEqual(result.calls.map((call) => call.args[0]), ['view']);
+  assert.doesNotMatch(result.printed, /Publishing/);
+  assert.match(result.printed, /Registry verified: mergesutra@0\.2\.0/);
+  assert.match(result.printed, /no gitHead/);
+  assert.match(result.printed, new RegExp('not tied to release commit ' + HEAD));
+  assert.match(result.printed, /Version, not commit, was proven/);
+  assert.match(result.printed, /refusing to republish/i);
 });
 
 run('refuses to publish when the preflight gitHead names another commit', () => {
@@ -383,11 +432,25 @@ run('reports the failed read it exhausted, and keeps trying before it does', () 
   assert.match(result.refused, /Last attempt: read failed/);
 });
 
-run('refuses post-publish metadata without gitHead', () => {
+run('verifies after publishing when the registry reports no gitHead', () => {
+  // The whole reason this rule exists: npm publish does not record a gitHead, so the
+  // first honest post-publish read of a real release answers with the version alone.
+  // Refusing it turned a successful publication into a red release gate that no re-run
+  // could fix, because the re-run hits the same answer.
   const result = drive([viewE404(), PUBLISH_OK, viewOk({ version: '0.2.0' })]);
+  assert.equal(result.code, 0);
+  assert.equal(result.calls.length, 3);
+  assert.equal(result.waits, 0);
+  assert.match(result.printed, /Registry verified: mergesutra@0\.2\.0/);
+  assert.match(result.printed, /no gitHead/);
+  assert.doesNotMatch(result.refused, /gitHead/);
+});
+
+run('still refuses a post-publish gitHead naming another commit', () => {
+  const result = drive([viewE404(), PUBLISH_OK, viewOk(meta({ gitHead: OTHER }))]);
   assert.equal(result.code, 1);
   assert.equal(result.calls.length, 3);
-  assert.match(result.refused, /names no gitHead/);
+  assert.match(result.refused, new RegExp(OTHER));
 });
 
 process.stdout.write(JSON.stringify(out) + '\n');
@@ -416,7 +479,7 @@ afterAll(async () => {
 
 describe('the npm release script reads the registry honestly', () => {
   it('ran every case in a real Node process', () => {
-    expect(results.length, stderr).toBe(32);
+    expect(results.length, stderr).toBe(37);
   });
 
   it('holds every case', () => {
@@ -430,12 +493,16 @@ describe('the npm release script reads the registry honestly', () => {
       'treats only npm code E404 as absence',
       'does not read the E404 token inside other text as absence',
       'does not read a killed npm as absence even when it flushed the E404 line',
-      'refuses metadata without gitHead',
+      'does not read a successful but empty answer as absence',
+      'refuses to publish when the registry answers success with no body',
+      'accepts a matching version that reports no gitHead, and returns it commit-unbound',
       'refuses a gitHead that is present but not a full lowercase 40-hex commit',
+      'refuses a gitHead wrapped in a one-element array, because only a string can name a commit',
       'refuses to publish when the preflight read fails',
       'refuses to publish when the preflight read flushed an E404 line but never completed',
       'retries a failed read after publishing',
       'reports the absent answer it exhausted',
+      'verifies after publishing when the registry reports no gitHead',
     ]) {
       expect(names).toContain(phrase);
     }
