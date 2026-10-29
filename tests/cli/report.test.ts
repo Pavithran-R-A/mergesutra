@@ -174,6 +174,44 @@ describe('mergesutra report', () => {
     await expect(readdir(path.join(runsRoot, record.runId))).rejects.toThrow();
   });
 
+  it('refuses a lock whose holder is on a host this one cannot check, and exits 4', async () => {
+    const cwd = await cwdOf();
+    const record = await verifiedRecord(['node', '--test']);
+    const store = memoryRunStore();
+    await store.save(record);
+    const runsRoot = defaultRunStoreRoot(cwd);
+    const held = await acquireRunLock(
+      { runId: record.runId, operation: 'resume' },
+      // The owner record names a machine this test is not running on.
+      { runsRoot, host: 'other-host', pid: 4242, now: () => new Date('2026-09-27T00:00:00.000Z') },
+    );
+    expect(held.state).toBe('ACQUIRED');
+    const c = capture();
+
+    const code = await run(['node', 'mergesutra', 'report', record.runId], {
+      write: c.write,
+      writeErr: c.writeErr,
+      env: { NO_COLOR: '1' },
+      report: {
+        store,
+        cwd,
+        // Liveness answers `false` here on purpose. A foreign host is refused before any
+        // probe is consulted, so this is the case that separates "uncertain" from "checked
+        // and gone": with the host comparison removed, this same lock would be taken over
+        // as stale and the pack written — which is exactly how one machine erases another's
+        // claim on the evidence a publication approval is bound to.
+        lock: { pid: 999_999, host: 'test-host', isProcessAlive: () => false },
+      },
+    });
+
+    expect(code).toBe(EXIT.BLOCKED);
+    expect(c.errorText()).toContain('other-host');
+    expect(c.errorText()).toContain('a machine this one cannot check');
+    // Left in place, untouched: and no pack directory for the other host to find half-made.
+    expect(await readdir(runsRoot)).toContain(`${record.runId}.lock`);
+    await expect(readdir(path.join(runsRoot, record.runId))).rejects.toThrow();
+  });
+
   it('lets the run lock go once the pack is written', async () => {
     const cwd = await cwdOf();
     const record = await verifiedRecord(['node', '--test']);

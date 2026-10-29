@@ -109,6 +109,23 @@ describe('credentials embedded in captured text', () => {
     expect(out).toBe('X-Api-Key: [REDACTED]\nCookie: [REDACTED]');
   });
 
+  it('masks a sensitive header name quoted as a JSON key', () => {
+    // The whole-tail rule reads flat text, so in a JSON leaf the quote that closes the key
+    // name sits between the name and the colon. `"?` is what lets the pattern reach across
+    // it: without that branch `Authorization` and `Cookie` are unrecognised key names — they
+    // match no generic vocabulary and no token format — and the credential travels whole.
+    // The key's own closing quote is part of what the rule keeps; everything after the colon
+    // goes, the value's closing quote and the brace with it — the same deliberate
+    // over-redaction the raw-line cases above accept for a `Cookie` list.
+    const token = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature';
+    const auth = new Redactor().text(`{"Authorization":"Bearer ${token}"}`);
+    expect(auth).not.toContain(token);
+    expect(auth).toBe('{"Authorization":[REDACTED]');
+    expect(new Redactor().text('{"Cookie":"session=abc123; theme=dark"}')).toBe(
+      '{"Cookie":[REDACTED]',
+    );
+  });
+
   it('masks a Basic credential that has no token-shaped prefix', () => {
     const encoded = 'dXNlcjpwYXNzd29yZA==';
     const out = new Redactor().text(

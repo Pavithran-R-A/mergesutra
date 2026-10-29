@@ -57,7 +57,7 @@ that is the mutation *sending* the request, not merely printing a different refu
 input schema then refused the call (`Refusing to send a branch push: Inval…`), so the two
 guards are two separate checks and the test pins the message of the one under mutation. ADR-073, with the
 Stage 10 digest and seam bullets in `docs/ROADMAP.md`, the new host bullet in
-`docs/SECURITY_MODEL.md` §5, `docs/ACCEPTANCE_CONTRACT.md`'s version-2 candidate and `/2`
+`docs/SECURITY_MODEL.md` §2.5, `docs/ACCEPTANCE_CONTRACT.md`'s version-2 candidate and `/2`
 digest line, and the README digest bullet.
 
 ### Fixed — a header line inside free text is masked to the end of its line
@@ -87,13 +87,27 @@ a raw `Authorization: Bearer` line with an opaque token, raw `X-Api-Key` and `Co
 a `Basic` credential with no token-shaped prefix, a quoted JSON key whose document still
 parses, quoted keys the vocabulary recognises only by shape, and the exact masked spelling of
 a quoted value. Three mutations, each restored byte-for-byte with a sha-256 check bracketing
-its run: dropping the `text()` pass turned exactly the three raw-header cases red
+its run: dropping the `text()` pass turned the raw-header cases then in the file red
 (`3 failed | 30 passed` over that file and `tests/security/output-redaction.test.ts`),
 dropping the optional quote turned exactly the two JSON-key cases red, and re-adding the
 quote turned the no-duplicate case and the exact-output assertion it shares with the JSON key
 red (`2 failed | 31 passed` each). The pair was then re-run at full strength: `33 passed
 (33)`. `docs/SECURITY_MODEL.md` §6 now states what `text()` masks and names the over-redaction
 as a decision; `docs/SECURITY_GAP_REGISTER.md` carries the dated clause.
+
+Later change (2026-10-29, independent review of this round): the review found that the `"?`
+branch of `RAW_HEADER_PATTERN` — the one that lets this pass reach a key name quoted as a
+JSON leaf — had no witness at all, because the two JSON-key cases above are masked by the
+*generic* key rule rather than by this one, so deleting the branch reddened nothing. The file
+now pins a quoted `Authorization` and a quoted `Cookie` key, and both mutations were
+re-measured against the 34 cases the pair then holds: deleting that branch turns exactly the
+new case red (`1 failed | 33 passed`, the JWT travelling whole), and dropping the `text()`
+pass turns three raw-header cases plus this new quoted-key case red (`4 failed | 30 passed`) —
+which is why the count in the paragraph above is worded as the cases then in the file.
+`src/security/redaction.ts` was restored byte-for-byte to SHA-256
+`920ebe1148989f8853fff428f3368111a8582481cc4bc01f9a2083157a0191d1` and the pair re-run at `34
+passed (34)`. The same review measured a limit, now stated in §6: the value class stops at the
+newline, so an RFC 7230 folded continuation line stays whole.
 
 ### Fixed — `report` and `repair` claim the run before they replace its evidence
 
@@ -152,6 +166,27 @@ no witness of its own, and `tests/cli/exit-codes.test.ts` stayed green when the 
 went, which is what separates the blocked-outcome table from the blocked-error route.
 The suites were re-run at full strength after the last restore, at the same counts as
 before the first mutation.
+
+Later change (2026-10-29, independent review of this round): the first of those two
+admissions is closed. `tests/cli/resume.test.ts` carries a case for the dispatching half
+of `lockHeldByCaller` (`src/cli/resume.ts:160`). It cannot be proved from the screen: the
+pack's `stage` and `outcome` rows read the same whether the reporter ran as a dispatched
+stage or as a plain `mergesutra report`, so the witness is on disk — the pack exists while
+the service's claim is still the only one, and that claim is what goes away at the end.
+With `lockHeldByCaller: true` deleted from the dispatch, the reporter is refused by the
+lock its own caller holds and the run ends `4` where the test expects `3` (`1 failed |
+20 passed (21)`; `src/cli/resume.ts` restored to
+`e0904a43fd21b64a70d9b9d969d2abc44339ebf6da63650893ce8e83d882f0e0`, the suite re-run at `21
+passed (21)`). The review also found that `tests/cli/report.test.ts`'s refusal case plants
+the *same* host for holder and caller, so it witnesses the live-process branch and not the
+cross-host one: a file now has a lock owned by another machine, liveness answered `false`
+on purpose, because `src/lifecycle/lock.ts:460` refuses an `UNKNOWABLE` owner before any
+probe is consulted, and only that ordering separates "cannot check" from "checked and
+gone". Deleting the host comparison takes the foreign claim over as stale and writes the
+pack beside it, exiting `0` (`1 failed | 8 passed (9)`; restored to
+`02de2e45746cd20c8d422aae4d25d5f7adc79e6f0395de85a65bb09a5e826498`). The second admission
+stands untouched — this round added no witness for the blocked-outcome table, and
+`tests/cli/exit-codes.test.ts` still does not carry one.
 ADR-072, with the claims it corrects in `docs/SECURITY_MODEL.md` §4.1/§4.2,
 `docs/ROADMAP.md` Stage 8, `docs/ACCEPTANCE_CONTRACT.md`, `docs/DECISIONS.md`
 ADR-058/064/070, `docs/SECURITY_GAP_REGISTER.md` S12-08 and the README command,

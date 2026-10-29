@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { AppError } from '../../src/core/errors.js';
@@ -459,6 +459,38 @@ describe.skipIf(!AVAILABLE)('the resume command', () => {
     expect(screen.text()).toContain('REVIEW_RECORDED');
     expect(screen.text()).toMatch(/Stage recorded\s+none/u);
     expect(screen.text()).toContain('files no record of its own');
+  });
+
+  it('writes the pack through its own dispatcher when the plan names `report`', async () => {
+    // `report` is the one action whose stage wants the lock this command is already
+    // holding, so the case cannot be proved from a screen: the pack's `stage` and
+    // `outcome` rows are the same whether the reporter ran as a dispatched stage or as a
+    // plain `mergesutra report`. What is distinguishable is on disk — the pack exists
+    // while the *service's* claim is still the only one, and that claim is what goes away
+    // at the end. With no `executeStage` injected, the production dispatcher is the only
+    // route to either of those facts.
+    const fixture = await reviewedRun(tempDirs, { findings: false });
+    const where: Where = {
+      store: fixture.store,
+      runsRoot: fixture.runsRoot,
+      record: fixture.record,
+    };
+    const screen = capture();
+
+    const code = await run(['node', 'mergesutra', 'resume', where.record.runId, '--execute'], {
+      ...depsFor(where, {
+        report: { store: fixture.store, runsRoot: fixture.runsRoot, cwd: fixture.runsRoot },
+      }),
+      write: screen.write,
+      writeErr: screen.writeErr,
+    });
+
+    expect(code).toBe(EXIT.INCONCLUSIVE);
+    expect(
+      await readFile(path.join(where.runsRoot, where.record.runId, 'report.md'), 'utf8'),
+    ).toContain(`# MergeSutra evidence pack — ${where.record.runId}`);
+    // Released by the service that took it, not by the stage that was told not to.
+    expect(await exists(runLockDirectory(where.runsRoot, where.record.runId))).toBe(false);
   });
 
   it('spends a model request only when it was told to, and only through the stage', async () => {

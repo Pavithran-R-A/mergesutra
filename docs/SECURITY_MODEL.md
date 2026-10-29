@@ -1398,13 +1398,30 @@ be given exact runtime secret values for literal masking.
   of hiding behind its own quote; and `maskGeneric()` no longer re-adds an opening quote it had
   already sliced past, which is what printed `token = ""[REDACTED]"`.
   `tests/security/redaction.test.ts` pins each of the three, and each was measured by taking it
-  away: dropping the `text()` pass turns exactly the three raw-header cases red
+  away: dropping the `text()` pass turns the raw-header cases then in the file red
   (`3 failed | 30 passed` over that file and `output-redaction.test.ts`), dropping the optional
   quote turns exactly the two JSON-key cases red, and re-adding the quote turns the
   no-duplicate case and the exact-output assertion it shares with the JSON key red — `2 failed |
   31 passed` for each. The file was restored byte-for-byte (SHA-256
   `920ebe1148989f8853fff428f3368111a8582481cc4bc01f9a2083157a0191d1`) and the pair re-run at 33
   passed.
+  Later change (2026-10-29, independent review of this round): the `"?` in
+  `RAW_HEADER_PATTERN` — the branch that lets this pass reach a key name quoted as a JSON leaf —
+  had no witness at all, because the two JSON-key cases above are masked by the *generic* key
+  rule, not by this one; deleting it reddened nothing. The file now pins a quoted `Authorization`
+  and a quoted `Cookie` key, and re-measured against the 34 cases the pair holds: deleting that
+  branch turns exactly the new case red (`1 failed | 33 passed`), and dropping the whole pass
+  turns three raw-header cases plus this new quoted-key case red (`4 failed | 30 passed`). `src/security/redaction.ts` was
+  restored byte-for-byte to the same SHA-256 and the pair re-run at `34 passed (34)`.
+
+- **What the header pass does not reach: a folded continuation.** Its value class is
+  `[^\r\n]*`, so it stops at the newline. An RFC 7230 obs-fold — a header value running onto the
+  next line under leading whitespace, which carries no header name of its own — therefore leaves
+  the continuation whole: `Authorization: Bearer abc` followed by ` def456` measures as
+  `Authorization: [REDACTED]` plus ` def456` (run against the shipped pattern, not inferred).
+  Nothing in this build emits a folded value, but a wrapped transcript a child process printed
+  can contain one. Letting the class cross a newline would swallow the indented lines of an
+  unrelated receipt tail behind it, so this is stated as a limit rather than widened away.
 
 - Full process environments are never logged.
 - Subprocesses get a credential-free environment: see §5. Removing the value beats
