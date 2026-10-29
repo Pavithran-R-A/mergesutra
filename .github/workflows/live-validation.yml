@@ -189,10 +189,11 @@ jobs:
           BHARATCODE_MODEL: ${{ inputs.model }}
           # Below the transport's own ceiling, not above it. Node's fetch gives up at
           # ~300 s (UND_ERR_HEADERS_TIMEOUT) on any request whose response headers have
-          # not arrived, and a completion sends them only when the answer is whole — so a
-          # slow answer and a silent endpoint are the same wait to the transport, whatever
-          # this is set to. Run 39460563729 filled that step in 304.5 s with a network
-          # failure while this said 540000. Sitting under the bound makes the failure name
+          # not arrived. Whether a completion sends those headers only once the answer is
+          # whole is an inference, not a reading: run 39460563729 filled that step in
+          # 304.5 s with a network failure while this said 540000, but its preserved trail
+          # carries no UND_ERR_HEADERS_TIMEOUT code, so a slow answer and a silent endpoint
+          # cannot be told apart from it. Sitting under the bound makes the failure name
           # the budget actually reached. The driver still runs the chain against the
           # 25-minute wall clock: it will not start a command once the clock is spent, and
           # gives every command no more than the time left on it.

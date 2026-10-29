@@ -37,6 +37,13 @@ export interface StatusStageInput {
   readonly runId?: string;
   /** A checkout a person pointed at instead of the one the record names. */
   readonly repo?: string;
+  /**
+   * The command reading this snapshot, named in the empty-store remedy.
+   *
+   * `resume` reads through this stage too, and a person who typed `resume` must not be
+   * told there is "no status to show" or be sent to `mergesutra status`.
+   */
+  readonly command?: 'status' | 'resume';
 }
 
 export interface StatusStageDeps {
@@ -67,7 +74,8 @@ export async function runStatusStage(
   const cwd = deps.cwd ?? process.cwd();
   const store = deps.store ?? createFileRunStore(defaultRunStoreRoot(cwd));
   const runsRoot = deps.runsRoot ?? defaultRunStoreRoot(cwd);
-  const runId = input.runId ?? (await currentRunId(store));
+  const command = input.command ?? 'status';
+  const runId = input.runId ?? (await currentRunId(store, command));
   const record = await store.load(runId);
 
   const observation = await observeRun({
@@ -111,7 +119,7 @@ export async function runStatusStage(
  * from, and a run belonging to another repository is not made relevant by being
  * recent.
  */
-async function currentRunId(store: RunStore): Promise<string> {
+async function currentRunId(store: RunStore, command: 'status' | 'resume'): Promise<string> {
   const chosen = await newestRunId(store);
   if (chosen) return chosen;
   const { unreadable } = await store.list();
@@ -134,8 +142,10 @@ async function currentRunId(store: RunStore): Promise<string> {
   }
   throw new AppError({
     kind: 'validation',
-    message: 'No run has been recorded here, so there is no status to show.',
-    remediation:
-      'Start one with `mergesutra issue <url>`, or name a run: `mergesutra status <run-id>`.',
+    message:
+      command === 'resume'
+        ? 'No run has been recorded here, so there is nothing to resume.'
+        : 'No run has been recorded here, so there is no status to show.',
+    remediation: `Start one with \`mergesutra issue <url>\`, or name a run: \`mergesutra ${command} <run-id>\`.`,
   });
 }

@@ -55,8 +55,10 @@ export const RUN_STATE_DIRNAME = '.mergesutra';
  * fold names, so two spellings of one file share one queue instead of two. Two
  * spellings that reach one file through different symlinked roots are still two
  * keys, and a second process is a different pid with a different scratch name:
- * neither is serialised here. The run lock spans one `resume` only and stage saves
- * do not take it, so two processes saving one run are not ordered at all: the target
+ * neither is serialised here. The run lock is taken by a command — `resume`,
+ * `repair` or `report` — and never by `save()` itself, so a save from a stage that
+ * took no lock is not ordered against one from a stage that did: two processes
+ * saving one run are not ordered at all. The target
  * ends up with whichever rename succeeded last, and a losing rename can fail on its
  * own — Windows refuses one over a target another handle holds open. This queue
  * makes no cross-process claim.

@@ -88,6 +88,16 @@ describe('naming the branch a pull request would open against', () => {
     });
   });
 
+  it('refuses a recorded host that is not a hostname a transport could be pointed at', () => {
+    expect(() =>
+      targetOf({
+        repository: { ...repo('main'), host: 'ghe example.com/acme' },
+        local: local('main'),
+        base: baseRef(),
+      }),
+    ).toThrow(/host/i);
+  });
+
   it('falls back to the checkout Git described, when no repository identity was fetched', () => {
     const target = targetOf({ repository: null, local: local('trunk'), base: baseRef() });
 

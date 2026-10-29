@@ -582,6 +582,25 @@ counter-claim, it is met with a shape that has no field for it:
   `--publish` path in `src/cli/pr.ts`, and the fake
   transport in `tests/pr/publisher.test.ts` proves the seam is real in the other
   direction too, so "not requested" is not indistinguishable from "never wired".
+- **The page names the host it would be sent to; the transport has no default (audit
+  finding F04, the half of it the read-back did not cover).** `owner/name` is not an
+  address — the same pair exists on github.com and on every GitHub Enterprise host — so an
+  approval that did not name one had not said where the code would go. `repositoryHost` is
+  declared beside the branch rules (`src/pr/candidate.ts:64`, pattern at
+  `src/pr/branch.ts:56`) and made required for a version-2 document, and refused on a
+  version-1 one, by the schema's own refinement (`src/pr/candidate.ts:87`);
+  `repositoryAddressOf()` (`src/pr/candidate.ts:130`) is the one print of the repository for
+  both the screen row and the digest's `repository` line (`src/pr/digest.ts:43`), so the
+  bytes a person read and the bytes a person hashed say the same host. The digest label is
+  `mergesutra-publication/2` for such a page; a version-1 page is still hashed and printed as
+  it was, under `/1`, because re-labelling it would silently void a real yes — and it is
+  refused at publication rather than published under a number nobody approved
+  (`src/pr/publisher.ts:181`). The transport carries no compiled-in host:
+  `createGitHubPublicationRemote()` pins nothing unless told (`src/pr/github-publisher.ts:77`),
+  every request names the host its approved page named, and `destination()` (`:104`) refuses a
+  host that is not a hostname and a request that differs from the pin before the first `gh`
+  invocation. What is *not* claimed: which credential `gh` then uses for that host is `gh`'s
+  own configuration, and a syntactically valid hostname is not a host the operator can reach.
 - **The branch is read back before a draft is called opened (audit finding F04).**
   `POST /git/refs` is GitHub's word that a branch exists, not evidence about what it
   contains. After creating the ref, `pushBranch` reads the branch, the commit and the tree
@@ -1108,8 +1127,18 @@ standing rather than re-labelling it. Three rules hold that in place.
   against a real sibling file: after the refusal, the neighbour's bytes are
   unchanged.
 - **A pack is replaced, never appended to.** Each file goes in as a
-  `<target>.<pid>.tmp` write followed by a rename, so an interrupted run leaves
-  no half-written `report.md` for a reviewer to read as a verdict. The directory
+  `<target>.<pid>.<random>.tmp` write — opened `wx`, so "this scratch name was
+  unused" is the filesystem's answer rather than this module's assumption —
+  followed by a rename, and a rename that fails removes its own scratch file
+  instead of leaving a stray beside a pack that otherwise looks whole. An
+  interrupted run therefore leaves no half-written `report.md` for a reviewer to
+  read as a verdict. Two writes of one pack directory in one process take turns,
+  keyed by the resolved directory and case-folded on the platforms whose
+  filesystems fold names — the same in-process queue §4.2 describes for the run
+  store. Neither queue orders one process against another, and production has no
+  second writer of one directory to order: `report` and `repair` each render a
+  pack once per invocation, and both hold the run's lock (§2.6, ADR-072) while
+  they do. The directory
   is not archived — an older rendering of a newer record is the failure mode
   here, and ADR-046 keeps the choice visible.
 - **Nothing secret reaches the page.** `commands.jsonl` re-emits receipts that
@@ -1188,8 +1217,10 @@ no workspace, one JSON file per run — and its guarantees are stated at that si
   task rejects. Two different runs are two keys and do not wait for each other. The
   key is a string, so two spellings that reach one file through different symlinked
   roots are still two keys. Nor does the queue cross a process boundary: the run lock
-  (§2.6) has one operation, `resume`, and the stage commands that save do not take
-  it, so two processes saving one run id are not ordered at all: each stages at its
+  (§2.6) is claimed by a command — `resume`, `repair` or `report` (ADR-072) — and
+  never by `save()` itself, and it refuses a second holder rather than queueing it,
+  so a save is never ordered against another save by that lock. Two processes saving
+  one run id through commands that take no lock are not ordered at all: each stages at its
   own pid-suffixed name, the target ends up holding whichever rename succeeded last,
   and a losing rename can fail on its own — Windows refuses one over a target
   another handle holds open. This queue claims nothing about them. The case fold is
@@ -1205,9 +1236,9 @@ no workspace, one JSON file per run — and its guarantees are stated at that si
   and no test here pretends to cover it. The same is true of the temp name's lack of
   a random suffix: within one process the queue above puts two saves of one run id in
   turn, and across processes the pid separates their scratch names but nothing
-  serialises their renames. The run lock is a concurrency mechanism for one
-  operation, not a durability one, and a second process that ignores it is outside
-  this claim.
+  serialises their renames. The run lock is a concurrency mechanism for the three
+  commands that can replace a run's evidence, not a durability one, and a second
+  process that ignores it is outside this claim.
 
 ### 4.3 How wide the confinement claim is (Stage 12)
 
@@ -1350,6 +1381,30 @@ Central `Redactor` masks at minimum: `BHARATCODE_API_KEY`, `GITHUB_TOKEN`,
 `bc_live_`, legacy/OpenAI-style `sk-`, GitHub `ghp_/gho_/ghs_/github_pat_`,
 Slack `xox`, AWS `AKIA`, PEM private keys). It redacts text, header records, and nested structures, and can
 be given exact runtime secret values for literal masking.
+
+- **A header line inside free text is masked to the end of its line (audit finding F01).**
+  The sentence above says `text()` redacts headers, and until this change it did not: the
+  token-format patterns are the only thing that ran over arbitrary text, so
+  `Authorization: Bearer <an opaque gateway key>` — a line of a child's stderr, a header block
+  echoed into a receipt tail — was masked only if its value happened to look like a known
+  format. `text()` now takes one pass of `RAW_HEADER_PATTERN` (`src/security/redaction.ts:47`)
+  before the other rules: a `SENSITIVE_HEADERS` name at a word boundary, an optional quote, a
+  colon, and then everything to the end of that line becomes `[REDACTED]`. The whole tail is the
+  deliberate choice — a Cookie list is not one word, and a value class that stopped at
+  whitespace would mask half a credential and call the line safe. It is over-redaction, and a
+  caller that still holds the name/value pair should use `header()` and keep the rest of its
+  line. Two neighbours on the same path came with it: the generic key rule now allows a closing
+  quote after the key name, so a JSON string leaf (`{"password": "…"}`) is seen at all instead
+  of hiding behind its own quote; and `maskGeneric()` no longer re-adds an opening quote it had
+  already sliced past, which is what printed `token = ""[REDACTED]"`.
+  `tests/security/redaction.test.ts` pins each of the three, and each was measured by taking it
+  away: dropping the `text()` pass turns exactly the three raw-header cases red
+  (`3 failed | 30 passed` over that file and `output-redaction.test.ts`), dropping the optional
+  quote turns exactly the two JSON-key cases red, and re-adding the quote turns the
+  no-duplicate case and the exact-output assertion it shares with the JSON key red — `2 failed |
+  31 passed` for each. The file was restored byte-for-byte (SHA-256
+  `920ebe1148989f8853fff428f3368111a8582481cc4bc01f9a2083157a0191d1`) and the pair re-run at 33
+  passed.
 
 - Full process environments are never logged.
 - Subprocesses get a credential-free environment: see §5. Removing the value beats

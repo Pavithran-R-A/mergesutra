@@ -1424,7 +1424,10 @@ from the act all remain in force.)*
   exclusive and crash-safe on both POSIX and Windows, with no dependency — and it is
   single-shot, so a contended run is reported immediately and no caller waits on a timer.
   `resume` claims the lock after it has refused everything it can refuse for free, and
-  releases it in a `finally`. The lock authorises nothing beyond that exclusion: it is not
+  releases it in a `finally`. *(ADR-072 widened the claiming set to the three commands
+  that can replace a run's evidence — `resume`, `repair` and `report` — and kept this
+  ordering rule for each: refuse what can be refused without touching the filesystem,
+  then claim.)* The lock authorises nothing beyond that exclusion: it is not
   execution consent, not repair consent, not publication approval, not a credential, and not
   a remote permission, and the module writes no run record.
 - **Reason:** `resume` writes. It can run a repository's gates and file receipts against one
@@ -1780,9 +1783,10 @@ from the act all remain in force.)*
   temp holding a complete record being listed as a run of its own). What it does not cover:
   a rename interrupted by a real crash rather than an injected fault, which no in-process
   test can reach; two processes saving one run id at once, which this store does not
-  arbitrate — the run lock's only operation is `resume`, so those saves are not ordered:
-  the target holds whichever rename succeeded last, and a losing rename can fail on its
-  own (corrected in ADR-070); and the fact that a leftover temp is invisible to
+  arbitrate — the lock guards a command, never a `save()`, so no save is one of the
+  things it orders: the target holds whichever rename succeeded last, and a losing
+  rename can fail on its own (corrected in ADR-070, whose clause that only `resume`
+  claims a lock ADR-072 widened); and the fact that a leftover temp is invisible to
   `list()` rather than reported, so an operator who wants the artefacts gone has to look
   at the directory.
 
@@ -2074,14 +2078,16 @@ from the act all remain in force.)*
   and renaming the artefact of a crashed one); a global queue (rejected: it would make
   unrelated runs wait on one another); a lock file beside the record (rejected: a durable,
   crash-surviving claim for a hazard that exists only within one process's promises — and the
-  run lock would not answer it, because its only operation is `resume` and stage saves never
-  take it).
+  run lock would not answer it, because it guards a command rather than a `save()`, and no
+  save takes it).
 - **Consequence:** `tests/state/run-store-queue.test.ts` proves a failed save does not poison
   the next one, a held save of one run does not delay another, and two case-only spellings
   share a queue on a case-insensitive platform; `tests/state/run-store-concurrent.test.ts`
   keeps the original reproduction. The queue is in-process only: two processes saving one run
-  are not ordered, because the run lock's sole operation is `resume` and stage saves do not
-  take it — each stages at its own pid-suffixed name, so the target holds whichever rename
+  are not ordered by the run lock, because the lock guards a command and no `save()` takes
+  it (ADR-072 widened the claiming set to `resume`, `repair` and `report`, which excludes
+  two of those commands from one run at a time rather than ordering their saves) — each
+  stages at its own pid-suffixed name, so the target holds whichever rename
   succeeded last and a losing rename can fail on its own (on Windows, one over a target
   another handle holds open is refused); two symlinked spellings of one root remain two keys
   because the key is a string. The case fold is a platform proxy (`win32`/`darwin`), not a
@@ -2151,3 +2157,167 @@ from the act all remain in force.)*
   and a 422 for a pull request that already exists — with the control that a refusal of the
   branch write reaches the caller as the transport wrote it; `tests/cli/pr.test.ts` checks that
   none of that advice survives onto the printed screen.
+
+## ADR-072 — The writers of a run's evidence claim the run, and a scratch file cleans up after itself
+
+- **Decision:** five changes, all from audit finding F03.
+  `RUN_LOCK_OPERATIONS` (`src/lifecycle/lock.ts:66`) is `['resume', 'repair', 'report']`, and
+  `acquireRunLock` takes the `operation` that is claiming: the owner record names it, the parse
+  schema is built from the same constant so it widens with the set, and an owner naming an
+  operation this build does not know is still a block that quotes the path, never a takeover.
+  `mergesutra report` claims the run before it reads the record and gives it back once the pack is
+  on disk; `mergesutra repair` claims it after the approval has stood and before it measures the
+  patch, releases after the record and the pack are filed, and covers the paths that throw with a
+  `finally`. `AppError` gained a `blocked` kind and `src/cli/program.ts` answers it with exit `4`.
+  `writeEvidencePack` (`src/report/write.ts`) stages each file at `<target>.<pid>.<random>.tmp`
+  opened `wx`, renames it, and unlinks its own scratch file when a rename fails, with two writes of
+  one pack directory in one process taking turns on a queue keyed by the resolved directory — the
+  pattern ADR-070 put in the run store. And `runReportStage` accepts `lockHeldByCaller`, which
+  `resume` passes when it dispatches the reporter, so a reporter working for a caller that already
+  holds the run neither claims a second lock nor releases one it never made.
+- **Reason:** `report` and `repair` were the only two commands that replaced a run's evidence with
+  no exclusion at all, and the pack is not one file but three renamed one after another: two
+  renderers of one directory interleave, and the mixed directory is what ADR-059 made the thing a
+  human's publication yes binds to. A cycle that measures a patch, edits the workspace and
+  re-measures it has the same shape one level down — the window between measuring and editing is
+  where a second writer's bytes enter what an approval had covered. The run lock is precisely the
+  claim Stage 11 built for "one mutator per run", so leaving the two later writers out was a scope
+  oversight rather than a design. The hazard was latent in the shipped flow — nothing there runs
+  two of these against one run, and `resume` dispatches `report` while holding the lock — and
+  ADR-070's answer is the one taken here again: an invariant a module does not enforce is one every
+  caller has to remember. Exit `4` rather than `1`, because "a peer is here, wait for it" is the
+  state `BLOCKED` already means and `resume`'s lock refusal already priced at 4; a script and an
+  operator both read that number as "somebody must move first", and neither can afford to be told
+  the tool broke when it did not.
+- **Alternatives:** making the pack writer atomic enough on its own and leaving the lock as
+  `resume`'s (rejected: a scratch file per *file* cannot make one *pack* consistent — three
+  renames are still three moments, and the pack's identity is the three bytes together); a second
+  lock beside the pack directory (rejected: two exclusion claims for one run, and the run lock is
+  already the machine-wide one — the second would have to explain why the first does not serve);
+  letting the dispatched reporter claim its own lock (rejected: the caller holds it, so the
+  reporter is refused inside a `resume` that did nothing wrong, and any release path written for
+  that case hands back a claim it never made); waiting and retrying on contention (rejected:
+  ADR-058's single-shot rule — a caller that blocks has no answer to give, while the owner record
+  names who to ask); keeping the pid-only scratch name with `wx` (rejected: a predictable name is
+  a plantable one, and `wx` on an occupied path is the filesystem's refusal rather than this
+  module's assumption — the same lesson ADR-065 drew for the confined writer's two moments);
+  randomising the *run store's* temp too (rejected: S12-08 and §4.2 pin `<target>.<pid>.tmp` there
+  and rely on a later save reusing and renaming the artefact a crashed one left, a promise the
+  pack makes no claim to needing).
+- **Consequence:** `tests/repair/stage.test.ts`'s `does not start an approved cycle while another
+  operation holds the run` plants a live holder whose operation is `report`, and asserts the
+  refusal names the lock path, the model client is never called, nothing is filed, and the lock is
+  still standing afterwards; its `Run lock` row reads `INFO` with the release on the screen that
+  outlives the process — a row in the record could only have promised what was intended, since the
+  record is filed while the lock is held. `tests/cli/repair.test.ts` and `tests/cli/report.test.ts`
+  each read exit `4` from the refusal, and `tests/cli/report.test.ts` also proves the pack is still
+  written for a caller that already holds the lock. `tests/report/write.test.ts`'s `removes the
+  scratch file it was writing when the rename cannot finish` and `tests/report/write-concurrent.test.ts`'s
+  two cases prove the second write waits behind the first and that two writes in one process get
+  two scratch names — that pairing is what the unpredictability claim rests on; no test plants a
+  file at a guessed scratch name, because after this change there is no such name to guess.
+  `tests/lifecycle/lock.test.ts` pins the recorded operation, the `resume` default, and that a lock
+  left by another operation reads as a holder rather than as garbage. `tests/security/terminal-hero.test.ts`
+  had to be paired with the widening: that hero plants an uncertain lock as one of its hostile
+  sources, and a reporter that now claims the run is refused by the very lock the fixture set, so
+  its two `report` pages are rendered through `lockHeldByCaller` while the status and resume pages
+  keep reading the planted lock as foreign bytes — the first full suite after the change was red on
+  exactly those ten hero cases and green on everything else, and the refusal itself stays
+  `tests/cli/report.test.ts`'s witness rather than this file's. Five single-change mutations
+  were run against those cases, each applied with the editor and bracketed by a sha-256 check of the
+  file before and after, each restoring byte-for-byte: dropping the `unlink` reddened only
+  `tests/report/write.test.ts`'s rename-failure case (1 of 16), naming the stray
+  `report.json.<pid>.<hex>.tmp` in the diff; calling the render body directly instead of through
+  `packInTurn` reddened `holds the second behind the first instead of racing its scratch file` and
+  left `gives every write its own scratch name, even when the pid is the same` green, which is what
+  separates those two claims' witnesses; making the reporter claim unconditionally — reading
+  `lockHeldByCaller` as absent — reddened only `writes the pack for a caller that already holds the
+  lock, without taking a second one` (exit 4 where 0 was claimed), and `tests/cli/resume.test.ts`
+  stayed green through the same mutation, so the dispatching half of that flag has no witness of its
+  own; emptying the repair `finally` reddened `refuses to execute a plan frozen against bytes that
+  are gone, without editing them` — that case alone, selected with `-t` because the file takes six
+  minutes — whose directory listing then showed the leaked `<runId>.lock`, which is the proof that
+  the throwing path rather than the filing path is what that block guards; and deleting the
+  `blocked` exit mapping reddened exactly the two `exits 4` assertions in `tests/cli/report.test.ts`
+  and `tests/cli/repair.test.ts` while `tests/cli/exit-codes.test.ts` stayed green, which is the
+  evidence that a blocked *outcome* and a blocked *error* are two mechanisms with two sets of
+  witnesses. The five suites were then re-run at full strength: 5 files, 57 tests, the same counts as
+  the run taken before the first mutation. What is *not* claimed: the
+  queue is in-process, so two processes rendering one pack are separated only by the lock, and the
+  lock refuses rather than waits; a lock left by a killed process still waits for a human, exactly
+  as ADR-058 decided; the pack's renames are still not `fsync`ed, so durability across a power
+  loss stays outside this build's claim; and the record still carries no lock row. Two processes
+  saving one *record* remain unordered by any of this — the lock guards commands, and no `save()`
+  takes it. This supersedes ADR-070's "the run lock's sole operation is `resume`" and corrects
+  ADR-058's account of the claiming set, leaving both of their conclusions about exclusion and
+  unsynchronised saves standing for the reason now written there.
+
+## ADR-073 — The publication page names the host it would be sent to, and the transport has no default
+
+- **Decision:** audit finding F04 bound the repository host into Stage 10's approval surface at
+  three places, one spelling. `REPOSITORY_HOST_PATTERN` (`src/pr/branch.ts:56`) is defined beside
+  the branch rules and imported by every site that needs it — the candidate schema, the two
+  transport input schemas, and the transport's own constructor — because a pattern defined twice
+  can drift, and the same string is what a human reads and what `gh` is pointed at.
+  `PublicationCandidate` became `schemaVersion: 2` with a `repositoryHost` field
+  (`src/pr/candidate.ts:64`): the schema's own refinement (`:87`) makes it required for a
+  version-2 document and refuses it on a version-1 one, so the version number stays meaningful
+  and a forged record cannot claim its host was part of what somebody approved.
+  `repositoryAddressOf()` (`src/pr/candidate.ts:130`) is the single print of the repository —
+  `host/owner/name` for everything this build writes, `owner/name` for a version-1 record it
+  never had — and is shared by the screen rows and `PUBLICATION_DIGEST_LABEL`'s repository
+  line, so a yes to the printed page is a yes to the line that was hashed. The digest label is
+  `mergesutra-publication/2` for a version-2 candidate. And the transport's compiled-in
+  `github.com` is gone: `createGitHubPublicationRemote()` pins nothing unless a caller passes a
+  host (`src/pr/github-publisher.ts:77`), each request carries the host its approved page
+  named, and `destination()` (`src/pr/github-publisher.ts:104`) refuses — before the first `gh`
+  invocation — a host that is not a hostname and a request whose host differs from the pin.
+  `publish()` (`src/pr/publisher.ts:181`) refuses a candidate that never bound a host rather
+  than choosing one.
+- **Reason:** the transport built `gh api --hostname <host>` from a constant, and the CLI wired it
+  with no host at all. An operator whose intake had recorded `git.acme.example/owner/payments`
+  therefore got the branch and the draft request against **github.com**/owner/payments — a repository
+  that may belong to someone else, with the operator's own credential, under a page a human had
+  approved for a different host. `owner/name` is not an address: the same pair exists on every host,
+  so an approval that did not name one had not said where the code would go. Repairing only the
+  transport would have left the approved bytes silent about the destination, which is the same
+  decision made twice — once by the page and once by whoever wired the remote — so the host went into
+  the digest, and the two schema-level refusals sit in front of it so a malformed host cannot reach
+  the argument array.
+- **Alternatives:** defaulting the host from `GH_HOST` or the nearest `gh` login (an environment
+  variable is not a human yes, and on a multi-host install it is a coin flip); sending everything to
+  github.com and refusing a non-github.com page at readiness (a correct rejection of an unsupported
+  install, but it makes the tool's documented GitHub Enterprise support a lie); re-hashing a
+  version-1 candidate under the new label (it silently voids a real approval, and the record would
+  then carry a digest nobody typed); putting the host in the digest but not on the screen (the page
+  and the number would then be two different statements, which is what the approval was supposed to
+  prevent); and leaving `repositoryHost` optional forever (an absent host would then be a valid
+  state this build publishes, which is the bug restated as a schema).
+- **Consequence:** `tests/pr/candidate.test.ts`, `tests/pr/branch.test.ts`,
+  `tests/pr/github-publisher.test.ts`, `tests/pr/publisher.test.ts`, `tests/pr/record.test.ts` and
+  `tests/cli/pr.test.ts` each name their own half: the recorded host is refused when it could never
+  be spoken to; the digest changes when the host changes and does not change for a candidate
+  recorded before hosts were bound; every `gh` call goes to the page's host rather than a
+  compiled-in one; a pinned transport refuses a foreign host before any `gh` call; and a page with
+  no host is refused before it can reach a transport. `docs/ACCEPTANCE_CONTRACT.md` carries the
+  version-2 candidate and the `/2` digest line. What follows for operators: an approval recorded
+  against a **github.com** page keeps its number, because a version-1 candidate is hashed with the
+  version-1 label and printed without a host, but it cannot be *published* — publishing one needs a
+  page re-assembled by this build and a fresh typed digest. What is *not* claimed: the transport
+  still hands the host to `gh` and nothing more, so which credential `gh` uses for that host is
+  `gh`'s own configuration and outside this build; nothing here proves GitHub accepted a write, which
+  stays the read-back's job; and a host that is a syntactically valid name is still not a host the
+  operator can reach, which no schema can decide.
+- **Mutations.** Five, each applied singly and restored byte-for-byte with a sha-256 check
+  bracketing its run. Deleting the transport's pin check turned its own case red with
+  `promise resolved "{ …(2) }" instead of rejecting` — that mutation *sends* the request, which is
+  the defect this ADR is about, restated in a test failure. Deleting `publish()`'s host-less guard
+  turned its case red too, but through the transport input schema's refusal
+  (`Refusing to send a branch push: Inval…`): the two guards are two checks, and the test pins the
+  message of the one under mutation. Deleting the digest's host print, and the legacy-label ternary,
+  each turned exactly the digest case named for it red. Deleting the version-2 host requirement
+  turned **nothing** red — all 32 other cases in `tests/pr/candidate.test.ts` stayed green — because
+  the field is optional on the shape (a version-1 document has none) and no test had been asked
+  whether a version-2 page may omit it. The round added
+  `refuses a version-2 candidate that names no host`, which that same mutation then turned red
+  (`1 failed | 32 passed`). Control afterwards: 5 files, `122 passed (122)`.

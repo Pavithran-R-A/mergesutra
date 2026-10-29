@@ -169,6 +169,46 @@ describe('a per-run lock', () => {
     expect(owner.brokenFrom ?? null).toBe(null);
   });
 
+  it('records the operation it was asked to hold, not the one it defaults to', async () => {
+    const root = await runsRoot();
+
+    const got = await acquired(
+      acquireRunLock({ runId: 'run-repair', operation: 'repair' }, depsFor(root, { pid: 91 })),
+    );
+
+    // The screen a blocked reader sees names this word, and a lock that called a
+    // repair a resume would send that reader to the wrong process.
+    expect((await ownerFile(got.directory)).operation).toBe('repair');
+    expect(got.handle.operation).toBe('repair');
+  });
+
+  it('defaults to resume when the caller names no operation', async () => {
+    const root = await runsRoot();
+
+    const got = await acquired(acquireRunLock({ runId: 'run-unnamed' }, depsFor(root)));
+
+    expect((await ownerFile(got.directory)).operation).toBe('resume');
+  });
+
+  it('reads a lock another operation left behind instead of calling it unreadable', async () => {
+    const root = await runsRoot();
+    // A lock a `repair` held when its process died: the record is well formed and
+    // says which operation it was, which is the one thing a reader needs to route.
+    await plantLock(
+      root,
+      'run-left-by-repair',
+      ownerOf('run-left-by-repair', { operation: 'repair' }),
+    );
+
+    const read = await readRunLock({ runId: 'run-left-by-repair' }, depsFor(root));
+
+    expect(read.state).toBe('HELD');
+    if (read.state !== 'HELD') return;
+    expect(read.holding.owner?.operation).toBe('repair');
+    expect(read.holding.liveness).toBe('ALIVE');
+    expect(read.holding.why).toBeNull();
+  });
+
   it('refuses a run id that is not a file name, and writes nothing at all', async () => {
     const root = await runsRoot();
 

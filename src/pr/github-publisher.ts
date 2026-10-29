@@ -7,6 +7,7 @@ import { githubApiRunner, type RunResult, type Runner } from '../core/runner.js'
 import { sha256Hex } from '../security/digest.js';
 import { isSafePathSegment, resolveInsideRoot } from '../security/path-safety.js';
 import { describePatch, type PatchDescription, type PatchFileFact } from '../verify/patch.js';
+import { REPOSITORY_HOST_PATTERN } from './branch.js';
 import type {
   CreatePullRequestInput,
   PublicationRemote,
@@ -53,7 +54,6 @@ import type {
  * because the runner has no stdin channel; the file is removed in `finally`.
  */
 
-const HOST_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?$/;
 const REPOSITORY_PATTERN = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/;
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 /** GitHub's blob endpoint accepts larger, but a single-file patch this large is not a reviewable change. */
@@ -62,10 +62,14 @@ const MAX_FILE_BYTES = 40 * 1024 * 1024;
 const TREE_FILTER_LIMIT = 3_000;
 /** A patch this large is not reviewable, and every read-back re-lists the whole tree. */
 const MAX_TREE_READS = 20;
-const DEFAULT_HOST = 'github.com';
 
 export interface GitHubPublicationDeps {
   readonly run?: Runner;
+  /**
+   * Pins the transport to one host. Left unset, the transport goes wherever the
+   * request's own `host` names — never to a default, because a page approved for
+   * an enterprise host must not be sent to github.com by omission.
+   */
   readonly host?: string;
   readonly now?: () => Date;
 }
@@ -76,23 +80,56 @@ export function createGitHubPublicationRemote(deps: GitHubPublicationDeps = {}):
 
 class GitHubPublicationRemote implements PublicationRemote {
   private readonly run: Runner;
-  private readonly host: string;
+  private readonly pinnedHost: string | null;
   private readonly now: () => Date;
 
   constructor(deps: GitHubPublicationDeps) {
     this.run = deps.run ?? githubApiRunner;
-    this.host = deps.host ?? DEFAULT_HOST;
+    this.pinnedHost = deps.host ?? null;
     this.now = deps.now ?? (() => new Date());
-    if (!HOST_PATTERN.test(this.host) || this.host.startsWith('-')) {
+    if (this.pinnedHost !== null && !REPOSITORY_HOST_PATTERN.test(this.pinnedHost)) {
       throw new AppError({
         kind: 'config',
-        message: `Refusing to use '${bound(this.host)}' as a GitHub host.`,
+        message: `Refusing to use '${bound(this.pinnedHost)}' as a GitHub host.`,
         remediation: 'A host is a name such as github.com or a GitHub Enterprise hostname.',
       });
     }
   }
 
+  /**
+   * The host this request is allowed to reach, decided before anything is read or
+   * sent. Both refusals happen before the first `gh` invocation, so a page approved
+   * for one host can never produce a request against another.
+   */
+  private destination(host: string): string {
+    if (!REPOSITORY_HOST_PATTERN.test(host)) {
+      throw new AppError({
+        kind: 'validation',
+        message:
+          `Refusing to publish to '${bound(host)}': that is not a hostname a GitHub API ` +
+          'request could name.',
+        remediation:
+          'Approve a page whose repository host was reported by intake; MergeSutra will not ' +
+          'substitute a default host for one it cannot understand.',
+        details: { host },
+      });
+    }
+    if (this.pinnedHost !== null && host !== this.pinnedHost) {
+      throw new AppError({
+        kind: 'validation',
+        message:
+          `Refusing to publish to '${bound(host)}' through a transport pinned to the host ` +
+          `'${bound(this.pinnedHost)}'.`,
+        remediation:
+          'Wire the transport for the host this page names, or approve a page for the pinned host.',
+        details: { host, pinned: this.pinnedHost },
+      });
+    }
+    return host;
+  }
+
   async pushBranch(input: PushBranchInput): Promise<PushedBranch> {
+    const host = this.destination(input.host);
     const { owner, name } = repositoryOf(input.repository);
     const patch = await describePatch({ workspace: input.directory, baseSha: input.baseSha });
     if (patch.identity !== input.patchIdentity) {
@@ -128,17 +165,21 @@ class GitHubPublicationRemote implements PublicationRemote {
       });
     }
 
-    const baseCommit = await this.api('GET', `repos/${owner}/${name}/git/commits/${input.baseSha}`);
+    const baseCommit = await this.api(
+      host,
+      'GET',
+      `repos/${owner}/${name}/git/commits/${input.baseSha}`,
+    );
     const baseTree = parseOf(baseCommit, baseCommitSchema, 'the base commit');
-    const entries = await this.treeEntries(input.directory, patch, owner, name);
+    const entries = await this.treeEntries(host, input.directory, patch, owner, name);
 
-    const treeReply = await this.api('POST', `repos/${owner}/${name}/git/trees`, {
+    const treeReply = await this.api(host, 'POST', `repos/${owner}/${name}/git/trees`, {
       base_tree: baseTree.tree.sha,
       tree: entries,
     });
     const tree = parseOf(treeReply, shaReplySchema, 'the new tree');
 
-    const commitReply = await this.api('POST', `repos/${owner}/${name}/git/commits`, {
+    const commitReply = await this.api(host, 'POST', `repos/${owner}/${name}/git/commits`, {
       message: `mergesutra: apply approved patch for ${input.runId}`,
       tree: tree.sha,
       parents: [input.baseSha],
@@ -147,7 +188,7 @@ class GitHubPublicationRemote implements PublicationRemote {
 
     // From here the repository has accepted every write. The creation reply is
     // advisory only: the read-back below is what proves what GitHub stored.
-    const refReply = await this.request('POST', `repos/${owner}/${name}/git/refs`, {
+    const refReply = await this.request(host, 'POST', `repos/${owner}/${name}/git/refs`, {
       ref: `refs/heads/${input.branch}`,
       sha: commit.sha,
     });
@@ -189,7 +230,7 @@ class GitHubPublicationRemote implements PublicationRemote {
       }
 
       const ref = parseOf(
-        await this.api('GET', `${prefix}/git/ref/heads/${input.branch}`),
+        await this.api(input.host, 'GET', `${prefix}/git/ref/heads/${input.branch}`),
         refReadSchema,
         'the created branch',
       );
@@ -201,7 +242,7 @@ class GitHubPublicationRemote implements PublicationRemote {
       }
 
       const commit = parseOf(
-        await this.api('GET', `${prefix}/git/commits/${commitSha}`),
+        await this.api(input.host, 'GET', `${prefix}/git/commits/${commitSha}`),
         commitReadSchema,
         'the created commit',
       );
@@ -221,7 +262,13 @@ class GitHubPublicationRemote implements PublicationRemote {
       const remote = new Map<string, TreeReadEntry>();
       for (const filter of filters) {
         const tree = parseOf(
-          await this.api('GET', `${prefix}/git/trees/${treeSha}?recursive=1`, undefined, filter),
+          await this.api(
+            input.host,
+            'GET',
+            `${prefix}/git/trees/${treeSha}?recursive=1`,
+            undefined,
+            filter,
+          ),
           treeReadSchema,
           'the created tree',
         );
@@ -272,8 +319,9 @@ class GitHubPublicationRemote implements PublicationRemote {
   }
 
   async createPullRequest(input: CreatePullRequestInput): Promise<PullRequestRef> {
+    const host = this.destination(input.host);
     const { owner, name } = repositoryOf(input.repository);
-    const reply = await this.api('POST', `repos/${owner}/${name}/pulls`, {
+    const reply = await this.api(host, 'POST', `repos/${owner}/${name}/pulls`, {
       title: input.title,
       body: input.body,
       head: input.head,
@@ -307,6 +355,7 @@ class GitHubPublicationRemote implements PublicationRemote {
    * and a branch whose bytes the human never saw.
    */
   private async treeEntries(
+    host: string,
     workspace: string,
     patch: PatchDescription,
     owner: string,
@@ -319,7 +368,7 @@ class GitHubPublicationRemote implements PublicationRemote {
         continue;
       }
       const measured = await this.readMeasured(workspace, file);
-      const blob = await this.api('POST', `repos/${owner}/${name}/git/blobs`, {
+      const blob = await this.api(host, 'POST', `repos/${owner}/${name}/git/blobs`, {
         content: measured.content.toString('base64'),
         encoding: 'base64',
       });
@@ -371,12 +420,13 @@ class GitHubPublicationRemote implements PublicationRemote {
   }
 
   private async request(
+    host: string,
     method: 'GET' | 'POST',
     endpoint: string,
     payload?: unknown,
     jq?: string,
   ): Promise<string> {
-    const args = ['api', '--hostname', this.host, '--method', method];
+    const args = ['api', '--hostname', host, '--method', method];
     let cleanup: (() => Promise<void>) | null = null;
     if (payload !== undefined) {
       const written = await writePayload(payload);
@@ -398,12 +448,13 @@ class GitHubPublicationRemote implements PublicationRemote {
   }
 
   private async api(
+    host: string,
     method: 'GET' | 'POST',
     endpoint: string,
     payload?: unknown,
     jq?: string,
   ): Promise<unknown> {
-    const text = await this.request(method, endpoint, payload, jq);
+    const text = await this.request(host, method, endpoint, payload, jq);
     if (text.length === 0) {
       throw new AppError({
         kind: 'invalid-response',

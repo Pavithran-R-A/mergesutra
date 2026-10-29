@@ -520,7 +520,11 @@ export async function run(
     if (isAppError(error)) {
       writeErr(`error: ${printable(error.message)}`);
       if (error.remediation) writeErr(`  ${printable(error.remediation)}`);
-      return error.kind === 'config' ? EXIT.CONFIG : EXIT.ERROR;
+      if (error.kind === 'config') return EXIT.CONFIG;
+      // A held run is the same news `resume` prints: nothing is broken, somebody
+      // else is here, and a script should stop rather than treat it as a failure.
+      if (error.kind === 'blocked') return EXIT.BLOCKED;
+      return EXIT.ERROR;
     }
     writeErr(`error: ${printable(error instanceof Error ? error.message : String(error))}`);
     return 1;

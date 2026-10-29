@@ -23,7 +23,7 @@ export function candidateInput(overrides: Partial<CandidateInput> = {}): Candida
     runId: RUN_ID,
     createdAt: '2026-09-25T00:00:00.000Z',
     issue: { canonical: 'projectbharat/datekit#123', number: 123, closes: false },
-    target: { fullName: 'projectbharat/datekit', branch: 'main' },
+    target: { host: 'github.com', fullName: 'projectbharat/datekit', branch: 'main' },
     proposedBranch: `mergesutra/${RUN_ID}`,
     baseSha: BASE_SHA,
     patchIdentity: PATCH_IDENTITY,

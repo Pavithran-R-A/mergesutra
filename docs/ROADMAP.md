@@ -428,7 +428,10 @@ human reader rather than deriving anything new:
 - [x] Writes are atomic and confined: the run id is validated before it touches a
       path, each file goes to a `.<pid>.tmp` sibling and is renamed into place with
       mode `0600`, and a traversal-shaped run id is refused with the file it would
-      have landed on left alone.
+      have landed on left alone. *(Later change, audit finding F03: the scratch name
+      carries a random half and is opened `wx`, a rename that fails removes its own
+      scratch file, two writes of one pack directory take turns inside one process,
+      and both writers hold the run's lock while they render — ADR-072.)*
 - [x] Not done on purpose: the pack does not rank, score or summarise the evidence,
       does not decide which carried caveat a later stage answered, and never writes
       to the run record. `report` reads state and writes three files.
@@ -709,7 +712,10 @@ it.
       the approval it records, and `STALE` in this product means the scope moved rather
       than a timer ran out. Nothing is fuzzy — and the document is validated through its
       own schema *before* it is hashed, so a forged candidate cannot produce a number to
-      point at.
+      point at. *(Later change, audit finding F04: the repository line prints
+      `host/owner/name`, the candidate carries `repositoryHost` as schema version 2, and
+      the label became `mergesutra-publication/2` for a version-2 page while a
+      version-1 page keeps `/1` and its own number — ADR-073.)*
 - [x] Approval is a capability with one door (`src/pr/approval.ts`): five fields, an
       `action` enum with the single member `CREATE_PULL_REQUEST`, and three states —
       `MATCHED`, `ABSENT`, `STALE` — reached by equality and nothing else.
@@ -756,7 +762,12 @@ it.
       added a GitHub transport in its own module, constructed only by the `--publish`
       path of `src/cli/pr.ts` after a typed approval. A fake
       transport in `tests/pr/publisher.test.ts` proves the seam can carry a publication —
-      otherwise "disabled" would be indistinguishable from "unwired".
+      otherwise "disabled" would be indistinguishable from "unwired". *(Later change,
+      audit finding F04: that transport had a compiled-in `github.com`, so an approval
+      for a page recorded against another host was carried to GitHub by the same
+      `owner/name`; the host is now a field of the request schemas, the constructor pins
+      nothing it was not given, and `publish()` refuses a page that names no host rather
+      than choosing one — ADR-073.)*
 - [x] No stage after a review has to be re-run to look at a page, and no stage is run in
       the looking. `runPrStage()` (`src/pr/stage.ts`) imports no client, no transport, no
       writer and no runner: closing Stage 10 spent zero BharatCode calls and required no

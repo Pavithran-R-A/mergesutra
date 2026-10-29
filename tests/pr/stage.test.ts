@@ -166,9 +166,10 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     const candidate = result.candidate;
     if (!candidate) throw new Error('the run was proposed and filed no candidate');
     expect(candidate).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       runId: fixture.record.runId,
       repository: 'projectbharat/datekit',
+      repositoryHost: 'github.com',
       baseSha: fixture.base,
       patchIdentity: fixture.identityA,
       targetBranch: 'main',
@@ -333,6 +334,7 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     expect(fake.pushes).toEqual([
       {
         directory: fixture.workspace,
+        host: 'github.com',
         repository: 'projectbharat/datekit',
         branch: candidate.proposedBranch,
         baseSha: fixture.base,
@@ -342,6 +344,7 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     ]);
     expect(fake.pulls).toEqual([
       {
+        host: 'github.com',
         repository: 'projectbharat/datekit',
         title: candidate.prTitle,
         body: candidate.prBody,

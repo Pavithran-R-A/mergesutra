@@ -19,7 +19,7 @@ import {
   type PublicationApprovalDecision,
 } from './approval.js';
 import { sourceBranchOf, targetOf, type TargetBranchFacts } from './branch.js';
-import { candidateOf, type PublicationCandidate } from './candidate.js';
+import { candidateOf, repositoryAddressOf, type PublicationCandidate } from './candidate.js';
 import {
   draftOf,
   type DraftCriterion,
@@ -483,7 +483,7 @@ function assembleCandidate(input: {
       runId: source.runId,
       createdAt,
       issue: issue && { canonical: issue.canonical, number: issue.number, closes: closesIssue },
-      target: { fullName: target.fullName, branch: target.branch },
+      target: { host: target.host, fullName: target.fullName, branch: target.branch },
       proposedBranch: proposed.name,
       baseSha,
       patchIdentity: patch?.identity ?? null,
@@ -621,7 +621,7 @@ function proposalRow(input: {
     status: 'INFO',
     detail:
       `${candidate.prTitle} — ${candidate.proposedBranch} into ${candidate.targetBranch} ` +
-      `(${candidate.repository}); patch ${short(candidate.patchIdentity)}, evidence pack ` +
+      `(${repositoryAddressOf(candidate)}); patch ${short(candidate.patchIdentity)}, evidence pack ` +
       `${short(candidate.evidencePackIdentity)}, body ${String(candidate.prBody.length)} ` +
       `characters. Digest ${digest}.`,
   };

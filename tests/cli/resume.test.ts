@@ -205,6 +205,26 @@ async function repositoryGateIds(): Promise<string[]> {
     .map((gate) => gate.id);
 }
 
+describe('the resume command with nothing to resume', () => {
+  it('names the command the person typed, not the one that shares its reader', async () => {
+    const cwd = await scratch('mergesutra-resume-empty-');
+    const screen = capture();
+
+    const code = await run(['node', 'mergesutra', 'resume'], {
+      resume: { cwd },
+      write: screen.write,
+      writeErr: screen.writeErr,
+      env: { NO_COLOR: '1' },
+    });
+
+    expect(code).toBe(EXIT.ERROR);
+    expect(screen.text()).toBe('');
+    expect(screen.errorText()).toMatch(/nothing to resume/i);
+    expect(screen.errorText()).toContain('mergesutra resume <run-id>');
+    expect(screen.errorText()).not.toMatch(/no status to show/i);
+  });
+});
+
 describe.skipIf(!AVAILABLE)('the resume command', () => {
   it('shows the plan and changes nothing until the word execute appears', async () => {
     const where = await contractRun();

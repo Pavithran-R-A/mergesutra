@@ -37,6 +37,20 @@ const SECRET_ENV_NAMES = [
   'GITHUB_PAT',
 ] as const;
 
+/**
+ * A header block captured as text — an argv array echoed into a receipt, a line of
+ * provider output — is not a name/value pair this class can see: the value runs to
+ * the end of the line, because a Bearer token or a Cookie list is not one word.
+ * Masking the whole tail is deliberate over-redaction; a caller that still holds
+ * the pair should use `header()` and keep the line it had.
+ */
+const RAW_HEADER_PATTERN = new RegExp(
+  `((?:${[...SENSITIVE_HEADERS]
+    .sort((left, right) => right.length - left.length)
+    .join('|')})\\b"?\\s*:\\s*)[^\\r\\n]*`,
+  'gi',
+);
+
 /** Token-shaped patterns for well-known credential formats. */
 const SECRET_PATTERNS: readonly RegExp[] = [
   // BharatCode keys: current bc_live_... plus legacy/OpenAI-style sk-...
@@ -50,9 +64,12 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /\bAKIA[0-9A-Z]{16}\b/g,
   // PEM private key material
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
-  // Generic "key/token/secret/password": "value" in JSON or env form
+  // Generic "key/token/secret/password": "value" in JSON or env form. The
+  // optional closing quote after the key is what makes a JSON *string* leaf
+  // (`{"password": "..."}`) readable: without it the colon is hidden behind the
+  // quote and the value passed through untouched.
   new RegExp(
-    `\\b(?:${SECRET_ENV_NAMES.join('|')}|[A-Za-z0-9_]*(?:secret|token|password|passwd|apikey|api_key)[A-Za-z0-9_]*)\\b(\\s*[:=]\\s*)("?)([^"\\s,}]+)\\2`,
+    `\\b(?:${SECRET_ENV_NAMES.join('|')}|[A-Za-z0-9_]*(?:secret|token|password|passwd|apikey|api_key)[A-Za-z0-9_]*)\\b"?(\\s*[:=]\\s*)("?)([^"\\s,}]+)\\2`,
     'gi',
   ),
 ];
@@ -97,7 +114,7 @@ export class Redactor {
 
   /** Redact arbitrary text. */
   text(input: string): string {
-    let result = input;
+    let result = input.replace(RAW_HEADER_PATTERN, (_match, prefix: string) => `${prefix}${MASK}`);
     for (const secret of this.known) {
       result = splitJoin(result, secret, MASK);
     }
@@ -163,7 +180,10 @@ function maskGeneric(match: string, groups: unknown[]): string {
   const sep = groups[0];
   if (typeof sep === 'string' && /[:=]/.test(sep)) {
     const quote = typeof groups[1] === 'string' ? (groups[1] as string) : '';
-    return `${match.slice(0, match.length - (groups[2] as string).length - quote.length)}${quote}${MASK}${quote}`;
+    const value = groups[2] as string;
+    // The slice already ends after an opening quote when the value was quoted;
+    // appending `quote` on both sides is what produced `token = ""[REDACTED]"`.
+    return `${match.slice(0, match.length - value.length - quote.length)}${MASK}${quote}`;
   }
   return MASK;
 }

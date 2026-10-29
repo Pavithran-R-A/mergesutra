@@ -25,9 +25,10 @@ describe('building the candidate', () => {
     const candidate = candidateOf(candidateInput());
 
     expect(candidate).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       runId: 'run-20260925T000000Z-pack001',
       repository: 'projectbharat/datekit',
+      repositoryHost: 'github.com',
       baseSha: BASE_SHA,
       patchIdentity: PATCH_IDENTITY,
       targetBranch: 'main',
@@ -117,7 +118,11 @@ describe('building the candidate', () => {
     expect(() =>
       candidateOf(
         candidateInput({
-          target: { fullName: 'projectbharat/datekit', branch: 'refs/heads/main' },
+          target: {
+            host: 'github.com',
+            fullName: 'projectbharat/datekit',
+            branch: 'refs/heads/main',
+          },
         }),
       ),
     ).toThrow(/target branch/i);
@@ -140,6 +145,7 @@ describe('building the candidate', () => {
         'prTitle',
         'proposedBranch',
         'repository',
+        'repositoryHost',
         'reviewCycle',
         'reviewSummary',
         'reviewedPatchIdentity',
@@ -155,6 +161,44 @@ describe('building the candidate', () => {
     const extra = { ...candidateOf(candidateInput()), approved: true } as unknown;
 
     expect(() => parsePublicationCandidate(extra)).toThrow(/approved|shape|strict/i);
+  });
+
+  it('names the repository host, because owner and name are not an address', () => {
+    const candidate = candidateOf(candidateInput());
+
+    expect(candidate.repositoryHost).toBe('github.com');
+  });
+
+  it('refuses a repository host that could never be spoken to', () => {
+    expect(() =>
+      candidateOf(
+        candidateInput({
+          target: {
+            host: 'ghe example.com/acme/payments',
+            fullName: 'acme/payments',
+            branch: 'main',
+          },
+        }),
+      ),
+    ).toThrow(/host/i);
+  });
+
+  it('refuses a version-1 candidate that suddenly carries a host', () => {
+    const versioned = { ...candidateOf(candidateInput()), schemaVersion: 1 } as unknown;
+
+    expect(() => parsePublicationCandidate(versioned)).toThrow(/host|version/i);
+  });
+
+  it('refuses a version-2 candidate that names no host', () => {
+    // The field is optional on the shape because a version-1 document has none, so
+    // the version-2 requirement lives in the refinement. Without it a page could be
+    // recorded, approved and published with no destination in its bytes, which is
+    // the defect this version exists to close.
+    const { repositoryHost: _unbound, ...rest } = candidateOf(candidateInput());
+
+    expect(() => parsePublicationCandidate({ ...rest, schemaVersion: 2 })).toThrow(
+      /repository host/i,
+    );
   });
 });
 
@@ -210,7 +254,9 @@ describe('the digest a human approves', () => {
     const before = publicationDigestOf(candidateOf(candidateInput()));
     const after = publicationDigestOf(
       candidateOf(
-        candidateInput({ target: { fullName: 'projectbharat/datekit', branch: 'release' } }),
+        candidateInput({
+          target: { host: 'github.com', fullName: 'projectbharat/datekit', branch: 'release' },
+        }),
       ),
     );
 
@@ -220,7 +266,24 @@ describe('the digest a human approves', () => {
   it('changes when the repository changes, even on the same branch of it', () => {
     const before = publicationDigestOf(candidateOf(candidateInput()));
     const after = publicationDigestOf(
-      candidateOf(candidateInput({ target: { fullName: 'someone-else/datekit', branch: 'main' } })),
+      candidateOf(
+        candidateInput({
+          target: { host: 'github.com', fullName: 'someone-else/datekit', branch: 'main' },
+        }),
+      ),
+    );
+
+    expect(after).not.toBe(before);
+  });
+
+  it('changes when the repository host changes, because that is where it would be sent', () => {
+    const before = publicationDigestOf(candidateOf(candidateInput()));
+    const after = publicationDigestOf(
+      candidateOf(
+        candidateInput({
+          target: { host: 'ghe.example.com', fullName: 'projectbharat/datekit', branch: 'main' },
+        }),
+      ),
     );
 
     expect(after).not.toBe(before);
@@ -276,5 +339,18 @@ describe('the digest a human approves', () => {
     const forged = { ...candidateOf(candidateInput()), patchIdentity: 'not-a-digest' };
 
     expect(() => publicationDigestOf(forged as never)).toThrow(/patch/i);
+  });
+
+  it('keeps a candidate recorded before hosts were bound at the digest its approval names', () => {
+    // A stored candidate from an earlier build has no host and schema version 1.
+    // Its approval names this number; changing it would silently void a yes that a
+    // person really gave, so the legacy line set is pinned here rather than derived.
+    const current = candidateOf(candidateInput()) as unknown as Record<string, unknown>;
+    const { repositoryHost: _unused, ...decided } = current;
+    const legacy = { ...decided, schemaVersion: 1 };
+
+    expect(publicationDigestOf(legacy as never)).toBe(
+      '5cc91fb000ab1e96e1780f20f927246ac5fd651ec01af790ceb175b913cafca9',
+    );
   });
 });

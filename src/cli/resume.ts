@@ -153,7 +153,11 @@ function stageDispatcher(
         // The pack is a rendering of the record, so the record is the thing to hand
         // back — and re-reading it after the write is how this stays honest about what
         // is on disk rather than what was in memory when the stage started.
-        await runReportStage({ runId }, deps.report);
+        //
+        // `resume` already holds this run's lock while it dispatches, so the reporter is
+        // told that rather than taking a second one it would be refused for, and would
+        // then release as if it had made it.
+        await runReportStage({ runId }, { ...deps.report, lockHeldByCaller: true });
         const store: RunStore =
           deps.report?.store ??
           createFileRunStore(defaultRunStoreRoot(deps.report?.cwd ?? process.cwd()));

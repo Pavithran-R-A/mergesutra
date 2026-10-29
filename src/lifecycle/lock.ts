@@ -9,9 +9,10 @@ import { defaultRunStoreRoot } from '../state/run-store.js';
 /**
  * One lifecycle mutation per run, proved on the filesystem rather than in memory.
  *
- * `resume` writes: it can drive the implementation loop, run the repository's gates,
- * and file receipts against the same workspace and the same run record. Two processes
- * doing that to one run is not two attempts that happen to overlap — it is one run's
+ * `resume` and `repair` write: they can drive the implementation loop, run the
+ * repository's gates, and file receipts against the same workspace and the same run
+ * record. `report` replaces the pack a reviewer reads. Two processes doing any of
+ * that to one run is not two attempts that happen to overlap — it is one run's
  * evidence edited by two writers, so the second one's "what is true now" is partly the
  * first one's work. An in-process mutex cannot help, because the two processes do not
  * share memory; the claim has to live somewhere both of them have to pass through, and
@@ -55,8 +56,14 @@ import { defaultRunStoreRoot } from '../state/run-store.js';
  * the caller gets a true answer about the moment it asked about.
  */
 
-/** The operations that mutate a run's lifecycle. `resume` is the only one in this build. */
-export const RUN_LOCK_OPERATIONS = ['resume'] as const;
+/**
+ * The operations that take a run's lock: the commands that can replace its evidence.
+ *
+ * The set is closed on purpose. A record naming an operation this build does not have
+ * is refused as unreadable rather than interpreted, and the word is printed on the
+ * screen a blocked reader sees, so it has to name the command they can go and ask.
+ */
+export const RUN_LOCK_OPERATIONS = ['resume', 'repair', 'report'] as const;
 export type RunLockOperation = (typeof RUN_LOCK_OPERATIONS)[number];
 
 /** The one file a lock directory is allowed to hold. */
@@ -140,6 +147,14 @@ export type Release =
 
 export interface RunLockInput {
   readonly runId: string;
+  /**
+   * The command taking the lock, recorded for the reader who finds it held.
+   *
+   * Defaults to `resume`, the operation this module was written for; a caller taking
+   * the lock for another command says which one, because the lock is otherwise
+   * indistinguishable from a resume that never finished.
+   */
+  readonly operation?: RunLockOperation;
 }
 
 export interface RunLockDeps {
@@ -353,6 +368,7 @@ export async function releaseRunLock(handle: RunLockHandle): Promise<Release> {
 interface Environment {
   readonly root: string;
   readonly runId: string;
+  readonly operation: RunLockOperation;
   readonly directory: string;
   readonly pid: number;
   readonly host: string;
@@ -366,6 +382,7 @@ function environment(input: RunLockInput, deps: RunLockDeps): Environment {
   return {
     root,
     runId,
+    operation: input.operation ?? 'resume',
     directory: runLockDirectory(root, runId),
     pid: deps.pid ?? process.pid,
     host: deps.host ?? os.hostname(),
@@ -376,7 +393,7 @@ function environment(input: RunLockInput, deps: RunLockDeps): Environment {
 function newOwner(here: Environment, brokenFrom?: RunLockOwnerRecord): RunLockMetadata {
   return {
     runId: here.runId,
-    operation: 'resume',
+    operation: here.operation,
     pid: here.pid,
     host: here.host,
     createdAt: here.now().toISOString(),

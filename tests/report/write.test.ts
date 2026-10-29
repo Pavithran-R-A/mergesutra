@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -74,6 +74,24 @@ describe('writing the pack', () => {
     await writeEvidencePack(root, packFor('run-20260925T000000Z-pack001'));
 
     expect(await readFile(path.join(dir, 'report.md'), 'utf8')).toBe('# pack\n');
+  });
+
+  it('removes the scratch file it was writing when the rename cannot finish', async () => {
+    const root = await runsRoot();
+    const dir = path.join(root, 'run-20260925T000000Z-pack001');
+    // A directory where `report.json` has to go, so that file's rename fails after its
+    // scratch copy is already written. The other two files went in first, which is the
+    // state a reader would otherwise find: a pack that looks whole except for the file
+    // the writer failed on, with a stray `.tmp` beside it.
+    await mkdir(dir, { recursive: true });
+    await mkdir(path.join(dir, 'report.json'));
+
+    await expect(
+      writeEvidencePack(root, packFor('run-20260925T000000Z-pack001')),
+    ).rejects.toThrow();
+
+    const names = await readdir(dir);
+    expect(names.filter((name) => name.endsWith('.tmp'))).toEqual([]);
   });
 
   it('refuses a run id that would write outside the run directory', async () => {

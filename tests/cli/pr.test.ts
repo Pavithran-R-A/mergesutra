@@ -143,6 +143,9 @@ describe.skipIf(!AVAILABLE)('mergesutra pr', () => {
     expect(text).toContain('## Summary');
     expect(text).toContain('## Independent Review');
     expect(text).toContain(`mergesutra pr ${fixture.record.runId} --approve`);
+    // The page names the host as well as the repository, because that is where a
+    // yes would send the bytes and this screen is where the yes is read.
+    expect(text).toContain('github.com/projectbharat/datekit');
     expect(text).toContain('NO REMOTE CHANGE HAS BEEN MADE.');
     // Nothing was agreed to yet, so the readiness word is the waiting one.
     expect(text).toContain('NOT_READY_FOR_PUBLICATION');

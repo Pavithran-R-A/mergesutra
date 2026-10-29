@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { sha256Hex } from '../security/digest.js';
-import { branchNameProblem } from './branch.js';
+import { branchNameProblem, REPOSITORY_HOST_PATTERN } from './branch.js';
 import { MAX_BODY_LENGTH, MAX_TITLE_LENGTH } from './draft.js';
 
 /**
@@ -37,16 +37,31 @@ import { MAX_BODY_LENGTH, MAX_TITLE_LENGTH } from './draft.js';
  * a consumer and does not repair what it was handed.
  */
 
-export const CANDIDATE_SCHEMA_VERSION = 1;
+export const CANDIDATE_SCHEMA_VERSION = 2;
+
+/**
+ * Version 1 predates the host being part of the page: it named `owner/repo` only.
+ * Those documents are still readable, because a human's recorded yes points at one,
+ * but nothing this build writes may omit the host again.
+ */
+const LEGACY_CANDIDATE_SCHEMA_VERSION = 1;
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const COMMIT_SHA = /^[0-9a-f]{40}$/;
+const HOST_MESSAGE = 'must be a hostname a publication could be sent to';
 
 export const publicationCandidateSchema = z
   .object({
-    schemaVersion: z.literal(CANDIDATE_SCHEMA_VERSION),
+    schemaVersion: z.union([
+      z.literal(LEGACY_CANDIDATE_SCHEMA_VERSION),
+      z.literal(CANDIDATE_SCHEMA_VERSION),
+    ]),
     runId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/),
     repository: z.string().min(1),
+    // Beside `repository` because owner and name are not an address: the same
+    // `acme/payments` exists on github.com and on any enterprise host, and a yes
+    // for one of them must not authorize a send to the other.
+    repositoryHost: z.string().regex(REPOSITORY_HOST_PATTERN, HOST_MESSAGE).optional(),
     baseSha: z.string().regex(COMMIT_SHA, 'must be a full lowercase commit SHA'),
     patchIdentity: z.string().regex(SHA256, 'must be a patch identity MergeSutra measured'),
     targetBranch: z.string().min(1),
@@ -80,9 +95,43 @@ export const publicationCandidateSchema = z
         message: 'must be the digest of the body beside it',
       });
     }
+    if (candidate.schemaVersion === LEGACY_CANDIDATE_SCHEMA_VERSION) {
+      // A version-1 document with a host is not an old candidate: the field did
+      // not exist then. Refusing it keeps the version number meaningful, and keeps
+      // a forged record from claiming its host was part of what a person approved.
+      if (candidate.repositoryHost !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['repositoryHost'],
+          message: 'a version-1 candidate predates repository hosts and cannot carry one',
+        });
+      }
+      return;
+    }
+    if (candidate.repositoryHost === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['repositoryHost'],
+        message: 'a version-2 candidate must name the repository host it would publish to',
+      });
+    }
   });
 
 export type PublicationCandidate = z.infer<typeof publicationCandidateSchema>;
+
+/**
+ * The repository as a page prints it and as the digest names it.
+ *
+ * A version-1 record never knew a host, so it is shown exactly as it always was —
+ * `owner/name`. Everything this build writes is `host/owner/name`. Sharing one
+ * spelling between the screen and the digest is what keeps a yes to the printed
+ * page a yes to the line that was hashed.
+ */
+export function repositoryAddressOf(candidate: PublicationCandidate): string {
+  return candidate.repositoryHost === undefined
+    ? candidate.repository
+    : `${candidate.repositoryHost}/${candidate.repository}`;
+}
 
 export interface CandidateInput {
   readonly runId: string;
@@ -93,7 +142,11 @@ export interface CandidateInput {
     /** Whether the page will say this pull request *closes* the issue. */
     readonly closes: boolean;
   } | null;
-  readonly target: { readonly fullName: string; readonly branch: string };
+  readonly target: {
+    readonly host: string;
+    readonly fullName: string;
+    readonly branch: string;
+  };
   readonly proposedBranch: string;
   readonly baseSha: string;
   readonly patchIdentity: string | null;
@@ -144,6 +197,12 @@ export function candidateOf(input: CandidateInput): PublicationCandidate {
       'Re-run intake so the target branch is a plain branch name that Git reports for this repository.',
     );
   }
+  if (!REPOSITORY_HOST_PATTERN.test(input.target.host)) {
+    throw missing(
+      `the recorded repository host '${short(input.target.host)}' is not a hostname a publication could be sent to`,
+      'Re-run intake against the repository URL, so the host is one Git and the GitHub API both reported.',
+    );
+  }
   const sourceProblem = branchNameProblem(input.proposedBranch);
   if (sourceProblem !== null) {
     throw missing(
@@ -156,6 +215,7 @@ export function candidateOf(input: CandidateInput): PublicationCandidate {
     schemaVersion: CANDIDATE_SCHEMA_VERSION,
     runId: input.runId,
     repository: input.target.fullName,
+    repositoryHost: input.target.host,
     baseSha: input.baseSha,
     patchIdentity,
     targetBranch: input.target.branch,

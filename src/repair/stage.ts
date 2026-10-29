@@ -13,6 +13,13 @@ import {
 } from '../state/run-record.js';
 import { createFileRunStore, defaultRunStoreRoot, type RunStore } from '../state/run-store.js';
 import { newestRunId } from '../state/run-selection.js';
+import {
+  acquireRunLock,
+  releaseRunLock,
+  type Release,
+  type RunLockDeps,
+  type RunLockHandle,
+} from '../lifecycle/lock.js';
 import { verdictIsPassed, type GateExecutionSpec } from '../verify/engine.js';
 import { describePatch } from '../verify/patch.js';
 import { loopClaim, verifyWorkspace, type WorkspaceVerification } from '../verify/workspace.js';
@@ -104,6 +111,8 @@ export interface RepairStageDeps {
   readonly commandRun?: NonNullable<ImplementationLoopDeps['run']>;
   /** Bounds a caller may tighten; the ceilings in `bounds.ts` are not movable. */
   readonly limits?: Partial<RepairLimits>;
+  /** How the run lock is taken and read; identity and liveness, for tests. */
+  readonly lock?: RunLockDeps;
 }
 
 export interface RepairStageResult {
@@ -179,166 +188,196 @@ export async function runRepairStage(
     };
   }
 
-  const primaryRoot = path.resolve(input.repo ?? source.local?.toplevel ?? cwd);
-  const workspace = path.resolve(primaryRoot, implementation.workspace.relativePath);
-  const baseSha = implementation.workspace.baseSha;
-  const before = await describePatch({ workspace, baseSha });
-  if (before.identity !== plan.reviewedPatchIdentity) {
+  // Taken only after the approval stands: the refusals above decide from the record
+  // alone and write nothing, so a cycle that was never going to run must not make a
+  // later reader wait for it. Taken before the patch is measured, because measuring a
+  // workspace and then editing it is exactly the window another process could use.
+  const acquired = await acquireRunLock(
+    { runId, operation: 'repair' },
+    { ...deps.lock, cwd, runsRoot },
+  );
+  if (acquired.state !== 'ACQUIRED') {
     throw new AppError({
-      kind: 'validation',
-      message:
-        `The workspace no longer holds the bytes this plan was frozen against: the plan names ` +
-        `${plan.reviewedPatchIdentity.slice(0, 12)}… and this workspace measures ${before.identity.slice(
-          0,
-          12,
-        )}…. A repair that ran here would answer findings about a patch that has gone.`,
+      kind: 'blocked',
+      message: acquired.message,
       remediation:
-        'Review these bytes with `mergesutra review` and approve the plan that freezes from that ' +
-        'reading. Nothing here will be edited, reverted or cleaned to make the old plan fit.',
-      details: { runId, planned: plan.reviewedPatchIdentity, measured: before.identity },
+        `Wait for the other operation on run '${runId}' to finish. If it left the lock ` +
+        `behind, \`mergesutra status ${runId}\` names who held it and the path a person ` +
+        'can inspect; nothing here removes a lock it did not create.',
+      details: { runId, lock: acquired.directory },
     });
   }
+  let held: RunLockHandle | null = acquired.handle;
 
-  const context = assembleRepairContext({ record: source, plan });
-  const brief: LoopBrief = {
-    material: context.text,
-    writableFiles: plan.expectedFiles,
-    contextFiles: context.files,
-  };
-  const loop = await runImplementationLoop(
-    {
-      runId,
-      record: source,
-      contract,
-      plan: stagePlan,
-      workspaceRoot: workspace,
-      workspace: implementation.workspace,
-      limits: resolveRepairLimits(),
-      brief,
-      ...(input.signal ? { signal: input.signal } : {}),
-    },
-    {
-      now,
-      ...(deps.client ? { client: deps.client } : {}),
-      ...(deps.commandRun ? { run: deps.commandRun } : {}),
-      ...(input.signal ? { signal: input.signal } : {}),
-    },
-  );
-
-  const after = await describePatch({ workspace, baseSha });
-  const execution = buildRepairExecution({
-    plan,
-    approval,
-    patchBefore: before,
-    patchAfter: after,
-    implementation: loop,
-    createdAt: now().toISOString(),
-  });
-
-  const owedReverification = routeRepairScope(execution.scope) === 'REVERIFY_THROUGH_STAGE_7';
-  const round = owedReverification
-    ? await verifyWorkspace(
-        {
-          runId,
-          workspace,
-          baseSha,
-          contract,
-          // The claims this round files are the earlier loop's, kept, plus this
-          // cycle's. Both are attributed, and nothing that decides a status reads
-          // either one.
-          claims: [
-            ...(source.evidence?.claims ?? []),
-            ...loopClaim(REPAIR_LOOP_CLAIM_SOURCE, loop.finishClaim),
-          ],
-          // The yes the human already gave, and no fresh one. Whether it still
-          // covers this round is Stage 7's digest comparison to make.
-          consent: source.executionConsent,
-          previous: {
-            plan: previousRound,
-            reason:
-              `Repair cycle ${String(plan.repairCycle)} moved the patch to ` +
-              `${after.identity.slice(0, 12)}…, so the gates are measured against these bytes.`,
-          },
-          ...(input.signal ? { signal: input.signal } : {}),
-        },
-        { now, ...(deps.runFor ? { runFor: deps.runFor } : {}) },
-      )
-    : null;
-
-  const extra = disclose({ execution, round, runId });
-  const outcome = outcomeFor(execution, round, loop);
-  const record = createRunRecord({
-    runId,
-    createdAt: source.createdAt,
-    stage: 'repair',
-    outcome,
-    issueRef: source.issueRef,
-    issue: source.issue,
-    repository: source.repository,
-    base: source.base,
-    local: source.local,
-    contract: source.contract,
-    acceptanceContract: contract,
-    plan: stagePlan,
-    implementation,
-    verificationPlan: round?.plan ?? source.verificationPlan,
-    verification: round?.run ?? source.verification,
-    executionConsent: round?.consent ?? source.executionConsent,
-    evidence: round?.evidence ?? source.evidence,
-    review: source.review,
-    repairPlan: source.repairPlan,
-    repairExecutions: [...source.repairExecutions, execution],
-    checks: [
-      approvalRow(decision),
-      ...cycleRows(loop, execution),
-      reverificationRow(execution, round),
-      ...(round?.checks ?? []),
-    ],
-    nextStage: nextStageFor(execution, round, plan, deps.limits),
-    limitations: [
-      ...new Set([
-        ...source.limitations,
-        ...context.limitations,
-        ...(round?.plan.missingPrerequisites ?? []),
-        ...extra,
-      ]),
-    ],
-  });
-
-  let recordFile: string | null = null;
-  let saveError: string | null = null;
   try {
-    recordFile = await store.save(record);
-  } catch (error) {
-    saveError = error instanceof Error ? error.message : String(error);
-  }
-
-  // The pack is regenerated from the record that was just filed, in this run's own
-  // directory, by Stage 8's renderer — and a pack that cannot be written is said
-  // about rather than swallowed, because a run whose evidence went stale deserves
-  // a reader, not a silent hole.
-  let packDir: string | null = null;
-  let packError: string | null = saveError;
-  if (!packError) {
-    try {
-      packDir = (await writeEvidencePack(runsRoot, buildEvidencePack(record))).dir;
-    } catch (error) {
-      packError = error instanceof Error ? error.message : String(error);
+    const primaryRoot = path.resolve(input.repo ?? source.local?.toplevel ?? cwd);
+    const workspace = path.resolve(primaryRoot, implementation.workspace.relativePath);
+    const baseSha = implementation.workspace.baseSha;
+    const before = await describePatch({ workspace, baseSha });
+    if (before.identity !== plan.reviewedPatchIdentity) {
+      throw new AppError({
+        kind: 'validation',
+        message:
+          `The workspace no longer holds the bytes this plan was frozen against: the plan names ` +
+          `${plan.reviewedPatchIdentity.slice(0, 12)}… and this workspace measures ${before.identity.slice(
+            0,
+            12,
+          )}…. A repair that ran here would answer findings about a patch that has gone.`,
+        remediation:
+          'Review these bytes with `mergesutra review` and approve the plan that freezes from that ' +
+          'reading. Nothing here will be edited, reverted or cleaned to make the old plan fit.',
+        details: { runId, planned: plan.reviewedPatchIdentity, measured: before.identity },
+      });
     }
-  }
 
-  return {
-    runId,
-    executed: true,
-    decision,
-    record,
-    execution,
-    round,
-    checks: [...record.checks, packRow(packDir, packError)],
-    recordFile,
-    packDir,
-    packError,
-  };
+    const context = assembleRepairContext({ record: source, plan });
+    const brief: LoopBrief = {
+      material: context.text,
+      writableFiles: plan.expectedFiles,
+      contextFiles: context.files,
+    };
+    const loop = await runImplementationLoop(
+      {
+        runId,
+        record: source,
+        contract,
+        plan: stagePlan,
+        workspaceRoot: workspace,
+        workspace: implementation.workspace,
+        limits: resolveRepairLimits(),
+        brief,
+        ...(input.signal ? { signal: input.signal } : {}),
+      },
+      {
+        now,
+        ...(deps.client ? { client: deps.client } : {}),
+        ...(deps.commandRun ? { run: deps.commandRun } : {}),
+        ...(input.signal ? { signal: input.signal } : {}),
+      },
+    );
+
+    const after = await describePatch({ workspace, baseSha });
+    const execution = buildRepairExecution({
+      plan,
+      approval,
+      patchBefore: before,
+      patchAfter: after,
+      implementation: loop,
+      createdAt: now().toISOString(),
+    });
+
+    const owedReverification = routeRepairScope(execution.scope) === 'REVERIFY_THROUGH_STAGE_7';
+    const round = owedReverification
+      ? await verifyWorkspace(
+          {
+            runId,
+            workspace,
+            baseSha,
+            contract,
+            // The claims this round files are the earlier loop's, kept, plus this
+            // cycle's. Both are attributed, and nothing that decides a status reads
+            // either one.
+            claims: [
+              ...(source.evidence?.claims ?? []),
+              ...loopClaim(REPAIR_LOOP_CLAIM_SOURCE, loop.finishClaim),
+            ],
+            // The yes the human already gave, and no fresh one. Whether it still
+            // covers this round is Stage 7's digest comparison to make.
+            consent: source.executionConsent,
+            previous: {
+              plan: previousRound,
+              reason:
+                `Repair cycle ${String(plan.repairCycle)} moved the patch to ` +
+                `${after.identity.slice(0, 12)}…, so the gates are measured against these bytes.`,
+            },
+            ...(input.signal ? { signal: input.signal } : {}),
+          },
+          { now, ...(deps.runFor ? { runFor: deps.runFor } : {}) },
+        )
+      : null;
+
+    const extra = disclose({ execution, round, runId });
+    const outcome = outcomeFor(execution, round, loop);
+    const record = createRunRecord({
+      runId,
+      createdAt: source.createdAt,
+      stage: 'repair',
+      outcome,
+      issueRef: source.issueRef,
+      issue: source.issue,
+      repository: source.repository,
+      base: source.base,
+      local: source.local,
+      contract: source.contract,
+      acceptanceContract: contract,
+      plan: stagePlan,
+      implementation,
+      verificationPlan: round?.plan ?? source.verificationPlan,
+      verification: round?.run ?? source.verification,
+      executionConsent: round?.consent ?? source.executionConsent,
+      evidence: round?.evidence ?? source.evidence,
+      review: source.review,
+      repairPlan: source.repairPlan,
+      repairExecutions: [...source.repairExecutions, execution],
+      checks: [
+        approvalRow(decision),
+        ...cycleRows(loop, execution),
+        reverificationRow(execution, round),
+        ...(round?.checks ?? []),
+      ],
+      nextStage: nextStageFor(execution, round, plan, deps.limits),
+      limitations: [
+        ...new Set([
+          ...source.limitations,
+          ...context.limitations,
+          ...(round?.plan.missingPrerequisites ?? []),
+          ...extra,
+        ]),
+      ],
+    });
+
+    let recordFile: string | null = null;
+    let saveError: string | null = null;
+    try {
+      recordFile = await store.save(record);
+    } catch (error) {
+      saveError = error instanceof Error ? error.message : String(error);
+    }
+
+    // The pack is regenerated from the record that was just filed, in this run's own
+    // directory, by Stage 8's renderer — and a pack that cannot be written is said
+    // about rather than swallowed, because a run whose evidence went stale deserves
+    // a reader, not a silent hole.
+    let packDir: string | null = null;
+    let packError: string | null = saveError;
+    if (!packError) {
+      try {
+        packDir = (await writeEvidencePack(runsRoot, buildEvidencePack(record))).dir;
+      } catch (error) {
+        packError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    // Released before the answer is built, so the row below can say what happened to it.
+    // The `finally` covers the paths that throw; a lock that cannot be given back is
+    // reported on the screen and left where it is, never removed by force.
+    const lock = await releaseRunLock(acquired.handle);
+    held = null;
+    return {
+      runId,
+      executed: true,
+      decision,
+      record,
+      execution,
+      round,
+      checks: [...record.checks, packRow(packDir, packError), lockRow(lock)],
+      recordFile,
+      packDir,
+      packError,
+    };
+  } finally {
+    if (held) await releaseRunLock(held);
+  }
 }
 
 /**
@@ -504,6 +543,27 @@ function packRow(packDir: string | null, packError: string | null): RunCheck {
       ? `the run record was filed but its pack was not regenerated: ${packError}`
       : `report.md, report.json and commands.jsonl regenerated from this cycle's record at ${packDir}`,
   };
+}
+
+/**
+ * What happened to the lock, on the screen that outlives the process.
+ *
+ * The record carries no such row: it is filed while the lock is still held, so a row
+ * written into it could only promise what was intended. This one is built after the
+ * release attempt, from what the filesystem answered.
+ */
+function lockRow(release: Release): RunCheck {
+  return release.state === 'RELEASED'
+    ? {
+        name: 'Run lock',
+        status: 'INFO',
+        detail: `held for this cycle and released afterwards (${release.directory})`,
+      }
+    : {
+        name: 'Run lock',
+        status: 'WARN',
+        detail: `the cycle is filed, but the lock was left in place: ${release.message}`,
+      };
 }
 
 function outcomeFor(

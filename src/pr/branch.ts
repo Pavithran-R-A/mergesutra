@@ -45,6 +45,18 @@ export const SOURCE_BRANCH_PREFIX = 'mergesutra';
 const SAFE_BRANCH_CHARS = /^[A-Za-z0-9._/-]+$/;
 
 /**
+ * A host a publication request may be sent to.
+ *
+ * Beside the branch rules rather than inside the transport because the same string
+ * is written into the approval digest: what a human approved and what `gh` is
+ * pointed at have to be one spelling of one host, and a pattern defined twice can
+ * drift. It is a name with optional dots and an optional port — no scheme, no path,
+ * no userinfo, no leading dash.
+ */
+export const REPOSITORY_HOST_PATTERN =
+  /^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?$/;
+
+/**
  * A branch name is refused if it is not a plain short ref: a `refs/` spelling
  * would be resolved against the repository's own namespaces, and an exact match
  * with the target would ask GitHub to open a pull request from a branch to itself.
@@ -144,6 +156,12 @@ export function targetOf(input: TargetBranchInput): TargetBranchFacts {
     throw blocked(
       'this run recorded a target branch but no repository identity to put it in',
       'Run `mergesutra issue` with a URL for the repository the pull request should open against.',
+    );
+  }
+  if (!REPOSITORY_HOST_PATTERN.test(host)) {
+    throw blocked(
+      `the recorded repository host '${bound(host)}' is not a hostname a publication could be sent to`,
+      'Re-run intake against the repository URL, so the host is one Git and the GitHub API both reported.',
     );
   }
 

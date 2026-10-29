@@ -28,6 +28,7 @@ export type AppErrorKind =
   | 'invalid-response'
   | 'not-found'
   | 'validation'
+  | 'blocked'
   | 'not-implemented';
 
 export interface AppErrorOptions {
