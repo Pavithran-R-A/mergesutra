@@ -1,6 +1,10 @@
 import { AppError } from '../core/errors.js';
 import { sha256Hex } from '../security/digest.js';
-import { publicationCandidateSchema, type PublicationCandidate } from './candidate.js';
+import {
+  publicationCandidateSchema,
+  repositoryAddressOf,
+  type PublicationCandidate,
+} from './candidate.js';
 
 /**
  * The digest of a frozen publication candidate — Stage 10's approval surface.
@@ -36,13 +40,24 @@ import { publicationCandidateSchema, type PublicationCandidate } from './candida
  * `approval.ts`, which compares a digest against this one.
  */
 
-export const PUBLICATION_DIGEST_LABEL = 'mergesutra-publication/1';
+export const PUBLICATION_DIGEST_LABEL = 'mergesutra-publication/2';
+
+/**
+ * Version 1's label, kept so an approval recorded before hosts were bound still
+ * names the same number: that approval was a real yes, and re-labelling its
+ * document would silently void it.
+ */
+const LEGACY_PUBLICATION_DIGEST_LABEL = 'mergesutra-publication/1';
 
 function linesOf(candidate: PublicationCandidate): string[] {
+  const legacy = candidate.schemaVersion === 1;
   return [
-    PUBLICATION_DIGEST_LABEL,
+    legacy ? LEGACY_PUBLICATION_DIGEST_LABEL : PUBLICATION_DIGEST_LABEL,
     `run ${candidate.runId}`,
-    `repository ${candidate.repository}`,
+    // Version 2 names the host the page would be sent to, because the same owner
+    // and name exist on every host and a yes for one must not authorize another.
+    // The helper keeps this line and every screen's print of it one spelling.
+    `repository ${repositoryAddressOf(candidate)}`,
     `base ${candidate.baseSha}`,
     `patch ${candidate.patchIdentity}`,
     `target ${candidate.targetBranch}`,

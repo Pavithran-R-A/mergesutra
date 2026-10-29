@@ -87,6 +87,7 @@ describe('the seam a publication would go through', () => {
 
     expect(fake.requests).toEqual([
       {
+        host: candidate.repositoryHost,
         repository: candidate.repository,
         title: candidate.prTitle,
         body: candidate.prBody,
@@ -112,6 +113,7 @@ describe('the seam a publication would go through', () => {
     expect(fake.pushes).toEqual([
       {
         directory: WORKSPACE,
+        host: candidate.repositoryHost,
         repository: candidate.repository,
         branch: candidate.proposedBranch,
         baseSha: candidate.baseSha,
@@ -119,6 +121,25 @@ describe('the seam a publication would go through', () => {
         runId: candidate.runId,
       },
     ]);
+  });
+
+  it('refuses a page that never bound a host, before it can reach any transport', async () => {
+    // A candidate recorded before hosts were bound parses, and its approval is real,
+    // but the transport has no address to send it to: guessing github.com would move
+    // somebody's patch to a repository they never named.
+    const current = candidateFor();
+    const { repositoryHost: _unbound, ...rest } = current;
+    const legacy = { ...rest, schemaVersion: 1 } as PublicationCandidate;
+    const approval = approvePublication({
+      candidate: legacy,
+      approvedAt: '2026-09-25T10:15:00.000Z',
+    });
+    const fake = fakeRemote();
+
+    await expect(
+      publish({ candidate: legacy, approval, directory: WORKSPACE, remote: fake.remote }),
+    ).rejects.toThrow(/recorded before a repository host was part of the page/i);
+    expect(fake.calls).toEqual([]);
   });
 
   it('touches nothing when no human has approved', async () => {
@@ -319,6 +340,7 @@ describe('what a refusal says once the branch exists', () => {
 describe('what a request cannot carry', () => {
   const push = {
     directory: WORKSPACE,
+    host: 'github.com',
     repository: 'projectbharat/datekit',
     branch: 'mergesutra/x',
     baseSha: 'a'.repeat(40),
@@ -345,8 +367,27 @@ describe('what a request cannot carry', () => {
     );
   });
 
+  it('refuses a host that is not a hostname', () => {
+    expect(() => parsePushBranchInput({ ...push, host: 'ghe example.com/acme' })).toThrow(/host/i);
+    expect(() => parsePushBranchInput({ ...push, host: '-oProxyCommand=calc' })).toThrow(/host/i);
+  });
+
+  it('refuses a pull request whose host is not a hostname', () => {
+    expect(() =>
+      parseCreatePullRequestInput({
+        host: 'github.com/acme',
+        repository: 'projectbharat/datekit',
+        title: 'Parser accepts invalid empty dates',
+        body: '## Summary',
+        head: 'mergesutra/x',
+        base: 'main',
+      }),
+    ).toThrow(/host/i);
+  });
+
   it('refuses a pull request that also asks to merge, to review or to assign', () => {
     const base = {
+      host: 'github.com',
       repository: 'projectbharat/datekit',
       title: 'Parser accepts invalid empty dates',
       body: '## Summary',
@@ -385,6 +426,7 @@ describe('the remote production actually has', () => {
     const failure = await unavailableRemote()
       .pushBranch({
         directory: WORKSPACE,
+        host: 'github.com',
         repository: 'projectbharat/datekit',
         branch: 'mergesutra/x',
         baseSha: 'a'.repeat(40),
@@ -402,6 +444,7 @@ describe('the remote production actually has', () => {
   it('refuses to open a pull request, and reports no page rather than a plausible one', async () => {
     const failure = await unavailableRemote()
       .createPullRequest({
+        host: 'github.com',
         repository: 'projectbharat/datekit',
         title: 'Parser accepts invalid empty dates',
         body: '## Summary',

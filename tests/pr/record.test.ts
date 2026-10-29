@@ -192,6 +192,27 @@ describe('the publication Stage 10 records', () => {
     expect(capture(() => parsePublicationRecord(record)).kind).toBe('validation');
   });
 
+  it('reads a publication filed before hosts were bound, and does not invent one', () => {
+    // A record from an earlier build holds a version-1 candidate and the approval that
+    // names it. Reading it must succeed and must not add a host: a record is history,
+    // so the only honest answer for a page that never bound one is that it has none.
+    const current = candidateOf(candidateInput());
+    const { repositoryHost: _unbound, ...rest } = current;
+    const legacy = { ...rest, schemaVersion: 1 } as PublicationRecord['candidate'];
+    const approval = approvePublication({
+      candidate: legacy,
+      approvedAt: '2026-09-27T09:00:00.000Z',
+    });
+
+    const loaded = parsePublicationRecord(
+      JSON.parse(JSON.stringify(buildPublicationRecord({ candidate: legacy, approval }))),
+    );
+
+    expect(loaded.candidate.schemaVersion).toBe(1);
+    expect('repositoryHost' in loaded.candidate).toBe(false);
+    expect(loaded.approval?.publicationDigest).toBe(publicationDigestOf(legacy));
+  });
+
   it('refuses a candidate the candidate schema itself refuses', () => {
     const record = {
       ...publicationRecord(),

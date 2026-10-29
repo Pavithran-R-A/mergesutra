@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
 import { repairPlanDigest } from '../../src/repair/digest.js';
+import { acquireRunLock, runLockDirectory } from '../../src/lifecycle/lock.js';
 import { run } from '../../src/cli/program.js';
 import type { RepairStageDeps } from '../../src/repair/stage.js';
 import { EXIT } from '../../src/cli/exit-codes.js';
@@ -253,6 +254,49 @@ describe.skipIf(!AVAILABLE)('mergesutra repair', () => {
     expect((await fixture.store.load(fixture.record.runId)).repairExecutions).toEqual([]);
   });
 
+  it('refuses an approved cycle while another operation holds the run, and exits 4', async () => {
+    const fixture = await aRun();
+    const io = capture();
+    const held = await acquireRunLock(
+      { runId: fixture.record.runId, operation: 'report' },
+      {
+        runsRoot: fixture.runsRoot,
+        host: 'test-host',
+        pid: 4242,
+        now: () => NOW,
+      },
+    );
+    expect(held.state).toBe('ACQUIRED');
+
+    const code = await run(
+      [
+        'node',
+        'mergesutra',
+        'repair',
+        fixture.record.runId,
+        '--repo',
+        fixture.primaryDir,
+        '--approve-plan',
+        repairPlanDigest(fixture.plan),
+      ],
+      {
+        ...io,
+        env: {},
+        repair: {
+          ...depsFor(fixture, scriptedClient([])),
+          lock: { host: 'test-host', pid: 999_999, isProcessAlive: () => true },
+        },
+      },
+    );
+
+    // Another operation is writing this run, so this one stops before it reads the
+    // workspace or asks a model: the exit code says "look", not "the cycle failed".
+    expect(code).toBe(EXIT.BLOCKED);
+    expect(io.errorText()).toContain(runLockDirectory(fixture.runsRoot, fixture.record.runId));
+    expect(await parserOf(fixture.workspace)).not.toBe(REPAIRED);
+    expect((await fixture.store.load(fixture.record.runId)).repairExecutions).toEqual([]);
+  });
+
   it('takes no flag that approves in advance, and still edits nothing', async () => {
     for (const forbidden of ['--yes', '--force', '--approve-all', '--all']) {
       const fixture = await aRun();
@@ -324,8 +368,10 @@ describe.skipIf(!AVAILABLE)('mergesutra repair', () => {
     const fixture = await aRun();
     const current = await parserOf(fixture.workspace);
     const io = capture();
-    const runsRoot = path.join(fixture.runsRoot, 'blocked');
-    await put(fixture.runsRoot, 'blocked', 'not a directory\n');
+    // A file where this run's pack directory has to be: the pack cannot be written,
+    // while the run root and the lock the approved cycle takes beside it still can.
+    const runsRoot = fixture.runsRoot;
+    await put(fixture.runsRoot, fixture.record.runId, 'not a directory\n');
 
     const code = await run(
       [

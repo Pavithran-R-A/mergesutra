@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AppError, isAppError } from '../core/errors.js';
 import { decidePublication, type PublicationApproval } from './approval.js';
-import { branchNameProblem } from './branch.js';
+import { branchNameProblem, REPOSITORY_HOST_PATTERN } from './branch.js';
 import type { PublicationCandidate } from './candidate.js';
 import { MAX_BODY_LENGTH, MAX_TITLE_LENGTH } from './draft.js';
 
@@ -38,6 +38,8 @@ import { MAX_BODY_LENGTH, MAX_TITLE_LENGTH } from './draft.js';
 
 export interface PushBranchInput {
   readonly directory: string;
+  /** The host the approved page names, e.g. `github.com`. Not a default: carried. */
+  readonly host: string;
   /** The repository the branch belongs to, as `owner/name`. */
   readonly repository: string;
   readonly branch: string;
@@ -49,6 +51,7 @@ export interface PushBranchInput {
 }
 
 export interface CreatePullRequestInput {
+  readonly host: string;
   readonly repository: string;
   readonly title: string;
   readonly body: string;
@@ -87,6 +90,9 @@ export interface PublishedPullRequest {
 const pushBranchInputSchema = z
   .object({
     directory: z.string().min(1),
+    host: z
+      .string()
+      .regex(REPOSITORY_HOST_PATTERN, 'must be a hostname a publication could be sent to'),
     repository: z
       .string()
       .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'must be a repository as owner/name'),
@@ -99,6 +105,9 @@ const pushBranchInputSchema = z
 
 const createPullRequestInputSchema = z
   .object({
+    host: z
+      .string()
+      .regex(REPOSITORY_HOST_PATTERN, 'must be a hostname a publication could be sent to'),
     repository: z.string().min(1),
     title: z.string().min(1).max(MAX_TITLE_LENGTH),
     body: z.string().min(1).max(MAX_BODY_LENGTH),
@@ -169,10 +178,27 @@ export async function publish(input: {
       details: { status: decision.status },
     });
   }
+  if (candidate.repositoryHost === undefined) {
+    // A version-1 page named `owner/repo` and nothing else, so no approval of it
+    // said which host it would go to. Choosing one here — the transport's default,
+    // an environment variable, the nearest login — would be a decision the human
+    // never made, and on an enterprise install it would be the wrong repository.
+    throw new AppError({
+      kind: 'validation',
+      message:
+        'Cannot publish this candidate: it was recorded before a repository host was part of ' +
+        'the page, so neither the approval nor this build can say where it would be sent.',
+      remediation:
+        'Re-run `mergesutra pr` to reassemble the page with its host and approve the digest it ' +
+        'prints. MergeSutra will not choose a host for an approval that never named one.',
+      details: { schemaVersion: candidate.schemaVersion },
+    });
+  }
 
   const pushed = await input.remote.pushBranch(
     parsePushBranchInput({
       directory: input.directory,
+      host: candidate.repositoryHost,
       repository: candidate.repository,
       branch: candidate.proposedBranch,
       baseSha: candidate.baseSha,
@@ -184,6 +210,7 @@ export async function publish(input: {
   try {
     created = await input.remote.createPullRequest(
       parseCreatePullRequestInput({
+        host: candidate.repositoryHost,
         repository: candidate.repository,
         title: candidate.prTitle,
         body: candidate.prBody,

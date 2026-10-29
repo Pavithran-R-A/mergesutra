@@ -85,6 +85,7 @@ async function inputFor(directory: string, baseSha: string): Promise<PushBranchI
   const patch = await describePatch({ workspace: directory, baseSha });
   return {
     directory,
+    host: HOST,
     repository: REPOSITORY,
     branch: 'mergesutra/run-20261020T000000Z-abc123',
     baseSha,
@@ -225,6 +226,7 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
     const pushed = await remote.pushBranch(input);
     const pushEndpoints = scripted.calls.map((call) => `${call.method} ${call.endpoint}`);
     const created = await remote.createPullRequest({
+      host: HOST,
       repository: REPOSITORY,
       title: 'Parser accepts invalid empty dates',
       body: '## Summary\n\nBody.\n',
@@ -411,6 +413,7 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
 
     await expect(
       remote.createPullRequest({
+        host: HOST,
         repository: REPOSITORY,
         title: 'Parser accepts invalid empty dates',
         body: 'Body.\n',
@@ -434,6 +437,7 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
 
     await expect(
       remote.createPullRequest({
+        host: HOST,
         repository: REPOSITORY,
         title: 'Parser accepts invalid empty dates',
         body: 'Body.\n',
@@ -912,6 +916,69 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
     const remote = createGitHubPublicationRemote({ run: scripted.run });
 
     await expect(remote.pushBranch(input)).rejects.toThrow(/tree read-backs/i);
+    expect(scripted.calls).toEqual([]);
+  });
+
+  it('sends every call to the host the approved page names, not a compiled-in default', async () => {
+    const fixture = await implementedRun(tempDirs);
+    const approved = await inputFor(fixture.repoDir, fixture.base);
+    const input = { ...approved, host: 'ghe.example.com' };
+    const scripted = scriptedGitHub();
+    scriptHappyPath(scripted, fixture.base, input.branch);
+    const remote = createGitHubPublicationRemote({ run: scripted.run });
+
+    await remote.pushBranch(input);
+    await remote.createPullRequest({
+      host: 'ghe.example.com',
+      repository: REPOSITORY,
+      title: 'Parser accepts invalid empty dates',
+      body: 'Body.\n',
+      head: input.branch,
+      base: 'main',
+    });
+
+    expect(scripted.calls.length).toBeGreaterThan(0);
+    expect(scripted.calls.every((call) => call.args.includes('--hostname'))).toBe(true);
+    expect(scripted.calls.every((call) => call.args.includes('ghe.example.com'))).toBe(true);
+    expect(scripted.calls.some((call) => call.args.includes(HOST))).toBe(false);
+  });
+
+  it('refuses a request for a host other than the one it was pinned to, before any gh call', async () => {
+    const fixture = await implementedRun(tempDirs);
+    const approved = await inputFor(fixture.repoDir, fixture.base);
+    const input = { ...approved, host: 'ghe.example.com' };
+    const scripted = scriptedGitHub();
+    scriptHappyPath(scripted, fixture.base, input.branch);
+    const remote = createGitHubPublicationRemote({ run: scripted.run, host: HOST });
+
+    await expect(remote.pushBranch(input)).rejects.toThrow(/host/i);
+    await expect(
+      remote.createPullRequest({
+        host: 'ghe.example.com',
+        repository: REPOSITORY,
+        title: 'Parser accepts invalid empty dates',
+        body: 'Body.\n',
+        head: 'mergesutra/run-1',
+        base: 'main',
+      }),
+    ).rejects.toThrow(/host/i);
+    expect(scripted.calls).toEqual([]);
+  });
+
+  it('refuses a host it could not safely hand to gh', async () => {
+    const scripted = scriptedGitHub();
+    const remote = createGitHubPublicationRemote({ run: scripted.run });
+
+    await expect(
+      remote.createPullRequest({
+        host: '-oProxyCommand=calc.exe',
+        repository: REPOSITORY,
+        title: 'Parser accepts invalid empty dates',
+        body: 'Body.\n',
+        head: 'mergesutra/run-1',
+        base: 'main',
+      }),
+    ).rejects.toThrow(/host/i);
     expect(scripted.calls).toEqual([]);
   });
 });

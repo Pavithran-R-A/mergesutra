@@ -248,7 +248,11 @@ async function planOf(
   deps: { store: RunStore; runsRoot: string; cwd: string; now: () => Date; run?: Runner },
 ): Promise<PlanReading> {
   const { runId, snapshot } = await runStatusStage(
-    { ...(input.runId ? { runId: input.runId } : {}), ...(input.repo ? { repo: input.repo } : {}) },
+    {
+      ...(input.runId ? { runId: input.runId } : {}),
+      ...(input.repo ? { repo: input.repo } : {}),
+      command: 'resume',
+    },
     {
       store: deps.store,
       runsRoot: deps.runsRoot,

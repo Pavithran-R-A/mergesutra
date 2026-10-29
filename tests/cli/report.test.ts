@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { run } from '../../src/cli/program.js';
 import { EXIT } from '../../src/cli/exit-codes.js';
 import { defaultRunStoreRoot } from '../../src/state/run-store.js';
+import { acquireRunLock, runLockDirectory } from '../../src/lifecycle/lock.js';
 import { memoryRunStore } from '../helpers/github.js';
 import { recordAt, verifiedRecord } from '../helpers/report.js';
 
@@ -138,6 +139,136 @@ describe('mergesutra report', () => {
 
     expect(c.text()).toContain(newer.runId);
     expect(c.text()).not.toContain(older.runId);
+  });
+
+  it('refuses to write a pack while another process holds the run, and exits 4', async () => {
+    const cwd = await cwdOf();
+    const record = await verifiedRecord(['node', '--test']);
+    const store = memoryRunStore();
+    await store.save(record);
+    const runsRoot = defaultRunStoreRoot(cwd);
+    const held = await acquireRunLock(
+      { runId: record.runId, operation: 'resume' },
+      { runsRoot, host: 'test-host', pid: 4242, now: () => new Date('2026-09-27T00:00:00.000Z') },
+    );
+    expect(held.state).toBe('ACQUIRED');
+    const c = capture();
+
+    const code = await run(['node', 'mergesutra', 'report', record.runId], {
+      write: c.write,
+      writeErr: c.writeErr,
+      env: { NO_COLOR: '1' },
+      report: {
+        store,
+        cwd,
+        // This process is not the holder and can see that the holder is alive.
+        lock: { pid: 999_999, host: 'test-host', isProcessAlive: () => true },
+      },
+    });
+
+    // A held run is a stop-and-look, not a failure of the command: a script has to be
+    // able to tell "somebody else is writing this run" from "the pack was bad".
+    expect(code).toBe(EXIT.BLOCKED);
+    expect(c.errorText()).toContain(runLockDirectory(runsRoot, record.runId));
+    // No pack directory was created for the holder to find half-written later.
+    await expect(readdir(path.join(runsRoot, record.runId))).rejects.toThrow();
+  });
+
+  it('refuses a lock whose holder is on a host this one cannot check, and exits 4', async () => {
+    const cwd = await cwdOf();
+    const record = await verifiedRecord(['node', '--test']);
+    const store = memoryRunStore();
+    await store.save(record);
+    const runsRoot = defaultRunStoreRoot(cwd);
+    const held = await acquireRunLock(
+      { runId: record.runId, operation: 'resume' },
+      // The owner record names a machine this test is not running on.
+      { runsRoot, host: 'other-host', pid: 4242, now: () => new Date('2026-09-27T00:00:00.000Z') },
+    );
+    expect(held.state).toBe('ACQUIRED');
+    const c = capture();
+
+    const code = await run(['node', 'mergesutra', 'report', record.runId], {
+      write: c.write,
+      writeErr: c.writeErr,
+      env: { NO_COLOR: '1' },
+      report: {
+        store,
+        cwd,
+        // Liveness answers `false` here on purpose. A foreign host is refused before any
+        // probe is consulted, so this is the case that separates "uncertain" from "checked
+        // and gone": with the host comparison removed, this same lock would be taken over
+        // as stale and the pack written — which is exactly how one machine erases another's
+        // claim on the evidence a publication approval is bound to.
+        lock: { pid: 999_999, host: 'test-host', isProcessAlive: () => false },
+      },
+    });
+
+    expect(code).toBe(EXIT.BLOCKED);
+    expect(c.errorText()).toContain('other-host');
+    expect(c.errorText()).toContain('a machine this one cannot check');
+    // Left in place, untouched: and no pack directory for the other host to find half-made.
+    expect(await readdir(runsRoot)).toContain(`${record.runId}.lock`);
+    await expect(readdir(path.join(runsRoot, record.runId))).rejects.toThrow();
+  });
+
+  it('lets the run lock go once the pack is written', async () => {
+    const cwd = await cwdOf();
+    const record = await verifiedRecord(['node', '--test']);
+    const store = memoryRunStore();
+    await store.save(record);
+    const c = capture();
+
+    const code = await run(['node', 'mergesutra', 'report', record.runId], {
+      write: c.write,
+      writeErr: c.writeErr,
+      env: { NO_COLOR: '1' },
+      report: { store, cwd },
+    });
+
+    expect(code).toBe(EXIT.OK);
+    const runsRoot = defaultRunStoreRoot(cwd);
+    expect((await readdir(runsRoot)).filter((name) => name.endsWith('.lock'))).toEqual([]);
+    expect(await readFile(path.join(runsRoot, record.runId, 'report.md'), 'utf8')).toContain(
+      'exit 0',
+    );
+  });
+
+  it('writes the pack for a caller that already holds the lock, without taking a second one', async () => {
+    const cwd = await cwdOf();
+    const record = await verifiedRecord(['node', '--test']);
+    const store = memoryRunStore();
+    await store.save(record);
+    const runsRoot = defaultRunStoreRoot(cwd);
+    const held = await acquireRunLock(
+      { runId: record.runId, operation: 'resume' },
+      { runsRoot, host: 'test-host', pid: 4242, now: () => new Date('2026-09-27T00:00:00.000Z') },
+    );
+    expect(held.state).toBe('ACQUIRED');
+    const c = capture();
+
+    // `resume` dispatches `report` while it holds the run lock. A second acquisition
+    // in the same process would be refused as its own holder, so the caller says it
+    // already has it — and the reporter removes nothing that is not its own.
+    const code = await run(['node', 'mergesutra', 'report', record.runId], {
+      write: c.write,
+      writeErr: c.writeErr,
+      env: { NO_COLOR: '1' },
+      report: {
+        store,
+        cwd,
+        lockHeldByCaller: true,
+        lock: { pid: 999_999, host: 'test-host', isProcessAlive: () => true },
+      },
+    });
+
+    expect(code).toBe(EXIT.OK);
+    expect(await readFile(path.join(runsRoot, record.runId, 'report.md'), 'utf8')).toContain(
+      'exit 0',
+    );
+    expect((await readdir(runsRoot)).filter((name) => name.endsWith('.lock'))).toEqual([
+      `${record.runId}.lock`,
+    ]);
   });
 
   it('fails when it is asked for a run nobody recorded', async () => {

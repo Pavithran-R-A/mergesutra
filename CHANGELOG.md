@@ -6,6 +6,192 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — the publication page names the host it would be sent to
+
+`mergesutra pr --publish` built every `gh api` call with a compiled-in `github.com`, and
+the CLI constructed the transport with no host at all. `owner/name` is not an address: the
+same pair exists on github.com and on every GitHub Enterprise host, so an operator whose
+intake had recorded `git.acme.example/owner/payments` got an approved page published
+against **github.com**/owner/payments — a repository that may belong to someone else, with
+the operator's own credential. The approval was real and had said nothing about where the
+code would go, because the bytes it bound did not name a destination.
+
+The host is now one of those bytes. `PublicationCandidate` carries `repositoryHost` under
+`schemaVersion: 2`, with `REPOSITORY_HOST_PATTERN` (`src/pr/branch.ts:56`) as the single
+spelling shared by the candidate schema, both transport input schemas and the transport's
+constructor; the schema's refinement requires it on a version-2 document and refuses it on a
+version-1 one, so a hand-edited record cannot claim its host was part of what somebody
+approved. `repositoryAddressOf()` (`src/pr/candidate.ts:130`) is the one print of the
+repository for the screen row and the digest's `repository` line alike, and the digest label
+became `mergesutra-publication/2`. A version-1 candidate keeps its old number under `/1`,
+because re-labelling it would silently void a yes that was genuinely given — and it is
+refused at publication (`src/pr/publisher.ts:181`) rather than sent somewhere by default.
+The transport pins nothing it was not given: each request names the host its approved page
+named, and `destination()` (`src/pr/github-publisher.ts:104`) refuses a host that is not a
+hostname and a request that differs from the pin, before the first `gh` invocation. For
+operators, then: an approval recorded against a page from before this change keeps its
+digest but can no longer be published — the page has to be assembled again and its new
+digest typed. Which credential `gh` uses for a host is still `gh`'s own configuration, and a
+syntactically valid hostname is still not a host anyone has proved reachable.
+
+Tests: `tests/pr/candidate.test.ts` (the host is named; a host that could never be spoken to
+is refused; a version-1 candidate carrying one is refused; the digest changes when the host
+changes; a version-1 candidate keeps the digest its approval names), the new
+`refuses a version-2 candidate that names no host` (the schema's own requirement — found by
+mutation: with the rule deleted, every other case in that file stayed green),
+`tests/pr/branch.test.ts`, `tests/pr/record.test.ts` (a host-less record reads as history and
+the loader invents nothing), `tests/pr/publisher.test.ts` (a page with no host never reaches
+a transport, and the calls that go out carry the page's host),
+`tests/pr/github-publisher.test.ts` (every `gh` call goes to the approved host; a pinned
+transport refuses a foreign host before any `gh` call) and `tests/cli/pr.test.ts`. Five
+mutations, each restored byte-for-byte with a sha-256 check bracketing its run — the version-2
+host requirement, the transport's pin check, `publish()`'s host-less guard, the digest's host
+print, and the legacy label a version-1 page is hashed under — each turned only its own witness
+red (`1 failed` against `32`, `32`, `22`, `32` and `32` passed respectively). The control over
+`tests/pr/candidate.test.ts`, `tests/pr/publisher.test.ts`, `tests/pr/github-publisher.test.ts`,
+`tests/security/redaction.test.ts` and `tests/security/output-redaction.test.ts` came back at
+`122 passed (122)` across 5 files. The transport's pin check went from `33 passed` to
+`1 failed | 32 passed` with the message `promise resolved "{ …(2) }" instead of rejecting` —
+that is the mutation *sending* the request, not merely printing a different refusal. Removing
+`publish()`'s guard also went red, and the reason it red is instructive: the transport's own
+input schema then refused the call (`Refusing to send a branch push: Inval…`), so the two
+guards are two separate checks and the test pins the message of the one under mutation. ADR-073, with the
+Stage 10 digest and seam bullets in `docs/ROADMAP.md`, the new host bullet in
+`docs/SECURITY_MODEL.md` §2.5, `docs/ACCEPTANCE_CONTRACT.md`'s version-2 candidate and `/2`
+digest line, and the README digest bullet.
+
+### Fixed — a header line inside free text is masked to the end of its line
+
+The central redactor's documentation has long said it redacts "text, header records, and
+nested structures". The header half of that was true only of a structured record: `text()`
+ran the token-*format* patterns and nothing else, so a captured line like
+`Authorization: Bearer <an opaque gateway key>` — a row of a child's stderr, a header block
+echoed into a receipt tail, a provider's own log — was masked only if its value happened to
+look like `sk-…`, `ghp_…` or another known shape. An opaque credential on a line that names
+it as a credential travelled whole.
+
+`text()` now takes one pass of `RAW_HEADER_PATTERN` (`src/security/redaction.ts:47`) before
+the other rules: a `SENSITIVE_HEADERS` name at a word boundary, an optional quote, a colon,
+and then everything to the end of that line becomes `[REDACTED]`. Masking the whole tail is
+deliberate over-redaction — a `Cookie` list is not one word, and a value class that stops at
+whitespace would mask half a credential and report the line as handled. A caller that still
+holds the name/value pair should use `header()` and keep the rest of its line. Two failures
+on the same path came with it: the generic key rule required the separator immediately after
+the key name, so the quote closing `"password"` sat between the name and the colon and the
+value passed through untouched — a JSON string leaf was invisible to a rule described as
+covering JSON; and `maskGeneric()` re-added an opening quote it had already sliced past, so a
+`token = "abc123"` line printed `token = ""[REDACTED]"`.
+
+Tests: `tests/security/redaction.test.ts` — `credentials embedded in captured text` now pins
+a raw `Authorization: Bearer` line with an opaque token, raw `X-Api-Key` and `Cookie` lines,
+a `Basic` credential with no token-shaped prefix, a quoted JSON key whose document still
+parses, quoted keys the vocabulary recognises only by shape, and the exact masked spelling of
+a quoted value. Three mutations, each restored byte-for-byte with a sha-256 check bracketing
+its run: dropping the `text()` pass turned the raw-header cases then in the file red
+(`3 failed | 30 passed` over that file and `tests/security/output-redaction.test.ts`),
+dropping the optional quote turned exactly the two JSON-key cases red, and re-adding the
+quote turned the no-duplicate case and the exact-output assertion it shares with the JSON key
+red (`2 failed | 31 passed` each). The pair was then re-run at full strength: `33 passed
+(33)`. `docs/SECURITY_MODEL.md` §6 now states what `text()` masks and names the over-redaction
+as a decision; `docs/SECURITY_GAP_REGISTER.md` carries the dated clause.
+
+Later change (2026-10-29, independent review of this round): the review found that the `"?`
+branch of `RAW_HEADER_PATTERN` — the one that lets this pass reach a key name quoted as a
+JSON leaf — had no witness at all, because the two JSON-key cases above are masked by the
+*generic* key rule rather than by this one, so deleting the branch reddened nothing. The file
+now pins a quoted `Authorization` and a quoted `Cookie` key, and both mutations were
+re-measured against the 34 cases the pair then holds: deleting that branch turns exactly the
+new case red (`1 failed | 33 passed`, the JWT travelling whole), and dropping the `text()`
+pass turns three raw-header cases plus this new quoted-key case red (`4 failed | 30 passed`) —
+which is why the count in the paragraph above is worded as the cases then in the file.
+`src/security/redaction.ts` was restored byte-for-byte to SHA-256
+`920ebe1148989f8853fff428f3368111a8582481cc4bc01f9a2083157a0191d1` and the pair re-run at `34
+passed (34)`. The same review measured a limit, now stated in §6: the value class stops at the
+newline, so an RFC 7230 folded continuation line stays whole.
+
+### Fixed — `report` and `repair` claim the run before they replace its evidence
+
+`mergesutra report` and `mergesutra repair` replaced a run's three evidence files with
+no exclusion at all. Two renderers of one pack directory interleave: a `report.md`
+from one rendering can sit beside a `report.json` from another, and that directory is
+the bytes a publication approval is bound to. An approved repair cycle measures the
+patch, edits the workspace and measures it again, and any other process could work in
+the window between measuring and editing. Both commands now claim the run's lock — the
+claim Stage 11 built for one mutator per run — `report` before it reads the record and
+`repair` once the approval has stood and before it measures. A run another process
+holds is refused rather than queued, and the refusal exits `4` through a new `blocked`
+error kind instead of the generic `1`, so a script reads "wait for that peer" rather
+than "the tool broke". `resume --execute` already holds that lock when it dispatches
+the reporter, so the reporter is told so instead of claiming a second one and then
+handing back a claim it never made.
+
+The pack writer's scratch file changed shape with it. It was `<target>.<pid>.tmp`, one
+name for every write that process made, and is now `<target>.<pid>.<random>.tmp`
+opened `wx`, so the filesystem answers whether the name is free rather than the module
+assuming it; a rename that fails removes its own scratch file instead of leaving a
+stray beside a pack that looks whole; and two writes of one directory in one process
+take turns, keyed by the resolved directory, on the same in-process queue the run store
+uses. The run store's own temp name is unchanged — S12-08 pins `<target>.<pid>.tmp`
+there and relies on a later save renaming the artefact a crashed one left.
+
+Neither queue crosses a process boundary, and the lock still refuses rather than waits:
+two processes are excluded from one run, not ordered, and a lock left by a killed
+process still waits for a person. Nothing here is a durability claim — the pack's
+renames are still not `fsync`ed.
+
+Tests: `tests/repair/stage.test.ts` (a live holder whose operation is `report` stops
+the approved cycle, names the lock path, spends no model request and is left standing;
+the released `Run lock` row; a refusal before the model is asked files nothing and
+leaves no lock), `tests/cli/repair.test.ts` and `tests/cli/report.test.ts` (exit `4`
+from the refusal, the lock given back after the pack, the pack still written for a
+caller that holds the lock), `tests/cli/resume.test.ts`, `tests/lifecycle/lock.test.ts`
+(the recorded operation, the `resume` default, a lock another operation left behind
+read as a holder), `tests/report/write.test.ts` (the scratch file removed when the
+rename cannot finish) and the new `tests/report/write-concurrent.test.ts` (the second
+write waits behind the first; two writes in one process get two scratch names). The
+widening also reached `tests/security/terminal-hero.test.ts`: that hero plants an
+uncertain lock as one of its hostile sources, so the reporter it asks for two pages is
+now refused by the very lock the fixture set, and the two `report` pages are rendered
+through `lockHeldByCaller` — the refusal itself is `tests/cli/report.test.ts`'s witness,
+and the status and resume pages still read the planted lock as foreign bytes. The first
+full suite after the change was red on exactly those ten hero cases and green
+everywhere else; the pairing above is what turned it green again.
+Five mutations, each restored byte-for-byte with a sha-256 check bracketing its run,
+turned only their own witnesses red: the removed `unlink`, the unwrapped queue, a
+reporter made to claim while its caller holds, an emptied repair `finally` (that case
+selected with `-t`) and a deleted `blocked` exit mapping. Two green results through a
+mutation are themselves evidence — `tests/cli/resume.test.ts` stayed green when the
+reporter was made to ignore `lockHeldByCaller`, so the dispatching half of that flag has
+no witness of its own, and `tests/cli/exit-codes.test.ts` stayed green when the mapping
+went, which is what separates the blocked-outcome table from the blocked-error route.
+The suites were re-run at full strength after the last restore, at the same counts as
+before the first mutation.
+
+Later change (2026-10-29, independent review of this round): the first of those two
+admissions is closed. `tests/cli/resume.test.ts` carries a case for the dispatching half
+of `lockHeldByCaller` (`src/cli/resume.ts:160`). It cannot be proved from the screen: the
+pack's `stage` and `outcome` rows read the same whether the reporter ran as a dispatched
+stage or as a plain `mergesutra report`, so the witness is on disk — the pack exists while
+the service's claim is still the only one, and that claim is what goes away at the end.
+With `lockHeldByCaller: true` deleted from the dispatch, the reporter is refused by the
+lock its own caller holds and the run ends `4` where the test expects `3` (`1 failed |
+20 passed (21)`; `src/cli/resume.ts` restored to
+`e0904a43fd21b64a70d9b9d969d2abc44339ebf6da63650893ce8e83d882f0e0`, the suite re-run at `21
+passed (21)`). The review also found that `tests/cli/report.test.ts`'s refusal case plants
+the *same* host for holder and caller, so it witnesses the live-process branch and not the
+cross-host one: a file now has a lock owned by another machine, liveness answered `false`
+on purpose, because `src/lifecycle/lock.ts:460` refuses an `UNKNOWABLE` owner before any
+probe is consulted, and only that ordering separates "cannot check" from "checked and
+gone". Deleting the host comparison takes the foreign claim over as stale and writes the
+pack beside it, exiting `0` (`1 failed | 8 passed (9)`; restored to
+`02de2e45746cd20c8d422aae4d25d5f7adc79e6f0395de85a65bb09a5e826498`). The second admission
+stands untouched — this round added no witness for the blocked-outcome table, and
+`tests/cli/exit-codes.test.ts` still does not carry one.
+ADR-072, with the claims it corrects in `docs/SECURITY_MODEL.md` §4.1/§4.2,
+`docs/ROADMAP.md` Stage 8, `docs/ACCEPTANCE_CONTRACT.md`, `docs/DECISIONS.md`
+ADR-058/064/070, `docs/SECURITY_GAP_REGISTER.md` S12-08 and the README command,
+leftovers and exit-code sections.
+
 ### Fixed — the runtime sandbox compares one canonical spelling of each path
 
 Windows keeps an 8.3 short-name alias for a long directory, and Node's plain

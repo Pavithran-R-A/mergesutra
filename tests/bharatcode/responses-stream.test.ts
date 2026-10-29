@@ -143,12 +143,13 @@ describe('reading the documented stream', () => {
   });
 
   /**
-   * The provider queues work before it serves it. A `response.queued` or
-   * `response.in_progress` event says the request is alive, not that anything was
-   * produced; the answer is still the terminal object's. The live runs that died at the
-   * smoke deadline were waiting on exactly this phase, so the adapter's behaviour there
-   * is pinned offline: queue events are ignored and a terminal object arriving after the
-   * stream has gone quiet is still accepted while the budget holds.
+   * A `response.queued` or `response.in_progress` event says the request is alive,
+   * not that anything was produced; the answer is still the terminal object's. Whether
+   * the live runs that died at the smoke deadline were waiting in this phase is a
+   * hypothesis — their preserved trail records the expiry, not its reason — so only the
+   * adapter's behaviour is pinned offline: queue events are ignored and a terminal
+   * object arriving after the stream has gone quiet is still accepted while the budget
+   * holds.
    */
   it('ignores queue and progress events and finishes on the terminal response that follows', async () => {
     const fixture = sseFetch(

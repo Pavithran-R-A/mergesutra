@@ -1,7 +1,8 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import { assertSafePathSegment } from '../security/path-safety.js';
+import { assertSafePathSegment, isCaseInsensitivePlatform } from '../security/path-safety.js';
 import { PACK_FILE_NAMES, packIdentityOf, type EvidencePack, type PackFileName } from './pack.js';
 
 /**
@@ -12,10 +13,47 @@ import { PACK_FILE_NAMES, packIdentityOf, type EvidencePack, type PackFileName }
  * Each file goes in by temp-then-rename, and an existing directory is replaced
  * rather than appended to — a pack left over from an earlier reading of the
  * record is worse than no pack, because it looks like the current one.
+ *
+ * Two writes of one pack directory are ordered against each other inside this
+ * process, and the scratch name each file gets is unique to the write. Neither is
+ * decoration: the scratch name used to be `<target>.<pid>.tmp`, which two writers
+ * in one process share, so one rename could take the file the other was about to
+ * rename. The run lock orders processes; this orders the calls a process can start
+ * without waiting for a lock at all.
  */
 export interface PackLocation {
   readonly dir: string;
   readonly files: Readonly<Record<(typeof PACK_FILE_NAMES)[number], string>>;
+}
+
+/**
+ * One pack directory, one writer at a time, inside this process.
+ *
+ * Keyed by directory rather than by run, because the directory is what the writers
+ * share; two different runs still render in parallel. The queue entry is dropped
+ * when it is the tail, so a long-lived process does not keep one promise per run it
+ * ever reported. The pattern is the run store's, and for the same reason: a queue is
+ * the only place this process can order its own calls.
+ */
+const packQueues = new Map<string, Promise<void>>();
+
+function packKey(directory: string): string {
+  const resolved = path.resolve(directory);
+  return isCaseInsensitivePlatform() ? resolved.toLowerCase() : resolved;
+}
+
+function packInTurn<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const previous = packQueues.get(key) ?? Promise.resolve();
+  const next = previous.then(task, task);
+  const tail = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  packQueues.set(key, tail);
+  void tail.then(() => {
+    if (packQueues.get(key) === tail) packQueues.delete(key);
+  });
+  return next;
 }
 
 export async function writeEvidencePack(
@@ -24,17 +62,30 @@ export async function writeEvidencePack(
 ): Promise<PackLocation> {
   const runId = assertSafePathSegment(pack.runId, 'run id');
   const dir = path.join(runsRoot, runId);
-  await mkdir(dir, { recursive: true });
 
-  const files = {} as Record<(typeof PACK_FILE_NAMES)[number], string>;
-  for (const name of PACK_FILE_NAMES) {
-    const target = path.join(dir, name);
-    const temp = `${target}.${process.pid}.tmp`;
-    await writeFile(temp, pack.files[name], { mode: 0o600 });
-    await rename(temp, target);
-    files[name] = target;
-  }
-  return { dir, files };
+  return packInTurn(packKey(dir), async () => {
+    await mkdir(dir, { recursive: true });
+
+    const files = {} as Record<(typeof PACK_FILE_NAMES)[number], string>;
+    for (const name of PACK_FILE_NAMES) {
+      const target = path.join(dir, name);
+      // The pid separates processes; the random half separates writers that share a
+      // pid, and `wx` makes "this scratch name was unused" the kernel's answer rather
+      // than this module's assumption.
+      const temp = `${target}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+      await writeFile(temp, pack.files[name], { mode: 0o600, flag: 'wx' });
+      try {
+        await rename(temp, target);
+      } catch (error) {
+        // A scratch file that cannot take its target is this write's own rubbish; a
+        // pack that looks whole except for a stray `.tmp` is what a reader would find.
+        await unlink(temp).catch(() => undefined);
+        throw error;
+      }
+      files[name] = target;
+    }
+    return { dir, files };
+  });
 }
 
 /**

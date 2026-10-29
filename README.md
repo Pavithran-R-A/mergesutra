@@ -289,7 +289,9 @@ that have already moved exits `4`.
 `report` needs nothing new: it reads the run record the commands above wrote and
 puts `report.md`, `report.json` and `commands.jsonl` beside it. It runs no gate and
 decides nothing, and its exit code is the outcome recorded in the run — so
-reporting a blocked run exits `4`, not `0`.
+reporting a blocked run exits `4`, not `0`. It claims the run's lock while it
+renders, because the pack is a document a later stage binds a human decision to: a
+run another command holds is refused at exit `4` rather than made to wait.
 
 `status` is the first command whose subject is the run rather than a stage of it. It
 reads the record, asks Git what the workspace looks like, and prints whether each
@@ -855,7 +857,9 @@ under `.mergesutra/runs/<id>/` — `report.md` for a human, `report.json` for a
 tool, `commands.jsonl` with one receipt per line. It runs no gate and re-decides
 nothing: every status below is copied out of the record the stages wrote, and the
 command's exit code is that record's outcome, so a report of a blocked run exits
-4 rather than 0 for having been printed.
+4 rather than 0 for having been printed. It holds the run's lock while it writes
+(ADR-072), so two commands cannot render one pack at once; the refusal when it
+finds the run held exits 4.
 
 The capture below is the `report.md` the Stage 7 hero run above leaves behind —
 same run, same `VG-001`, same three criteria. It is the real bytes of that test's
@@ -1056,6 +1060,12 @@ being read. Run the command without the flag and it costs nothing: it prints the
 the files and gates it names and the exact line that would authorise it, and asks for
 no credential, because the half of the command you use to *decide* should not spend a
 request.
+
+Once that digest matches, the cycle claims the run's lock before it measures the
+workspace, and gives it back after the record and the pack are filed (ADR-072). A run
+another command holds is refused at exit `4`, with the lock path named and nothing
+removed: measuring a workspace and then editing it is exactly the window a second
+process could use.
 
 The capture below comes from the same test that produced Stage 9's, run all the way
 round:
@@ -1274,13 +1284,18 @@ What those screens are and are not:
   A run missing a fact is told which earlier stage owes it (`mergesutra verify`,
   `mergesutra report`) and exits `4`: Stage 10 is a consumer, not a repair loop,
   and it will not quietly re-run a gate to make its own screen greener.
-- **The digest is the page.** It covers the repository, the target branch, the
-  proposed branch, the title, the body, the patch identity and the evidence-pack
-  identity, so one more byte in the workspace — the hero test adds a sentence to
+- **The digest is the page.** It covers the repository *and the host it would be sent
+  to*, the target branch, the proposed branch, the title, the body, the patch identity
+  and the evidence-pack identity, so one more byte in the workspace — the hero test
+  adds a sentence to
   `notes.md` after the approval, and that is the end of the approval — makes the
   yes a person gave name a page that no longer exists. Comparison is exact
   hex-to-hex; there is no prefix matching, no "close enough", and nothing to edit
-  in place, because an edited page earns a new digest by being assembled again.
+  in place, because an edited page earns a new digest by being assembled again. The
+  host is in it because `acme/payments` exists on github.com and on any GitHub
+  Enterprise host, and a yes for one of them is not a yes for the other; nothing here
+  supplies a host the page does not name, so a page recorded before hosts were part
+  of it is refused rather than sent somewhere by default (ADR-073).
 - **`Fixes #123` appears only because the run really recorded the issue.** A
   candidate whose issue identity or closure semantics are missing says
   `Related to #123` instead, and a run with no issue says nothing about one. The
@@ -1633,7 +1648,7 @@ A script or editor can tell these apart without parsing prose:
 | `1`  | Failed for a stated reason (bad input, unusable configuration, nothing to plan or implement against) |
 | `2`  | Command is planned, not implemented — nothing was done                        |
 | `3`  | `INCONCLUSIVE` — ran, but did not establish enough to continue (`issue`, `inspect`, `contract`, `plan`), an implementation run that changed files without proving anything (`IMPLEMENTED_BY_MODEL`, `IMPLEMENTATION_INCONCLUSIVE`, `IMPLEMENTATION_NEEDS_REVIEW`), a review that was filed but settled nothing (`REVIEW_RECORDED`, `REVIEW_NEEDS_HUMAN`, `REVIEW_INCONCLUSIVE`), a repair cycle that ran and re-verified without earning a word like "good" (`REPAIR_APPLIED`, `REPAIR_NEEDS_HUMAN`), a publication page that was proposed — or approved — without anything being sent (`PR_CANDIDATE_RECORDED`, `PR_APPROVED_LOCAL`), or a `resume` that stopped where a person's decision is outstanding (`AWAIT_HUMAN`) |
-| `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue), a loop that stopped on a bound or on cancellation, a review of bytes that have already moved (`REVIEW_STALE`), a repair that could not be run as approved (`REPAIR_BLOCKED`), a page this run cannot honestly propose (`PR_PUBLICATION_BLOCKED` — a stale gate, an approval for a different page), or a `resume` refused by a capability it cannot hold: an approval a person has not given, a lock another live process holds, or a plan that no longer matches the state it was read from |
+| `4`  | `BLOCKED` — the thing the user asked for could not be read (e.g. the issue), a loop that stopped on a bound or on cancellation, a review of bytes that have already moved (`REVIEW_STALE`), a repair that could not be run as approved (`REPAIR_BLOCKED`), a page this run cannot honestly propose (`PR_PUBLICATION_BLOCKED` — a stale gate, an approval for a different page), or a command stopped because another process holds the run: `report` and `repair` claim the run lock before they write, so a held run is refused rather than queued (ADR-072), and `resume` is refused by a capability it cannot hold — an approval a person has not given, that same lock, or a plan that no longer matches the state it was read from |
 | `78` | Configuration error (cf. `EX_CONFIG`) — e.g. `plan`, `implement`, `review` or `repair` with no `BHARATCODE_API_KEY` |
 
 `implement` has **no exit `0`**. A loop that ended because the model said
@@ -1914,9 +1929,11 @@ directory is created):
 - `.mergesutra/runs/<run-id>/` — the evidence pack `report` renders: `report.md`,
   `report.json`, `commands.jsonl`.
 - `.mergesutra/runs/<run-id>.lock/` — present only while a process holds the run.
-  A command that finishes cleanly releases it. A lock left by a process that died
-  stays, and no MergeSutra command clears one: `resume` refuses a lock it did not
-  create, which is why `status` prints the `Run lock` row and acts on nothing.
+  `resume`, `report` and `repair` each claim it (ADR-072), and a claiming command
+  is refused while another process holds it; a command that finishes cleanly
+  releases it. A lock left by a process that died stays, and no MergeSutra command
+  clears one: a command refuses a lock it did not create, which is why `status`
+  prints the `Run lock` row and acts on nothing.
 
 To remove a finished or abandoned run, in the order Git wants:
 

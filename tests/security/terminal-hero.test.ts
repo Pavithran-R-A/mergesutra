@@ -273,7 +273,7 @@ async function buildRun(hostile: Hostile, cwd: string) {
     runId: RUN_ID,
     createdAt: '2026-09-26T00:00:00.000Z',
     issue: { canonical: 'projectbharat/datekit#123', number: 123, closes: false },
-    target: { fullName: 'projectbharat/datekit', branch: 'main' },
+    target: { host: 'github.com', fullName: 'projectbharat/datekit', branch: 'main' },
     proposedBranch: `mergesutra/${RUN_ID}`,
     baseSha: BASE_SHA,
     patchIdentity: plan.patchIdentity,
@@ -511,13 +511,30 @@ async function pagesOf(run: Run, cwd: string): Promise<{ pages: Page[]; executed
   // Not 0: `report` returns the recorded outcome's code, and this run's outcome is
   // Stage 10's `PR_APPROVED_LOCAL`, which has no success code by design. The page is
   // still the page, which is what the tests over these bytes read.
-  expect(await reportAction(RUN_ID, { env }, { store: run.store, cwd }, report.write)).toBe(
-    EXIT.INCONCLUSIVE,
-  );
+  //
+  // `lockHeldByCaller`, because the lock this fixture planted is the uncertain one the
+  // command now refuses: ADR-072 made the reporter claim the run before it reads the
+  // record, so a page asked for here would otherwise be a refusal rather than a screen,
+  // and the two `report` sinks would stop measuring anything. The refusal is not left
+  // unproven — `tests/cli/report.test.ts` reads exit `4` from it — and the status and
+  // resume pages above still take the planted lock as foreign bytes to render.
+  expect(
+    await reportAction(
+      RUN_ID,
+      { env },
+      { store: run.store, cwd, runsRoot: run.runsRoot, lockHeldByCaller: true },
+      report.write,
+    ),
+  ).toBe(EXIT.INCONCLUSIVE);
   pages.push({ sink: 'report', text: report.text() });
 
   const reportJson = capture();
-  await reportAction(RUN_ID, { env, json: true }, { store: run.store, cwd }, reportJson.write);
+  await reportAction(
+    RUN_ID,
+    { env, json: true },
+    { store: run.store, cwd, runsRoot: run.runsRoot, lockHeldByCaller: true },
+    reportJson.write,
+  );
   pages.push({ sink: 'report --json', text: reportJson.text() });
 
   return { pages, executed };
@@ -736,7 +753,12 @@ describe('the hostile terminal hero: five sources, one run, every screen', () =>
     it('writes the pack to disk without rewriting the payload’s words out of the evidence', async () => {
       const cwd = await scratchDir('mergesutra-terminal-hero-pack-');
       const run = await buildRun(HOSTILE, cwd);
-      await reportAction(RUN_ID, { env: { NO_COLOR: '1' } }, { store: run.store, cwd }, () => {});
+      await reportAction(
+        RUN_ID,
+        { env: { NO_COLOR: '1' } },
+        { store: run.store, cwd, runsRoot: run.runsRoot, lockHeldByCaller: true },
+        () => {},
+      );
 
       // §23: the evidence is the file, and a display decision must not reach into it.
       // What the file holds is the receipt verbatim, so the payload's bytes are all
@@ -812,7 +834,12 @@ describe('the hostile terminal hero: five sources, one run, every screen', () =>
     // first page set. Otherwise the second set would be a different world rather than
     // the same one shown twice, and the difference below would be news about ordering
     // instead of about the display path.
-    await reportAction(RUN_ID, { env: { NO_COLOR: '1' } }, { store: run.store, cwd }, () => {});
+    await reportAction(
+      RUN_ID,
+      { env: { NO_COLOR: '1' } },
+      { store: run.store, cwd, runsRoot: run.runsRoot, lockHeldByCaller: true },
+      () => {},
+    );
     const packBefore = await readFile(packFile, 'utf8');
 
     const first = (await pagesOf(run, cwd)).pages;

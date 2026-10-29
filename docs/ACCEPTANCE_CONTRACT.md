@@ -232,8 +232,9 @@ documents a run files beside it when it reaches the publication boundary. Both
 are `.strict()`, and — like the contract — neither one carries a verdict.
 
 ```ts
-PublicationCandidate {                        // schemaVersion 1, no status field
-  runId, repository, baseSha, patchIdentity   // every one measured, none typed in
+PublicationCandidate {                        // schemaVersion 2, no status field
+  runId, repository, repositoryHost, baseSha, // every one measured, none typed in
+  patchIdentity                               // host too: owner/name is not an address
   targetBranch, proposedBranch
   prTitle, prBody, prBodySha256               // both bounded; the body is hashed
   evidencePackIdentity                        // which pack's bytes this page repeats
@@ -241,11 +242,16 @@ PublicationCandidate {                        // schemaVersion 1, no status fiel
   reviewCycle, reviewedPatchIdentity, reviewSummary
   verificationSummary, knownLimitations: string[], createdAt
 }
+// A version-1 candidate (no repositoryHost) is still readable, because a recorded
+// yes names one. It cannot be published and cannot claim a host: the digest keeps
+// version 1's label and line set, so its approval still names the same number.
 
 publicationDigestOf(candidate)                // sha256 of 15 labelled lines
-  // mergesutra-publication/1, run, repository, base, patch, target, source,
-  // title, body as prBodySha256, pack, issue + closes/relates, review cycle +
-  // patch, review-summary, verification, limitations joined with \u0000.
+  // mergesutra-publication/2, run, repository as host/owner/name, base, patch,
+  // target, source, title, body as prBodySha256, pack, issue + closes/relates,
+  // review cycle + patch, review-summary, verification, limitations joined
+  // with \u0000. Version-1 candidates hash under /1 with the old `owner/name`
+  // repository line, byte for byte.
   // `createdAt` is the only field left out: a yes covers a scope, not a minute.
   // The candidate is parsed through its own schema before it is hashed.
 
@@ -336,7 +342,10 @@ ResumePlan { schemaVersion 1, runId,
   // `action` is one of thirteen names, from DERIVE_ACCEPTANCE_CONTRACT to
   // NOTHING_TO_RESUME; none of them means published, pushed, created or merged.
 
-RunLock  <runsRoot>/<runId>.lock/owner.json     // operation: resume, and only resume
+RunLock  <runsRoot>/<runId>.lock/owner.json     // operation: resume | repair | report
+  // the three commands that can replace a run's evidence (ADR-072). The lock is
+  // claimed by a command and never by `save()`, and every block reason below is a
+  // refusal rather than a wait.
   // block reasons: HELD_BY_LIVE_PROCESS | HELD_BY_THIS_PROCESS |
   // HELD_ON_ANOTHER_HOST | TAKEOVER_IN_PROGRESS | OWNER_UNREADABLE | PATH_OCCUPIED
 

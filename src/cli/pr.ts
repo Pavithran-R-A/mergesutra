@@ -1,5 +1,5 @@
 import { PRODUCT_NAME } from '../version.js';
-import type { PublicationCandidate } from '../pr/candidate.js';
+import { repositoryAddressOf, type PublicationCandidate } from '../pr/candidate.js';
 import { createGitHubPublicationRemote } from '../pr/github-publisher.js';
 import { runPrStage, type PrStageDeps, type PrStageResult } from '../pr/stage.js';
 import { exitForOutcome } from './exit-codes.js';
@@ -243,7 +243,7 @@ export function formatPr(input: PrStageResult, renderer: Renderer): string {
 
 function pageText(candidate: PublicationCandidate | null): string {
   if (!candidate) return 'none assembled — nothing has been proposed';
-  return `${candidate.proposedBranch} → ${candidate.targetBranch} (${candidate.repository})`;
+  return `${candidate.proposedBranch} → ${candidate.targetBranch} (${repositoryAddressOf(candidate)})`;
 }
 
 /**

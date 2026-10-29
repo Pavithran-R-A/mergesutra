@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { acquireRunLock, runLockDirectory } from '../../src/lifecycle/lock.js';
 import { repairPlanDigest } from '../../src/repair/digest.js';
 import { runRepairStage } from '../../src/repair/stage.js';
 import { createRunner } from '../../src/core/runner.js';
@@ -141,7 +142,7 @@ describe.skipIf(!AVAILABLE)('runRepairStage', () => {
     const error = await errorFrom(() =>
       runRepairStage(
         { runId: fixture.record.runId, approvePlan: repairPlanDigest(fixture.plan) },
-        { store: fixture.store, client, now: () => NOW },
+        { store: fixture.store, client, now: () => NOW, runsRoot: fixture.runsRoot },
       ),
     );
 
@@ -151,6 +152,47 @@ describe.skipIf(!AVAILABLE)('runRepairStage', () => {
     expect(await readFile(path.join(fixture.workspace, 'notes.md'), 'utf8')).toMatch(
       /a person wrote/,
     );
+    // The refusal came out of an approved path, which means the lock it took was let
+    // go on the way out; a leaked lock here would block every later operation.
+    expect(await readdir(fixture.runsRoot)).toEqual([]);
+  });
+
+  it('does not start an approved cycle while another operation holds the run', async () => {
+    const fixture = await reviewedRun(tempDirs);
+    const held = await acquireRunLock(
+      { runId: fixture.record.runId, operation: 'report' },
+      {
+        runsRoot: fixture.runsRoot,
+        host: 'test-host',
+        pid: 4242,
+        now: () => NOW,
+      },
+    );
+    expect(held.state).toBe('ACQUIRED');
+    const client = scriptedClient([]);
+
+    const error = await errorFrom(() =>
+      runRepairStage(
+        { runId: fixture.record.runId, approvePlan: repairPlanDigest(fixture.plan) },
+        {
+          store: fixture.store,
+          client,
+          now: () => NOW,
+          runsRoot: fixture.runsRoot,
+          // A different process on the same host, which can see that 4242 is alive.
+          lock: { host: 'test-host', pid: 999_999, isProcessAlive: () => true },
+        },
+      ),
+    );
+
+    expect(error.kind).toBe('blocked');
+    expect(error.message).toContain(runLockDirectory(fixture.runsRoot, fixture.record.runId));
+    // A held run costs no model turn, no byte, and no cycle in the record.
+    expect(client.calls).toHaveLength(0);
+    expect(await parserOf(fixture.workspace)).not.toBe(REPAIRED);
+    expect((await fixture.store.load(fixture.record.runId)).repairExecutions).toEqual([]);
+    // The holder's lock is not this stage's to remove, and it was not removed.
+    expect(await readdir(fixture.runsRoot)).toContain(`${fixture.record.runId}.lock`);
   });
 
   it('runs the cycle through Stage 6’s loop and files what it did', async () => {
@@ -188,6 +230,12 @@ describe.skipIf(!AVAILABLE)('runRepairStage', () => {
     expect(result.record.repairExecutions[0]?.implementation.finishClaim?.summary).toMatch(
       /Rewrote the guard/,
     );
+    // The cycle held the run while it edited and wrote the pack, said so in the record,
+    // and gave it back: a lock left behind would block the review this run now needs.
+    const lockRow = result.checks.find((check) => check.name === 'Run lock');
+    expect(lockRow?.status).toBe('INFO');
+    expect(lockRow?.detail).toMatch(/released/i);
+    expect((await readdir(fixture.runsRoot)).filter((name) => name.endsWith('.lock'))).toEqual([]);
   });
 
   it('re-verifies the bytes it left, through the same round `verify` runs', async () => {
@@ -562,9 +610,10 @@ describe.skipIf(!AVAILABLE)('runRepairStage', () => {
   it('keeps the record and says so when the pack cannot be written', async () => {
     const fixture = await reviewedRun(tempDirs);
     const current = await parserOf(fixture.workspace);
-    const runsRoot = path.join(fixture.runsRoot, 'not-a-directory');
-    // A file where a directory has to be, so the pack write fails on purpose.
-    await put(fixture.runsRoot, 'not-a-directory', 'not a directory at all\n');
+    // A file where this run's own pack directory has to be, so the pack write fails
+    // on purpose. The run root stays a directory, because the lock the cycle takes
+    // lives beside the pack and a cycle that never started would not test the pack.
+    await put(fixture.runsRoot, fixture.record.runId, 'not a directory at all\n');
 
     const result = await runRepairStage(
       { runId: fixture.record.runId, approvePlan: repairPlanDigest(fixture.plan) },
@@ -572,7 +621,7 @@ describe.skipIf(!AVAILABLE)('runRepairStage', () => {
         store: fixture.store,
         client: scriptedClient(repairedAnswers(current, fixture.criteria)),
         now: () => NOW,
-        runsRoot,
+        runsRoot: fixture.runsRoot,
         runFor: fixture.runFor,
       },
     );
@@ -637,6 +686,11 @@ describe.skipIf(!AVAILABLE)('runRepairStage', () => {
       expect(result.record.verification).toEqual(fixture.record.verification);
       expect(result.record.limitations.join(' ')).not.toMatch(/stale/i);
       expect(result.record.nextStage).toMatch(/NEEDS_HUMAN_REVIEW/);
+      // A cycle that stopped early still held the run while it measured and filed,
+      // and a lock it left behind would block the person it just sent to review.
+      expect((await readdir(fixture.runsRoot)).filter((name) => name.endsWith('.lock'))).toEqual(
+        [],
+      );
     });
 
     it('keeps an edit that landed and runs no gate when the interrupt arrives first', async () => {
