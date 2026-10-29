@@ -46,6 +46,10 @@ cp.spawnSync = function (command, args, options) {
       };
     case 'missing-githead':
       return ok({ version });
+    case 'version-only-string':
+      return published ? ok(version) : ok({ version });
+    case 'absent-then-version-only':
+      return published ? ok(version) : { status: 1, stdout: '', stderr: 'npm error code E404\\n' };
     case 'null-metadata':
       return { status: 0, stdout: 'null', stderr: '' };
     case 'matching':
@@ -135,11 +139,36 @@ describe('the publish-or-verify helper does not invent registry facts', () => {
     expect(result.stdout).not.toContain('Publishing');
   });
 
-  it('does not call registry metadata without gitHead verified', () => {
+  it('verifies a registry version that reports no gitHead, and says the bytes are not commit-bound', () => {
+    // npm publish does not record a gitHead, so this object is what a real read-back of
+    // a version this helper published looks like. Refusing it left the release gate red
+    // with no remedy, because re-running reads the same answer.
     const result = run('missing-githead');
-    expect(result.status).not.toBe(0);
-    expect(result.stdout).not.toContain('Registry verified');
-    expect(result.stderr).toContain('names no gitHead');
+    expect(result.status).toBe(0);
+    expect(result.calls.filter((call) => call.kind === 'publish')).toEqual([]);
+    expect(result.stdout).toContain('no gitHead');
+    expect(result.stdout).toContain(`not tied to release commit ${HEAD}`);
+    expect(result.stdout).toContain('refusing to republish it');
+    expect(result.stderr).toBe('');
+  });
+
+  it('verifies the bare version string npm prints when it has no gitHead', () => {
+    // Measured shape of `npm view <pkg>@<ver> version gitHead --json` when the registry
+    // holds no gitHead: a JSON string rather than an object.
+    const result = run('version-only-string');
+    expect(result.status).toBe(0);
+    expect(result.calls.filter((call) => call.kind === 'publish')).toEqual([]);
+    expect(result.stdout).toContain('no gitHead');
+  });
+
+  it('verifies a published version whose read-back is the bare version string', () => {
+    const result = run('absent-then-version-only');
+    expect(result.status).toBe(0);
+    expect(result.calls.filter((call) => call.kind === 'publish')).toHaveLength(1);
+    expect(result.stdout).toContain(`Registry verified: ${PKG.name}@${PKG.version}`);
+    expect(result.stdout).toContain('no gitHead');
+    expect(result.stdout).toContain('Version, not commit, was proven');
+    expect(result.stderr).toBe('');
   });
 
   it('refuses metadata whose gitHead names another commit', () => {

@@ -8051,17 +8051,18 @@ refused command, and the benefit of changing it is a behaviour change this stage
 
 **Status: CLOSED — TEST.**
 
-## Audit round 2026-10-29 (findings F01–F06)
+## Audit round 2026-10-29 (findings F01–F07)
 
 The register is organised by the stage that opened each item. This round came from a
-line-by-line read of the tracked tree rather than from a stage, so its two remaining items are
-recorded here under the finding ids the audit uses, in the same shape as everything above.
+line-by-line read of the tracked tree rather than from a stage, so its three remaining items
+are recorded here under the finding ids the audit uses, in the same shape as everything above.
 F02 and F03 are written where they belong — as dated *Later change* clauses on the S12-08
 entry whose claims they correct — and F06 is a documentation-only correction to a timeout
 comment in `src/bharatcode/client.ts`, already on `main`. F05 is not a clause here: its
 repair shipped before this section was written, as `scripts/publish-or-verify.mjs` with its
 own tests and a `docs/RELEASING.md` correction, through PR #61 (commit `3052c27`, merged as
-`2907d71`), and the release helper has no register entry of its own to carry one.
+`2907d71`). F07 is recorded here because it repairs an over-strict half of that same F05 fix,
+and because that helper had no register entry of its own until this round added one.
 
 ## F01 — `text()` masked a captured header line only when its value looked like a known token — CLOSED (CODE + TEST + DOCUMENT)
 
@@ -8177,3 +8178,103 @@ prove any of this, so nothing here shows an enterprise host accepting a push. An
 the pattern is a syntactically valid hostname, not one anybody has proved reachable.
 
 **Status: CLOSED — CODE + TEST + DOCUMENT.**
+
+## F07 — the release helper demanded a `gitHead` that `npm publish` never records — CLOSED (CODE + TEST + DOCUMENT)
+
+**Finding.** `verifyRegistryMetadata()` in `scripts/lib/publish-registry.mjs` accepted a registry
+answer only when it named both the version and a `gitHead`, so a version the registry reported with
+no commit field failed verification. F05's repair put that rule there to stop an unbound version
+being called verified, and it does — but npm does not write the field. In the installed npm 11.19.0,
+`libnpmpublish/lib/publish.js:72` passes `const steps = ['fixName']` into `normalize()`, and
+`@npmcli/package-json/lib/normalize.js:493` produces a `gitHead` only when `steps.includes('gitHead')`.
+`docs/RELEASING.md` asserted the opposite — that npm records the checkout's `gitHead` when you publish
+from a git checkout — and the release path that follows from the two together is: `npm publish`
+succeeds, the post-publish read returns the version with no commit, the helper exits 1, and the
+documented remedy (re-run, which verifies rather than republishes) reads the same answer and exits 1
+again. No real release could turn the gate green. It was fail-closed the whole time, which is why this
+is P1 and not P0: the refusal could never authorize a write, only refuse a correct publication.
+
+**Measured, not argued.** Read-only registry GETs and `npm view` on this host the same evening:
+`npm view vitest@3.2.4 version gitHead --json` answers the bare JSON string `"3.2.4"` with exit 0 — a
+body with no `gitHead` key for any rule to read — and the packuments of `vitest` 5.0.5 and `vite`
+8.3.5 carry no `gitHead` at all, while `zod` 4.6.7 (`_npmVersion` 11.21.0) and `react` 19.3.1
+(`_npmVersion` 11.19.0) do carry one. The field belongs to the publisher's own tooling, not to npm's
+publish path, so requiring it was requiring an answer only some publishers can give.
+
+**What was changed.** `gitHead` is optional and, when present, verified exactly as strictly as
+before: `scripts/lib/publish-registry.mjs:92` now guards the format check (`:93`, a full lowercase
+40-hex commit) and the commit-equality check (`:98`) behind the field having been reported, so a
+malformed value or another commit still refuses. A bare version string is accepted only when it
+equals the expected version, because that is what npm prints for a version with nothing else to
+report. Both verification points print through one `verifiedLine()` (`:111`, used at `:150` and
+`:170`), so the provenance sentence cannot drift between them: with a commit it names the commit;
+without one it prints `… the published bytes are not tied to release commit <head>. Version, not
+commit, was proven.` (`:114`). Neither accepted shape authorizes a write — only npm's own whole-line
+`code E404` does — so the property F05 bought is intact and the claim it made is narrower.
+`docs/RELEASING.md` was corrected in the three places that carried the false premise: the bootstrap
+note, the GitHub Release paragraph, and the **The version exists.** bullet.
+
+The same round closed two weaker cells around the same module, both from the independent review of
+`928bd3e`: nothing covered a successful read whose body was empty (a mutant returning `absent` for a
+falsy stdout survived the whole suite, and absence is what authorizes a publish), and the registry
+query's arguments were never asserted, so a mutant narrowing it to `['view', spec]` survived too.
+Both are pinned now.
+
+A second review round of the same bytes then removed what this repair had left behind — `spec` was
+still carried into `verifyRegistryMetadata()` in the `expect` object (`:133`) after the only message
+that read it was deleted — and wrote the residual that a version check cannot see into
+`docs/RELEASING.md`: whoever published this exact version first, the registry serves it back and this
+step verifies it rather than publishing, so the version has to belong to this package before the
+release is attempted.
+
+**Evidence.** RED before the repair, against `928bd3e`'s own bytes: 6 harness cases in
+`tests/security/publish-registry-rules.test.ts` and 3 tests in `tests/security/publish-or-verify.test.ts`.
+The three subprocess tests and the two orchestration harness cases failed `expected 1 to be +0` — the
+helper refusing a version that genuinely exists — while the two acceptance cases threw the old
+`Registry metadata for mergesutra@0.2.0 names no gitHead, so it cannot be tied to release commit a{40}.`
+and the empty- and null-`gitHead` refusals failed `/not a full lowercase 40-hex commit/` because the old
+code answered them with that same missing-commit message. After the repair both files hold:
+`17 passed (17)`, with 37 harness cases driven in a real Node process.
+
+Battery — 12 mutations, each applied alone to the shipped `scripts/lib/publish-registry.mjs`
+(baseline sha-256 `7d20ef68e00fd2175ce71b8f0e542a7efe25cf3b01acf6533c632d920cb29ad1`), both suites run
+against it, and the module restored with its sha-256 re-checked before the next mutation
+(`restored=true` twelve times). Red counts are harness cases then subprocess tests: never validating a
+reported `gitHead` 8 and 1; deleting the 40-hex format guard 5 and none; deleting the commit-equality
+guard 3 and 1; never reading the field out of the body 10 and 4; deleting the version guard 3 and 2;
+swapping which provenance line prints 3 and 6; claiming a commit tie the registry never reported 1 and
+1; deleting the printed provenance limit 1 and 1; reading an empty successful answer as absence 2 and
+none; reading a successful non-JSON answer as absence 3 and 1; narrowing the registry query 1 and none;
+and a poll that stops retrying after a failed read 2 and none. Two of these had to be bought: deleting
+the sentence `Version, not commit, was proven.` survived an earlier run of this battery (against the
+pre-reflow bytes, sha-256 `40dfe18d…`) because no assertion named it, and deleting the `typeof gitHead
+!== 'string'` clause alone survived the whole suite until the second review round pointed at it. The
+first was pinned with one assert per suite; the second with the harness case at
+`tests/security/publish-registry-rules.test.ts:256`, which feeds a one-element array holding the release
+commit — the body that distinguishes a malformed field from a mismatched one — and both are killed on
+the bytes above.
+
+**Consequence for an operator.** The publication path in `docs/RELEASING.md` now ends the way the
+document says it does: a version published from the release checkout verifies, and the log line
+states whether the commit tie was proven or could not be. Nothing about the credentials, the
+workflow's `id-token` scope or the duplicate-version refusal changed.
+
+**What is not claimed.** No npm publication was performed, because it is unauthorized here, so the
+realistic post-publish answer is established from npm's own source and from other packages' registry
+records rather than from a `mergesutra` version. Verification proves the registry serves the expected
+version to this release run; it does not prove the packed bytes came from the release commit unless
+the registry reports a `gitHead` that says so, and the helper reads no `attestations` or provenance
+record either — proving npm Trusted Publishing's identity remains open, and this repair does not
+close it. Three P3 observations from the same review are stated rather than fixed, in keeping with
+this round's single-stage scope: `spawnSync('npm', …)` without a shell reports `status: null` rather
+than a message on Windows where only `npm.cmd` resolves; `execFileSync('git', ['rev-parse', 'HEAD'])`
+at `scripts/publish-or-verify.mjs:9` throws before the helper can explain a commit-less checkout; and
+npm's own stderr is echoed unredacted into the CI log. Two more limits are measured rather than
+argued: deleting `!Array.isArray(metadata)` (`:84`) leaves all 37 cases green because the mutant answers
+an array body with the same `received undefined` mismatch the guard produces, so no registry body
+distinguishes them and it is an equivalent mutant rather than an uncovered rule; and `out()` now sits
+outside the `try` at `:150` and `:170`, so a throwing output sink escapes as an uncaught error instead
+of the guard's own refusal line — the run still fails, and no publish is reachable from there.
+
+**Status: CLOSED — CODE + TEST + DOCUMENT.**
+

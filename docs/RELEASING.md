@@ -38,7 +38,14 @@ npm publish --access public
 ```
 
 The npm maintainer must authenticate normally and satisfy npm's 2FA requirement.
-Do not create a long-lived automation token for this bootstrap.
+Do not create a long-lived automation token for this bootstrap. Publish from the
+release commit's git checkout, as shown. Do not expect a commit tie from npm: `npm
+publish` normalizes the manifest through `libnpmpublish` with `steps: ['fixName']`,
+and `@npmcli/package-json` writes a `gitHead` only when its steps name `gitHead`, so
+the registry answer for a version published this way carries no commit at all. The
+release workflow verifies such a version and prints that the commit tie was not
+proven, rather than refusing it. Publication identity here rests on the version
+number and on npm Trusted Publishing, not on a `gitHead` that npm never wrote.
 
 After `mergesutra@0.1.0` exists, configure npm Trusted Publishing for:
 
@@ -59,16 +66,45 @@ bootstrap. The release event triggers `.github/workflows/publish.yml`.
 
 Use tag `v<package-version>` on the exact release commit. The workflow refuses a
 tag/version mismatch. When the exact npm version already exists it verifies that the
-registry metadata names that version and the checked-out `gitHead`, rather than
-trying to republish it. A registry read that fails for any reason other than npm's own
-`code E404` line fails the release instead of counting as version absence, and metadata
-without `gitHead` fails it as a mismatched commit does. npm answers a private read it
-cannot authorize with E404 too, so the publish that follows is still subject to npm's
-own duplicate-version refusal.
+registry metadata names that version, rather than trying to republish it. A registry
+read that fails for any reason other than npm's own `code E404` line fails the release
+instead of counting as version absence. A `gitHead` the registry does report is held to
+a full lowercase 40-hex commit equal to the checked-out release commit, and one that is
+malformed or names another commit fails the release; a version reporting no `gitHead`
+verifies with that limit printed, because `npm publish` is the reason the field is
+missing. npm answers a private read it cannot authorize with E404 too, so the publish
+that follows is still subject to npm's own duplicate-version refusal.
 
 If `npm publish` succeeds but no verification read succeeds, the step fails and says the
 version may already be live. Re-running the workflow verifies an existing exact version
 instead of publishing it again.
+
+## Registry verification
+
+`node scripts/publish-or-verify.mjs` reads the registry as three states rather than two,
+and the rules live in `scripts/lib/publish-registry.mjs`:
+
+- **The version exists.** The metadata is accepted when it reports the package version,
+  in the object npm returns or as the bare version string npm prints when it has nothing
+  else to report. A `gitHead` is then verified as strictly as it can be: a full lowercase
+  40-hex commit equal to the checked-out release commit, so a malformed one or one
+  naming another commit fails. A version with no `gitHead` verifies, and the printed line
+  says the commit tie was not proven, because `npm publish` does not record one —
+  demanding the field rejected a correct publication and no re-run could fix it. What this
+  proves is that the registry serves this version to this run, not who published it: a
+  version somebody else claimed first verifies here too and the step refuses to publish,
+  so the version must already belong to this package before a release is attempted.
+- **The version is absent.** Only npm's own `code E404` status line says that, matched as
+  a whole line, and only in a read that reported an exit status: an npm that was killed
+  after flushing that line completed nothing, so its partial transcript is a failed read
+  rather than an answer. An authentication, network, proxy or registry error — and an
+  `E404` token sitting inside other text — is a failed read too. Before publication a
+  failed read stops the run, because the registry may already hold the version.
+- **The read failed after publication.** A version that was just published can still be
+  propagating, so both an absent and a failed answer are retried within the bounded
+  window, and the exhaustion message names which of the two the last read left.
+
+Every failure in this script exits non-zero, and nothing re-runs `npm publish`.
 
 ## BharatCode validation boundary
 
