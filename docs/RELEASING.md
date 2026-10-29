@@ -38,7 +38,10 @@ npm publish --access public
 ```
 
 The npm maintainer must authenticate normally and satisfy npm's 2FA requirement.
-Do not create a long-lived automation token for this bootstrap.
+Do not create a long-lived automation token for this bootstrap. Publish from the
+release commit's git checkout, as shown: npm records the checkout's `gitHead`, and a
+tarball published from outside a repository carries none, so the release workflow
+would refuse to verify it.
 
 After `mergesutra@0.1.0` exists, configure npm Trusted Publishing for:
 
@@ -69,6 +72,25 @@ own duplicate-version refusal.
 If `npm publish` succeeds but no verification read succeeds, the step fails and says the
 version may already be live. Re-running the workflow verifies an existing exact version
 instead of publishing it again.
+
+## Registry verification
+
+`node scripts/publish-or-verify.mjs` reads the registry as three states rather than two,
+and the rules live in `scripts/lib/publish-registry.mjs`:
+
+- **The version exists.** The metadata is accepted only when it reports the package
+  version and a full lowercase 40-hex `gitHead` equal to the checked-out release commit.
+  Metadata without a `gitHead`, or one too short or malformed to name a commit, fails:
+  it cannot tie the published bytes to the release.
+- **The version is absent.** Only npm's own `code E404` status line says that, matched as
+  a whole line; an authentication, network, proxy or registry error — and an `E404` token
+  sitting inside other text — is a failed read. Before publication a failed read stops
+  the run, because the registry may already hold the version.
+- **The read failed after publication.** A version that was just published can still be
+  propagating, so both an absent and a failed answer are retried within the bounded
+  window, and the exhaustion message names which of the two the last read left.
+
+Every failure in this script exits non-zero, and nothing re-runs `npm publish`.
 
 ## BharatCode validation boundary
 
