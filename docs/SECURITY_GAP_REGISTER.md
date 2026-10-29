@@ -865,6 +865,29 @@ runs one writer per pack directory inside the process. That asymmetry is deliber
 store's `<target>.<pid>.tmp` name stays as S12-08 described it, because a later save there
 reuses and renames the artefact a crashed one left.
 
+*Later change (2026-10-29, independent review of this round).* Two halves of that claim had no
+witness, and the review named both. The first is the dispatching half of `lockHeldByCaller`:
+`tests/cli/resume.test.ts` stayed green when the reporter was made to ignore the flag, so
+nothing proved that `resume --execute` reaches the pack through the dispatcher that is told the
+lock is already held (`src/cli/resume.ts:160`). A file now pins it, and pins it on disk — the
+pack's `stage` and `outcome` rows read the same either way, so the case asserts the pack exists
+while the service's claim is still the only one and is gone at the end. Deleting the flag makes
+the reporter refuse the lock its own caller holds, and the run ends `4` where `3` is expected
+(`1 failed | 20 passed (21)`; `src/cli/resume.ts` restored to
+`e0904a43fd21b64a70d9b9d969d2abc44339ebf6da63650893ce8e83d882f0e0`, the suite re-run at `21
+passed (21)`). The second is which host a refusal is about: `tests/cli/report.test.ts`'s refusal
+case plants the same host for holder and caller, so it witnessed the live-process branch of the
+liveness rule and not the cross-host branch that answers `UNKNOWABLE` at
+`src/lifecycle/lock.ts:460` — before any probe. A file now holds a lock owned by another
+machine with liveness answered `false` on purpose, because only that ordering separates "a
+machine this one cannot check" from "checked and gone". Deleting the host comparison took the
+foreign claim over as stale and wrote the pack beside it, exiting `0` (`1 failed | 8 passed
+(9)`; restored to `02de2e45746cd20c8d422aae4d25d5f7adc79e6f0395de85a65bb09a5e826498`) — the
+shape in which one host erases another's claim on the evidence a publication approval is bound
+to. The review's third observation stands unfixed: `tests/cli/exit-codes.test.ts` is still green
+through a deleted `blocked` exit mapping, so the blocked-*outcome* table keeps no witness of its
+own and this round claimed none.
+
 *Later change (2026-10-27, found by the F04 audit gate).* Two cases in
 `tests/cli/program.test.ts` ran `mergesutra verify` and `mergesutra plan` with no store injected,
 and both stages build one from the working directory when nothing is supplied
@@ -8074,6 +8097,22 @@ and re-adding the quote turned the no-duplicate case and the exact-output assert
 the JSON key red (`2 failed | 31 passed`). The module was restored byte-for-byte after each, with
 sha-256 `920ebe1148989f8853fff428f3368111a8582481cc4bc01f9a2083157a0191d1` checked on both sides
 of every run, and the pair then re-run at `33 passed (33)`.
+
+*Later change (2026-10-29, independent review of this round).* The optional quote credited above
+to this pass is the *generic* key rule's, and the review proved it: the two JSON-key cases stay
+masked when `RAW_HEADER_PATTERN`'s own `"?` branch is deleted, so that branch — the only thing
+that lets the whole-tail rule reach a header name quoted as a JSON leaf, as in
+`{"Authorization":"Bearer …"}` — had no witness at all. `tests/security/redaction.test.ts` now
+pins a quoted `Authorization` and a quoted `Cookie` key, and both mutations were re-measured
+against the 34 cases the pair then holds: deleting that branch turns exactly the new case red
+(`1 failed | 33 passed`, with the JWT travelling whole), and dropping the `text()` pass turns
+three raw-header cases plus this new quoted-key case red (`4 failed | 30 passed`) — which is why
+the count in the paragraph above says the cases *then* in the file. `src/security/redaction.ts`
+was restored to the same sha-256 and the pair re-run at `34 passed (34)`. The review also asked
+what the pass cannot reach, and the answer is measured rather than argued: its value class is
+`[^\r\n]*`, so an RFC 7230 folded continuation line — a value that runs on under leading
+whitespace and carries no header name — survives whole, which §6 now states as a limit instead of
+widening the class across newlines and swallowing an unrelated receipt tail behind it.
 
 **What is not claimed.** The pattern is a name list, so a credential on a line that names it
 differently is still invisible to it — which is why the exact-value registration (S14-5) exists
