@@ -157,6 +157,22 @@ run('does not read a spawn failure as absence', () => {
   assert.match(result.reason, /ENOENT/);
 });
 
+run('does not read a killed npm as absence even when it flushed the E404 line', () => {
+  // Absence has to mean a read npm itself answered. A process killed after writing its
+  // status line reports no exit status at all, so the transcript is a partial write, and
+  // calling that absence would let the helper publish over a read it never finished.
+  const result = kinds(
+    lib.classifyViewOutcome({
+      status: null,
+      stdout: '',
+      stderr: 'npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/mergesutra\n',
+      error: new Error('npm killed by SIGKILL'),
+    }),
+  );
+  assert.equal(result.kind, 'error', 'a read with no exit status is not version absence');
+  assert.match(result.reason, /did not report an exit status/);
+});
+
 run('does not read malformed JSON as absence', () => {
   const result = kinds(lib.classifyViewOutcome({ status: 0, stdout: 'not json', stderr: '' }));
   assert.equal(result.kind, 'error');
@@ -229,13 +245,16 @@ run('refuses a gitHead from another commit', () => {
 run('refuses a version mismatch', () => {
   assert.throws(
     () => lib.verifyRegistryMetadata(meta({ version: '0.1.0' }), EXPECT),
-    /version/,
+    /version mismatch/,
   );
 });
 
 run('refuses a string body, which cannot carry a commit', () => {
   assert.throws(() => lib.verifyRegistryMetadata('0.9.9', EXPECT), /version mismatch/);
-  assert.throws(() => lib.verifyRegistryMetadata('0.2.0', EXPECT), /gitHead/);
+  // The fault is the missing commit, and a bare /gitHead/ cannot name it: all three
+  // gitHead refusals contain that word, so the missing-commit guard could be deleted
+  // and this case would still pass.
+  assert.throws(() => lib.verifyRegistryMetadata('0.2.0', EXPECT), /names no gitHead/);
 });
 
 run('refuses a null or array body as the version mismatch it is', () => {
@@ -268,6 +287,23 @@ run('refuses to publish when the preflight read fails without a registry code', 
   assert.equal(result.code, 1);
   assert.equal(result.calls.length, 1);
   assert.doesNotMatch(result.printed, /Publishing/);
+});
+
+run('refuses to publish when the preflight read flushed an E404 line but never completed', () => {
+  const result = drive([
+    {
+      status: null,
+      stdout: '',
+      stderr: 'npm error code E404\n',
+      error: new Error('npm killed by SIGKILL'),
+    },
+    PUBLISH_OK,
+    viewOk(meta()),
+  ]);
+  assert.equal(result.code, 1);
+  assert.equal(result.calls.length, 1, 'no write may follow a read that reported no exit status');
+  assert.doesNotMatch(result.printed, /Publishing/);
+  assert.match(result.refused, /refusing to treat that as version absence/);
 });
 
 run('refuses to publish when the preflight metadata carries no gitHead', () => {
@@ -380,7 +416,7 @@ afterAll(async () => {
 
 describe('the npm release script reads the registry honestly', () => {
   it('ran every case in a real Node process', () => {
-    expect(results.length, stderr).toBe(30);
+    expect(results.length, stderr).toBe(32);
   });
 
   it('holds every case', () => {
@@ -393,9 +429,11 @@ describe('the npm release script reads the registry honestly', () => {
     for (const phrase of [
       'treats only npm code E404 as absence',
       'does not read the E404 token inside other text as absence',
+      'does not read a killed npm as absence even when it flushed the E404 line',
       'refuses metadata without gitHead',
       'refuses a gitHead that is present but not a full lowercase 40-hex commit',
       'refuses to publish when the preflight read fails',
+      'refuses to publish when the preflight read flushed an E404 line but never completed',
       'retries a failed read after publishing',
       'reports the absent answer it exhausted',
     ]) {
@@ -407,7 +445,10 @@ describe('the npm release script reads the registry honestly', () => {
     const source = await readFile(SCRIPT, 'utf8');
     expect(source).toContain("from './lib/publish-registry.mjs'");
     expect(source).toContain('publishOrVerify(');
-    expect(source).not.toMatch(/meta\??\.gitHead/);
+    // A re-inlined rule has to name one of these two tokens whatever it calls its
+    // variables, so thinness is proved by the vocabulary, not by one local's spelling.
+    expect(source).not.toMatch(/gitHead/);
+    expect(source).not.toMatch(/E404/);
     expect(source).not.toMatch(/status\s*!==\s*0\)\s*return null/);
   });
 });

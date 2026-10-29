@@ -33,8 +33,11 @@ function transcript(result) {
 
 /**
  * Reads one `npm view` result. `{ kind: 'absent' }` is returned only for a line of npm's
- * own `code E404` status; a bare "404" line, an auth or network failure, a spawn failure,
- * a missing exit status or unparseable output are all `{ kind: 'error' }`.
+ * own `code E404` status *in a read that reported an exit status*; a bare "404" line, an
+ * auth or network failure, a spawn failure, a missing exit status or unparseable output
+ * are all `{ kind: 'error' }`. The exit status is checked first because a killed npm can
+ * flush its status line and still never have completed: its transcript is a partial write,
+ * and a partial write is not an answer.
  */
 export function classifyViewOutcome(result) {
   if (result?.status === 0) {
@@ -45,7 +48,6 @@ export function classifyViewOutcome(result) {
     }
   }
   const output = transcript(result);
-  if (ABSENT_LINE.test(output)) return { kind: 'absent' };
   if (result?.status === null || result?.status === undefined) {
     return {
       kind: 'error',
@@ -56,6 +58,7 @@ export function classifyViewOutcome(result) {
       ),
     };
   }
+  if (ABSENT_LINE.test(output)) return { kind: 'absent' };
   return {
     kind: 'error',
     reason: bounded(output === '' ? `npm view exited ${result?.status} with no message` : output),

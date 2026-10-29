@@ -83,9 +83,11 @@ and the rules live in `scripts/lib/publish-registry.mjs`:
   Metadata without a `gitHead`, or one too short or malformed to name a commit, fails:
   it cannot tie the published bytes to the release.
 - **The version is absent.** Only npm's own `code E404` status line says that, matched as
-  a whole line; an authentication, network, proxy or registry error — and an `E404` token
-  sitting inside other text — is a failed read. Before publication a failed read stops
-  the run, because the registry may already hold the version.
+  a whole line, and only in a read that reported an exit status: an npm that was killed
+  after flushing that line completed nothing, so its partial transcript is a failed read
+  rather than an answer. An authentication, network, proxy or registry error — and an
+  `E404` token sitting inside other text — is a failed read too. Before publication a
+  failed read stops the run, because the registry may already hold the version.
 - **The read failed after publication.** A version that was just published can still be
   propagating, so both an absent and a failed answer are retried within the bounded
   window, and the exhaustion message names which of the two the last read left.
