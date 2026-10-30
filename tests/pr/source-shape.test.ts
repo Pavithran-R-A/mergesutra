@@ -158,7 +158,7 @@ describe('what a publication stage could ever put in front of a process', () => 
     // read the stage always meant, over the same work tree, and it is still a read.
     expect(closed.map(show).sort()).toEqual([
       'verify/patch.ts: git diff --check',
-      'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
+      'verify/patch.ts: git diff --raw --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
       'verify/patch.ts: git rev-parse HEAD',
     ]);

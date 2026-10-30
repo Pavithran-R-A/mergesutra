@@ -36,6 +36,7 @@ import {
   type ReadinessReport,
 } from './readiness.js';
 import {
+  type PublicationAttempt,
   type PublicationResult,
   buildPublicationRecord,
   type PublicationRecord,
@@ -208,6 +209,9 @@ export async function runPrStage(
   // it rather than "no remote change", and a second --publish must not ask for a
   // duplicate branch: the transport would refuse it, but only after the request.
   const recordedPublication = prior?.result ?? null;
+  // A branch a transport confirmed is the same kind of fact: the repository holds
+  // it, no draft does, and a second push would collide with it.
+  const recordedAttempt = prior?.attempt ?? null;
 
   let publication: PublishedPullRequest | null = null;
   let publicationFailure: AppError | null = null;
@@ -216,7 +220,8 @@ export async function runPrStage(
     showable &&
     candidate !== null &&
     matched !== null &&
-    recordedPublication === null
+    recordedPublication === null &&
+    recordedAttempt === null
   ) {
     // `showable` cannot hold without an implementation record, but the directory is
     // read from the same measurement the page came from rather than assumed here.
@@ -254,12 +259,16 @@ export async function runPrStage(
           draft: true,
           publishedAt: now().toISOString(),
         };
+  // Only a failure that named a branch and commit is filed: that is the transport's
+  // own evidence that the repository holds something, and a request whose outcome is
+  // unknown is reported as unknown rather than as a branch.
+  const attempted = attemptOf(publicationFailure, candidate);
   const draftIsTheRunState =
     publication !== null ||
     (recordedPublication !== null && showable && decision?.allowed === true);
   const outcome: RunOutcome = draftIsTheRunState
     ? 'PR_DRAFT_OPENED'
-    : !showable || approvalRefused || publicationFailure !== null
+    : !showable || approvalRefused || publicationFailure !== null || recordedAttempt !== null
       ? 'PR_PUBLICATION_BLOCKED'
       : decision?.allowed === true
         ? 'PR_APPROVED_LOCAL'
@@ -276,6 +285,7 @@ export async function runPrStage(
       recorded: recordedPublication,
       sent: result,
       failed: publicationFailure !== null,
+      attempt: recordedAttempt,
     }),
     publicationRow({
       requested: publishRequested,
@@ -283,6 +293,7 @@ export async function runPrStage(
       showable,
       publication,
       recorded: recordedPublication,
+      attempt: recordedAttempt,
       failure: publicationFailure,
     }),
   ];
@@ -293,6 +304,7 @@ export async function runPrStage(
     priorIndex,
     typed,
     approval: matched,
+    attempt: attempted,
     result,
   });
 
@@ -309,6 +321,7 @@ export async function runPrStage(
       runId,
       publication,
       recorded: recordedPublication,
+      attempt: recordedAttempt,
       failure: publicationFailure,
     }),
   });
@@ -541,7 +554,9 @@ function approvalTyped(input: PrStageInput, now: () => Date): PublicationApprova
  *
  * A failed publish attempt keeps the approval on file with `result: null`: the yes was
  * real, GitHub reported no draft, and the record must say neither that nothing was
- * attempted nor that something was opened.
+ * attempted nor that something was opened. When the transport confirmed a branch
+ * before the pull request was refused, that branch is filed as `attempt` — with it a
+ * later run can tell a remote that holds something from a remote nobody asked.
  */
 function filings(input: {
   showable: boolean;
@@ -550,20 +565,25 @@ function filings(input: {
   priorIndex: number;
   typed: PublicationApproval | null;
   approval: PublicationApproval | null;
+  attempt: PublicationAttempt | null;
   result: PublicationResult | null;
 }): PublicationRecord[] {
-  const { showable, source, candidate, priorIndex, typed, approval, result } = input;
+  const { showable, source, candidate, priorIndex, typed, approval, attempt, result } = input;
   const carried = [...source.publications];
   if (!showable || candidate === null) return carried;
 
   // A result already filed is history: retyping the same approval may move the time
-  // of the yes, but it may not erase the draft that yes opened.
+  // of the yes, but it may not erase the draft that yes opened. The same holds for a
+  // branch a later attempt confirmed; a reported draft, however, supersedes it.
   const storedResult = priorIndex >= 0 ? (source.publications[priorIndex]?.result ?? null) : null;
+  const storedAttempt = priorIndex >= 0 ? (source.publications[priorIndex]?.attempt ?? null) : null;
+  const nextAttempt = result !== null ? null : (attempt ?? storedAttempt);
 
   const write = (fileApproval: PublicationApproval | null): PublicationRecord[] => {
     const entry = buildPublicationRecord({
       candidate,
       approval: fileApproval,
+      attempt: nextAttempt,
       result: result ?? storedResult,
     });
     return priorIndex >= 0
@@ -582,7 +602,33 @@ function filings(input: {
     // cannot invent one; an impossible pairing files nothing rather than a lie.
     return approval === null ? carried : write(approval);
   }
+  if (attempt !== null) {
+    // A branch confirmed by this attempt is new information even when the approval
+    // was read back from storage; leaving the entry untouched would lose it, and a
+    // later run would offer the second send this field exists to prevent.
+    return approval === null ? carried : write(approval);
+  }
   return priorIndex >= 0 ? carried : write(null);
+}
+
+/**
+ * The branch a failure's own details confirm, or `null`.
+ *
+ * Only the transport knows whether a branch write answered before a later request
+ * failed, and it says so by naming the branch and commit in the failure's details.
+ * A failure without them describes a request whose outcome is unknown; this stage
+ * reports that as unknown and files no branch it cannot name.
+ */
+function attemptOf(
+  failure: AppError | null,
+  candidate: PublicationCandidate | null,
+): PublicationAttempt | null {
+  if (failure === null || candidate === null) return null;
+  const branch = failure.details?.branch;
+  const commitSha = failure.details?.commitSha;
+  if (typeof branch !== 'string' || branch !== candidate.proposedBranch) return null;
+  if (typeof commitSha !== 'string' || !/^[0-9a-f]{40}$/.test(commitSha)) return null;
+  return { branch, commitSha, reason: failure.message };
 }
 
 function readinessRow(check: ReadinessCheck): RunCheck {
@@ -665,9 +711,10 @@ function publicationRow(input: {
   showable: boolean;
   publication: PublishedPullRequest | null;
   recorded: PublicationResult | null;
+  attempt: PublicationAttempt | null;
   failure: AppError | null;
 }): RunCheck {
-  const { requested, approved, showable, publication, recorded, failure } = input;
+  const { requested, approved, showable, publication, recorded, attempt, failure } = input;
   if (publication !== null) {
     return {
       name: 'Remote publication',
@@ -714,6 +761,17 @@ function publicationRow(input: {
         'reviewing and closing are human acts in GitHub.',
     };
   }
+  if (attempt !== null) {
+    return {
+      name: 'Remote publication',
+      status: 'WARN',
+      detail:
+        `This run records branch '${attempt.branch}' at commit ${attempt.commitSha.slice(0, 12)}…, ` +
+        'created by an earlier publish attempt whose pull request was never reported. This ' +
+        'command sent nothing: a second push would collide with that branch. Inspect the branch ' +
+        'and any pull request on GitHub; merging, reviewing and closing are human acts there.',
+    };
+  }
   return { name: 'Publication boundary', status: 'INFO', detail: NOT_REQUESTED_BOUNDARY };
 }
 
@@ -743,6 +801,7 @@ function nextStepRow(input: {
   recorded: PublicationResult | null;
   sent: PublicationResult | null;
   failed: boolean;
+  attempt: PublicationAttempt | null;
 }): RunCheck {
   const missing = input.report.blocking.filter((row) => row.id !== 'human-approved');
   if (missing.length === 0) {
@@ -784,6 +843,18 @@ function nextStepRow(input: {
           'reading the repository. Reviewing and merging are human acts in GitHub.',
       };
     }
+    if (input.attempt !== null) {
+      return {
+        name: 'Publication next step',
+        status: 'WARN',
+        detail:
+          `Every fact this stage reads is current. An earlier attempt created branch ` +
+          `'${input.attempt.branch}' at commit ${input.attempt.commitSha.slice(0, 12)}… before the ` +
+          'pull request was refused, so this row offers no send: a second push would collide with ' +
+          'that branch, and what the repository holds is answerable only by reading it. Merging ' +
+          'is a human act in GitHub.',
+      };
+    }
     const next = input.approved
       ? `The approval on file matches this page. To ask GitHub for a draft pull request: ` +
         `\`mergesutra pr ${input.runId} --publish\`.`
@@ -817,6 +888,7 @@ function nextStageFor(input: {
   runId: string;
   publication: PublishedPullRequest | null;
   recorded: PublicationResult | null;
+  attempt: PublicationAttempt | null;
   failure: AppError | null;
 }): string {
   if (input.outcome === 'PR_DRAFT_OPENED' && input.publication !== null) {
@@ -839,6 +911,14 @@ function nextStageFor(input: {
       (input.failure.remediation ??
         'The remote may have changed before this failed; inspect the branch and any pull ' +
           'request, then decide what to do.')
+    );
+  }
+  if (input.attempt !== null) {
+    return (
+      `PUBLICATION_INCOMPLETE — branch '${input.attempt.branch}' at commit ` +
+      `${input.attempt.commitSha.slice(0, 12)}… was created by an earlier attempt, and no pull ` +
+      'request was reported for it. Inspect the branch and any pull request on GitHub; this ' +
+      'product will not push a second branch, move, force or delete one.'
     );
   }
   if (input.outcome === 'PR_APPROVED_LOCAL') {

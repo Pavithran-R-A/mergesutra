@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { publicationDigestOf } from '../pr/digest.js';
+import type { PublicationRecord } from '../pr/record.js';
 import { REVIEW_SEVERITIES } from '../review/schema.js';
 import { RUN_OUTCOMES, RUN_STAGES, type RunRecord } from '../state/run-record.js';
 import { GATE_RESULTS } from '../verify/receipt.js';
@@ -41,10 +42,9 @@ type States = LifecycleVerdict['states'];
  *    and a resume plan cannot disagree about what expired, and this module has no
  *    opinion of its own to drift.
  * 4. **Nothing here judges, scores or announces.** There is no health number, no
- *    "ready", no "no defects", no published/pushed/created word — because there
- *    is no field in this build that could support one, and a snapshot that
- *    summarised a review into a verdict would be the one place a machine's
- *    optimism could enter a page whose entire point is the evidence.
+ *    "ready", no "no defects", and no verdict field. The remote states are quoted
+ *    from the record — a draft a transport reported, a branch it confirmed — and
+ *    each is a fact about a document, not this module's opinion about a remote.
  *
  * Like the observation layer, this module is pure: it reads no file, runs no
  * command, calls no model. It is arithmetic over two documents that already
@@ -296,6 +296,53 @@ const reportSectionSchema = z
   })
   .strict();
 
+/**
+ * What this run's record says happened at a remote — three states, and no inference.
+ *
+ * `NOT_ATTEMPTED_BY_THIS_BUILD` used to be the only value because nothing in the
+ * product could write a remote fact. `pr --publish` can now, so the field carries what
+ * the record actually holds: a draft a transport reported, or a branch it confirmed
+ * before the pull request was refused. The state is derived from stored bytes, never
+ * from a live request — `status` sends nothing, and its description of a remote is a
+ * description of a document. The detail sentence belongs here, beside the state, for
+ * the same reason `describeLock` owns its words: the screen that prints this is not
+ * the module that reads the record.
+ */
+export const REMOTE_PUBLICATION_STATES = [
+  'NOT_ATTEMPTED_BY_THIS_BUILD',
+  'DRAFT_OPENED',
+  'BRANCH_CREATED',
+] as const;
+
+export const remotePublicationSchema = z.discriminatedUnion('state', [
+  z
+    .object({
+      state: z.literal('NOT_ATTEMPTED_BY_THIS_BUILD'),
+      detail: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('DRAFT_OPENED'),
+      detail: z.string().min(1),
+      url: z.string().regex(/^https:\/\/[^\s]+$/),
+      number: z.number().int().positive(),
+      publishedAt: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('BRANCH_CREATED'),
+      detail: z.string().min(1),
+      branch: z.string().min(1),
+      commitSha: z.string().regex(/^[0-9a-f]{40}$/),
+      reason: z.string().min(1),
+    })
+    .strict(),
+]);
+
+export type RemotePublication = z.infer<typeof remotePublicationSchema>;
+
 const publicationSectionSchema = z
   .object({
     candidates: z.number().int().nonnegative(),
@@ -321,14 +368,7 @@ const publicationSectionSchema = z
       .nullable(),
     approvalState: lifecycleStateSchema,
     state: lifecycleStateSchema,
-    /**
-     * The only thing this build can truthfully say about the remote.
-     *
-     * Not a variable and not a status read from anywhere: no code path in this
-     * product has ever contacted one, and a field that could hold a URL would be a
-     * promise. Stage 15 will own its own words when it exists.
-     */
-    remote: z.literal('NOT_ATTEMPTED_BY_THIS_BUILD'),
+    remote: remotePublicationSchema,
   })
   .strict();
 
@@ -650,7 +690,58 @@ function publicationOf(record: RunRecord, states: States) {
       : null,
     approvalState: states.publicationApproval,
     state: states.candidate,
-    remote: 'NOT_ATTEMPTED_BY_THIS_BUILD',
+    remote: remoteOf(record.publications, latest),
+  };
+}
+
+/**
+ * The newest remote act the record holds, or the absence of one.
+ *
+ * Scanned from the newest entry backwards rather than read off `latest` alone: a run
+ * whose bytes moved after a draft was opened has a newer, unpublished candidate, and
+ * answering "no remote action" for it would erase a draft that still exists on
+ * GitHub. The detail says when the act belongs to an earlier page, so the address is
+ * never read as belonging to the page printed above it.
+ */
+function remoteOf(
+  publications: readonly PublicationRecord[],
+  latest: PublicationRecord | null,
+): RemotePublication {
+  const forEarlier =
+    ' This act belongs to an earlier page in the run; the page above sent nothing.';
+  for (let index = publications.length - 1; index >= 0; index -= 1) {
+    const entry = publications[index];
+    if (!entry) continue;
+    const suffix = entry === latest ? '' : forEarlier;
+    if (entry.result !== null) {
+      const { url, number, publishedAt } = entry.result;
+      return {
+        state: 'DRAFT_OPENED',
+        detail:
+          `Draft pull request #${String(number)} at ${url} was recorded at ${publishedAt}.` +
+          `${suffix} Merging is a human act in GitHub; this product has no path that merges.`,
+        url,
+        number,
+        publishedAt,
+      };
+    }
+    if (entry.attempt !== null) {
+      const { branch, commitSha, reason } = entry.attempt;
+      return {
+        state: 'BRANCH_CREATED',
+        detail:
+          `Branch '${branch}' at commit ${commitSha.slice(0, 12)}… was created by a publish ` +
+          `attempt whose pull request was never reported.${suffix} Inspect the branch and any ` +
+          'pull request on GitHub; this product will not push a second branch, move or delete one.',
+        branch,
+        commitSha,
+        reason,
+      };
+    }
+  }
+  return {
+    state: 'NOT_ATTEMPTED_BY_THIS_BUILD',
+    detail: 'No remote action is recorded for this run, and this command sent nothing.',
   };
 }
 

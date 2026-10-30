@@ -2292,7 +2292,11 @@ measurement corrected them:
   `src/lifecycle/observe.ts:195,207,339`, `src/verify/patch.ts:96,108,192,215`,
   `src/verify/workspace.ts:47`, `src/review/context.ts:439`,
   `src/intake/local-repo.ts:69-86`, `src/cli/doctor.ts:52`). The line numbers had also
-  drifted; they are re-measured here. `git push` is REMOTE_MUTATION
+  drifted; they are re-measured here. *Later change (2026-10-30).* The tracked diff is now
+  `diff --raw --no-renames --no-ext-diff -z`: the same read of the same tree, extended to
+  carry the destination mode that `describePatch` binds into the patch identity (R3 below).
+  The enumeration above describes the argv as it stood when this entry was measured.
+  `git push` is REMOTE_MUTATION
   (`src/process/tool-policy.ts:102-104`) and no production module imports the publisher,
   whose only transport throws (`src/pr/publisher.ts`).
 - **The classification half is unchanged, by owner decision D1.** `commit` stays WRITE,
@@ -2698,6 +2702,14 @@ says nothing about whatever `^12.1.0` / `^3.23.8` resolves to on a customer's ma
 time. That is Stage 15's dependency-policy decision, the same one S12-28's pinning limit points at.
 (3) Node at the manifest floor (`>=22`) is still untested; every measurement in this stage,
 including this one, ran on Node v24.x.
+
+*Later change (2026-10-30).* Two sentences above are superseded as statements about CI:
+installability "measured by hand", and "(1) Nothing in CI installs the package".
+`.github/workflows/ci.yml:65-66` runs `npm run test:artifact` in all six matrix cells, which packs
+the artifact, installs it into a fresh consumer and runs the installed bin; the offline/no-registry
+install this entry measured remains a hand procedure. Clause (3) is superseded too: `22.x`, the
+manifest floor, is in the matrix. The measurements above are unchanged; F08 records the
+disposition.
 
 ---
 
@@ -8278,3 +8290,123 @@ of the guard's own refusal line — the run still fails, and no publish is reach
 
 **Status: CLOSED — CODE + TEST + DOCUMENT.**
 
+## Audit round 2026-10-30 (finding F08)
+
+## F08 — two documents still called packaged installation a hand-only procedure — CLOSED (DOCUMENT)
+
+**Finding.** `docs/SECURITY_MODEL.md:1817-1818` said "Proof of installability is a hand procedure,
+not a CI gate", and the S12-12 closure in this register said installability "is still measured by
+hand" (`:2690`) and "Nothing in CI installs the package" (`:2694`). At the reference tree
+`de16a42` both are false. `.github/workflows/ci.yml:28-30` puts `ubuntu-latest`, `windows-latest`
+and `macos-latest` against Node `22.x` and `24.x` in one matrix, and `:65-66` runs
+`npm run test:artifact` in every cell. `tests/release/installed-artifact.test.ts:122` packs with
+`npm pack --json --ignore-scripts`, `:136` installs the tarball into a fresh consumer, and the
+suite runs the installed bin; `vitest.release.config.ts:5-7` states that this is the only suite
+that contacts the registry and that CI runs it on every matrix entry. The same entry's limit
+"(3) Node at the manifest floor (`>=22`) is still untested" (`:2700`) is stale for the same reason.
+
+**What was changed.** Documentation only, in two places, with no old measurement rewritten.
+`docs/SECURITY_MODEL.md` marks the hand-procedure sentence as superseded and names the gate and
+the suite that supersede it. The S12-12 entry gains a dated *Later change* clause after its named
+limits. The narrow true statement is: CI installs the packed artifact **with registry access** in
+all six cells, while the offline/no-registry install remains a hand procedure.
+
+**Evidence.** Locally at the reference bytes on 2026-10-30, `npm run test:artifact` →
+`15 passed (15)`, exit 0, 27.92 s. No test was added or changed; the gate that contradicted the
+prose was already shipped and green, which is why this is a documentation defect rather than an
+untested claim.
+
+**What is not claimed.** The CI install reaches a registry, so it does not prove an offline or
+cold-cache install — S12-29's measured correction on that point still stands. Node `22.x` in the
+matrix is the manifest floor, not every future floor. And no npm publication has occurred:
+`mergesutra` is still unpublished (`GET https://registry.npmjs.org/mergesutra` returned `404` on
+2026-10-30), so nothing here shows a version served by the registry, only that a packed tarball
+installs and runs in a clean consumer.
+
+**Status: CLOSED — DOCUMENT.**
+
+
+## Audit round 2026-10-30 (close-out repairs R1–R6)
+
+Six defects found after F08, in the areas the audit's Phase 4 review held open. Each was
+reproduced before it was repaired, and each repair is bound to a witness that fails without
+it. They are numbered R1–R6 rather than F09–F14 because they extend the F-series' evidence
+without changing its disposition table.
+
+**R1 — a gateway `Retry-After` could outlast the run's own ceiling.** `src/bharatcode/retry.ts`
+used the header's delay verbatim, so an hours-long value slept past the run's budget — or
+overflowed Node's timer and fired in 1 ms. The delay is now `Math.min(config.maxDelayMs,
+retryAfterMs)`; jitter and the header share one ceiling. Witness:
+`tests/bharatcode/retry.test.ts`, `clamps an hours-long Retry-After to maxDelayMs`.
+
+**R2 — `status` described a build that could publish as one that could not.** The snapshot's
+`remote` field was the literal `NOT_ATTEMPTED_BY_THIS_BUILD`, printed as `DISABLED — this
+build has no remote to act on`, after `pr --publish` had shipped a transport that can act.
+`src/lifecycle/snapshot.ts` now derives `NOT_ATTEMPTED_BY_THIS_BUILD`, `DRAFT_OPENED` or
+`BRANCH_CREATED` from the records' own bytes, scanning newest first so a newer unpublished
+page cannot erase an earlier draft, and saying when the act belongs to an earlier page.
+`src/cli/status.ts` prints the state and its detail; the compiled-in `DISABLED` line is gone.
+Witnesses: `tests/lifecycle/snapshot.test.ts` and `tests/cli/status.test.ts` (`prints a
+recorded draft as an opened draft, and never as a merge`; `prints a branch whose pull request
+was refused, and offers no second send`).
+
+**R3 — the executable bit was outside the approval, and the publisher re-read it.** The
+patch identity hashed content only, while the transport derived each mode from a fresh
+`lstat` at upload: a `chmod` after approval changed what GitHub received without changing
+the identity the person approved, and on Windows the same stat downgraded an approved
+`100755` to `100644`. `src/verify/patch.ts` reads the destination mode from `git diff --raw`
+(the index answers where the filesystem has no bit), binds `exec` into the identity line only
+when set (a patch with no executable file keeps its old identity), and the publisher sends
+`file.executable ? '100755' : '100644'`. The customer qualification harness re-derives the
+same preimage in a second process (`scripts/lib/customer-environment.mjs`), witnessed by
+`tests/security/customer-environment-identity.test.ts` (control, tracked exec, untracked exec
+— the last skipped on Windows). Mutation evidence: dropping the marker turned the external
+agreement, patch bind and post-`chmod` refusal red; a fresh-stat mode turned the mode-send
+test red; forcing `executable: false` turned all four red. `src/verify/patch.ts` was restored
+to SHA-256 `2c04d99f…` and `src/pr/github-publisher.ts` to `fbe4a404…` at the end of the
+battery; Prettier then reformatted both, and the final-tree bytes are `58ac464a…` and
+`b5de69e1…`, with the focused suites green on the formatted tree.
+
+**R4 — a junction inside the workspace could redirect a host-side read.** The lexical
+confinement check judges a name. A gate with the workspace writable can leave a directory
+junction pointing at a home directory, and `readFile` on the declared path follows it.
+`src/security/realpath.ts` gains `resolveConfinedFile`: both ends realpath'd, the leaf must be
+a regular file and not a link, and the caller reads the resolved path, not the spelling. The
+patch measurement and the publisher's upload use it; `src/review/context.ts` checks a tracked
+file before Git opens it, so `git diff` cannot be steered through the same link. A deletion
+is the one case that may resolve to nothing. Witness: `tests/review/context.test.ts`,
+`withholds a tracked file whose directory now resolves outside the workspace`.
+
+**R5 — the publisher's confinement accepted a link it claimed to refuse.** The transport's
+own `lstat` check ran on the lexical path, so a link in a parent directory was never seen;
+R4's helper replaces it, and the leaf check now rejects a symbolic link before the bytes are
+read. This is the same failure class as R4 and is listed separately because it sat in the
+write path that uploads to GitHub, not in a read used to assemble a prompt.
+
+**R6 — a branch a failed publish left behind read as silence.** A transport that pushed,
+read the branch back, and then failed to open the draft left `result: null` — identical to a
+request that never reached the remote — so a later `pr --publish` could offer a second push
+for a branch the repository already held. `src/pr/record.ts` adds
+`attempt { branch, commitSha, reason }`, mutually exclusive with `result`, requiring the
+approval and the candidate's own branch; `src/pr/stage.ts` files it only from failure details
+that name a full commit (an unknown outcome stays unknown) and refuses a second send when an
+attempt exists. Witnesses: `tests/pr/record.test.ts` (four malformed-attempt refusals),
+`tests/pr/stage.test.ts` (`does not offer or perform a second send after a refused pull
+request left a branch`).
+
+**Evidence.** At the working tree of 2026-10-30, the eight repair-focused files —
+`tests/bharatcode/retry.test.ts`, `tests/cli/status.test.ts`, `tests/lifecycle/snapshot.test.ts`,
+`tests/pr/record.test.ts`, `tests/pr/stage.test.ts`, `tests/review/context.test.ts`,
+`tests/repair/scope.test.ts`, `tests/lifecycle/hero.test.ts` — came back at `124 passed (124)`
+in one fork, exit 0. `tests/pr/github-publisher.test.ts` passed `35 (35)` and
+`tests/verify/patch.test.ts` and `tests/security/customer-environment-identity.test.ts`
+passed in their focused run. The three source-shape suites were re-read after the argv change
+(`--raw`) and passed (`30 passed`). The full local `npm run check` was not re-run at the time
+of this entry; hosted CI on the correction PR is the gate that settles it.
+
+**What is not claimed.** The untracked-file executable branch in the external harness is
+skipped on Windows, where the filesystem has no bit; it is exercised only on the hosted
+Ubuntu cells. The `--raw` parser assumes the `-z` two-field-per-record shape and rejects a
+record it cannot parse rather than inventing a path; no other shape has been observed from
+the pinned Git versions. And no remote publication, npm publication or model request was made
+in this round.

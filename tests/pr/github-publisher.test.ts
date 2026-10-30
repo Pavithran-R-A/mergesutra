@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createGitHubPublicationRemote } from '../../src/pr/github-publisher.js';
-import type { RunResult, Runner } from '../../src/core/runner.js';
+import { defaultRunner, type RunResult, type Runner } from '../../src/core/runner.js';
 import type { PushBranchInput } from '../../src/pr/publisher.js';
 import { describePatch } from '../../src/verify/patch.js';
 import { sha256Hex } from '../../src/security/digest.js';
@@ -348,6 +348,32 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
     expect(pulls).not.toHaveProperty('reviewers');
   });
 
+  it('sends the mode the measurement recorded, not one re-read at upload', async () => {
+    const fixture = await implementedRun(tempDirs);
+    // Git's index is where a commit's mode comes from, and the one place the bit
+    // can be written on a host whose filesystem has none (Windows). A transport
+    // that re-stats the file at upload time would send 100644 here; the mode a
+    // human's approval covers is the measured one.
+    const marked = await defaultRunner('git', [
+      '-C',
+      fixture.repoDir,
+      'update-index',
+      '--chmod=+x',
+      'src/parse.ts',
+    ]);
+    expect(marked.code).toBe(0);
+    const input = await inputFor(fixture.repoDir, fixture.base);
+    const scripted = scriptedGitHub();
+    scriptHappyPath(scripted, fixture.base, input.branch);
+    const remote = createGitHubPublicationRemote({ run: scripted.run });
+
+    await remote.pushBranch(input);
+
+    const entries = sentEntries(scripted);
+    expect(entries.find((entry) => entry.path === 'src/parse.ts')?.mode).toBe('100755');
+    expect(entries.find((entry) => entry.path === 'test/parse.test.ts')?.mode).toBe('100644');
+  });
+
   it('names a deletion in the tree rather than leaving the file behind', async () => {
     const fixture = await implementedRun(tempDirs);
     await rm(path.join(fixture.repoDir, 'README.md'));
@@ -378,6 +404,28 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
       'export function parseDate(): Date {\n  return new Date();\n}\n',
     );
     const scripted = scriptedGitHub();
+    const remote = createGitHubPublicationRemote({ run: scripted.run });
+
+    await expect(remote.pushBranch(input)).rejects.toThrow(/no longer|changed|approved patch/i);
+    expect(scripted.calls).toEqual([]);
+  });
+
+  it('refuses to send after the executable bit moves, before any write', async () => {
+    const fixture = await implementedRun(tempDirs);
+    const input = await inputFor(fixture.repoDir, fixture.base);
+    const marked = await defaultRunner('git', [
+      '-C',
+      fixture.repoDir,
+      'update-index',
+      '--chmod=+x',
+      'src/parse.ts',
+    ]);
+    expect(marked.code).toBe(0);
+    const scripted = scriptedGitHub();
+    // Scripted as though the bit had not moved, so a transport that ignores it
+    // publishes a branch instead of refusing — which is the defect, not a setup
+    // failure.
+    scriptHappyPath(scripted, fixture.base, input.branch);
     const remote = createGitHubPublicationRemote({ run: scripted.run });
 
     await expect(remote.pushBranch(input)).rejects.toThrow(/no longer|changed|approved patch/i);

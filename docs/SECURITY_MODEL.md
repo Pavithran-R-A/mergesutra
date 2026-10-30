@@ -1814,8 +1814,13 @@ no `provenance` attestation and no `integrity` field asserted here, and publishi
 Stage 15's decision with its own human approval. The tested claim is narrower and is the
 one worth having: the tarball npm is about to create contains the paths this build intends,
 those paths were compiled from the source sitting next to the manifest, and they carry
-nothing about the machine that built them. Proof of installability is a hand procedure, not a CI
-gate, and re-running it is what makes its limits visible. At `299a3d1` the packed `.tgz` installed
+nothing about the machine that built them. Proof of installability was a hand procedure when this
+section was written; that sentence is superseded as of the audit reference tree `de16a42`
+(2026-10-30), because `.github/workflows/ci.yml` runs `npm run test:artifact` in all six matrix
+cells, and `tests/release/installed-artifact.test.ts` packs the artifact, installs it into a fresh
+consumer and runs the installed bin. What remains a hand procedure is the offline, no-registry
+install this section goes on to measure. The measurement below is preserved as recorded. At
+`299a3d1` the packed `.tgz` installed
 into a fresh temporary prefix and the installed shim answered: `--version` exits `0` and prints
 `0.0.1`, `--help` exits `0`, `doctor` exits `1` with `BHARATCODE_API_KEY is not set.` as the named
 FAIL, and the empty directory it was run from stayed empty. It resolved `commander@12.1.0` and

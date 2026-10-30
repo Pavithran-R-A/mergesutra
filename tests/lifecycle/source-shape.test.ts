@@ -218,7 +218,7 @@ describe('what recovery could ever put in front of a process', () => {
     expect(closed.map(show).sort()).toEqual([
       'lifecycle/observe.ts: git rev-parse --verify HEAD',
       'verify/patch.ts: git diff --check',
-      'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
+      'verify/patch.ts: git diff --raw --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
       'verify/patch.ts: git rev-parse HEAD',
     ]);
@@ -407,7 +407,7 @@ describe('what `resume --execute` is not given permission to reach', () => {
       'git/workspace.ts: git worktree list --porcelain',
       'lifecycle/observe.ts: git rev-parse --verify HEAD',
       'verify/patch.ts: git diff --check',
-      'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
+      'verify/patch.ts: git diff --raw --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
       'verify/patch.ts: git rev-parse HEAD',
       'verify/workspace.ts: git diff --check',

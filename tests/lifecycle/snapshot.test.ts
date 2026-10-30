@@ -19,6 +19,12 @@ import { REPAIRED, reviewedRun } from '../helpers/repairRun.js';
 import { proposedRun } from '../helpers/publicationRun.js';
 import { cycleFor } from '../helpers/repair.js';
 import { hasGit } from '../helpers/git.js';
+import {
+  fakeRemote,
+  PUBLISHED_NUMBER,
+  PUBLISHED_URL,
+  PUSHED_SHA,
+} from '../helpers/publicationRemote.js';
 
 /**
  * The snapshot: one document that holds what a run recorded and what is on this
@@ -107,7 +113,8 @@ describe.skipIf(!AVAILABLE)('what a snapshot separates', () => {
     const snapshot = await snapshotOf(record, fixture.runsRoot);
     const rendered = JSON.stringify(snapshot);
 
-    expect(snapshot.publication?.remote).toBe('NOT_ATTEMPTED_BY_THIS_BUILD');
+    expect(snapshot.publication?.remote.state).toBe('NOT_ATTEMPTED_BY_THIS_BUILD');
+    expect(snapshot.publication?.remote.detail).toMatch(/no remote action is recorded/i);
     expect(rendered).not.toMatch(/prUrl|pullRequestUrl|"published"|"pushed"|"ready"/i);
     expect(rendered).not.toMatch(/\/pull\/\d/);
   });
@@ -304,7 +311,84 @@ describe.skipIf(!AVAILABLE)('each section says what its stage may claim', () => 
     });
     expect(approved.publication?.approvalState).toBe('CURRENT');
     expect(approved.publication?.approval?.action).toBe('CREATE_PULL_REQUEST');
-    expect(approved.publication?.remote).toBe('NOT_ATTEMPTED_BY_THIS_BUILD');
+    expect(approved.publication?.remote.state).toBe('NOT_ATTEMPTED_BY_THIS_BUILD');
+  });
+
+  it('reports a recorded draft as an opened draft, with the remote’s own address', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => NOW },
+    );
+    await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '' },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => NOW },
+    );
+    const published = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      {
+        store: fixture.store,
+        runsRoot: fixture.runsRoot,
+        now: () => NOW,
+        remote: fakeRemote().remote,
+      },
+    );
+    expect(published.outcome).toBe('PR_DRAFT_OPENED');
+
+    const snapshot = await snapshotOf(
+      await fixture.store.load(fixture.record.runId),
+      fixture.runsRoot,
+    );
+
+    // A recorded result is a remote fact, and the snapshot says which kind. It is
+    // still not a merge: no field here can read as one, and merging happens in GitHub.
+    expect(snapshot.publication?.remote).toEqual({
+      state: 'DRAFT_OPENED',
+      detail: expect.stringMatching(/draft pull request #7/i),
+      url: PUBLISHED_URL,
+      number: PUBLISHED_NUMBER,
+      publishedAt: NOW.toISOString(),
+    });
+    // No field here can be read as a merge; the prose saying "nothing was merged"
+    // is the recorded stage's own sentence, not a state this snapshot invented.
+    expect(JSON.stringify(snapshot)).not.toMatch(/"merged"|"mergeState"|"ready"/i);
+  });
+
+  it('reports a branch left behind by a refused pull request, not as no remote action', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => NOW },
+    );
+    await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '' },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => NOW },
+    );
+    const failed = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      {
+        store: fixture.store,
+        runsRoot: fixture.runsRoot,
+        now: () => NOW,
+        remote: fakeRemote({ pullFails: true }).remote,
+      },
+    );
+    expect(failed.outcome).toBe('PR_PUBLICATION_BLOCKED');
+
+    const snapshot = await snapshotOf(
+      await fixture.store.load(fixture.record.runId),
+      fixture.runsRoot,
+    );
+
+    // The repository holds a branch even though no pull request was reported. Saying
+    // "no remote action" here is the sentence that would let a person ask again.
+    expect(snapshot.publication?.remote).toEqual({
+      state: 'BRANCH_CREATED',
+      detail: expect.stringMatching(/inspect the branch and any pull request/i),
+      branch: `mergesutra/${fixture.record.runId}`,
+      commitSha: PUSHED_SHA,
+      reason: expect.stringMatching(/scripted pull failure/),
+    });
   });
 
   it('reports the pack on disk as regenerable evidence, not as a stage result', async () => {

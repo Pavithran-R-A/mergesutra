@@ -29,6 +29,13 @@ import { publicationDigestOf } from './digest.js';
  * opened on a candidate nobody approved. There is still no `merged`, no verdict and
  * no review state from GitHub: merging is a human act in GitHub, and this product
  * has no transport that could perform it.
+ *
+ * Between "no remote was asked" and "a draft exists" sits a state with its own
+ * field: a branch a transport created and read back, whose pull request was then
+ * refused. The attempt names that branch and commit and why the request failed. It
+ * is not a result — no draft exists — and it is not silence either, because a later
+ * command that read silence would offer a second send for a branch the repository
+ * already holds.
  */
 
 export const publicationResultSchema = z
@@ -42,6 +49,23 @@ export const publicationResultSchema = z
   .strict();
 export type PublicationResult = z.infer<typeof publicationResultSchema>;
 
+/**
+ * A branch a transport confirmed, left behind by a publish attempt that opened no
+ * draft. Only a full commit is filed: a failure that named no commit says nothing
+ * about what the remote holds, and inventing a branch here would stop a legitimate
+ * retry or claim one that may not exist.
+ */
+export const publicationAttemptSchema = z
+  .object({
+    /** The branch the transport created and read back. */
+    branch: z.string().min(1),
+    commitSha: z.string().regex(/^[0-9a-f]{40}$/),
+    /** Why the pull request that would have followed it was not reported. */
+    reason: z.string().min(1),
+  })
+  .strict();
+export type PublicationAttempt = z.infer<typeof publicationAttemptSchema>;
+
 export const publicationRecordSchema = z
   .object({
     /** The document a human was shown, exactly as it was shown to them. */
@@ -54,6 +78,13 @@ export const publicationRecordSchema = z
      * candidate has no field either, because Stage 10 has nothing to say about why.
      */
     approval: publicationApprovalSchema.nullable().default(null),
+    /**
+     * A branch a remote created whose pull request was never reported, or `null`.
+     *
+     * Mutually exclusive with `result`: an entry describes one remote fact, either
+     * the branch left behind by a refusal or the draft a request returned.
+     */
+    attempt: publicationAttemptSchema.nullable().default(null),
     /**
      * What a remote created, or `null`.
      *
@@ -72,6 +103,28 @@ export const publicationRecordSchema = z
         message: 'says a pull request was opened, but no approval beside it authorises one',
       });
     }
+    if (record.attempt !== null && record.approval === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['attempt'],
+        message: 'says a branch was created, but no approval beside it authorises one',
+      });
+    }
+    if (record.attempt !== null && record.result !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['attempt'],
+        message:
+          'describes a branch whose pull request was never reported, beside a result that reports one',
+      });
+    }
+    if (record.attempt !== null && record.attempt.branch !== record.candidate.proposedBranch) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['attempt', 'branch'],
+        message: 'names a branch the candidate beside it never proposed',
+      });
+    }
     if (record.approval === null) return;
     if (record.approval.publicationDigest.toLowerCase() !== publicationDigestOf(record.candidate)) {
       ctx.addIssue({
@@ -88,6 +141,8 @@ export interface NewPublicationRecordInput {
   readonly candidate: PublicationCandidate;
   /** Omit it, or pass null, for a candidate that has not been approved. */
   readonly approval?: PublicationApproval | null;
+  /** Only a transport that confirmed a branch but reported no draft supplies this. */
+  readonly attempt?: PublicationAttempt | null;
   /** Only a transport that returned a draft pull request supplies this. */
   readonly result?: PublicationResult | null;
 }
@@ -104,6 +159,7 @@ export function buildPublicationRecord(input: NewPublicationRecordInput): Public
   return parsePublicationRecord({
     candidate: input.candidate,
     approval: input.approval ?? null,
+    attempt: input.attempt ?? null,
     result: input.result ?? null,
   });
 }

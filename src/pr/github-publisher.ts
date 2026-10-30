@@ -1,11 +1,12 @@
-import { lstat, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { githubApiRunner, type RunResult, type Runner } from '../core/runner.js';
 import { sha256Hex } from '../security/digest.js';
-import { isSafePathSegment, resolveInsideRoot } from '../security/path-safety.js';
+import { isSafePathSegment } from '../security/path-safety.js';
+import { resolveConfinedFile } from '../security/realpath.js';
 import { describePatch, type PatchDescription, type PatchFileFact } from '../verify/patch.js';
 import { REPOSITORY_HOST_PATTERN } from './branch.js';
 import type {
@@ -352,7 +353,11 @@ class GitHubPublicationRemote implements PublicationRemote {
    * `sha: null` is GitHub's spelling for "remove this path from the base tree". A
    * file the patch added or modified is re-read here and hashed against the
    * measurement; the extra check is the only thing standing between a TOCTOU write
-   * and a branch whose bytes the human never saw.
+   * and a branch whose bytes the human never saw. Its mode is the one the
+   * measurement recorded and the identity binds — not a fresh stat, which on a
+   * host without an executable bit would silently downgrade an approved `100755`,
+   * and which a `chmod` after approval could otherwise use to change what is sent
+   * without changing the patch that was approved.
    */
   private async treeEntries(
     host: string,
@@ -382,21 +387,13 @@ class GitHubPublicationRemote implements PublicationRemote {
     workspace: string,
     file: PatchFileFact,
   ): Promise<{ content: Buffer; mode: string }> {
-    const absolute = resolveInsideRoot(workspace, file.path, 'patch file');
-    const facts = await lstat(absolute);
-    if (facts.isSymbolicLink()) {
+    const facts = await resolveConfinedFile(workspace, file.path, `patch file '${file.path}'`);
+    if (facts === null) {
       throw new AppError({
         kind: 'validation',
-        message: `Cannot publish '${file.path}': it is a symbolic link, and GitHub would receive a regular file instead.`,
+        message: `Cannot publish '${file.path}': it disappeared before it could be uploaded.`,
         remediation:
-          'Remove the link from the patch, or publish a patch that changes regular files only.',
-      });
-    }
-    if (!facts.isFile()) {
-      throw new AppError({
-        kind: 'validation',
-        message: `Cannot publish '${file.path}': it is not a regular file.`,
-        remediation: 'Publish a patch that changes regular files only.',
+          'Re-run `mergesutra pr` so a person reads the page for the bytes that are here now.',
       });
     }
     if (facts.size > MAX_FILE_BYTES) {
@@ -407,7 +404,7 @@ class GitHubPublicationRemote implements PublicationRemote {
           'Split the change, or publish large assets through a human-controlled process.',
       });
     }
-    const content = await readFile(absolute);
+    const content = await readFile(facts.absolute);
     if (sha256Hex(content) !== file.contentSha256) {
       throw new AppError({
         kind: 'validation',
@@ -416,7 +413,7 @@ class GitHubPublicationRemote implements PublicationRemote {
           'Re-run `mergesutra pr` so a person reads the page for the bytes that are here now.',
       });
     }
-    return { content, mode: (facts.mode & 0o111) === 0 ? '100644' : '100755' };
+    return { content, mode: file.executable ? '100755' : '100644' };
   }
 
   private async request(

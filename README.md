@@ -1533,11 +1533,14 @@ What those screens are and are not:
   at and reads the record and the workspace back on both sides.
 - **Nothing in the capture reaches a remote, and the capture is not a publication.** The full
   capture starts no push, fetch, `gh`, publish or deploy process — read from the fixture's own gate
-  log. That claim is about `status`, `resume` and a plain `pr`; `publication.remote` stays
-  `NOT_ATTEMPTED_BY_THIS_BUILD` for them. The one remote act this build offers is a separate
-  command, `mergesutra pr <run> --publish`, run after a typed approval of the page; it pushes the
-  approved patch and opens a **draft** pull request through the operator's own `gh` login, and it
-  never merges. No environment value selects it, and no path in this capture reaches it.
+  log. That claim is about `status`, `resume` and a plain `pr`: each sends nothing, and a run no
+  `--publish` has touched reports `publication.remote.state` as `NOT_ATTEMPTED_BY_THIS_BUILD`. The
+  one remote act this build offers is a separate command, `mergesutra pr <run> --publish`, run
+  after a typed approval of the page; it pushes the approved patch and opens a **draft** pull
+  request through the operator's own `gh` login, and it never merges. No environment value selects
+  it, and no path in this capture reaches it. A run that has published reports the recorded fact
+  instead — `DRAFT_OPENED` with the draft's address, or `BRANCH_CREATED` when a branch was left
+  behind by a refused pull request — and still says nothing about a merge.
 - **Exit codes.** A preview exits `0` for having described a plan, and that `0` is about
   the command, not the run. An executed resume returns the outcome the stage filed — `0`
   only for `VERIFICATION_PASS`, `3` for a review, pack or candidate that was recorded, `4`

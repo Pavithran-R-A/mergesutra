@@ -4,7 +4,7 @@ import { createRunner, defaultRunner, type RunResult, type Runner } from '../cor
 import { AppError } from '../core/errors.js';
 import { resolveTrustedGitDir, type TrustedGitDir } from '../git/workspace-git-dir.js';
 import { sha256Hex } from '../security/digest.js';
-import { resolveInsideRoot } from '../security/path-safety.js';
+import { resolveConfinedFile } from '../security/realpath.js';
 
 /**
  * Naming a patch, so evidence can be proved to describe it — Stage 7.
@@ -36,6 +36,14 @@ import { resolveInsideRoot } from '../security/path-safety.js';
  * - **The digest is over content, not over `git diff` text.** Diff output is a
  *   rendering — it moves with git's version and configuration — whereas a file's
  *   bytes are the same on every machine that reads them.
+ * - **A file's mode is part of the patch.** An executable bit changes what a
+ *   checkout would run and what a commit would carry, so it is measured beside
+ *   the bytes rather than left for whoever publishes them. Git answers for a
+ *   tracked path — including on a Windows checkout, where the index is the only
+ *   place the bit can exist — and the disk answers for an untracked one. Only the
+ *   flag is bound, and only when it is set, so a patch that carries no executable
+ *   file keeps the identity it had before the bit was measured: for such a patch
+ *   the older line set already described it completely.
  *
  * This module runs read-only Git commands and hashes files. It never stages,
  * commits, cleans, resets or removes anything.
@@ -47,6 +55,8 @@ const SHA_PATTERN = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 /** MergeSutra's own scratch, which is never part of the patch it describes. */
 const MERGESUTRA_SEGMENT = '.mergesutra/';
+/** A patch file beyond this is refused rather than read into this process. */
+const MAX_PATCH_FILE_BYTES = 40 * 1024 * 1024;
 
 export const patchChangeSchema = z.enum(['ADDED', 'MODIFIED', 'DELETED']);
 export type PatchChange = z.infer<typeof patchChangeSchema>;
@@ -60,6 +70,13 @@ export const patchFileFactSchema = z
     change: patchChangeSchema,
     /** Null only for a deletion; there is nothing left to hash. */
     contentSha256: z.string().regex(DIGEST_PATTERN).nullable(),
+    /**
+     * Whether the path carries an executable bit, as Git would record it.
+     *
+     * False for a deletion: there is no file for a bit to be set on, and the mode
+     * of a path being removed changes nothing about what the patch does.
+     */
+    executable: z.boolean(),
   })
   .strict();
 export type PatchFileFact = z.infer<typeof patchFileFactSchema>;
@@ -263,6 +280,8 @@ interface DraftFile {
   readonly path: string;
   readonly tracked: boolean;
   readonly change: PatchChange;
+  /** What Git records for a tracked path; null when only the disk can answer. */
+  readonly executable: boolean | null;
 }
 
 async function trackedChanges(
@@ -273,9 +292,15 @@ async function trackedChanges(
   // `--no-renames` is not a detail: a rename reported as R would carry two paths
   // and Git's similarity score, and the identity would then depend on a
   // heuristic. Two files — one gone, one new — is the same fact with no guesswork.
+  //
+  // `--raw` rather than `--name-status`, because the destination mode is half of
+  // what a commit changes: a script that gained its executable bit has the same
+  // bytes and a different effect. Git reports that mode from its index even where
+  // the filesystem has no bit to read (Windows), which is the only way this can be
+  // measured on every host the product runs on.
   const result = await git(run, measured, [
     'diff',
-    '--name-status',
+    '--raw',
     '--no-renames',
     '--no-ext-diff',
     '-z',
@@ -289,10 +314,11 @@ async function trackedChanges(
       details: { stderr: bound(result.stderr) },
     });
   }
-  return pairs(result.stdout).map(([status, relative]) => ({
+  return rawChanges(result.stdout).map(({ status, path: relative, executable }) => ({
     path: relative,
     tracked: true,
     change: changeOf(status),
+    executable,
   }));
 }
 
@@ -308,7 +334,12 @@ async function untrackedAdditions(run: Runner, measured: TrustedGitDir): Promise
   }
   return tokens(result.stdout)
     .filter((relative) => !isMergeSutraScratch(relative))
-    .map((relative) => ({ path: relative, tracked: false, change: 'ADDED' as const }));
+    .map((relative) => ({
+      path: relative,
+      tracked: false,
+      change: 'ADDED' as const,
+      executable: null,
+    }));
 }
 
 /**
@@ -323,12 +354,34 @@ async function hashIn(root: string, drafts: readonly DraftFile[]): Promise<Patch
   const facts: PatchFileFact[] = [];
   for (const draft of sorted) {
     if (draft.change === 'DELETED') {
-      facts.push({ ...draft, contentSha256: null });
+      facts.push({ ...draft, contentSha256: null, executable: false });
       continue;
     }
-    const absolute = resolveInsideRoot(root, draft.path, 'patch file');
-    const bytes = await readFile(absolute);
-    facts.push({ ...draft, contentSha256: sha256Hex(bytes) });
+    const confined = await resolveConfinedFile(root, draft.path, `patch file '${draft.path}'`);
+    if (confined === null) {
+      throw new AppError({
+        kind: 'validation',
+        message: `Cannot name a patch: '${draft.path}' disappeared while it was being measured.`,
+        remediation: 'Check that the workspace is intact, then re-run verification.',
+      });
+    }
+    if (confined.size > MAX_PATCH_FILE_BYTES) {
+      throw new AppError({
+        kind: 'validation',
+        message:
+          `Cannot name a patch: '${draft.path}' is ${String(confined.size)} bytes, beyond the ` +
+          `${String(MAX_PATCH_FILE_BYTES)}-byte limit for a measured file.`,
+        remediation: 'Remove or shrink the file, or publish it through a human-controlled process.',
+      });
+    }
+    const bytes = await readFile(confined.absolute);
+    facts.push({
+      ...draft,
+      contentSha256: sha256Hex(bytes),
+      // Git answered for a tracked path; only an untracked file needs the disk to
+      // say whether it would be added executable.
+      executable: draft.executable ?? (confined.mode & 0o111) !== 0,
+    });
   }
   return facts;
 }
@@ -339,10 +392,14 @@ function identityOf(input: {
 }): string {
   const lines = [`mergesutra-patch/${PATCH_SCHEMA_VERSION}`, `base ${input.baseSha}`];
   for (const file of input.files) {
+    // The marker appears only when the bit is set, which keeps a patch that
+    // carries no executable file at the identity it had before the bit was
+    // measured — for such a patch the older line set described it completely.
+    // A patch that does carry one gets a new name, because the old one did not.
     lines.push(
       [
         file.tracked ? 'tracked' : 'untracked',
-        file.change,
+        file.executable ? `${file.change} exec` : file.change,
         file.path,
         file.contentSha256 ?? 'absent',
       ].join(' '),
@@ -358,14 +415,30 @@ function changeOf(status: string): PatchChange {
   return 'MODIFIED';
 }
 
-/** `-z` output is NUL-separated; `--name-status` alternates status and path. */
-function pairs(stdout: string): [string, string][] {
+interface RawChange {
+  readonly status: string;
+  readonly path: string;
+  readonly executable: boolean;
+}
+
+/** `--raw -z` alternates `:<old> <new> <oldsha> <newsha> <status>` and path. */
+function rawChanges(stdout: string): RawChange[] {
   const fields = tokens(stdout);
-  const found: [string, string][] = [];
+  const found: RawChange[] = [];
   for (let index = 0; index + 1 < fields.length; index += 2) {
-    const status = fields[index] ?? '';
+    const meta = fields[index] ?? '';
     const relative = fields[index + 1] ?? '';
-    if (status.length > 0 && relative.length > 0) found.push([status, relative]);
+    if (!meta.startsWith(':') || relative.length === 0) continue;
+    const parts = meta.slice(1).split(' ');
+    const newMode = parts[1] ?? '';
+    const status = parts[4] ?? '';
+    if (status.length === 0) continue;
+    // A deletion's destination mode is `000000`; nothing is left to execute.
+    found.push({
+      status,
+      path: relative,
+      executable: (Number.parseInt(newMode, 8) & 0o111) !== 0,
+    });
   }
   return found;
 }

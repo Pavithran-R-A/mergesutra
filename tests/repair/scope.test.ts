@@ -63,6 +63,7 @@ function described(files: readonly [string, string, 'ADDED' | 'MODIFIED' | 'DELE
     tracked: change !== 'ADDED',
     change,
     contentSha256: change === 'DELETED' ? null : sha256Hex(content),
+    executable: false,
   }));
   const identity = sha256Hex(JSON.stringify(facts));
   return {

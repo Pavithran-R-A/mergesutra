@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -239,17 +239,19 @@ function diffFiles(text) {
  *
  * `describePatch` (src/verify/patch.ts) documents its canonical form exactly:
  * sha256 over `mergesutra-patch/1`, `base <sha>`, then one line per file sorted
- * by path — `tracked|untracked CHANGE path content-sha`, with `absent` for a
- * deletion — where the file list is Git's `diff --name-status --no-renames
- * --no-ext-diff` for the base plus `ls-files --others --exclude-standard` minus
- * anything under `.mergesutra/`. Re-implementing that form here, in another
+ * by path — `tracked|untracked CHANGE[ exec] path content-sha`, with `absent` for a
+ * deletion and ` exec` only when the path carries an executable bit — where the
+ * file list is Git's `diff --raw --no-renames --no-ext-diff` for the base plus
+ * `ls-files --others --exclude-standard` minus anything under `.mergesutra/`. The
+ * mode comes from Git for a tracked path (its index answers even on Windows) and
+ * from `lstat` for an untracked one. Re-implementing that form here, in another
  * language and another process, is the only reading of a recorded identity that
  * proves it still describes the workspace: a digest the harness merely echoed
  * back would prove nothing.
  */
 export function rederiveProductPatchIdentity(workspace, baseSha) {
   const tracked = git(
-    ['diff', '--name-status', '--no-renames', '--no-ext-diff', '-z', baseSha],
+    ['diff', '--raw', '--no-renames', '--no-ext-diff', '-z', baseSha],
     workspace,
     { allowFailure: true },
   );
@@ -259,11 +261,21 @@ export function rederiveProductPatchIdentity(workspace, baseSha) {
     .filter(Boolean);
   const files = [];
   for (let index = 0; index + 1 < fields.length; index += 2) {
-    const letter = (fields[index] ?? '').charAt(0);
+    const meta = fields[index] ?? '';
+    const relative = fields[index + 1] ?? '';
+    if (!meta.startsWith(':') || relative.length === 0) continue;
+    const parts = meta.slice(1).split(' ');
+    const newMode = parts[1] ?? '';
+    const status = parts[4] ?? '';
+    if (status.length === 0) continue;
+    const letter = status.charAt(0);
+    const change = letter === 'D' ? 'DELETED' : letter === 'A' ? 'ADDED' : 'MODIFIED';
     files.push({
       tracked: true,
-      change: letter === 'D' ? 'DELETED' : letter === 'A' ? 'ADDED' : 'MODIFIED',
-      path: fields[index + 1],
+      change,
+      path: relative,
+      // A deletion's destination mode is `000000`; nothing is left to execute.
+      executable: change !== 'DELETED' && (Number.parseInt(newMode, 8) & 0o111) !== 0,
     });
   }
   const untracked = git(['ls-files', '--others', '--exclude-standard', '-z'], workspace);
@@ -272,7 +284,15 @@ export function rederiveProductPatchIdentity(workspace, baseSha) {
     .map((token) => token.trim())
     .filter(Boolean)) {
     if (isScratch(name)) continue;
-    files.push({ tracked: false, change: 'ADDED', path: name });
+    let executable = false;
+    try {
+      // Only the disk can answer for an untracked file; `lstat` asks about this
+      // path rather than about whatever a link might point at.
+      executable = (lstatSync(path.join(workspace, name)).mode & 0o111) !== 0;
+    } catch {
+      executable = false;
+    }
+    files.push({ tracked: false, change: 'ADDED', path: name, executable });
   }
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
@@ -286,7 +306,7 @@ export function rederiveProductPatchIdentity(workspace, baseSha) {
         .digest('hex');
     }
     digests.push(
-      `${file.tracked ? 'tracked' : 'untracked'} ${file.change} ${file.path} ${content}`,
+      `${file.tracked ? 'tracked' : 'untracked'} ${file.change}${file.executable ? ' exec' : ''} ${file.path} ${content}`,
     );
   }
   lines.push(...digests);

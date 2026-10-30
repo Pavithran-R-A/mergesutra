@@ -6,6 +6,90 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed — the approved bytes carry their mode, and the status page carries the remote's facts
+
+Six findings from the audit's close-out, each repaired against a witness that fails without
+the repair.
+
+**A patch's executable bit is part of what a person approves.** `describePatch` hashed a
+file's content but never its mode, while the publisher re-derived the mode from a fresh
+`lstat` at upload. A `chmod +x` after approval therefore changed what GitHub received
+without changing the patch identity the approval bound — and on a Windows checkout, where
+the filesystem has no bit to read, the same fresh stat silently downgraded an approved
+`100755` to `100644`. `src/verify/patch.ts` now reads each tracked path's destination mode
+from `git diff --raw` (the index is authoritative even where the filesystem has no bit),
+falls back to the confined `lstat` only for an untracked file, and writes `exec` into the
+identity line only when the bit is set — so a patch with no executable file keeps the
+identity it had before the bit was measured. The publisher (`src/pr/github-publisher.ts`)
+sends `file.executable ? '100755' : '100644'` instead of trusting a second stat, and its
+refusal to send survives a post-approval `chmod` because the identity now moves with it.
+
+**A refused pull request that left a branch is recorded as a branch.** Before this, a
+transport that had pushed a branch, read it back, and then failed to open the pull request
+left `result: null` behind — indistinguishable from a request that never reached the
+remote, so a later `pr --publish` would offer a second push for a branch the repository
+already held. `src/pr/record.ts` adds `attempt { branch, commitSha, reason }` (mutually
+exclusive with `result`, requiring the approval beside it and the candidate's own branch),
+and `src/pr/stage.ts` files it only from failure details that name a full commit — a failure
+with no commit says the outcome is unknown, and the stage reports it as unknown. The
+`status` snapshot (`src/lifecycle/snapshot.ts`) derives three remote states from stored
+bytes — `NOT_ATTEMPTED_BY_THIS_BUILD`, `DRAFT_OPENED`, `BRANCH_CREATED` — scanning newest
+first so a newer unpublished page cannot erase an earlier draft, and saying in words when
+the act belongs to an earlier page. `src/cli/status.ts` prints that state and detail; the
+compiled-in `DISABLED` line is gone, because a build that can send (`pr --publish`) may not
+describe itself as unable to.
+
+**A `Retry-After` is a request, not an exemption.** `src/bharatcode/retry.ts` used the
+gateway's delay verbatim, so an hours-long value could sleep past a run's own budget or
+overflow Node's timer and fire in 1 ms; it is now subject to the same `maxDelayMs` ceiling
+as jitter.
+
+**Every file a stage reads is resolved through its links first.** The lexical confinement
+check judges a name and cannot see a junction left in the middle of a path by a gate that
+ran with the workspace writable. `src/security/realpath.ts` gains `resolveConfinedFile`,
+which realpaths both the root and the leaf, requires the leaf to be a regular file rather
+than a link, and returns the resolved path so a later swap cannot be reopened. The patch
+measurement, the review context's tracked-file diff (`src/review/context.ts`, which checks
+before Git opens the path) and the publisher's upload read all go through it; a deletion is
+the one case that may resolve to nothing.
+
+**The customer qualification harness re-derives the same identity.** `scripts/lib/customer-environment.mjs`
+recomputes the product's patch identity in a second process; it now reads `--raw` and
+applies the same conditional `exec` marker. The new
+`tests/security/customer-environment-identity.test.ts` proves it with a control patch (no
+executable file, digest unchanged), a tracked `git update-index --chmod=+x` (identity moves
+and both processes agree), and an untracked `chmod 755` (POSIX-only, skipped where the
+filesystem has no bit).
+
+Tests: the eight repair-focused files came back at `124 passed (124)` in one fork — the new
+cases are `clamps an hours-long Retry-After to maxDelayMs`, `prints a recorded draft as an
+opened draft, and never as a merge`, `prints a branch whose pull request was refused, and
+offers no second send`, `reports a recorded draft as an opened draft, with the remote’s own
+address`, `reports a branch left behind by a refused pull request, not as no remote action`,
+`keeps the branch a refused pull request left behind, with no draft claimed`, the four
+schemas that refuse a malformed attempt, `does not offer or perform a second send after a
+refused pull request left a branch`, and `withholds a tracked file whose directory now
+resolves outside the workspace`. `tests/pr/github-publisher.test.ts` passed `35 (35)` on its
+own, including `sends the mode the measurement recorded, not one re-read at upload` and
+`refuses to send after the executable bit moves, before any write`; `tests/verify/patch.test.ts`
+includes `binds the executable bit into the identity, because a commit carries it`. Three
+mutations, each restored byte-for-byte with a sha-256 check bracketing its run: dropping the
+`exec` marker from the identity turned the external agreement, the patch bind and the
+publisher's post-chmod refusal red; restoring a fresh-stat mode turned the mode-send test
+red; and forcing `executable: false` in the `--raw` parser turned all four mode witnesses
+red. `src/verify/patch.ts` was restored to SHA-256
+`2c04d99fb72eaa578b363ac5dabecbc31c3026fd349763bbd2f71b13d7b22917` and
+`src/pr/github-publisher.ts` to `fbe4a404e80bbaf71141b7fd584d6137fef3aca37f7c432fe8c476ce70ebc9e0`
+at the end of the battery; Prettier then reformatted both, and the final-tree bytes are
+`58ac464aedee139be9426bd486d79ab2e87cdea6314593ff13120f9bbaa392df` and
+`b5de69e10077eac01434d28fe12921033d69cc6f72bb2478fa0c967deaa4c154`, with the focused suites
+re-run green on the formatted tree. The patch identity's schema gains a required field, so
+a description written before this change can no longer be parsed; nothing reads a
+description from disk (the only reader is `describePatch` itself), and the preserved
+publication candidate touches no executable file, so its identity is unchanged. The
+external harness's untracked-file branch has no witness on Windows — it runs on the hosted
+Ubuntu cells.
+
 ### Fixed — the publication page names the host it would be sent to
 
 `mergesutra pr --publish` built every `gh api` call with a compiled-in `github.com`, and
