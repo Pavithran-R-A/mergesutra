@@ -8,9 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed — approval binds the mode, status reports the remote, and no reader hashes a failed diff
 
-Six findings from the audit's close-out, and five further defects two independent reviews
-then found in the corrections themselves. Each paragraph names the witness that fails
-without the repair, or the explicit limitation that bounds it.
+Six findings from the audit's close-out, five further defects two independent reviews then
+found in the corrections themselves, and two prose overclaims a third review found in the
+last amendment. Each paragraph names the witness that fails without the repair, or the
+explicit limitation that bounds it.
 
 **A patch's executable bit is part of what a person approves.** `describePatch` hashed a
 file's content but never its mode, while the publisher re-derived the mode from a fresh
@@ -98,14 +99,25 @@ requires both readings to refuse a base Git cannot resolve.
 **Two regressions the R4 rewrite introduced, found by this round's second review.**
 `hashIn` read every file whole and refused one larger than 40 MiB, so a patch that touched a
 large asset made `verify`, `review`, `repair` and `pr` fail before any stage could run; the
-cap is gone and the bytes are hashed as a stream, so memory stays bounded without deciding
-which repositories may be measured. And `moved()` in `src/repair/scope.ts` compared change
-and content only, so a repair that only set the executable bit — which now moves the
-identity — reported the planned file as `UNCHANGED` and listed it as untouched; the
-comparison now includes `executable`. Witnesses: `measures a file larger than forty
-megabytes, which no stage has reason to refuse` (RED: `Cannot name a patch: 'assets/big.bin'
-is 42991616 bytes, beyond the 41943040-byte limit`) and `counts a repair that only sets the
-executable bit as a change to that file` (RED: `"delta": "UNCHANGED"`).
+cap is gone from measurement and the bytes are hashed as a stream, so memory stays bounded
+without deciding which repositories may be measured. `pr --publish` still refuses a file over
+40 MiB at upload (`src/pr/github-publisher.ts:61,399-404`), a separate limit unchanged here:
+such a patch can be named and verified but not published. And `moved()` in
+`src/repair/scope.ts` compared change and content only, so a repair that only set the
+executable bit — which now moves the identity — reported the planned file as `UNCHANGED` and
+listed it as untouched; the comparison now includes `executable`. Witnesses: `measures a file
+larger than forty megabytes, so naming a patch no longer depends on its size` (RED: `Cannot
+name a patch: 'assets/big.bin' is 42991616 bytes, beyond the 41943040-byte limit`) and
+`counts a repair that only sets the executable bit as a change to that file` (RED: `"delta":
+"UNCHANGED"`).
+
+**The review of this amendment found two overclaims in its own words.** An independent review
+of `cb97f2c..e0e70f5` returned no P0/P1 and two P2 prose defects: R10's witness title claimed
+no stage had reason to refuse a file over forty megabytes, which the publisher's separate
+upload limit contradicts, and the register's R8 rationale said Git would produce a `MODIFIED`
+file's diff against the index, when `git diff <base> -- path` reports a missing worktree copy
+as a deletion and the label is the stored patch's. The witness title, the register paragraph
+and the `trackedContent` comment are corrected; no behaviour changed.
 
 Tests: the eight repair-focused files came back at `124 passed (124)` in one fork — the new
 cases are `clamps an hours-long Retry-After to maxDelayMs`, `prints a recorded draft as an

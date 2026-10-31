@@ -8508,8 +8508,9 @@ The only caller that passes `allowMissing` is the review context, for every trac
 is about to hand to Git. The earlier draft's rationale — that a deletion is "the one case
 that may resolve to nothing" — was wrong twice over: a patch file classified `DELETED`
 returns before that read, and the case the flag actually serves is a file the patch still
-names as `MODIFIED` whose worktree copy is gone by read time, which `git diff` can still
-produce against the index (see the comment above `trackedContent` in
+names as `MODIFIED` whose worktree copy is gone by read time. That label is the stored
+patch's own measurement; the `git diff` that follows then reports the removal, not a
+modification (see the comment above `trackedContent` in
 `src/review/context.ts`). This round did not demonstrate the hole end to end; what it
 demonstrated is the helper's own contract, which the unit witness pins. The helper's
 docstring carried the same wrong rationale and now names the real caller.
@@ -8525,11 +8526,13 @@ correction.
 **R10 — a forty-megabyte ceiling inside `describePatch` refused legitimate repositories.**
 R4's rewrite of `hashIn` read each file whole and refused one larger than 40 MiB, so a patch
 that touched a large asset made `verify`, `review`, `repair` and `pr` fail before any stage
-could run; before R4 the file was hashed, however large. The cap is gone and the bytes are
-hashed as a stream, so memory stays bounded without deciding which repositories may be
-measured. Witness: `measures a file larger than forty megabytes, which no stage has reason to
-refuse` (RED: `Cannot name a patch: 'assets/big.bin' is 42991616 bytes, beyond the
-41943040-byte limit`; GREEN after).
+could run; before R4 the file was hashed, however large. The cap is gone from measurement and
+the bytes are hashed as a stream, so memory stays bounded without deciding which repositories
+may be measured. `pr --publish` still refuses a file over 40 MiB when it uploads
+(`src/pr/github-publisher.ts:61,399-404`), a separate limit this round did not change: such a
+patch can be named, verified and reviewed, but not published. Witness: `measures a file larger
+than forty megabytes, so naming a patch no longer depends on its size` (RED: `Cannot name a
+patch: 'assets/big.bin' is 42991616 bytes, beyond the 41943040-byte limit`; GREEN after).
 
 **R11 — a repair that only flipped the executable bit read as untouched.** `moved()` in
 `src/repair/scope.ts` compared change and content digest only. Since R3 binds the bit into the
@@ -8537,6 +8540,16 @@ patch identity, an exec-only repair changed the reported patch while the file th
 was classified `UNCHANGED` and landed in `plannedButUntouchedFiles`. The comparison now
 includes `executable`. Witness: `counts a repair that only sets the executable bit as a
 change to that file` (RED: `"delta": "UNCHANGED"`; GREEN after).
+
+**Corrections from the review of this amendment.** An independent review of
+`cb97f2c..e0e70f5` found no P0 or P1 and two P2 prose defects in this section, both corrected
+here. R10's witness title said no stage had reason to refuse a file over forty megabytes,
+which the publisher's separate upload limit contradicts, so the title and the paragraph now
+scope the claim to measurement and name that limit. The sentence added to R8 said Git would
+produce a `MODIFIED` file's diff against the index; `git diff <base> -- path` compares the
+commit with the worktree and reports a missing copy as a deletion, so the paragraph, the
+comment above `trackedContent` in `src/review/context.ts` and `CHANGELOG.md` now say the label
+is the stored patch's and the diff reports the removal. No behaviour changed.
 
 **Evidence at the corrected tree.** One measurement, exit 0:
 `npx vitest run tests/verify/patch.test.ts tests/security/confined-file.test.ts

@@ -194,7 +194,7 @@ describe.skipIf(!AVAILABLE)('what a patch is', () => {
     },
   );
 
-  it('measures a file larger than forty megabytes, which no stage has reason to refuse', async () => {
+  it('measures a file larger than forty megabytes, so naming a patch no longer depends on its size', async () => {
     const { dir, base } = await makeRepo({ 'src/a.ts': 'a\n' });
     // A real repository can hold a large asset. Naming the patch must not depend
     // on the file fitting in this process: the digest is over its bytes, and the
