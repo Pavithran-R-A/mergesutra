@@ -486,7 +486,9 @@ async function trackedContent(
 ): Promise<PatchContent | Refusal> {
   // `git diff` opens the worktree path itself, so a junction left by a gate in the
   // middle of that path would hand Git a file outside the workspace. The confined
-  // check resolves every link first; a deletion (no file) still gets its diff.
+  // check resolves every link first. Deletions never reach this function; the
+  // `allowMissing` case is a file the patch still names but the worktree no longer
+  // holds, whose diff Git produces against the index.
   try {
     await resolveConfinedFile(
       input.measured.workTree,

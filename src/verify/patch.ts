@@ -421,18 +421,35 @@ interface RawChange {
   readonly executable: boolean;
 }
 
-/** `--raw -z` alternates `:<old> <new> <oldsha> <newsha> <status>` and path. */
+/**
+ * `--raw -z` alternates `:<old> <new> <oldsha> <newsha> <status>` and path.
+ *
+ * A record this parser does not recognise is refused, not skipped. Skipping it
+ * would produce a description missing a file — an identity over less than the
+ * patch, which can agree with another incomplete reading. The parser has seen one
+ * shape from the pinned Git versions; a second shape is a fact about the host,
+ * and the honest answer to it is that this build cannot name the patch.
+ */
 function rawChanges(stdout: string): RawChange[] {
   const fields = tokens(stdout);
+  if (fields.length % 2 !== 0) {
+    throw malformedRaw(0, 'a record without its path');
+  }
   const found: RawChange[] = [];
-  for (let index = 0; index + 1 < fields.length; index += 2) {
+  for (let index = 0; index < fields.length; index += 2) {
     const meta = fields[index] ?? '';
     const relative = fields[index + 1] ?? '';
-    if (!meta.startsWith(':') || relative.length === 0) continue;
-    const parts = meta.slice(1).split(' ');
-    const newMode = parts[1] ?? '';
+    const parts = meta.startsWith(':') ? meta.slice(1).split(' ') : [];
     const status = parts[4] ?? '';
-    if (status.length === 0) continue;
+    if (
+      !meta.startsWith(':') ||
+      parts.length !== 5 ||
+      status.length === 0 ||
+      relative.length === 0
+    ) {
+      throw malformedRaw(index / 2 + 1, 'a record whose fields are not the raw-diff shape');
+    }
+    const newMode = parts[1] ?? '';
     // A deletion's destination mode is `000000`; nothing is left to execute.
     found.push({
       status,
@@ -443,11 +460,30 @@ function rawChanges(stdout: string): RawChange[] {
   return found;
 }
 
+function malformedRaw(record: number, what: string): AppError {
+  return new AppError({
+    kind: 'invalid-response',
+    message:
+      `Git wrote a raw diff this build cannot read: ${what} ` +
+      `(${record > 0 ? `record ${String(record)}` : 'the last record'}).`,
+    remediation:
+      'Re-run verification on the workspace this run prepared, with the Git version this product supports; MergeSutra will not guess which file a malformed record meant.',
+  });
+}
+
+/**
+ * Git's `-z` fields, exactly as written.
+ *
+ * Every field is NUL-terminated, so the split leaves one empty tail field that is
+ * not a path. Nothing else is discarded: a path's leading or trailing whitespace
+ * is part of its name, and trimming it would measure a different file — or none
+ * at all. An empty field anywhere else is a shape Git did not write, and the
+ * caller refuses it rather than inventing a neighbour for it.
+ */
 function tokens(stdout: string): string[] {
-  return stdout
-    .split('\0')
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
+  const fields = stdout.split('\0');
+  if (fields.length > 0 && fields[fields.length - 1] === '') fields.pop();
+  return fields;
 }
 
 function isMergeSutraScratch(relative: string): boolean {

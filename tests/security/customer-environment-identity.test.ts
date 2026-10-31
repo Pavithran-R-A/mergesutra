@@ -80,11 +80,39 @@ describe.skipIf(!AVAILABLE)('the customer workflow re-derives the product identi
     });
   });
 
+  it('agrees on a name that begins with a space, which no token may trim', async () => {
+    const prepared = await workspace({ ' leading.ts': 'spaced one\n' });
+    await writeFile(path.join(prepared.workspace, ' leading.ts'), 'spaced two\n');
+    await writeFile(path.join(prepared.workspace, ' lead-untracked.ts'), 'new\n');
+
+    const product = await describePatch({
+      workspace: prepared.workspace,
+      baseSha: prepared.base,
+    });
+    expect(product.files.map((file) => file.path)).toEqual([' lead-untracked.ts', ' leading.ts']);
+
+    expect(await rederived(prepared.workspace, prepared.base)).toEqual({
+      digest: product.identity,
+      files: [' lead-untracked.ts', ' leading.ts'],
+    });
+  });
+
   it('agrees when Git records a file as executable, which the identity binds', async () => {
     const prepared = await workspace({ 'scripts/run.sh': 'echo one\n' });
     await writeFile(path.join(prepared.workspace, 'scripts/run.sh'), 'echo two\n');
     const plain = await describePatch({ workspace: prepared.workspace, baseSha: prepared.base });
 
+    // The no-executable-bit host Git creates on Windows, asked for explicitly so
+    // the index answers on every platform: without it a POSIX tree-to-worktree
+    // diff reports the worktree's 644 and `update-index` changes nothing visible.
+    const noBits = await defaultRunner('git', [
+      '-C',
+      prepared.workspace,
+      'config',
+      'core.fileMode',
+      'false',
+    ]);
+    expect(noBits.code).toBe(0);
     const chmodResult = await defaultRunner('git', [
       '-C',
       prepared.workspace,

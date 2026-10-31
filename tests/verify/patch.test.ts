@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -102,14 +102,20 @@ describe.skipIf(!AVAILABLE)('what a patch is', () => {
 
   it('binds the executable bit into the identity, because a commit carries it', async () => {
     const { dir, base } = await makeRepo({ 'scripts/run.sh': 'echo one\n' });
+    // `core.fileMode=false` is the no-executable-bit host Git itself creates on
+    // Windows. Setting it explicitly asks Git to answer from the index on any
+    // host, so the witness measures the same fact on Linux and macOS — where a
+    // tree-to-worktree diff would otherwise report the worktree's 644 and never
+    // consult the mode `update-index` records.
+    const noBits = await defaultRunner('git', ['-C', dir, 'config', 'core.fileMode', 'false']);
+    expect(noBits.code).toBe(0);
     await put(dir, 'scripts/run.sh', 'echo two\n');
     const plain = await describePatch({ workspace: dir, baseSha: base });
     expect(plain.files[0]?.executable).toBe(false);
 
     // The index is where Git keeps the mode the next commit would carry, and it
     // is the only place that mode can be written on a checkout whose filesystem
-    // has no executable bit (Windows). So this witness is not a POSIX story: it
-    // measures the same fact a POSIX `chmod` would change.
+    // has no executable bit (Windows).
     const marked = await defaultRunner('git', [
       '-C',
       dir,
@@ -124,6 +130,63 @@ describe.skipIf(!AVAILABLE)('what a patch is', () => {
     expect(executable.files[0]?.executable).toBe(true);
     expect(executable.files[0]?.contentSha256).toBe(plain.files[0]?.contentSha256);
     expect(executable.identity).not.toBe(plain.identity);
+  });
+
+  it('refuses a raw diff record it cannot read rather than silently dropping it', async () => {
+    const { dir, base } = await makeRepo({ 'src/a.ts': 'a\n' });
+    await put(dir, 'src/a.ts', 'fixed\n');
+    const record: Runner = async (file, args) => {
+      if (args.includes('diff') && args.includes('--raw')) {
+        // The shape Git writes is `:<old> <new> <oldsha> <newsha> <status>\0<path>\0`.
+        // This record lost its status field. A parser that skips what it does not
+        // understand would name a patch with no files — an identity that covers
+        // nothing, and would agree with any other empty patch.
+        return {
+          code: 0,
+          stdout: ':100644 100755 abc def\0src/a.ts\0',
+          stderr: '',
+          timedOut: false,
+          truncated: false,
+        };
+      }
+      return defaultRunner(file, args);
+    };
+
+    await expect(describePatch({ workspace: dir, baseSha: base }, { run: record })).rejects.toThrow(
+      /raw diff record|cannot read/i,
+    );
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'keeps a path’s own whitespace instead of trimming it into another name',
+    async () => {
+      const { dir, base } = await makeRepo({ 'src/a.ts': 'a\n' });
+      // A leading space is part of the name, not layout in Git's `-z` output.
+      await put(dir, ' leading.ts', 'spaced\n');
+
+      const patch = await describePatch({ workspace: dir, baseSha: base });
+
+      expect(paths(patch)).toEqual([' leading.ts']);
+      expect(patch.files[0]?.contentSha256).toBe(sha256Hex('spaced\n'));
+    },
+  );
+
+  it('hashes the documented line set, so an independent reader can recompute it', async () => {
+    const { dir, base } = await makeRepo({ 'src/a.ts': 'a\n' });
+    await put(dir, 'src/a.ts', 'fixed\n');
+
+    const patch = await describePatch({ workspace: dir, baseSha: base });
+
+    // Hand-built from the preimage the customer harness documents at
+    // `scripts/lib/customer-environment.mjs`, not from this module's formatter. A
+    // second implementation copied from the first would agree with it even if both
+    // emitted a marker the documented form does not carry.
+    const preimage = [
+      'mergesutra-patch/1',
+      `base ${base}`,
+      `tracked MODIFIED src/a.ts ${sha256Hex('fixed\n')}`,
+    ].join('\n');
+    expect(patch.identity).toBe(sha256Hex(preimage));
   });
 
   it.skipIf(process.platform === 'win32')(
@@ -371,47 +434,89 @@ describe.skipIf(!AVAILABLE)(
       }
     });
 
-    it('refuses a tracked file whose directory a gate replaced with a link out of the workspace', async () => {
-      // A gate runs with the workspace mounted writable, so it can leave a junction
-      // where a tracked directory used to be. Git follows it, which makes the host
-      // read a file the run never owned — and the digest of it would be recorded as
-      // that file's content in the patch a reviewer and a publisher both trust.
-      const { workspace, base, gitDir, workTree } = await makeWorktree({
-        'config/credentials': 'placeholder\n',
-      });
-      const outside = await mkdtemp(path.join(tmpdir(), 'mergesutra-patch-outside-'));
-      made.push(outside);
-      const hostSecret = 'HOST-SECRET-DO-NOT-HASH\n';
-      await writeFile(path.join(outside, 'credentials'), hostSecret, 'utf8');
-      await rm(path.join(workspace, 'config'), { recursive: true, force: true });
-      const linked = await makeLink(outside, path.join(workspace, 'config'), 'directory');
-      expect(linked, 'this host can create a directory link or junction').toBe(true);
+    // A directory junction is a directory to Git on Windows, so Git follows it.
+    // On POSIX a directory symlink is a leaf entry, not a directory, and Git
+    // reports the tracked file beneath it as deleted instead — the test below
+    // covers the link Git does follow there.
+    it.skipIf(process.platform !== 'win32')(
+      'refuses a tracked file whose directory a gate replaced with a junction out of the workspace',
+      async () => {
+        // A gate runs with the workspace mounted writable, so it can leave a junction
+        // where a tracked directory used to be. Git follows it, which makes the host
+        // read a file the run never owned — and the digest of it would be recorded as
+        // that file's content in the patch a reviewer and a publisher both trust.
+        const { workspace, base, gitDir, workTree } = await makeWorktree({
+          'config/credentials': 'placeholder\n',
+        });
+        const outside = await mkdtemp(path.join(tmpdir(), 'mergesutra-patch-outside-'));
+        made.push(outside);
+        const hostSecret = 'HOST-SECRET-DO-NOT-HASH\n';
+        await writeFile(path.join(outside, 'credentials'), hostSecret, 'utf8');
+        await rm(path.join(workspace, 'config'), { recursive: true, force: true });
+        const linked = await makeLink(outside, path.join(workspace, 'config'), 'directory');
+        expect(linked, 'this host can create a directory junction').toBe(true);
 
-      // The control: Git itself follows the link, so the refusal below is about
-      // where the bytes came from and not about Git failing to see the change.
-      const followed = await defaultRunner('git', [
-        '--git-dir',
-        gitDir,
-        '--work-tree',
-        workTree,
-        '--no-optional-locks',
-        'diff',
-        '--no-ext-diff',
-        '--no-renames',
-        base,
-        '--',
-        'config/credentials',
-      ]);
-      expect(followed.stdout).toContain('HOST-SECRET-DO-NOT-HASH');
+        // The control: Git itself follows the junction, so the refusal below is about
+        // where the bytes came from and not about Git failing to see the change.
+        const followed = await defaultRunner('git', [
+          '--git-dir',
+          gitDir,
+          '--work-tree',
+          workTree,
+          '--no-optional-locks',
+          'diff',
+          '--no-ext-diff',
+          '--no-renames',
+          base,
+          '--',
+          'config/credentials',
+        ]);
+        expect(followed.stdout).toContain('HOST-SECRET-DO-NOT-HASH');
 
-      const failure = await describePatch({ workspace, baseSha: base }).catch((e: unknown) => e);
+        const failure = await describePatch({ workspace, baseSha: base }).catch((e: unknown) => e);
 
-      expect(failure).toBeInstanceOf(AppError);
-      expect((failure as Error).message).toMatch(/link or junction|outside the workspace/i);
-      expect((failure as Error).message).not.toContain('HOST-SECRET-DO-NOT-HASH');
-      expect(JSON.stringify(failure)).not.toContain(sha256Hex(hostSecret));
-      expect(JSON.stringify(failure)).not.toContain(hostSecret.trim());
-    });
+        expect(failure).toBeInstanceOf(AppError);
+        expect((failure as Error).message).toMatch(/link or junction|outside the workspace/i);
+        expect((failure as Error).message).not.toContain('HOST-SECRET-DO-NOT-HASH');
+        expect(JSON.stringify(failure)).not.toContain(sha256Hex(hostSecret));
+        expect(JSON.stringify(failure)).not.toContain(hostSecret.trim());
+      },
+    );
+
+    it.skipIf(process.platform === 'win32')(
+      'refuses a tracked file a gate replaced with a link to a file outside the workspace',
+      async () => {
+        // The POSIX shape of the same attack: Git does not read through a
+        // directory link in the worktree, but it does report a leaf whose type
+        // changed, and the host-side read of that leaf follows the link. The
+        // control below is the read that must not happen.
+        const { workspace, base } = await makeWorktree({
+          'config/credentials': 'placeholder\n',
+        });
+        const outside = await mkdtemp(path.join(tmpdir(), 'mergesutra-patch-outside-'));
+        made.push(outside);
+        const hostSecret = 'HOST-SECRET-DO-NOT-HASH\n';
+        const secretAt = path.join(outside, 'credentials');
+        await writeFile(secretAt, hostSecret, 'utf8');
+        await rm(path.join(workspace, 'config/credentials'));
+        const linked = await makeLink(secretAt, path.join(workspace, 'config/credentials'), 'file');
+        expect(linked, 'this host can create a file link').toBe(true);
+
+        // The control: an ordinary read of the path Git was asked about reaches
+        // the outside bytes, so a measurement that follows the name would hash a
+        // file the run never owned.
+        expect(await readFile(path.join(workspace, 'config/credentials'), 'utf8')).toBe(hostSecret);
+
+        const failure = await describePatch({ workspace, baseSha: base }).catch((e: unknown) => e);
+
+        expect(failure).toBeInstanceOf(AppError);
+        expect((failure as Error).message).toMatch(
+          /link or junction|outside the workspace|symbolic link/i,
+        );
+        expect(JSON.stringify(failure)).not.toContain(sha256Hex(hostSecret));
+        expect(JSON.stringify(failure)).not.toContain(hostSecret.trim());
+      },
+    );
 
     it('refuses a plain checkout rather than discovering the repository from its own bytes', async () => {
       const { dir, base } = await makeCheckout({ 'src/a.ts': 'a\n' });

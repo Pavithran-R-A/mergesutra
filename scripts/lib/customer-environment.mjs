@@ -255,19 +255,27 @@ export function rederiveProductPatchIdentity(workspace, baseSha) {
     workspace,
     { allowFailure: true },
   );
-  const fields = tracked.stdout
-    .split('\0')
-    .map((token) => token.trim())
-    .filter(Boolean);
+  const fields = zFields(tracked.stdout);
+  if (fields.length % 2 !== 0) {
+    throw new Error('git diff --raw returned a record without its path');
+  }
   const files = [];
-  for (let index = 0; index + 1 < fields.length; index += 2) {
+  for (let index = 0; index < fields.length; index += 2) {
     const meta = fields[index] ?? '';
     const relative = fields[index + 1] ?? '';
-    if (!meta.startsWith(':') || relative.length === 0) continue;
-    const parts = meta.slice(1).split(' ');
+    const parts = meta.startsWith(':') ? meta.slice(1).split(' ') : [];
     const newMode = parts[1] ?? '';
     const status = parts[4] ?? '';
-    if (status.length === 0) continue;
+    if (
+      !meta.startsWith(':') ||
+      parts.length !== 5 ||
+      status.length === 0 ||
+      relative.length === 0
+    ) {
+      // The product refuses the same record (`invalid-response`); skipping it here
+      // would re-derive an identity for a different file set and call that agreement.
+      throw new Error(`git diff --raw record ${String(index / 2 + 1)} is not the raw-diff shape`);
+    }
     const letter = status.charAt(0);
     const change = letter === 'D' ? 'DELETED' : letter === 'A' ? 'ADDED' : 'MODIFIED';
     files.push({
@@ -279,10 +287,7 @@ export function rederiveProductPatchIdentity(workspace, baseSha) {
     });
   }
   const untracked = git(['ls-files', '--others', '--exclude-standard', '-z'], workspace);
-  for (const name of untracked.stdout
-    .split('\0')
-    .map((token) => token.trim())
-    .filter(Boolean)) {
+  for (const name of zFields(untracked.stdout)) {
     if (isScratch(name)) continue;
     let executable = false;
     try {
@@ -319,6 +324,19 @@ export function rederiveProductPatchIdentity(workspace, baseSha) {
 function isScratch(name) {
   const normalised = String(name).replaceAll('\\', '/');
   return normalised.startsWith('.mergesutra/') || normalised.includes('/.mergesutra/');
+}
+
+/**
+ * One `-z` field list, with only the terminating empty removed.
+ *
+ * A path is the bytes Git wrote, so nothing here trims: a name whose first
+ * character is a space is a different file from the one without it, and trimming
+ * would make the harness read (or fail to read) a neighbour.
+ */
+function zFields(stdout) {
+  const fields = stdout.split('\0');
+  if (fields.length > 0 && fields[fields.length - 1] === '') fields.pop();
+  return fields;
 }
 
 /** Names of every file under `dir`, for the "nothing else moved" proof. */

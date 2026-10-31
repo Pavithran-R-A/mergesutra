@@ -10,8 +10,16 @@ import { isInsideRoot, resolveInsideRoot } from './path-safety.js';
  * ask about files that may not be there: a plan writes into a directory that has
  * not been created, and a read may name a file the repository never had. Walking
  * up until something resolves is enough to judge where a symlink or a Windows
- * junction along the way would lead — a link three directories above the target
- * cannot hide — without inventing a destination for a leaf that does not exist.
+ * junction along the way would lead — a resolvable link three directories above
+ * the target cannot hide — without inventing a destination for a leaf that does
+ * not exist.
+ *
+ * What it cannot see is a link that does not resolve: `realpath` fails on a
+ * dangling link exactly as it fails on a missing directory, so the walk steps
+ * over it and re-attaches its name as if it were ordinary. A caller that later
+ * opens that name, after a target has been created for the link, reaches whatever
+ * the link names. That is the same time-of-check/time-of-use window as S12-10,
+ * not a closure this helper claims.
  */
 export async function resolveExistingAncestor(absolute: string): Promise<string> {
   const missing: string[] = [];
@@ -62,7 +70,17 @@ export async function resolveConfinedFile(
   try {
     real = await realpath(absolute);
   } catch {
-    if (options.allowMissing === true) return null;
+    if (options.allowMissing === true) {
+      // The leaf is absent, but its name is still one the caller will hand to Git
+      // or open later. A link on the way out is refused here for the same reason
+      // an existing leaf is: absence at the end of the path does not make the
+      // directory above it safe to resolve through.
+      const ancestor = await resolveExistingAncestor(absolute);
+      if (!isInsideRoot(realRoot, ancestor)) {
+        throw refusal(label, 'a link or junction on the way resolves outside the workspace');
+      }
+      return null;
+    }
     throw refusal(label, 'the file does not exist');
   }
   if (!isInsideRoot(realRoot, real)) {

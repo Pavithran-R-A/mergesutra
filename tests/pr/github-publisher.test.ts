@@ -351,9 +351,18 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
   it('sends the mode the measurement recorded, not one re-read at upload', async () => {
     const fixture = await implementedRun(tempDirs);
     // Git's index is where a commit's mode comes from, and the one place the bit
-    // can be written on a host whose filesystem has none (Windows). A transport
-    // that re-stats the file at upload time would send 100644 here; the mode a
-    // human's approval covers is the measured one.
+    // can be written on a host whose filesystem has none (Windows).
+    // `core.fileMode=false` asks Git to answer from that index on every host, so a
+    // tree-to-worktree diff on Linux or macOS consults the marked mode too. The
+    // disk still says 644, which is what a re-stat at upload would send.
+    const noBits = await defaultRunner('git', [
+      '-C',
+      fixture.repoDir,
+      'config',
+      'core.fileMode',
+      'false',
+    ]);
+    expect(noBits.code).toBe(0);
     const marked = await defaultRunner('git', [
       '-C',
       fixture.repoDir,
@@ -412,6 +421,17 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
 
   it('refuses to send after the executable bit moves, before any write', async () => {
     const fixture = await implementedRun(tempDirs);
+    // The index is placed in charge of the mode before the approval is measured,
+    // so the later `update-index` is a movement the measurement can see on every
+    // host — not only where the filesystem has no bit to disagree with it.
+    const noBits = await defaultRunner('git', [
+      '-C',
+      fixture.repoDir,
+      'config',
+      'core.fileMode',
+      'false',
+    ]);
+    expect(noBits.code).toBe(0);
     const input = await inputFor(fixture.repoDir, fixture.base);
     const marked = await defaultRunner('git', [
       '-C',
