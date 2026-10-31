@@ -8575,9 +8575,11 @@ in that run. Because the host cannot be relied on for a whole-suite run, hosted 
 amended head is the full-gate evidence.
 
 Hosted run `41182636511` passed all six matrix cells at `cb97f2c`, the head that carries
-R1–R8 and the platform witnesses. R9–R11 were written after that head, so no hosted run has
-executed them yet; the focused runs above are their evidence until the amended head's own
-CI completes.
+R1–R8 and the platform witnesses. Run `41184374693` passed all six at `e0e70f5`, the first
+head carrying R9–R11, and run `41185038469` passed all six at `bfb7f77`, which adds only the
+two prose corrections from the review of this amendment and the renamed R10 witness; the code
+under test is unchanged from `e0e70f5`. Later heads in this pull request change documentation
+only and carry their own pull-request run.
 
 **What is not claimed.** The two platform-specific witnesses are complementary skips: the
 junction is exercised only on the Windows cells and the file-link witness only on the POSIX
@@ -8595,9 +8597,9 @@ same time-of-check/time-of-use class as S12-10, named in the helper's own docstr
 new closure. `src/review/context.ts` still hands Git the lexical spelling after its
 containment check, so a link swapped in between the check and Git's open remains the same
 window. The harness fix changes only the re-derivation; the customer workflow that reads its
-digest is exercised by hosted runs, and no hosted run has yet executed the amended head. Its
-new refusal of a malformed record is not itself witnessed — the harness drives real Git, and
-no observed Git version emits such a record; the product's equivalent refusal has a synthetic
-witness, and the harness refuses at both the record parser and the two diff readings rather
-than hash a partial file set. No remote publication, npm publication or model request was
-made in this round.
+digest is exercised by hosted runs, which passed at `e0e70f5` (`41184374689`) and at
+`bfb7f77` (`41185038543`). Its new refusal of a malformed record is not itself witnessed —
+the harness drives real Git, and no observed Git version emits such a record; the product's
+equivalent refusal has a synthetic witness, and the harness refuses at both the record parser
+and the two diff readings rather than hash a partial file set. No remote publication, npm
+publication or model request was made in this round.

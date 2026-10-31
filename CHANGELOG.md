@@ -169,8 +169,10 @@ review context `26`, client `64`, github-publisher `35`, pr stage `23`. A full l
 `npm test` ended exit 1 on `ENOSPC` alone — four tests and seven suites on a host with under
 2 GB free — and the eight affected files then ran alone as `8 passed (8)`, `92 passed (92)`,
 exit 0. Hosted run `41182636511` then passed all six matrix cells at `cb97f2c`, the head
-carrying R1–R8 and the platform witnesses; R9–R11 postdate that head, and their own hosted
-run is the remaining gate.
+carrying R1–R8 and the platform witnesses; run `41184374693` passed all six on `e0e70f5`,
+the first head carrying R9–R11, and run `41185038469` passed all six on `bfb7f77`, whose
+changes are documentation and a witness title. The register's R9–R11 section records the
+same runs.
 
 ### Fixed — the publication page names the host it would be sent to
 
