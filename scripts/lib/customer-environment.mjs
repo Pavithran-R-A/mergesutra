@@ -203,9 +203,11 @@ export function parseWorktrees(porcelain) {
  * compute a second one, from a different tool, over the same bytes.
  */
 export function independentPatchIdentity(workspace, baseSha) {
-  const diff = git(['diff', '--no-ext-diff', '--no-color', baseSha, '--'], workspace, {
-    allowFailure: true,
-  });
+  // A diff that exits non-zero writes nothing to stdout. Reading that as "no
+  // tracked change" would hash an empty diff and call it the patch — the same
+  // silent shrink the product refuses — so the harness's failing `git()` is used
+  // here as it is for every other reading.
+  const diff = git(['diff', '--no-ext-diff', '--no-color', baseSha, '--'], workspace);
   const untracked = git(['ls-files', '--others', '--exclude-standard', '-z'], workspace);
   const names = untracked.stdout.split('\0').filter(Boolean).sort();
   const hasher = createHash('sha256');
@@ -250,11 +252,9 @@ function diffFiles(text) {
  * back would prove nothing.
  */
 export function rederiveProductPatchIdentity(workspace, baseSha) {
-  const tracked = git(
-    ['diff', '--raw', '--no-renames', '--no-ext-diff', '-z', baseSha],
-    workspace,
-    { allowFailure: true },
-  );
+  // An empty stdout from a failed `git diff` would leave an identity over the
+  // untracked files only, which is a different file set reported as agreement.
+  const tracked = git(['diff', '--raw', '--no-renames', '--no-ext-diff', '-z', baseSha], workspace);
   const fields = zFields(tracked.stdout);
   if (fields.length % 2 !== 0) {
     throw new Error('git diff --raw returned a record without its path');

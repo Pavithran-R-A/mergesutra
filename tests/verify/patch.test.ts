@@ -157,6 +157,29 @@ describe.skipIf(!AVAILABLE)('what a patch is', () => {
     );
   });
 
+  it('refuses a trailing record that lost its path, rather than pairing it with nothing', async () => {
+    const { dir, base } = await makeRepo({ 'src/a.ts': 'a\n' });
+    await put(dir, 'src/a.ts', 'fixed\n');
+    const record: Runner = async (file, args) => {
+      if (args.includes('diff') && args.includes('--raw')) {
+        // One complete pair, then a meta whose path never arrived. Pairing it with
+        // nothing would drop the second file; the parser must refuse the stream.
+        return {
+          code: 0,
+          stdout: ':100644 100644 abc def M\0src/a.ts\0:100644 100644 abc def M',
+          stderr: '',
+          timedOut: false,
+          truncated: false,
+        };
+      }
+      return defaultRunner(file, args);
+    };
+
+    await expect(describePatch({ workspace: dir, baseSha: base }, { run: record })).rejects.toThrow(
+      /last record/i,
+    );
+  });
+
   it.skipIf(process.platform === 'win32')(
     'keeps a path’s own whitespace instead of trimming it into another name',
     async () => {
@@ -170,6 +193,22 @@ describe.skipIf(!AVAILABLE)('what a patch is', () => {
       expect(patch.files[0]?.contentSha256).toBe(sha256Hex('spaced\n'));
     },
   );
+
+  it('measures a file larger than forty megabytes, which no stage has reason to refuse', async () => {
+    const { dir, base } = await makeRepo({ 'src/a.ts': 'a\n' });
+    // A real repository can hold a large asset. Naming the patch must not depend
+    // on the file fitting in this process: the digest is over its bytes, and the
+    // hash reads them as a stream.
+    const big = Buffer.alloc(41 * 1024 * 1024, 0x61);
+    await mkdir(path.join(dir, 'assets'), { recursive: true });
+    await writeFile(path.join(dir, 'assets/big.bin'), big);
+
+    const patch = await describePatch({ workspace: dir, baseSha: base });
+
+    expect(patch.files.find((file) => file.path === 'assets/big.bin')?.contentSha256).toBe(
+      sha256Hex(big),
+    );
+  });
 
   it('hashes the documented line set, so an independent reader can recompute it', async () => {
     const { dir, base } = await makeRepo({ 'src/a.ts': 'a\n' });

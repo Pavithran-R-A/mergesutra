@@ -6,10 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed — the approved bytes carry their mode, and the status page carries the remote's facts
+### Fixed — approval binds the mode, status reports the remote, and no reader hashes a failed diff
 
-Six findings from the audit's close-out, each repaired against a witness that fails without
-the repair.
+Six findings from the audit's close-out, and five further defects two independent reviews
+then found in the corrections themselves. Each paragraph names the witness that fails
+without the repair, or the explicit limitation that bounds it.
 
 **A patch's executable bit is part of what a person approves.** `describePatch` hashed a
 file's content but never its mode, while the publisher re-derived the mode from a fresh
@@ -34,7 +35,10 @@ send, and the outcome is fail-closed either way.) `src/pr/record.ts` adds
 `attempt { branch, commitSha, reason }` (mutually
 exclusive with `result`, requiring the approval beside it and the candidate's own branch),
 and `src/pr/stage.ts` files it only from failure details that name a full commit — a failure
-with no commit says the outcome is unknown, and the stage reports it as unknown. The
+with no commit says the outcome is unknown, and the stage reports it as unknown. A run that
+holds a recorded attempt now ends `PR_PUBLICATION_BLOCKED` at exit 4, where the same run
+without one ended `PR_CANDIDATE_RECORDED` or `PR_APPROVED_LOCAL` at exit 3; a script that
+branches on the exit code sees the difference. The
 `status` snapshot (`src/lifecycle/snapshot.ts`) derives three remote states from stored
 bytes — `NOT_ATTEMPTED_BY_THIS_BUILD`, `DRAFT_OPENED`, `BRANCH_CREATED` — scanning newest
 first so a newer unpublished page cannot erase an earlier draft, and saying in words when
@@ -47,7 +51,7 @@ gateway's delay verbatim, so an hours-long value could sleep past a run's own bu
 overflow Node's timer and fire in 1 ms; it is now subject to the same `maxDelayMs` ceiling
 as jitter.
 
-**Every file a stage reads is resolved through its links first.** The lexical confinement
+**A path the patch names is resolved through its links before this build reads it.** The lexical confinement
 check judges a name and cannot see a junction left in the middle of a path by a gate that
 ran with the workspace writable. `src/security/realpath.ts` gains `resolveConfinedFile`,
 which realpaths both the root and the leaf, requires the leaf to be a regular file rather
@@ -56,9 +60,10 @@ measurement, the review context's tracked-file diff (`src/review/context.ts`, wh
 before Git opens the path) and the publisher's upload read all go through it. A name that
 does not exist yet is still contained: `allowMissing` now resolves the deepest existing
 ancestor and refuses one that lands outside the root before returning `null`, so a missing
-leaf under an outside link cannot be handed to Git later. A missing leaf under an ordinary
-directory still resolves to nothing. The helper cannot see a link that does not resolve —
-`realpath` fails on a dangling link as on a missing directory — and its docstring names
+leaf under an outside link is refused. A missing leaf under an ordinary directory still
+resolves to nothing. The helper cannot see a link that does not resolve —
+`realpath` fails on a dangling link as on a missing directory — and a caller that opens
+that name after a target is created for the link reaches the target; its docstring names
 that time-of-check/time-of-use residual rather than claiming it closed.
 `tests/security/confined-file.test.ts` is the unit witness.
 
@@ -66,9 +71,11 @@ that time-of-check/time-of-use residual rather than claiming it closed.
 the `-z` stream into fields, trimmed each, paired them, and split the meta on spaces; a
 meta that had lost a field became a file with an empty status and disappeared from the
 patch — a modified file reported as unchanged. The parser now requires a two-field record
-and a five-field meta, throws `invalid-response` naming the record index otherwise, and no
+and a five-field meta, throws `invalid-response` otherwise — naming the record's index for a
+malformed meta, "the last record" for a trailing meta with no path — and no
 longer trims tokens, so a path that begins with a space keeps its name.
-`tests/verify/patch.test.ts` adds the refusal, the leading-space case, and a golden witness
+`tests/verify/patch.test.ts` adds the refusal, the leading-space case, a characterisation
+witness for the trailing-meta refusal, and a golden witness
 that recomputes the documented `mergesutra-patch/1` preimage and compares it with the
 identity.
 
@@ -79,10 +86,26 @@ marker. It also trimmed every `-z` field and skipped a record it could not read,
 whose own name begins with a space sent it to a different file: the new
 `agrees on a name that begins with a space, which no token may trim` watched it fail with
 `ENOENT ... lead-untracked.ts` and pass after fields are kept verbatim and an unreadable
-record throws. `tests/security/customer-environment-identity.test.ts` proves agreement with
+record throws. Both of its `git diff` readings also stopped tolerating a failed command: an
+exit other than zero writes nothing to stdout, which had left the re-derivation with an
+identity over the untracked files only and the independent reading hashing an empty diff.
+`tests/security/customer-environment-identity.test.ts` proves agreement with
 a control patch (no executable file, digest unchanged), a tracked
 `git update-index --chmod=+x` (identity moves and both processes agree), an untracked
-`chmod 755` (POSIX-only, skipped where the filesystem has no bit), and that name.
+`chmod 755` (POSIX-only, skipped where the filesystem has no bit), and that name, and
+requires both readings to refuse a base Git cannot resolve.
+
+**Two regressions the R4 rewrite introduced, found by this round's second review.**
+`hashIn` read every file whole and refused one larger than 40 MiB, so a patch that touched a
+large asset made `verify`, `review`, `repair` and `pr` fail before any stage could run; the
+cap is gone and the bytes are hashed as a stream, so memory stays bounded without deciding
+which repositories may be measured. And `moved()` in `src/repair/scope.ts` compared change
+and content only, so a repair that only set the executable bit — which now moves the
+identity — reported the planned file as `UNCHANGED` and listed it as untouched; the
+comparison now includes `executable`. Witnesses: `measures a file larger than forty
+megabytes, which no stage has reason to refuse` (RED: `Cannot name a patch: 'assets/big.bin'
+is 42991616 bytes, beyond the 41943040-byte limit`) and `counts a repair that only sets the
+executable bit as a change to that file` (RED: `"delta": "UNCHANGED"`).
 
 Tests: the eight repair-focused files came back at `124 passed (124)` in one fork — the new
 cases are `clamps an hours-long Retry-After to maxDelayMs`, `prints a recorded draft as an
@@ -110,8 +133,17 @@ re-run green on the formatted tree. The patch identity's schema gains a required
 a description written before this change can no longer be parsed; nothing reads a
 description from disk (the only reader is `describePatch` itself), and the preserved
 publication candidate touches no executable file, so its identity is unchanged. The
-external harness's untracked-file branch has no witness on Windows — it runs on the hosted
-Ubuntu cells.
+executable-bit sub-branch of the external harness's untracked-file path has no witness on
+Windows — that case runs on the hosted POSIX cells; the untracked branch itself runs on
+every platform, including the Windows run of the leading-space witness.
+
+At the R9–R11 amendment one focused run of the four amended suites, exit 0:
+`npx vitest run tests/verify/patch.test.ts tests/security/customer-environment-identity.test.ts
+tests/security/confined-file.test.ts tests/repair/scope.test.ts` → `4 passed (4)`,
+`46 passed | 4 skipped (50)`, 51.16 s (patch `26 tests | 3 skipped`, identity `6 tests | 1
+skipped`, confined-file `2`, scope `16`). The identity RED was the whole file (`2 failed | 3
+passed | 1 skipped`); the patch and scope REDs were the named tests alone, failing on the
+messages quoted above.
 
 On 2026-10-31 the first hosted run of the correction branch (`a99d157`, run `41176398032`)
 failed all six cells; the failures were witness platform assumptions, not repair
@@ -124,7 +156,9 @@ tree, one measurement of seven files returned `7 passed (7)`, `174 passed | 4 sk
 review context `26`, client `64`, github-publisher `35`, pr stage `23`. A full local
 `npm test` ended exit 1 on `ENOSPC` alone — four tests and seven suites on a host with under
 2 GB free — and the eight affected files then ran alone as `8 passed (8)`, `92 passed (92)`,
-exit 0. Hosted CI on the amended head is the full-gate evidence.
+exit 0. Hosted run `41182636511` then passed all six matrix cells at `cb97f2c`, the head
+carrying R1–R8 and the platform witnesses; R9–R11 postdate that head, and their own hosted
+run is the remaining gate.
 
 ### Fixed — the publication page names the host it would be sent to
 

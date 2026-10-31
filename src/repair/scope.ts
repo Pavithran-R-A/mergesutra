@@ -103,6 +103,9 @@ function moved(
   if (!before) return after ? 'ADDED_BY_REPAIR' : 'UNCHANGED';
   if (!after) return 'REMOVED_BY_REPAIR';
   if (before.change !== after.change) return 'CHANGED_BY_REPAIR';
+  // The identity binds the executable bit, so a repair that only flips it changed
+  // the patch; comparing bytes alone would report the planned file as untouched.
+  if (before.executable !== after.executable) return 'CHANGED_BY_REPAIR';
   return before.contentSha256 === after.contentSha256 ? 'UNCHANGED' : 'CHANGED_BY_REPAIR';
 }
 

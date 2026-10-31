@@ -149,6 +149,31 @@ describe.skipIf(!AVAILABLE)('a repair that stayed inside its plan', () => {
     expect(delta.unexpectedFiles).toEqual([]);
   });
 
+  it('counts a repair that only sets the executable bit as a change to that file', () => {
+    const a = patchA();
+    const plan = planFor(['src/parse.ts'], a.identity);
+    // Since the identity binds the bit, a repair that only flips it changes the
+    // patch. A delta that compares bytes alone would call the planned file
+    // untouched while the patch it reports as changed says otherwise.
+    const b = patchDescriptionSchema.parse({
+      ...a.description,
+      identity: sha256Hex('exec-bit-only'),
+      files: a.description.files.map((file) =>
+        file.path === 'src/parse.ts' ? { ...file, executable: true } : file,
+      ),
+    });
+
+    const delta = classify(plan, a.description, b);
+
+    expect(delta.files.find((file) => file.path === 'src/parse.ts')).toEqual({
+      path: 'src/parse.ts',
+      delta: 'CHANGED_BY_REPAIR',
+      classification: 'EXPECTED',
+    });
+    expect(delta.plannedButUntouchedFiles).toEqual([]);
+    expect(delta.outcome).toBe('WITHIN_PLANNED_SCOPE');
+  });
+
   it('counts the omitted contextual file the plan added as planned work', () => {
     const a = patchA();
     const plan = planFor(['src/parse.ts', 'src/calendar.ts'], a.identity);

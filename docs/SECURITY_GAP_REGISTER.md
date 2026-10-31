@@ -8329,9 +8329,12 @@ installs and runs in a clean consumer.
 ## Audit round 2026-10-30 (close-out repairs R1–R6)
 
 Six defects found after F08, in the areas the audit's Phase 4 review held open. Each was
-reproduced before it was repaired, and each repair is bound to a witness that fails without
-it. They are numbered R1–R6 rather than F09–F14 because they extend the F-series' evidence
-without changing its disposition table.
+reproduced before it was repaired, and four of the six are bound to a witness that fails
+without the repair. The other two branches have no isolated witness: R2's earlier-page
+suffix is exercised only by the newest-record case, and no publisher test constructs the
+linked-parent upload that R5's call site serves, so their coverage is indirect. They are
+numbered R1–R6 rather than F09–F14 because they extend the F-series' evidence without
+changing its disposition table.
 
 **R1 — a gateway `Retry-After` could outlast the run's own ceiling.** `src/bharatcode/retry.ts`
 used the header's delay verbatim, so an hours-long value slept past the run's budget — or
@@ -8373,9 +8376,10 @@ junction pointing at a home directory, and `readFile` on the declared path follo
 `src/security/realpath.ts` gains `resolveConfinedFile`: both ends realpath'd, the leaf must be
 a regular file and not a link, and the caller reads the resolved path, not the spelling. The
 patch measurement and the publisher's upload use it; `src/review/context.ts` checks a tracked
-file before Git opens it, so `git diff` cannot be steered through the same link. A path the
-worktree no longer holds is the case that may resolve to nothing, and the 2026-10-31
-correction below narrows which caller reaches it. Witness: `tests/review/context.test.ts`,
+file before Git opens it, so `git diff` cannot be steered through the same link. The
+`allowMissing` case is not a deleted path: the 2026-10-31 correction below establishes that
+the only caller is the review context, and the file it serves is one the patch still names
+`MODIFIED` whose worktree copy is gone by read time. Witness: `tests/review/context.test.ts`,
 `withholds a tracked file whose directory now resolves outside the workspace`.
 
 **R5 — the publisher's confinement accepted a link it claimed to refuse.** The transport's
@@ -8393,7 +8397,10 @@ approval and the candidate's own branch; `src/pr/stage.ts` files it only from fa
 that name a full commit (an unknown outcome stays unknown) and refuses a second send when an
 attempt exists. Witnesses: `tests/pr/record.test.ts` (four malformed-attempt refusals),
 `tests/pr/stage.test.ts` (`does not offer or perform a second send after a refused pull
-request left a branch`).
+request left a branch`). The outcome word is what a script sees: without an attempt the same
+run reported `PR_CANDIDATE_RECORDED` or `PR_APPROVED_LOCAL` at exit 3; a run holding one now
+reports `PR_PUBLICATION_BLOCKED` at exit 4 (`src/cli/exit-codes.ts`). The exit-code change is
+deliberate and is stated here because R6's paragraph above does not show it.
 
 **Evidence.** At the working tree of 2026-10-30, the eight repair-focused files —
 `tests/bharatcode/retry.test.ts`, `tests/cli/status.test.ts`, `tests/lifecycle/snapshot.test.ts`,
@@ -8412,7 +8419,7 @@ record it cannot parse rather than inventing a path; no other shape has been obs
 the pinned Git versions. And no remote publication, npm publication or model request was made
 in this round.
 
-## Audit close-out correction 2026-10-31 (R7–R8, platform witnesses)
+## Audit close-out correction 2026-10-31 (R7–R11, platform witnesses)
 
 The first hosted run of the R1–R6 correction branch (`a99d157`, run `41176398032`) failed
 all six matrix cells. None of the six was a regression in the repairs: every failure was a
@@ -8449,10 +8456,13 @@ split the `-z` stream into fields, trimmed each, and paired them meta-then-path;
 was then split on spaces. A meta that did not carry its five parts (a status field missing)
 produced an empty status, and the file vanished from the patch. A modified file reported as
 "no change" hides exactly the difference an approval is about. Both the meta and the pair are now validated, and an unreadable record throws
-`invalid-response` naming the record index instead of being skipped; `tokens` no longer
+`invalid-response` instead of being skipped — naming the record's index for a malformed
+meta, and "the last record" for a trailing meta that has no path; `tokens` no longer
 trims, so a path whose own name begins with a space survives. Witness: `refuses a raw diff
 record it cannot read rather than silently dropping it` (RED: the promise resolved instead
-of rejecting; GREEN after). A golden witness recomputes the documented
+of rejecting; GREEN after). A second witness, written after the branch existed and so
+passing on its first run, pins the trailing-meta refusal; it is a characterisation witness,
+not a RED/GREEN one. A golden witness recomputes the documented
 `mergesutra-patch/1` preimage for one modified file and expects the identity to equal its
 SHA-256, so the product's formatter is pinned to the documentation rather than only to
 itself. That witness does not invoke the harness, and this round found the harness did not
@@ -8470,6 +8480,22 @@ being skipped. Witness: `agrees on a name that begins with a space, which no tok
 trim` (RED: `ENOENT ... lead-untracked.ts` from the child process, because the harness read
 the trimmed name; GREEN after).
 
+**R9 — the harness's diff could fail open the way R7 closed in the product.** Both readings
+in `scripts/lib/customer-environment.mjs` called `git diff` with the harness's
+`allowFailure: true`. A non-zero exit writes nothing to stdout, so
+`rederiveProductPatchIdentity` returned an identity over the untracked files only — a file
+set silently shrunk exactly as R7's skipped record shrank the product's — and
+`independentPatchIdentity` hashed an empty diff and called that the patch. The sentence
+above, that the harness "cannot silently shrink a file set", was therefore true of the
+record parser and false of the diff that feeds it. Both call sites now use the harness's
+failing `git()`; a base that is not an object exits 128 and the harness refuses. Witnesses:
+`refuses to re-derive the product identity when Git cannot produce the diff` and `refuses
+the independent Git reading on the same failure` (RED: each child resolved an identity
+instead of refusing; GREEN after). One difference is unchanged and is not a defect for the
+identity: the product also refuses a workspace whose `HEAD` has moved off the recorded base
+(`src/verify/patch.ts`), while the harness re-derives the digest from that base alone. Every
+record it checks was produced by a product that had already refused a moved `HEAD`.
+
 **R8 — `allowMissing` returned before the containment check.** `resolveConfinedFile`
 returned `null` for a missing leaf without resolving the path at all. A link in a parent
 directory means the same name resolves outside the workspace, so a caller that later hands
@@ -8479,11 +8505,14 @@ missing leaf under an ordinary directory still resolves to `null`. Witness:
 `tests/security/confined-file.test.ts` (RED: `expected null to be an instance of AppError`).
 
 The only caller that passes `allowMissing` is the review context, for every tracked file it
-is about to hand to Git. A patch that names a file the worktree no longer holds is
-classified `DELETED` and returns before that read, so this round did not demonstrate the
-hole end to end; what it demonstrated is the helper's own contract, which the unit witness
-pins. The earlier sentence in this section — that the review context "does exactly that for
-a tracked deletion" — was wrong, and the correction is recorded here rather than dropped.
+is about to hand to Git. The earlier draft's rationale — that a deletion is "the one case
+that may resolve to nothing" — was wrong twice over: a patch file classified `DELETED`
+returns before that read, and the case the flag actually serves is a file the patch still
+names as `MODIFIED` whose worktree copy is gone by read time, which `git diff` can still
+produce against the index (see the comment above `trackedContent` in
+`src/review/context.ts`). This round did not demonstrate the hole end to end; what it
+demonstrated is the helper's own contract, which the unit witness pins. The helper's
+docstring carried the same wrong rationale and now names the real caller.
 
 **R6 wording correction.** The second-send guard is keyed to the recorded attempt's
 candidate digest, not to the branch name. R6's sentence above ("a second push for a branch
@@ -8493,6 +8522,22 @@ the local guard, and is stopped by GitHub's own branch-exists refusal instead. B
 fail closed; the narrower statement is the true one. `CHANGELOG.md` carries the same
 correction.
 
+**R10 — a forty-megabyte ceiling inside `describePatch` refused legitimate repositories.**
+R4's rewrite of `hashIn` read each file whole and refused one larger than 40 MiB, so a patch
+that touched a large asset made `verify`, `review`, `repair` and `pr` fail before any stage
+could run; before R4 the file was hashed, however large. The cap is gone and the bytes are
+hashed as a stream, so memory stays bounded without deciding which repositories may be
+measured. Witness: `measures a file larger than forty megabytes, which no stage has reason to
+refuse` (RED: `Cannot name a patch: 'assets/big.bin' is 42991616 bytes, beyond the
+41943040-byte limit`; GREEN after).
+
+**R11 — a repair that only flipped the executable bit read as untouched.** `moved()` in
+`src/repair/scope.ts` compared change and content digest only. Since R3 binds the bit into the
+patch identity, an exec-only repair changed the reported patch while the file that carried it
+was classified `UNCHANGED` and landed in `plannedButUntouchedFiles`. The comparison now
+includes `executable`. Witness: `counts a repair that only sets the executable bit as a
+change to that file` (RED: `"delta": "UNCHANGED"`; GREEN after).
+
 **Evidence at the corrected tree.** One measurement, exit 0:
 `npx vitest run tests/verify/patch.test.ts tests/security/confined-file.test.ts
 tests/security/customer-environment-identity.test.ts tests/review/context.test.ts
@@ -8501,6 +8546,14 @@ tests/bharatcode/client.test.ts tests/pr/github-publisher.test.ts tests/pr/stage
 skipped`, confined-file `2 tests`, customer-environment-identity `4 tests | 1 skipped`,
 context `26 tests`, client `64 tests`, github-publisher `35 tests`, stage `23 tests`.
 
+At the R9–R11 amendment, one focused run of the four amended suites, exit 0:
+`npx vitest run tests/verify/patch.test.ts tests/security/customer-environment-identity.test.ts
+tests/security/confined-file.test.ts tests/repair/scope.test.ts` → `4 passed (4)`,
+`46 passed | 4 skipped (50)`, 51.16 s (patch `26 tests | 3 skipped`, identity `6 tests | 1
+skipped`, confined-file `2 tests`, scope `16 tests`). The identity RED was the whole file
+(`2 failed | 3 passed | 1 skipped (6)`); the patch and scope REDs were the named tests
+alone (`1 failed` each, the rest filtered), failing on the messages quoted above.
+
 A full local `npm test` at the working tree ended exit 1 after 2230 s: four tests failed and
 seven suites did not load, every one of them on `ENOSPC: no space left on device` (the host
 had 1.7–1.9 GB free of 476 GB, host-wide pressure rather than this tree). The eight affected
@@ -8508,11 +8561,21 @@ files then ran alone → `8 passed (8)`, `92 passed (92)`, exit 0. No assertion 
 in that run. Because the host cannot be relied on for a whole-suite run, hosted CI on the
 amended head is the full-gate evidence.
 
+Hosted run `41182636511` passed all six matrix cells at `cb97f2c`, the head that carries
+R1–R8 and the platform witnesses. R9–R11 were written after that head, so no hosted run has
+executed them yet; the focused runs above are their evidence until the amended head's own
+CI completes.
+
 **What is not claimed.** The two platform-specific witnesses are complementary skips: the
 junction is exercised only on the Windows cells and the file-link witness only on the POSIX
 cells, so no single host runs both. `resolveConfinedFile` refuses a tracked path that is a
 symbolic link even when the link points inside the workspace; the over-refusal is
-deliberate. `resolveExistingAncestor` cannot tell a dangling link from a missing directory —
+deliberate, and for a patch it is stage-blocking rather than a withheld read: a tracked link
+whose diff Git reports with mode 120000 makes `describePatch` throw, so `verify`, `review`,
+`repair` and `pr` cannot name any patch that touches a link. Carrying mode 120000 through the
+patch fact and the publisher — a blob whose content is the link target — is the repair; it is
+not in this round, and the product makes no symlink claim. `resolveExistingAncestor` cannot
+tell a dangling link from a missing directory —
 `realpath` fails on both — so the walk steps over the link and re-attaches its name; a caller
 that opens that name after a target is created for the link reaches the target. That is the
 same time-of-check/time-of-use class as S12-10, named in the helper's own docstring, not a
@@ -8522,5 +8585,6 @@ window. The harness fix changes only the re-derivation; the customer workflow th
 digest is exercised by hosted runs, and no hosted run has yet executed the amended head. Its
 new refusal of a malformed record is not itself witnessed — the harness drives real Git, and
 no observed Git version emits such a record; the product's equivalent refusal has a synthetic
-witness, and the harness branch exists so it cannot silently shrink a file set. No remote
-publication, npm publication or model request was made in this round.
+witness, and the harness refuses at both the record parser and the two diff readings rather
+than hash a partial file set. No remote publication, npm publication or model request was
+made in this round.

@@ -52,8 +52,9 @@ export interface ConfinedFile {
  * leave such a link behind — and a host-side read that followed it would put a
  * file the run never owned into a review prompt or an upload. Both ends are
  * realpath'd and compared, the leaf must be a regular file rather than a link,
- * and a missing file is either a refusal or, for callers that are describing a
- * deletion, `null`.
+ * and a missing file is either a refusal or, when a caller is about to hand the
+ * name to Git for a patch that still names it, `null` once the deepest existing
+ * ancestor is proved to be inside the root.
  */
 export async function resolveConfinedFile(
   root: string,

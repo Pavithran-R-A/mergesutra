@@ -30,9 +30,9 @@ const runChild = promisify(execFile);
 const HARNESS = `
 import { pathToFileURL } from 'node:url';
 
-const [libPath, workspace, base] = process.argv.slice(1);
+const [libPath, workspace, base, fn = 'rederiveProductPatchIdentity'] = process.argv.slice(1);
 const lib = await import(pathToFileURL(libPath).href);
-process.stdout.write(JSON.stringify(lib.rederiveProductPatchIdentity(workspace, base)));
+process.stdout.write(JSON.stringify(lib[fn](workspace, base)));
 `;
 
 interface RederivedIdentity {
@@ -47,6 +47,17 @@ async function rederived(workspace: string, base: string): Promise<RederivedIden
     { env: { PATH: process.env.PATH ?? '' }, maxBuffer: 16 * 1024 * 1024 },
   );
   return JSON.parse(stdout) as RederivedIdentity;
+}
+
+async function refusal(workspace: string, base: string, fn: string): Promise<string> {
+  const args = ['--input-type=module', '-e', HARNESS, LIB, workspace, base, fn];
+  const env = { PATH: process.env.PATH ?? '' };
+  try {
+    await runChild(process.execPath, args, { env, maxBuffer: 16 * 1024 * 1024 });
+  } catch (error) {
+    return String((error as { stderr?: string }).stderr ?? error);
+  }
+  throw new Error(`${fn} resolved instead of refusing a diff Git could not produce`);
 }
 
 const AVAILABLE = await hasGit();
@@ -155,4 +166,27 @@ describe.skipIf(!AVAILABLE)('the customer workflow re-derives the product identi
       });
     },
   );
+
+  it('refuses to re-derive the product identity when Git cannot produce the diff', async () => {
+    const prepared = await workspace({ 'src/parse.ts': 'export const parse = () => 1;\n' });
+    // A base that is not an object: `git diff` exits 128 and writes nothing to
+    // stdout. Reading that empty answer as "no tracked change" yields an identity
+    // over the untracked files only — a different file set, reported as agreement.
+    const stderr = await refusal(
+      prepared.workspace,
+      '0123456789abcdef0123456789abcdef01234567',
+      'rederiveProductPatchIdentity',
+    );
+    expect(stderr).toMatch(/exited 128/);
+  });
+
+  it('refuses the independent Git reading on the same failure, rather than hashing no diff', async () => {
+    const prepared = await workspace({ 'src/parse.ts': 'export const parse = () => 1;\n' });
+    const stderr = await refusal(
+      prepared.workspace,
+      '0123456789abcdef0123456789abcdef01234567',
+      'independentPatchIdentity',
+    );
+    expect(stderr).toMatch(/exited 128/);
+  });
 });

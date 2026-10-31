@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { z } from 'zod';
 import { createRunner, defaultRunner, type RunResult, type Runner } from '../core/runner.js';
 import { AppError } from '../core/errors.js';
@@ -55,8 +56,6 @@ const SHA_PATTERN = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 /** MergeSutra's own scratch, which is never part of the patch it describes. */
 const MERGESUTRA_SEGMENT = '.mergesutra/';
-/** A patch file beyond this is refused rather than read into this process. */
-const MAX_PATCH_FILE_BYTES = 40 * 1024 * 1024;
 
 export const patchChangeSchema = z.enum(['ADDED', 'MODIFIED', 'DELETED']);
 export type PatchChange = z.infer<typeof patchChangeSchema>;
@@ -365,25 +364,31 @@ async function hashIn(root: string, drafts: readonly DraftFile[]): Promise<Patch
         remediation: 'Check that the workspace is intact, then re-run verification.',
       });
     }
-    if (confined.size > MAX_PATCH_FILE_BYTES) {
-      throw new AppError({
-        kind: 'validation',
-        message:
-          `Cannot name a patch: '${draft.path}' is ${String(confined.size)} bytes, beyond the ` +
-          `${String(MAX_PATCH_FILE_BYTES)}-byte limit for a measured file.`,
-        remediation: 'Remove or shrink the file, or publish it through a human-controlled process.',
-      });
-    }
-    const bytes = await readFile(confined.absolute);
     facts.push({
       ...draft,
-      contentSha256: sha256Hex(bytes),
+      contentSha256: await sha256File(confined.absolute),
       // Git answered for a tracked path; only an untracked file needs the disk to
       // say whether it would be added executable.
       executable: draft.executable ?? (confined.mode & 0o111) !== 0,
     });
   }
   return facts;
+}
+
+/**
+ * The digest of a file's bytes, read as a stream.
+ *
+ * A patch may carry a file larger than this process would want to hold; the
+ * identity is over content, so the bytes are hashed as they are read rather than
+ * refused for their size. A repository with a large asset is still a repository a
+ * person can verify.
+ */
+async function sha256File(absolute: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(absolute)) {
+    hash.update(chunk as Buffer);
+  }
+  return hash.digest('hex');
 }
 
 function identityOf(input: {
