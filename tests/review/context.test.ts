@@ -254,7 +254,11 @@ describe.skipIf(!AVAILABLE)('what a review context must not contain', () => {
     const outside = await mkdtemp(path.join(tmpdir(), 'mergesutra-review-outside-'));
     made.push(outside);
     const hostSecret = 'HOST-SECRET-REVIEW-DO-NOT-SEND\n';
-    await writeFile(path.join(outside, 'parse.ts'), `export const leaked = '${hostSecret}';\n`, 'utf8');
+    await writeFile(
+      path.join(outside, 'parse.ts'),
+      `export const leaked = '${hostSecret}';\n`,
+      'utf8',
+    );
     await rm(path.join(fixture.workspace, 'src'), { recursive: true, force: true });
     const linked = await makeLink(outside, path.join(fixture.workspace, 'src'), 'directory');
     expect(linked, 'this host can create a directory link or junction').toBe(true);
