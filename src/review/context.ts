@@ -8,6 +8,7 @@ import {
   type ConfinedReader,
 } from '../security/reader.js';
 import { isRepositoryRelativePath } from '../security/path-safety.js';
+import { resolveConfinedFile } from '../security/realpath.js';
 import type { AcceptanceCriterion } from '../contract/schema.js';
 import type { RunRecord } from '../state/run-record.js';
 import { stalenessOf, type PatchChange, type PatchDescription } from '../verify/patch.js';
@@ -483,6 +484,23 @@ async function trackedContent(
   relativePath: string,
   cap: number,
 ): Promise<PatchContent | Refusal> {
+  // `git diff` opens the worktree path itself, so a junction left by a gate in the
+  // middle of that path would hand Git a file outside the workspace. The confined
+  // check resolves every link first. Deletions never reach this function; the
+  // `allowMissing` case is a file the stored patch still names `MODIFIED` whose worktree
+  // copy is gone by read time, and the `git diff` below then reports that removal.
+  try {
+    await resolveConfinedFile(
+      input.measured.workTree,
+      relativePath,
+      `review file '${relativePath}'`,
+      {
+        allowMissing: true,
+      },
+    );
+  } catch (error) {
+    return { refusal: oneLine(errorMessage(error)) };
+  }
   const result = await git(input.run, input.measured, [
     'diff',
     '--no-ext-diff',

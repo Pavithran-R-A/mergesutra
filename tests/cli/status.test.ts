@@ -12,6 +12,7 @@ import { cleanUp, NOW } from '../helpers/plan.js';
 import { recordWith } from '../helpers/review.js';
 import { reviewedRun } from '../helpers/repairRun.js';
 import { proposedRun } from '../helpers/publicationRun.js';
+import { fakeRemote, PUBLISHED_URL } from '../helpers/publicationRemote.js';
 import { memoryRunStore } from '../helpers/github.js';
 import { recordAt } from '../helpers/report.js';
 import { createFileRunStore } from '../../src/state/run-store.js';
@@ -283,9 +284,88 @@ describe.skipIf(!AVAILABLE)('mergesutra status', () => {
 
     const screen = c.text();
     expect(screen).toMatch(/human approval\s+CURRENT/i);
-    expect(screen).toMatch(/remote publication\s+DISABLED/i);
+    expect(screen).toMatch(/remote publication\s+NOT_ATTEMPTED_BY_THIS_BUILD/i);
+    expect(screen).toMatch(/no remote action is recorded/i);
     expect(screen).not.toMatch(/pr ready|ready to (publish|merge)|published/i);
     expect(screen).toContain('No files were changed.');
+  });
+
+  it('prints a recorded draft as an opened draft, and never as a merge', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => NOW },
+    );
+    await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '' },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => NOW },
+    );
+    const published = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      {
+        store: fixture.store,
+        runsRoot: fixture.runsRoot,
+        now: () => NOW,
+        remote: fakeRemote().remote,
+      },
+    );
+    expect(published.outcome).toBe('PR_DRAFT_OPENED');
+    const c = capture();
+
+    await run(['node', 'mergesutra', 'status', fixture.record.runId], {
+      ...depsFor(fixture),
+      write: c.write,
+      writeErr: c.writeErr,
+      env: { NO_COLOR: '1' },
+    });
+
+    // The old row said "DISABLED — this build has no remote" over a run whose record
+    // names a draft. The screen states the fact and stops short of the merge.
+    const screen = c.text();
+    expect(screen).toMatch(/remote publication\s+DRAFT_OPENED/i);
+    expect(screen).toContain(PUBLISHED_URL);
+    expect(screen).toMatch(/merging is a human act in github/i);
+    expect(screen).not.toMatch(/disabled|no remote to act on/i);
+    // "Nothing was merged" is the record's own sentence; what may not appear is a
+    // *state* claiming one.
+    expect(screen).not.toMatch(/\bMERGED\b/);
+    expect(screen).not.toMatch(/pr ready|ready to merge|ready to publish/i);
+  });
+
+  it('prints a branch whose pull request was refused, and offers no second send', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => NOW },
+    );
+    await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '' },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => NOW },
+    );
+    const failed = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      {
+        store: fixture.store,
+        runsRoot: fixture.runsRoot,
+        now: () => NOW,
+        remote: fakeRemote({ pullFails: true }).remote,
+      },
+    );
+    expect(failed.outcome).toBe('PR_PUBLICATION_BLOCKED');
+    const c = capture();
+
+    await run(['node', 'mergesutra', 'status', fixture.record.runId], {
+      ...depsFor(fixture),
+      write: c.write,
+      writeErr: c.writeErr,
+      env: { NO_COLOR: '1' },
+    });
+
+    const screen = c.text();
+    expect(screen).toMatch(/remote publication\s+BRANCH_CREATED/i);
+    expect(screen).toMatch(/inspect the branch and any pull request/i);
+    expect(screen).not.toMatch(/no remote action is recorded/i);
+    expect(screen).not.toContain('--publish');
   });
 
   it('offers only the commands the current facts justify, and never a way back', async () => {

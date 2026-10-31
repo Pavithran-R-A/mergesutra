@@ -316,7 +316,7 @@ describe('what a repair cycle could ever put in front of a process', () => {
     // (SECURITY_GAP_REGISTER.md S16-7).
     expect(closed.map(show)).toEqual([
       'verify/patch.ts: git diff --check',
-      'verify/patch.ts: git diff --name-status --no-renames --no-ext-diff -z value',
+      'verify/patch.ts: git diff --raw --no-renames --no-ext-diff -z value',
       'verify/patch.ts: git ls-files --others --exclude-standard -z',
       'verify/patch.ts: git rev-parse HEAD',
       'verify/workspace.ts: git diff --check',

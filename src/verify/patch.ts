@@ -1,10 +1,11 @@
-import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { z } from 'zod';
 import { createRunner, defaultRunner, type RunResult, type Runner } from '../core/runner.js';
 import { AppError } from '../core/errors.js';
 import { resolveTrustedGitDir, type TrustedGitDir } from '../git/workspace-git-dir.js';
 import { sha256Hex } from '../security/digest.js';
-import { resolveInsideRoot } from '../security/path-safety.js';
+import { resolveConfinedFile } from '../security/realpath.js';
 
 /**
  * Naming a patch, so evidence can be proved to describe it — Stage 7.
@@ -36,6 +37,14 @@ import { resolveInsideRoot } from '../security/path-safety.js';
  * - **The digest is over content, not over `git diff` text.** Diff output is a
  *   rendering — it moves with git's version and configuration — whereas a file's
  *   bytes are the same on every machine that reads them.
+ * - **A file's mode is part of the patch.** An executable bit changes what a
+ *   checkout would run and what a commit would carry, so it is measured beside
+ *   the bytes rather than left for whoever publishes them. Git answers for a
+ *   tracked path — including on a Windows checkout, where the index is the only
+ *   place the bit can exist — and the disk answers for an untracked one. Only the
+ *   flag is bound, and only when it is set, so a patch that carries no executable
+ *   file keeps the identity it had before the bit was measured: for such a patch
+ *   the older line set already described it completely.
  *
  * This module runs read-only Git commands and hashes files. It never stages,
  * commits, cleans, resets or removes anything.
@@ -60,6 +69,13 @@ export const patchFileFactSchema = z
     change: patchChangeSchema,
     /** Null only for a deletion; there is nothing left to hash. */
     contentSha256: z.string().regex(DIGEST_PATTERN).nullable(),
+    /**
+     * Whether the path carries an executable bit, as Git would record it.
+     *
+     * False for a deletion: there is no file for a bit to be set on, and the mode
+     * of a path being removed changes nothing about what the patch does.
+     */
+    executable: z.boolean(),
   })
   .strict();
 export type PatchFileFact = z.infer<typeof patchFileFactSchema>;
@@ -263,6 +279,8 @@ interface DraftFile {
   readonly path: string;
   readonly tracked: boolean;
   readonly change: PatchChange;
+  /** What Git records for a tracked path; null when only the disk can answer. */
+  readonly executable: boolean | null;
 }
 
 async function trackedChanges(
@@ -273,9 +291,15 @@ async function trackedChanges(
   // `--no-renames` is not a detail: a rename reported as R would carry two paths
   // and Git's similarity score, and the identity would then depend on a
   // heuristic. Two files — one gone, one new — is the same fact with no guesswork.
+  //
+  // `--raw` rather than `--name-status`, because the destination mode is half of
+  // what a commit changes: a script that gained its executable bit has the same
+  // bytes and a different effect. Git reports that mode from its index even where
+  // the filesystem has no bit to read (Windows), which is the only way this can be
+  // measured on every host the product runs on.
   const result = await git(run, measured, [
     'diff',
-    '--name-status',
+    '--raw',
     '--no-renames',
     '--no-ext-diff',
     '-z',
@@ -289,10 +313,11 @@ async function trackedChanges(
       details: { stderr: bound(result.stderr) },
     });
   }
-  return pairs(result.stdout).map(([status, relative]) => ({
+  return rawChanges(result.stdout).map(({ status, path: relative, executable }) => ({
     path: relative,
     tracked: true,
     change: changeOf(status),
+    executable,
   }));
 }
 
@@ -308,7 +333,12 @@ async function untrackedAdditions(run: Runner, measured: TrustedGitDir): Promise
   }
   return tokens(result.stdout)
     .filter((relative) => !isMergeSutraScratch(relative))
-    .map((relative) => ({ path: relative, tracked: false, change: 'ADDED' as const }));
+    .map((relative) => ({
+      path: relative,
+      tracked: false,
+      change: 'ADDED' as const,
+      executable: null,
+    }));
 }
 
 /**
@@ -323,14 +353,42 @@ async function hashIn(root: string, drafts: readonly DraftFile[]): Promise<Patch
   const facts: PatchFileFact[] = [];
   for (const draft of sorted) {
     if (draft.change === 'DELETED') {
-      facts.push({ ...draft, contentSha256: null });
+      facts.push({ ...draft, contentSha256: null, executable: false });
       continue;
     }
-    const absolute = resolveInsideRoot(root, draft.path, 'patch file');
-    const bytes = await readFile(absolute);
-    facts.push({ ...draft, contentSha256: sha256Hex(bytes) });
+    const confined = await resolveConfinedFile(root, draft.path, `patch file '${draft.path}'`);
+    if (confined === null) {
+      throw new AppError({
+        kind: 'validation',
+        message: `Cannot name a patch: '${draft.path}' disappeared while it was being measured.`,
+        remediation: 'Check that the workspace is intact, then re-run verification.',
+      });
+    }
+    facts.push({
+      ...draft,
+      contentSha256: await sha256File(confined.absolute),
+      // Git answered for a tracked path; only an untracked file needs the disk to
+      // say whether it would be added executable.
+      executable: draft.executable ?? (confined.mode & 0o111) !== 0,
+    });
   }
   return facts;
+}
+
+/**
+ * The digest of a file's bytes, read as a stream.
+ *
+ * A patch may carry a file larger than this process would want to hold; the
+ * identity is over content, so the bytes are hashed as they are read rather than
+ * refused for their size. A repository with a large asset is still a repository a
+ * person can verify.
+ */
+async function sha256File(absolute: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(absolute)) {
+    hash.update(chunk as Buffer);
+  }
+  return hash.digest('hex');
 }
 
 function identityOf(input: {
@@ -339,10 +397,14 @@ function identityOf(input: {
 }): string {
   const lines = [`mergesutra-patch/${PATCH_SCHEMA_VERSION}`, `base ${input.baseSha}`];
   for (const file of input.files) {
+    // The marker appears only when the bit is set, which keeps a patch that
+    // carries no executable file at the identity it had before the bit was
+    // measured — for such a patch the older line set described it completely.
+    // A patch that does carry one gets a new name, because the old one did not.
     lines.push(
       [
         file.tracked ? 'tracked' : 'untracked',
-        file.change,
+        file.executable ? `${file.change} exec` : file.change,
         file.path,
         file.contentSha256 ?? 'absent',
       ].join(' '),
@@ -358,23 +420,75 @@ function changeOf(status: string): PatchChange {
   return 'MODIFIED';
 }
 
-/** `-z` output is NUL-separated; `--name-status` alternates status and path. */
-function pairs(stdout: string): [string, string][] {
+interface RawChange {
+  readonly status: string;
+  readonly path: string;
+  readonly executable: boolean;
+}
+
+/**
+ * `--raw -z` alternates `:<old> <new> <oldsha> <newsha> <status>` and path.
+ *
+ * A record this parser does not recognise is refused, not skipped. Skipping it
+ * would produce a description missing a file — an identity over less than the
+ * patch, which can agree with another incomplete reading. The parser has seen one
+ * shape from the pinned Git versions; a second shape is a fact about the host,
+ * and the honest answer to it is that this build cannot name the patch.
+ */
+function rawChanges(stdout: string): RawChange[] {
   const fields = tokens(stdout);
-  const found: [string, string][] = [];
-  for (let index = 0; index + 1 < fields.length; index += 2) {
-    const status = fields[index] ?? '';
+  if (fields.length % 2 !== 0) {
+    throw malformedRaw(0, 'a record without its path');
+  }
+  const found: RawChange[] = [];
+  for (let index = 0; index < fields.length; index += 2) {
+    const meta = fields[index] ?? '';
     const relative = fields[index + 1] ?? '';
-    if (status.length > 0 && relative.length > 0) found.push([status, relative]);
+    const parts = meta.startsWith(':') ? meta.slice(1).split(' ') : [];
+    const status = parts[4] ?? '';
+    if (
+      !meta.startsWith(':') ||
+      parts.length !== 5 ||
+      status.length === 0 ||
+      relative.length === 0
+    ) {
+      throw malformedRaw(index / 2 + 1, 'a record whose fields are not the raw-diff shape');
+    }
+    const newMode = parts[1] ?? '';
+    // A deletion's destination mode is `000000`; nothing is left to execute.
+    found.push({
+      status,
+      path: relative,
+      executable: (Number.parseInt(newMode, 8) & 0o111) !== 0,
+    });
   }
   return found;
 }
 
+function malformedRaw(record: number, what: string): AppError {
+  return new AppError({
+    kind: 'invalid-response',
+    message:
+      `Git wrote a raw diff this build cannot read: ${what} ` +
+      `(${record > 0 ? `record ${String(record)}` : 'the last record'}).`,
+    remediation:
+      'Re-run verification on the workspace this run prepared, with the Git version this product supports; MergeSutra will not guess which file a malformed record meant.',
+  });
+}
+
+/**
+ * Git's `-z` fields, exactly as written.
+ *
+ * Every field is NUL-terminated, so the split leaves one empty tail field that is
+ * not a path. Nothing else is discarded: a path's leading or trailing whitespace
+ * is part of its name, and trimming it would measure a different file — or none
+ * at all. An empty field anywhere else is a shape Git did not write, and the
+ * caller refuses it rather than inventing a neighbour for it.
+ */
 function tokens(stdout: string): string[] {
-  return stdout
-    .split('\0')
-    .map((token) => token.trim())
-    .filter((token) => token.length > 0);
+  const fields = stdout.split('\0');
+  if (fields.length > 0 && fields[fields.length - 1] === '') fields.pop();
+  return fields;
 }
 
 function isMergeSutraScratch(relative: string): boolean {

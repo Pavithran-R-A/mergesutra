@@ -94,7 +94,13 @@ function fakeRemote(options: { pushFails?: boolean; pullFails?: boolean } = {}):
     async createPullRequest(input) {
       pulls.push(input);
       if (options.pullFails === true) {
-        throw new AppError({ kind: 'invalid-response', message: 'scripted pull failure' });
+        // The shape the real transport produces once a branch write has answered:
+        // the failure carries the branch and commit the repository now holds.
+        throw new AppError({
+          kind: 'invalid-response',
+          message: 'scripted pull failure',
+          details: { branch: input.head, commitSha: PUSHED_SHA },
+        });
       }
       return { url: PUBLISHED_URL, number: 7, draft: true };
     },
@@ -599,6 +605,64 @@ describe.skipIf(!AVAILABLE)('runPrStage', () => {
     const saved = await fixture.store.load(fixture.record.runId);
     expect(saved.publications[0]?.result).toBeNull();
     expect(saved.publications[0]?.approval).not.toBeNull();
+    // The branch is a fact the remote confirmed, so it is filed as one: a later run
+    // has to know it before deciding whether anything may be sent again.
+    expect(saved.publications[0]?.attempt).toMatchObject({
+      branch: `mergesutra/${fixture.record.runId}`,
+      commitSha: PUSHED_SHA,
+    });
+    expect(saved.publications[0]?.attempt?.reason).toMatch(/scripted pull failure/);
+  });
+
+  it('does not offer or perform a second send after a refused pull request left a branch', async () => {
+    const fixture = await proposedRun(tempDirs);
+    const shown = await runPrStage(
+      { runId: fixture.record.runId },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    await runPrStage(
+      { runId: fixture.record.runId, approve: shown.digest ?? '' },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW },
+    );
+    const first = fakeRemote({ pullFails: true });
+    const failed = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      { store: fixture.store, runsRoot: fixture.runsRoot, now: () => PR_NOW, remote: first.remote },
+    );
+    expect(failed.outcome).toBe('PR_PUBLICATION_BLOCKED');
+    const filedAttempt = (await fixture.store.load(fixture.record.runId)).publications[0]?.attempt;
+    expect(filedAttempt).not.toBeNull();
+
+    // A later invocation is asked to publish again. The branch is already there, and
+    // this product has no verb that opens a pull request without pushing one, so the
+    // only honest answer is to send nothing and point at the remote.
+    const second = fakeRemote();
+    const again = await runPrStage(
+      { runId: fixture.record.runId, publish: true },
+      {
+        store: fixture.store,
+        runsRoot: fixture.runsRoot,
+        now: () => PR_NOW,
+        remote: second.remote,
+      },
+    );
+
+    expect(second.pushes).toEqual([]);
+    expect(second.pulls).toEqual([]);
+    expect(again.outcome).toBe('PR_PUBLICATION_BLOCKED');
+    expect(again.publication).toBeNull();
+    expect(again.publicationFailure).toBeNull();
+    const rows = rowsOf(again.checks);
+    expect(rows).not.toMatch(/No branch was pushed and no pull request was opened/);
+    expect(rows).not.toMatch(/--publish|to ask GitHub for a draft pull request/i);
+    expect(rows).toMatch(/branch/i);
+    expect(rows).toMatch(new RegExp(PUSHED_SHA.slice(0, 12)));
+    expect(again.record.nextStage).toMatch(/PUBLICATION_INCOMPLETE/);
+    expect(again.record.nextStage).not.toMatch(/--publish/);
+    // The branch fact survives the later read, unchanged and not duplicated.
+    const saved = await fixture.store.load(fixture.record.runId);
+    expect(saved.publications).toHaveLength(1);
+    expect(saved.publications[0]?.attempt).toEqual(filedAttempt);
   });
 
   it('does not turn a programming error into a publication failure screen', async () => {

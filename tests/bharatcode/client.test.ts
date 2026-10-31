@@ -173,14 +173,14 @@ describe('BharatCodeClient.complete', () => {
 });
 
 describe('Retry policy (deterministic, offline)', () => {
-  it('retries a 429 and honours Retry-After', async () => {
+  it('retries a 429 and honours a Retry-After inside the ceiling', async () => {
     const { fetch, calls } = fakeFetch([
       { ok: false, status: 429, headers: { 'retry-after': '3' }, body: {} },
       { ok: true, status: 200, body: completionBody },
     ]);
     const { sleep, delays } = recordingSleeper();
     const client = createBharatCodeClient({
-      config: baseConfig(),
+      config: baseConfig({ retry: { maxRetries: 2, baseDelayMs: 100, maxDelayMs: 5000 } }),
       fetch,
       sleeper: sleep,
       random: () => 1,
@@ -189,6 +189,29 @@ describe('Retry policy (deterministic, offline)', () => {
     expect(res.text).toBe('hi there');
     expect(calls.length).toBe(2);
     expect(delays[0]).toBe(3000);
+  });
+
+  it('clamps a Retry-After the policy cannot afford at the client boundary', async () => {
+    // The header is parsed here and spent by the shared retry policy. A server
+    // asking for three seconds while the policy allows 400 ms must not move the
+    // request past the ceiling the caller configured.
+    const { fetch, calls } = fakeFetch([
+      { ok: false, status: 429, headers: { 'retry-after': '3' }, body: {} },
+      { ok: true, status: 200, body: completionBody },
+    ]);
+    const { sleep, delays } = recordingSleeper();
+    const client = createBharatCodeClient({
+      config: baseConfig({ retry: { maxRetries: 2, baseDelayMs: 100, maxDelayMs: 400 } }),
+      fetch,
+      sleeper: sleep,
+      random: () => 1,
+    });
+
+    const res = await client.complete({ messages: [] });
+
+    expect(res.text).toBe('hi there');
+    expect(calls.length).toBe(2);
+    expect(delays[0]).toBe(400);
   });
 
   it('performs bounded retries for a 503 and stops at maxRetries', async () => {

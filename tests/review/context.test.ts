@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   assembleReviewContext,
@@ -13,6 +14,7 @@ import { defaultRunner } from '../../src/core/runner.js';
 import { resolveTrustedGitDir } from '../../src/git/workspace-git-dir.js';
 import { createRunRecord, type RunRecord } from '../../src/state/run-record.js';
 import { TEST_MODEL } from '../helpers/bharatcode.js';
+import { makeLink } from '../helpers/fixture.js';
 import { put } from '../helpers/verifyRun.js';
 import {
   cleanUp,
@@ -241,6 +243,40 @@ describe.skipIf(!AVAILABLE)('what a review context must not contain', () => {
     expect(binary.presentation).toBe('WITHHELD');
     expect(binary.text).toBe('');
     expect(binary.reason).toMatch(/binary/i);
+  });
+
+  it('withholds a tracked file whose directory now resolves outside the workspace', async () => {
+    // The diff leg is `git diff` over the worktree path, and Git follows a junction
+    // a gate left where a tracked directory used to be. Without the confined check
+    // the reviewer would be handed a host file as though it were the patch — the
+    // very bytes the review exists to judge, from outside the run.
+    const fixture = await reviewFixture(made);
+    const outside = await mkdtemp(path.join(tmpdir(), 'mergesutra-review-outside-'));
+    made.push(outside);
+    const hostSecret = 'HOST-SECRET-REVIEW-DO-NOT-SEND\n';
+    await writeFile(
+      path.join(outside, 'parse.ts'),
+      `export const leaked = '${hostSecret}';\n`,
+      'utf8',
+    );
+    await rm(path.join(fixture.workspace, 'src'), { recursive: true, force: true });
+    const linked = await makeLink(outside, path.join(fixture.workspace, 'src'), 'directory');
+    expect(linked, 'this host can create a directory link or junction').toBe(true);
+
+    const context = await assembleReviewContext({
+      record: fixture.record,
+      workspace: fixture.workspace,
+      patch: fixture.patch,
+    });
+
+    const withheld = fileFor(context, 'src/parse.ts');
+    expect(withheld.presentation).toBe('WITHHELD');
+    expect(withheld.text).toBe('');
+    expect(withheld.reason).toMatch(/link or junction|outside the workspace/i);
+    expect(JSON.stringify(context)).not.toContain('HOST-SECRET-REVIEW-DO-NOT-SEND');
+    // The workspace still holds the diff Git used to show before the swap, so the
+    // assertion above is about the route, not about an empty patch.
+    expect(fixture.patch.files.map((file) => file.path)).toContain('src/parse.ts');
   });
 });
 

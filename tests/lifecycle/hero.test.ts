@@ -360,7 +360,7 @@ describe.skipIf(!AVAILABLE)('§52 the recovery hero', () => {
     const remotes = await defaultRunner('git', ['-C', fixture.workspace, 'remote']);
     expect(remotes.code).toBe(0);
     expect(remotes.stdout.trim()).toBe('');
-    expect(afterPr.publication?.remote).toBe('NOT_ATTEMPTED_BY_THIS_BUILD');
+    expect(afterPr.publication?.remote.state).toBe('NOT_ATTEMPTED_BY_THIS_BUILD');
 
     // §22, measured at the end rather than promised at the start: recovery did not put
     // the workspace back. The repair's bytes are still here, the commit the run started

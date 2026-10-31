@@ -5,7 +5,7 @@ import { candidateOf, parsePublicationCandidate } from '../../src/pr/candidate.j
 import { publicationDigestOf } from '../../src/pr/digest.js';
 import { buildPublicationRecord, parsePublicationRecord } from '../../src/pr/record.js';
 import type { PublicationRecord } from '../../src/pr/record.js';
-import { candidateInput } from '../helpers/publication.js';
+import { candidateInput, RUN_ID } from '../helpers/publication.js';
 
 /**
  * What Stage 10 stores about a publication: the proposal, the yes, and — only when a
@@ -27,6 +27,11 @@ import { candidateInput } from '../helpers/publication.js';
  * approval that names some other candidate's digest may not be filed beside this
  * candidate, which is how a stale yes would otherwise survive into the record and be
  * read as a current one.
+ *
+ * Between "no remote was asked" and "a draft exists" sits the state this record used
+ * to have no word for: a branch the transport created and read back, whose pull
+ * request was then refused. The attempt field names exactly that, and only that — a
+ * confirmed branch and commit, never a request that may or may not have landed.
  */
 
 const DRAFT_RESULT = {
@@ -34,6 +39,12 @@ const DRAFT_RESULT = {
   number: 7,
   draft: true as const,
   publishedAt: '2026-09-27T10:00:00.000Z',
+};
+
+const CREATED_BRANCH = {
+  branch: `mergesutra/${RUN_ID}`,
+  commitSha: 'd'.repeat(40),
+  reason: 'GitHub refused the pull request after the branch was created.',
 };
 
 function publicationRecord(overrides: Record<string, unknown> = {}): PublicationRecord {
@@ -60,7 +71,7 @@ describe('the publication Stage 10 records', () => {
   it('holds the candidate, the approval and the result as separate documents', () => {
     const record = publicationRecord();
 
-    expect(Object.keys(record).sort()).toEqual(['approval', 'candidate', 'result']);
+    expect(Object.keys(record).sort()).toEqual(['approval', 'attempt', 'candidate', 'result']);
     expect(record.candidate.prTitle).toBe('Parser accepts invalid empty dates');
     expect(record.approval?.action).toBe('CREATE_PULL_REQUEST');
     expect(record.result).toBeNull();
@@ -142,6 +153,79 @@ describe('the publication Stage 10 records', () => {
       'publishedAt',
       'url',
     ]);
+  });
+
+  it('keeps the branch a refused pull request left behind, with no draft claimed', () => {
+    const record = publicationRecord({ attempt: CREATED_BRANCH });
+
+    const loaded = parsePublicationRecord(JSON.parse(JSON.stringify(record)));
+
+    expect(loaded.attempt).toEqual(CREATED_BRANCH);
+    expect(loaded.result).toBeNull();
+    expect(Object.keys(loaded.attempt ?? {}).sort()).toEqual(['branch', 'commitSha', 'reason']);
+  });
+
+  it('refuses an attempt with no approval beside it', () => {
+    const error = capture(() =>
+      parsePublicationRecord({ ...publicationRecord(), approval: null, attempt: CREATED_BRANCH }),
+    );
+
+    expect(error.kind).toBe('validation');
+    expect(error.message).toMatch(/approval/i);
+  });
+
+  it('refuses an attempt and a result on one entry: a reported draft ends the attempt', () => {
+    const error = capture(() =>
+      parsePublicationRecord({
+        ...publicationRecord(),
+        attempt: CREATED_BRANCH,
+        result: DRAFT_RESULT,
+      }),
+    );
+
+    expect(error.kind).toBe('validation');
+    expect(error.message).toMatch(/attempt|result/i);
+  });
+
+  it('refuses an attempt that names a branch this candidate never proposed', () => {
+    const error = capture(() =>
+      parsePublicationRecord({
+        ...publicationRecord(),
+        attempt: { ...CREATED_BRANCH, branch: 'mergesutra/some-other-run' },
+      }),
+    );
+
+    expect(error.kind).toBe('validation');
+    expect(error.message).toMatch(/branch|proposed/i);
+  });
+
+  it('refuses an attempt without a full commit SHA', () => {
+    for (const commitSha of ['', 'd'.repeat(12), 'D'.repeat(40), 'z'.repeat(40)]) {
+      const error = capture(() =>
+        parsePublicationRecord({
+          ...publicationRecord(),
+          attempt: { ...CREATED_BRANCH, commitSha },
+        }),
+      );
+      expect(error.kind, commitSha).toBe('validation');
+    }
+  });
+
+  it('gives an attempt nowhere to claim a pull request or an outcome', () => {
+    for (const smuggled of [
+      { url: DRAFT_RESULT.url },
+      { number: 7 },
+      { merged: true },
+      { verified: true },
+    ]) {
+      const error = capture(() =>
+        parsePublicationRecord({
+          ...publicationRecord(),
+          attempt: { ...CREATED_BRANCH, ...smuggled },
+        }),
+      );
+      expect(error.kind, JSON.stringify(smuggled)).toBe('validation');
+    }
   });
 
   it('refuses a result with no approval beside it', () => {

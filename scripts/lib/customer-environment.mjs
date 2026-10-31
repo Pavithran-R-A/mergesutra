@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -203,9 +203,11 @@ export function parseWorktrees(porcelain) {
  * compute a second one, from a different tool, over the same bytes.
  */
 export function independentPatchIdentity(workspace, baseSha) {
-  const diff = git(['diff', '--no-ext-diff', '--no-color', baseSha, '--'], workspace, {
-    allowFailure: true,
-  });
+  // A diff that exits non-zero writes nothing to stdout. Reading that as "no
+  // tracked change" would hash an empty diff and call it the patch — the same
+  // silent shrink the product refuses — so the harness's failing `git()` is used
+  // here as it is for every other reading.
+  const diff = git(['diff', '--no-ext-diff', '--no-color', baseSha, '--'], workspace);
   const untracked = git(['ls-files', '--others', '--exclude-standard', '-z'], workspace);
   const names = untracked.stdout.split('\0').filter(Boolean).sort();
   const hasher = createHash('sha256');
@@ -239,40 +241,63 @@ function diffFiles(text) {
  *
  * `describePatch` (src/verify/patch.ts) documents its canonical form exactly:
  * sha256 over `mergesutra-patch/1`, `base <sha>`, then one line per file sorted
- * by path — `tracked|untracked CHANGE path content-sha`, with `absent` for a
- * deletion — where the file list is Git's `diff --name-status --no-renames
- * --no-ext-diff` for the base plus `ls-files --others --exclude-standard` minus
- * anything under `.mergesutra/`. Re-implementing that form here, in another
+ * by path — `tracked|untracked CHANGE[ exec] path content-sha`, with `absent` for a
+ * deletion and ` exec` only when the path carries an executable bit — where the
+ * file list is Git's `diff --raw --no-renames --no-ext-diff` for the base plus
+ * `ls-files --others --exclude-standard` minus anything under `.mergesutra/`. The
+ * mode comes from Git for a tracked path (its index answers even on Windows) and
+ * from `lstat` for an untracked one. Re-implementing that form here, in another
  * language and another process, is the only reading of a recorded identity that
  * proves it still describes the workspace: a digest the harness merely echoed
  * back would prove nothing.
  */
 export function rederiveProductPatchIdentity(workspace, baseSha) {
-  const tracked = git(
-    ['diff', '--name-status', '--no-renames', '--no-ext-diff', '-z', baseSha],
-    workspace,
-    { allowFailure: true },
-  );
-  const fields = tracked.stdout
-    .split('\0')
-    .map((token) => token.trim())
-    .filter(Boolean);
+  // An empty stdout from a failed `git diff` would leave an identity over the
+  // untracked files only, which is a different file set reported as agreement.
+  const tracked = git(['diff', '--raw', '--no-renames', '--no-ext-diff', '-z', baseSha], workspace);
+  const fields = zFields(tracked.stdout);
+  if (fields.length % 2 !== 0) {
+    throw new Error('git diff --raw returned a record without its path');
+  }
   const files = [];
-  for (let index = 0; index + 1 < fields.length; index += 2) {
-    const letter = (fields[index] ?? '').charAt(0);
+  for (let index = 0; index < fields.length; index += 2) {
+    const meta = fields[index] ?? '';
+    const relative = fields[index + 1] ?? '';
+    const parts = meta.startsWith(':') ? meta.slice(1).split(' ') : [];
+    const newMode = parts[1] ?? '';
+    const status = parts[4] ?? '';
+    if (
+      !meta.startsWith(':') ||
+      parts.length !== 5 ||
+      status.length === 0 ||
+      relative.length === 0
+    ) {
+      // The product refuses the same record (`invalid-response`); skipping it here
+      // would re-derive an identity for a different file set and call that agreement.
+      throw new Error(`git diff --raw record ${String(index / 2 + 1)} is not the raw-diff shape`);
+    }
+    const letter = status.charAt(0);
+    const change = letter === 'D' ? 'DELETED' : letter === 'A' ? 'ADDED' : 'MODIFIED';
     files.push({
       tracked: true,
-      change: letter === 'D' ? 'DELETED' : letter === 'A' ? 'ADDED' : 'MODIFIED',
-      path: fields[index + 1],
+      change,
+      path: relative,
+      // A deletion's destination mode is `000000`; nothing is left to execute.
+      executable: change !== 'DELETED' && (Number.parseInt(newMode, 8) & 0o111) !== 0,
     });
   }
   const untracked = git(['ls-files', '--others', '--exclude-standard', '-z'], workspace);
-  for (const name of untracked.stdout
-    .split('\0')
-    .map((token) => token.trim())
-    .filter(Boolean)) {
+  for (const name of zFields(untracked.stdout)) {
     if (isScratch(name)) continue;
-    files.push({ tracked: false, change: 'ADDED', path: name });
+    let executable = false;
+    try {
+      // Only the disk can answer for an untracked file; `lstat` asks about this
+      // path rather than about whatever a link might point at.
+      executable = (lstatSync(path.join(workspace, name)).mode & 0o111) !== 0;
+    } catch {
+      executable = false;
+    }
+    files.push({ tracked: false, change: 'ADDED', path: name, executable });
   }
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
@@ -286,7 +311,7 @@ export function rederiveProductPatchIdentity(workspace, baseSha) {
         .digest('hex');
     }
     digests.push(
-      `${file.tracked ? 'tracked' : 'untracked'} ${file.change} ${file.path} ${content}`,
+      `${file.tracked ? 'tracked' : 'untracked'} ${file.change}${file.executable ? ' exec' : ''} ${file.path} ${content}`,
     );
   }
   lines.push(...digests);
@@ -299,6 +324,19 @@ export function rederiveProductPatchIdentity(workspace, baseSha) {
 function isScratch(name) {
   const normalised = String(name).replaceAll('\\', '/');
   return normalised.startsWith('.mergesutra/') || normalised.includes('/.mergesutra/');
+}
+
+/**
+ * One `-z` field list, with only the terminating empty removed.
+ *
+ * A path is the bytes Git wrote, so nothing here trims: a name whose first
+ * character is a space is a different file from the one without it, and trimming
+ * would make the harness read (or fail to read) a neighbour.
+ */
+function zFields(stdout) {
+  const fields = stdout.split('\0');
+  if (fields.length > 0 && fields[fields.length - 1] === '') fields.pop();
+  return fields;
 }
 
 /** Names of every file under `dir`, for the "nothing else moved" proof. */

@@ -97,7 +97,13 @@ export async function runWithRetry<T>(
           });
       const canRetry = retry && attempt < config.maxRetries;
       if (!canRetry) throw appErr;
-      const delay = retryAfterMs ?? backoffDelayMs(config, attempt, random);
+      // A server's Retry-After is a request, not an exemption from this policy: an
+      // hours-long value would otherwise sleep past the run's own budget (or overflow
+      // Node's timer and fire in 1 ms), so it is subject to the same ceiling as jitter.
+      const delay =
+        retryAfterMs === undefined
+          ? backoffDelayMs(config, attempt, random)
+          : Math.min(config.maxDelayMs, retryAfterMs);
       options.onRetry?.({ attempt, error: appErr });
       await sleep(delay, signal);
       attempt += 1;

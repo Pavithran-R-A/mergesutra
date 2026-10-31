@@ -71,3 +71,29 @@ describe('retry classification of a hostile failure', () => {
     expect(attempts).toBe(1);
   });
 });
+
+describe('a server Retry-After is subject to the same ceiling as jitter', () => {
+  it('clamps an hours-long Retry-After to maxDelayMs', async () => {
+    const slept: number[] = [];
+    const sleep: Sleeper = async (ms) => {
+      slept.push(ms);
+    };
+    let attempts = 0;
+    const err = await runWithRetry(
+      async () => {
+        attempts += 1;
+        throw new AppError({
+          kind: 'rate-limit',
+          message: 'slow down',
+          retryable: true,
+          retryAfterMs: 7_200_000,
+        });
+      },
+      { config: { maxRetries: 1, baseDelayMs: 500, maxDelayMs: 15_000 }, sleep },
+    ).catch((e: unknown) => e);
+
+    expect(attempts).toBe(2);
+    expect(slept).toEqual([15_000]);
+    expect(err).toBeInstanceOf(AppError);
+  });
+});

@@ -26,11 +26,12 @@ import { createRenderer, resolveColor, type Renderer } from './render.js';
  * machine-readable one and get the same answer once the spelling is decoded.
  *
  * **Nothing on this page may read like a verdict.** So there is no "healthy", no
- * "no defects", no "PR ready" and no "published". A review with no findings is
- * reported as `0 findings recorded`, which is a fact about a document and not a
- * claim about code; an approved page is reported as an approval and a remote as
- * `DISABLED`, in two different rows, because collapsing them is exactly how a
- * tool talks a person into believing a pull request exists.
+ * "no defects", no "PR ready" and no "merged". A review with no findings is reported
+ * as `0 findings recorded`, which is a fact about a document and not a claim about
+ * code; an approved page and a remote act are reported in two different rows, because
+ * collapsing them is exactly how a tool talks a person into believing a pull request
+ * exists. The remote row says only what the record holds: no action, a reported
+ * draft, or a branch whose pull request was never reported.
  *
  * The exit code is the deliberate departure from the other stage commands, and it
  * is argued in docs/DECISIONS.md: this command returns 0 whenever it succeeded in
@@ -386,9 +387,10 @@ function pushStageDetail(
     } else {
       lines.push(row('Page', 'none assembled — nothing has been proposed', width));
     }
-    // A human's yes and a publication are never the same line, and never the same
-    // tense: one is a record of a decision about bytes, the other is an event that
-    // has not happened in this build and cannot be inferred from the first.
+    // A human's yes and a remote act are never the same line, and never the same
+    // tense: one is a record of a decision about bytes, the other is a fact the record
+    // holds about something outside this machine. `DISABLED` is gone from this row: a
+    // build that can send (`pr --publish`) may not describe itself as unable to.
     lines.push(
       row(
         'Human approval',
@@ -398,7 +400,8 @@ function pushStageDetail(
         width,
       ),
     );
-    lines.push(row('Remote publication', 'DISABLED — this build has no remote to act on', width));
+    lines.push(row('Remote publication', publication.remote.state, width));
+    lines.push(`  ${renderer.dim(publication.remote.detail)}`);
     lines.push('');
   }
 }
@@ -420,7 +423,8 @@ function state(value: string): string {
 
 function label(name: string, value: string, width: number): string {
   // Always at least two spaces of gutter, so a label that outgrows the column cannot
-  // print `Remote publicationDISABLED` — a collision that would read as a state word.
+  // print `Remote publicationNOT_ATTEMPTED_BY_THIS_BUILD` — a collision that would
+  // read as a state word.
   return `${name.padEnd(Math.max(name.length + 2, width))}${value}`;
 }
 
