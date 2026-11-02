@@ -6,6 +6,59 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — a completion request can be refused before it is sent
+
+The chain's ceiling has always been read back off the evidence after the fact:
+`MAX_MODEL_COMPLETIONS` in `scripts/lib/live-qualification.mjs` adds up the requests the
+stages filed and declares a *finished* run unqualified once the sum passes it. That answers
+"was this run within budget" and cannot answer "may this request be sent", and the gap
+between them is money. A request past the ceiling was reachable with no stage misbehaving, by
+three routes: `plan`, `implement` and `review` run as separate processes and `plan`'s own
+next-stage line tells the operator to run the next one, so no in-memory count outlives the
+process that made it; one `complete()` is `maxRetries + 1` POSTs on a busy service, and the
+shipped default is three; and a guard counting in memory while spending on the network reports
+a budget it did not enforce.
+
+`src/bharatcode/request-budget.ts` reserves one slot per completion request, as a marker file
+created exclusively in the directory named by `BHARATCODE_REQUEST_LEDGER`, and the reservation
+sits at the one line of `HttpBharatCodeClient.complete()` where a completion is actually asked
+for — after the credential check, so a request that could not have been made spends nothing,
+and before the transport, so a refusal never leaves the process. The claim is exclusive
+creation — the same kind of claim the per-run lock makes with `mkdir` — so two processes
+racing for the last slot cannot both win it, and a resumed process sees what the previous one
+spent because the count is on disk, not in the client. The ceiling counts requests rather than
+turns, so a retried attempt pays in too. Two consequences are deliberate: a slot is never
+refunded, because a cancelled, killed or failed request was still asked for, so a fresh run
+means pointing it at a fresh ledger directory — the reservation makes that directory when it is
+absent and never removes a marker from it, so nothing here resets a count between runs;
+and a ledger that cannot be created or written refuses the request rather than sends it,
+because a guard that spends when its bookkeeping breaks is a guard that spends. The two names
+are configured together or not at all — a ceiling with nowhere to count is a number nobody
+enforces, and this build has already had to correct that claim once in its documentation — so
+a half-set pair, a limit below one, and a relative ledger are configuration refusals at load,
+at exit `78`. With neither name set there is no budget, no directory and no filesystem access:
+that is the state of every job in this repository today, because no driver or workflow sets
+these variables yet. `implement` files a budget refusal as `MODEL_UNAVAILABLE` with a detail
+beginning `No request was sent.`, because the sentence it replaces describes a request that
+left, was retried and came back failed — every part of that is false here, and filing it would
+put a claim about spend that never happened into the pack a reviewer reads.
+
+Tests: `tests/bharatcode/request-budget.test.ts` (16 cases) refuses the third request after a
+ceiling of two and counts two POSTs, charges each retry attempt against the same ceiling, lets
+exactly one of two concurrent clients take the last slot, refuses a second client object
+pointed at a full ledger (the resume case), leaves the authenticated `GET /models` read
+uncounted, refuses rather than sends when the ledger cannot be written and names a different
+code for that than for exhaustion, spends nothing and touches no file when neither variable is
+set, and pins the sibling route `completeStructured` through the same ceiling; removing the
+reservation line takes 7 of the 16 down, including that sibling case, and each of the four
+configuration refusals has its own case. `tests/implement/loop.test.ts` holds the record-side
+half: the refusal is produced by the real reservation path rather than hand-written, disabling
+the branch in `src/implement/loop.ts` fails the case, and it asserts the detail does *not*
+contain the bounded-retries sentence. `tests/config/config-docs.test.ts` fails if either name
+is missing from `README.md`, and the `file:line` citations this change shifted in
+`docs/REAL_MODEL_E2E_PROCEDURE.md` were re-measured against the tree rather than adjusted by
+counting insertions.
+
 ### Fixed — approval binds the mode, status reports the remote, and no reader hashes a failed diff
 
 Six findings from the audit's close-out, five further defects two independent reviews then

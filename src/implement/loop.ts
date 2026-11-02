@@ -4,6 +4,7 @@ import {
   safeJsonParse,
   type BharatCodeClient,
 } from '../bharatcode/client.js';
+import { budgetRefusalCode } from '../bharatcode/request-budget.js';
 import type { ChatMessage } from '../bharatcode/types.js';
 import { loadBharatCodeConfig } from '../config/load-config.js';
 import type { AcceptanceContract } from '../contract/schema.js';
@@ -288,6 +289,14 @@ export async function runImplementationLoop(
       } catch (error) {
         if (deps.signal?.aborted || errorKind(error) === 'cancelled') {
           throw new LoopEnd('CANCELLED', 'Cancelled while a model request was in flight.');
+        }
+        if (budgetRefusalCode(error) !== null) {
+          // Not the sentence below. That one describes a request that left, was retried on
+          // the adapter's own bounded schedule, and came back failed — every part of which is
+          // false here, because a budget refusal happens before the request exists. Filing it
+          // anyway would put in the run record that the provider was asked and did not answer,
+          // which is a claim about spend that never happened.
+          throw new LoopEnd('MODEL_UNAVAILABLE', `No request was sent. ${reasonOf(error)}`);
         }
         // The client has already retried on its own bounded schedule. Asking again
         // here would turn a 503 into uncontrolled spend, which is the specific

@@ -29,11 +29,12 @@ general tutorial; `README.md` is that, and where the two disagree the screens pr
 
 | Name | Read at | Required | If it is absent |
 | --- | --- | --- | --- |
-| `BHARATCODE_API_KEY` | `src/config/load-config.ts:74` | yes, for `plan`, `implement`, `review`, `repair` | `doctor` FAILs that row; `plan` exits 78 before asking anything (§4) |
-| `BHARATCODE_MODEL` | `src/config/load-config.ts:91` | yes | `plan` has no `--model` flag, so the chain's fourth step ends in a configuration refusal |
-| `BHARATCODE_API_BASE` | `src/config/load-config.ts:38` | no | defaults to `https://bharatcode.ai/api/model/v1` (`src/bharatcode/types.ts:9`) |
-| `BHARATCODE_TIMEOUT_MS`, `BHARATCODE_MAX_RETRIES` | `src/config/load-config.ts:70-71` | no | `60000` ms and `3`; the live job sets `290000` and `0`. The Responses route answers as a stream, so headers arrive when the stream opens and this budget is enforced on every read for the whole answer. Before the headers arrive, Node's fetch still gives up at its own ~300 s `UND_ERR_HEADERS_TIMEOUT`, which no larger value here can raise |
-| `BHARATCODE_RETRY_BASE_MS`, `BHARATCODE_RETRY_MAX_MS` | `src/config/load-config.ts:95-100` | no | 500 ms and 15 000 ms |
+| `BHARATCODE_API_KEY` | `src/config/load-config.ts:135` | yes, for `plan`, `implement`, `review`, `repair` | `doctor` FAILs that row; `plan` exits 78 before asking anything (§4) |
+| `BHARATCODE_MODEL` | `src/config/load-config.ts:152` | yes | `plan` has no `--model` flag, so the chain's fourth step ends in a configuration refusal |
+| `BHARATCODE_API_BASE` | `src/config/load-config.ts:40` | no | defaults to `https://bharatcode.ai/api/model/v1` (`src/bharatcode/types.ts:9`) |
+| `BHARATCODE_TIMEOUT_MS`, `BHARATCODE_MAX_RETRIES` | `src/config/load-config.ts:131-132` | no | `60000` ms and `3`; the live job sets `290000` and `0`. The Responses route answers as a stream, so headers arrive when the stream opens and this budget is enforced on every read for the whole answer. Before the headers arrive, Node's fetch still gives up at its own ~300 s `UND_ERR_HEADERS_TIMEOUT`, which no larger value here can raise |
+| `BHARATCODE_RETRY_BASE_MS`, `BHARATCODE_RETRY_MAX_MS` | `src/config/load-config.ts:156-161` | no | 500 ms and 15 000 ms |
+| `BHARATCODE_MAX_COMPLETION_REQUESTS`, `BHARATCODE_REQUEST_LEDGER` | `src/config/load-config.ts:79-121` | no | unset, and the ceiling does not exist: no directory is made and no file is written, which is what every run in this repository does today, including the live jobs. Set together they cap the number of completion **requests** one ledger can send — one marker file per request, created exclusively, so a resumed process and a racing process both see the same count, and a retried attempt pays in too. Set one without the other, or a limit below 1, or a relative ledger, and the load itself refuses at exit `78`. A slot is never refunded, so a fresh run needs a fresh directory |
 | `NO_COLOR` | `src/cli/render.ts:41` | no | colour stays on |
 
 `implement --model <id>` can name a model for that one verb. Do not use it to pick a different
@@ -68,7 +69,7 @@ export BHARATCODE_MODEL='<the model your account offers>'
 - Never `export BHARATCODE_API_KEY=<the key>`: that writes the value into your shell history and
   into any file you paste it into.
 - Never pass it as an argument. No flag accepts one, and the adapter's own refusal says so
-  (`src/bharatcode/client.ts:525`).
+  (`src/bharatcode/client.ts:536`).
 - `unset BHARATCODE_API_KEY` when the run is over (§8).
 - The key is chosen by your BharatCode account. This build cannot list model names: `doctor
   --connect` reports how many models the endpoint says it has, not what they are called, so a
@@ -197,7 +198,7 @@ recovered run does not silently double the bill.
 What this build bounds, and what it does not:
 
 - **Output tokens.** Every request the chain makes carries a ceiling. `plan` and `implement` send
-  `max_output_tokens: 4096` (`src/plan/plan.ts:245`, `src/implement/loop.ts:278`) and `review`
+  `max_output_tokens: 4096` (`src/plan/plan.ts:245`, `src/implement/loop.ts:280`) and `review`
   sends 8192 (`REVIEW_MAX_OUTPUT_TOKENS` at `src/review/engine.ts:48`, sent at `:159`), which its
   one schema-repair turn carries too because both go through that call site. For the composition
   this workflow runs — 2 plan + 8 implement + 2 review, with review held to one cycle by
@@ -213,7 +214,7 @@ What this build bounds, and what it does not:
   `INCOMPLETE_OUTPUT` loop ending and a `REFUSED` review — never as a stored plan, a write, a
   command or a clean second reading — and none of them re-asks, so a truncation costs one request.
   One asymmetry a live run can hit: `plan` and `implement` send `reasoning: { effort: "none" }`
-  (`src/plan/plan.ts:246`, `src/implement/loop.ts:279`) while `review` leaves reasoning at the
+  (`src/plan/plan.ts:246`, `src/implement/loop.ts:281`) while `review` leaves reasoning at the
   provider's default, so a reviewer that reasons at length can be cut at 8192 and come back
   refused rather than answered. That is the ceiling doing its job; raise
   `REVIEW_MAX_OUTPUT_TOKENS`, or send `enableThinking: false` from the review engine, before a
@@ -248,7 +249,7 @@ before a client exists. `scripts/live-smoke.mjs` takes the model from the standa
 which is the model both variants share, refusing at exit `78` if a `BHARATCODE_MODEL` asks for a
 different one — so a run cannot choose its own target either. What the smoke does not set, it does
 not claim either:
-`stream` and `store` are the adapter's own hard-coded fields (`src/bharatcode/client.ts:997-998`),
+`stream` and `store` are the adapter's own hard-coded fields (`src/bharatcode/client.ts:1008-1009`),
 and the policy suite reads that file too, so the artifact's description of the request is checked
 against the code that builds it rather than restated by it.
 
