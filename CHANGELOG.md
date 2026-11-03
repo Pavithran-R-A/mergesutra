@@ -6,6 +6,179 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — the live chain now installs its own ceiling, and a re-run is refused before it spends
+
+The entry below built the guard. Nothing in this repository switched it on: the product counts only
+when it is told to, and a live chain whose ceiling was never installed does not fail — it sends as
+many requests as it likes, then reports the number it spent, and every field of the run looks healthy
+to a reader who believes the report. So the gap between a guard that exists and a guard that is
+configured was the actual defect, and it is closed at the two places a live run is decided.
+
+`.github/workflows/live-validation.yml` sets `BHARATCODE_MAX_COMPLETION_REQUESTS: '12'` and
+`BHARATCODE_REQUEST_LEDGER: ${{ runner.temp }}/mergesutra-request-ledger` on the one step that spends,
+and adds a step that refuses `GITHUB_RUN_ATTEMPT` other than `1` at exit `78` — before the
+authenticated catalog read, so a re-run spends nothing, not even a request that would not have been
+paid for. That step is the honest half of the design: GitHub keeps `GITHUB_RUN_ID` across a re-run and
+hands each attempt a brand new ephemeral machine, so the runner's temporary directory — the only place
+a job may privately write — is empty at the start of attempt two. The placement that makes the ledger
+safe *within* a run is exactly what makes it unable to outlive one. No new temporary directory is
+offered as proof that a budget survived a re-run; the attempt is refused instead of re-counted, and the
+existing `if: always()` artifact upload still carries the refusal to a person.
+
+`scripts/e2e-validation.mjs` re-checks the same environment on the parent before it spawns a single
+child (`scripts/lib/live-budget.mjs`, new): the pair, the ceiling being the number the qualification
+rules measure, an absolute ledger, retries pinned to zero, and — for a hosted run — attempt 1 and a
+ledger inside `RUNNER_TEMP` but not `RUNNER_TEMP` itself. `ledgerRefusals()` then validates the
+directory against what a hostile machine would present: a symbolic link, a regular file, a path that
+cannot be created, a filesystem that ignores `O_EXCL` (two writers both believing they took the last
+slot), and a ledger group- or other-readable. The permission check is decided by measurement rather
+than by the mode field, because a directory created with mode `0700` on this host's Windows filesystem
+reports `0666`: where the bits cannot discriminate, the guard says so in a note instead of refusing
+every legitimate run or pretending to have checked. The two answers that mean "no ledger directory is
+here yet" are now read together, because they are not the same answer everywhere: where a parent
+component exists and is not a directory, POSIX `lstat` replies `ENOTDIR` while this host replies
+`ENOENT`. Treating only `ENOENT` that way left every Linux and macOS runner describing an uncreatable
+ledger as one that "could not be inspected" — still refused, still before the first request, so the
+ceiling never moved, but with a reason an operator could not act on. Four of the six platform jobs on
+`c3a209e` said so in the same line; the file that should have caught it could not, because the host it
+was written on only ever produces one of the two codes, which is why that machine is now planted as a
+third fake filesystem rather than left to a runner's mood. `liveChildEnv()` hands the pair to every child and
+strips the credential and the GitHub tokens from the repository-facing ones — the budget names are
+deliberately not in the strip list, because a child that cannot authenticate cannot spend and a child
+that can must be counted. Nothing the driver files or prints carries the ledger path:
+`live-failure.json` and the summary are uploaded as artifacts.
+
+After the run, the ledger is counted independently of every stage's self-report
+(`countReservations()`), and the number is filed in the summary as `budget.reservationsWrittenToLedger`
+beside `budget.ceilingEnforcedBeforeTransport`, `budget.completionRetriesAllowed` and
+`budget.workflowRunAttempt`. More markers than the ceiling, or a ledger that cannot be read, refuses
+the run — after the fact, which is the correct direction: the spend already happened, and what is
+being withheld is the certificate.
+
+Tests: `tests/security/live-budget-preflight.test.ts` (new, 21 cases) runs the shipped module in a real
+Node process against planted directories and three fake filesystems, because a host cannot be made to
+ignore `O_EXCL`, to model permission bits, or to answer `ENOTDIR` where it answers `ENOENT` on demand; it also proves that the marker names the
+preflight protects are the names `reserveCompletion` writes, and that an operator running the chain
+locally without GitHub Actions is refused nothing. `tests/security/live-validation-workflow-policy.test.ts`
+grew to 26 cases and now pins the ordering that matters — attempt refusal before catalog before chain,
+both preflights before the driver's one `spawnSync` call site — plus a rule that nothing may delete,
+reset or truncate the ledger. `tests/bharatcode/request-budget.test.ts` grew from 16 to 21 cases with
+the chain's own ceiling at 12, a transport that dies after the reservation keeping its slot spent, an
+exhausted budget refusing without retrying or sleeping, and one ceiling spent across three independent
+clients.
+
+`tests/docs/real-model-procedure.test.ts` — the guard that refuses a procedure naming a variable no code
+reads — was blind to this branch's own preflight. It collected only `.ts` files, under `src` and `tests`,
+while `GITHUB_RUN_ATTEMPT` is read at `scripts/lib/live-budget.mjs:122` and recorded at
+`scripts/e2e-validation.mjs:680`: the documented row was right and the instrument was wrong, and it found
+this by refusing the one variable the live chain's preflight consumes. The corpus now accepts `.mjs` and
+walks `scripts` too, and a control asserts both halves — that the widened rule does read
+`GITHUB_RUN_ATTEMPT`, and that a name no file mentions is still reported as unread — because a corpus wide
+enough to match anything would have cleared the failure while checking nothing.
+
+Anti-vacuity: 20 planted defects, each in the shipped bytes, each requiring the named suite to fail and
+name the expected case, each restored byte-for-byte — the reservation removed from the transport path,
+the reservation moved to after the fetch, the exhausted code swapped for the unavailable one, the
+`mkdir` taken out of the guard, the ceiling defaulted to 13, the re-run and placement rules neutered,
+the symlink check, the exclusive-create probe and the measured-permission branch each ignored, the probe
+file renamed to a marker name, the ledger added to the credential strip list, the driver's preflight
+stubbed out, its readback field deleted, and four edits to the workflow itself. All 20 fired. One did
+not fire on the first attempt and that was a real finding, not a flake: the assertion on the re-run
+step's fail-closed default matched `${GITHUB_RUN_ATTEMPT:-unset}` anywhere in the step, and the step
+also *prints* that literal — so rewriting only the conditional's default to `1` walked straight through
+it, which is a guard that lets a re-run spend. The assertion now reads the default off the conditional
+itself and refuses any default that could satisfy "is 1".
+
+This supersedes two sentences in the entry below, both of which were true of its own commit and are not
+true of this tree: "no driver or workflow sets these variables yet" (the live chain sets both), and
+"removing the reservation line takes 7 of the 16 down" — re-measured against the 21 cases now in that
+file, it takes **12** of 21. That figure is one controlled run rather than an extrapolation: the file was
+hashed (`sha256` prefix `b056bea26dac7e45`, 47,750 bytes), line 533 — the single `reserveCompletion` call
+on the transport path — was deleted, `tests/bharatcode/request-budget.test.ts` was run alone on one worker
+and reported 12 failed | 9 passed at exit 1, the bytes saved before the edit were written back and
+re-hashed to `b056bea26dac7e45` with `git status` clean for that file, and the same suite then reported
+21 passed at exit 0.
+
+### Documentation — three real-model readings, told apart
+
+`docs/REAL_MODEL_E2E_PROCEDURE.md` carried the 11 October chain run and the 23 October failed smoke as
+prose that now read as one undated story, and its §1 table still said every run in the repository,
+live jobs included, leaves the ceiling unset. Each of the three hosted readings is now recorded with
+its own build, clock and outcome, re-taken from its own job log rather than copied forward: run
+38144174041 at `b1c18bfa` (the full chain, 9 of 12 completions), run 39909412225 at `cd03393c` (the
+`standard` smoke, cancelled by its own 90-second clock at 89,059 ms with `http=(none)`, no usage, exit
+`4`), and run 41393924176 at `5b104189` (the `availability` smoke on the current release: `PASS`, 2,294
+ms, finish reason `stop`, 21 characters, `prompt=54 completion=10 total=64`, sentinel matched, clean
+artifact audit, attempt 1). No historical evidence was rewritten — the October rows stand as they were
+measured — and the November row is bounded to what it shows: one bounded completion on the current
+adapter, not a chain.
+
+The 23 October failure is stated as an observation rather than a diagnosis. What the record holds is
+that no response headers had arrived when this build cancelled its own request at its own deadline;
+provider queueing, a cold route, runner contention and Node's fetch behaviour are each consistent with
+that, none of them is measured here, and the earlier attribution to Undici is not repeated. §5 of the
+procedure grew a table that separates what stops a request before it leaves — the 12-marker ledger, the
+unusable-ledger refusals, the driver's configuration preflight, the workflow's attempt refusal, retries
+pinned to zero — from what can only read a number afterwards: `MAX_MODEL_COMPLETIONS` in the
+qualification conjunction, the ledger readback, the 25-minute chain clock, the 290-second per-request
+deadline, and every acceptance item. §10 states the limitation that follows from taking the brief
+seriously: the guard has never met the real provider, because switching it on in a hosted run spends and
+that dispatch has not been authorised. `README.md`'s live-model block and its environment row were
+brought to the same reading.
+
+### Added — a completion request can be refused before it is sent
+
+The chain's ceiling has always been read back off the evidence after the fact:
+`MAX_MODEL_COMPLETIONS` in `scripts/lib/live-qualification.mjs` adds up the requests the
+stages filed and declares a *finished* run unqualified once the sum passes it. That answers
+"was this run within budget" and cannot answer "may this request be sent", and the gap
+between them is money. A request past the ceiling was reachable with no stage misbehaving, by
+three routes: `plan`, `implement` and `review` run as separate processes and `plan`'s own
+next-stage line tells the operator to run the next one, so no in-memory count outlives the
+process that made it; one `complete()` is `maxRetries + 1` POSTs on a busy service, and the
+shipped default is three; and a guard counting in memory while spending on the network reports
+a budget it did not enforce.
+
+`src/bharatcode/request-budget.ts` reserves one slot per completion request, as a marker file
+created exclusively in the directory named by `BHARATCODE_REQUEST_LEDGER`, and the reservation
+sits at the one line of `HttpBharatCodeClient.complete()` where a completion is actually asked
+for — after the credential check, so a request that could not have been made spends nothing,
+and before the transport, so a refusal never leaves the process. The claim is exclusive
+creation — the same kind of claim the per-run lock makes with `mkdir` — so two processes
+racing for the last slot cannot both win it, and a resumed process sees what the previous one
+spent because the count is on disk, not in the client. The ceiling counts requests rather than
+turns, so a retried attempt pays in too. Two consequences are deliberate: a slot is never
+refunded, because a cancelled, killed or failed request was still asked for, so a fresh run
+means pointing it at a fresh ledger directory — the reservation makes that directory when it is
+absent and never removes a marker from it, so nothing here resets a count between runs;
+and a ledger that cannot be created or written refuses the request rather than sends it,
+because a guard that spends when its bookkeeping breaks is a guard that spends. The two names
+are configured together or not at all — a ceiling with nowhere to count is a number nobody
+enforces, and this build has already had to correct that claim once in its documentation — so
+a half-set pair, a limit below one, and a relative ledger are configuration refusals at load,
+at exit `78`. With neither name set there is no budget, no directory and no filesystem access:
+that is the state of every job in this repository today, because no driver or workflow sets
+these variables yet. `implement` files a budget refusal as `MODEL_UNAVAILABLE` with a detail
+beginning `No request was sent.`, because the sentence it replaces describes a request that
+left, was retried and came back failed — every part of that is false here, and filing it would
+put a claim about spend that never happened into the pack a reviewer reads.
+
+Tests: `tests/bharatcode/request-budget.test.ts` (16 cases) refuses the third request after a
+ceiling of two and counts two POSTs, charges each retry attempt against the same ceiling, lets
+exactly one of two concurrent clients take the last slot, refuses a second client object
+pointed at a full ledger (the resume case), leaves the authenticated `GET /models` read
+uncounted, refuses rather than sends when the ledger cannot be written and names a different
+code for that than for exhaustion, spends nothing and touches no file when neither variable is
+set, and pins the sibling route `completeStructured` through the same ceiling; removing the
+reservation line takes 7 of the 16 down, including that sibling case, and each of the four
+configuration refusals has its own case. `tests/implement/loop.test.ts` holds the record-side
+half: the refusal is produced by the real reservation path rather than hand-written, disabling
+the branch in `src/implement/loop.ts` fails the case, and it asserts the detail does *not*
+contain the bounded-retries sentence. `tests/config/config-docs.test.ts` fails if either name
+is missing from `README.md`, and the `file:line` citations this change shifted in
+`docs/REAL_MODEL_E2E_PROCEDURE.md` were re-measured against the tree rather than adjusted by
+counting insertions.
+
 ### Fixed — approval binds the mode, status reports the remote, and no reader hashes a failed diff
 
 Six findings from the audit's close-out, five further defects two independent reviews then
@@ -527,9 +700,11 @@ reaches exactly two steps, and the first of those is a preflight that refuses an
 secret at exit `78` before install and build spend their minutes on it.
 
 The switch defaults to `false`, the job only runs on `main`, and the operator's authorization for a
-specific run is a separate act. One dispatch has been made: run 39909412225 on 2026-10-23 failed at
-89,059 ms against the 90 s clock, and `docs/REAL_MODEL_E2E_PROCEDURE.md` records what it proved and
-what it did not.
+specific run is a separate act. Two dispatches have been made, recorded apart in
+`docs/REAL_MODEL_E2E_PROCEDURE.md`: run 39909412225 on 2026-10-23 failed at 89,059 ms against the 90 s
+clock with no response headers yet — its cause is not attributed there — and run 41393924176 on
+2026-11-02 passed on the current release at 2,294 ms with finish reason `stop` and the sentinel
+matched.
 
 Tests: `tests/security/live-smoke-rules.test.ts` (the verdict matrix — in time, cut at the token
 limit while looking valid, no terminal event, completed but empty, late, and a clock that is

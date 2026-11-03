@@ -16,6 +16,7 @@ const LIVE_RULES = readFileSync(
 );
 const RUNTIME_PROOF = readFileSync(path.join(ROOT, 'scripts', 'sandbox-runtime-proof.mjs'), 'utf8');
 const PROCEDURE = readFileSync(path.join(ROOT, 'docs', 'REAL_MODEL_E2E_PROCEDURE.md'), 'utf8');
+const LIVE_BUDGET = readFileSync(path.join(ROOT, 'scripts', 'lib', 'live-budget.mjs'), 'utf8');
 
 const CHECKOUT_SHA = 'd23441a48e516b6c34aea4fa41551a30e30af803';
 const SETUP_NODE_SHA = '249970729cb0ef3589644e2896645e5dc5ba9c38';
@@ -107,6 +108,132 @@ describe('the controlled live-validation workflow', () => {
     // start a command once the clock is spent and gives each one the time left on it.
     expect(modelStep).toContain("BHARATCODE_TIMEOUT_MS: '290000'");
     expect(modelStep).toContain("BHARATCODE_MAX_RETRIES: '0'");
+  });
+
+  it('installs the pre-request ceiling on the step that spends', () => {
+    // The workflow used to describe a budget it could not enforce: the ceiling lived in the
+    // post-run qualification rules, which answer "was this run within budget" long after the
+    // requests were paid for. `reserveCompletion` answers "may this request be sent", and it
+    // only exists when both names reach the process — so the pair being *here*, on the chain
+    // step, is the thing under test. Half of it configured is worse than none: a number with
+    // nowhere to count reads as a guard and counts nothing.
+    const live = job('live-model');
+    const modelStep = live.slice(live.indexOf('- name: Run the bounded real-model chain'));
+    expect(modelStep).toContain("BHARATCODE_MAX_COMPLETION_REQUESTS: '12'");
+    expect(modelStep).toContain(
+      'BHARATCODE_REQUEST_LEDGER: ${{ runner.temp }}/mergesutra-request-ledger',
+    );
+    // One of each: a second pin anywhere else in the job is a second ceiling, and the job has
+    // no way to say which one the children would have inherited.
+    expect(live.match(/BHARATCODE_MAX_COMPLETION_REQUESTS:/g) ?? []).toHaveLength(1);
+    expect(live.match(/BHARATCODE_REQUEST_LEDGER:/g) ?? []).toHaveLength(1);
+    // The ceiling and the number the run is qualified against are one promise read two ways,
+    // so the workflow's figure is taken from the rules rather than repeated from memory.
+    const ceiling = Number(LIVE_RULES.match(/MAX_MODEL_COMPLETIONS = (\d+)/)?.[1]);
+    expect(ceiling, 'the qualification rules state a numeric ceiling').toBe(12);
+    expect(modelStep).toContain(`BHARATCODE_MAX_COMPLETION_REQUESTS: '${String(ceiling)}'`);
+    // A ledger under the workspace would sit in the directory the model under review writes
+    // into, so the placement rule is not decoration.
+    expect(modelStep).toContain('runner.temp');
+    expect(modelStep).not.toMatch(/BHARATCODE_REQUEST_LEDGER:\s*\$\{\{\s*github\.workspace/);
+  });
+
+  it('refuses a workflow re-run before the first credentialed request', () => {
+    // GitHub keeps `GITHUB_RUN_ID` across a re-run and hands each attempt a fresh ephemeral
+    // machine, so the runner's temporary directory — the only private place the job may write —
+    // is empty on attempt 2. A re-run would therefore get another full ceiling of paid
+    // requests under the very run the operator already watched stop. The answer is to refuse
+    // the attempt rather than to re-count it, and to refuse it before the catalog call, which
+    // is the job's first authenticated network read.
+    const live = job('live-model');
+    const refusal = live.indexOf(
+      '- name: Refuse a workflow re-run before any credentialed request',
+    );
+    const catalog = live.indexOf('- name: Verify selected model is in the authenticated catalog');
+    const chain = live.indexOf('- name: Run the bounded real-model chain');
+    expect(refusal, 'the attempt preflight step is missing').toBeGreaterThanOrEqual(0);
+    expect(refusal, 'the attempt preflight has to precede the catalog read').toBeLessThan(catalog);
+    expect(catalog, 'the catalog read has to precede the chain').toBeLessThan(chain);
+
+    const step = live.slice(refusal, catalog);
+    expect(step).toContain('GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}');
+    expect(step).toContain('!= "1"');
+    expect(step).toContain('exit 78');
+    // Fail closed with no gap: an unset variable is not a passing answer, and a step that
+    // could not be skipped would let a re-run through on a missing input.
+    //
+    // The default is read off the conditional and not off the step, because the same literal
+    // also appears in the message this step prints. A substring match over the whole step is
+    // therefore satisfied by prose while the test that decides whether the job runs spells its
+    // default `1` — which is the mutation that walked straight through this assertion once.
+    const guard = step.match(/if \[ "\$\{GITHUB_RUN_ATTEMPT:-([^}]*)\}" != "1" \]/);
+    expect(guard, 'the step has no conditional on GITHUB_RUN_ATTEMPT').not.toBeNull();
+    expect(guard?.[1], 'an unset attempt must not read as the first attempt').not.toBe('1');
+    expect(guard?.[1], 'the conditional has to name what an unset attempt means').not.toBe('');
+    expect(guard?.[1]).toBe('unset');
+    expect(step).not.toMatch(/^\s*if:/m);
+    expect(step).not.toContain('continue-on-error');
+    // The refusal needs no credential, so it never holds one.
+    expect(step).not.toContain('BHARATCODE');
+  });
+
+  it('validates the ceiling inside the driver, before it starts a single child', () => {
+    // The workflow pins the environment; the driver is what could quietly lose it, and a chain
+    // whose ceiling was never installed does not fail — it spends freely and then prints a
+    // number. So the order is the load-bearing fact: both checks run on the parent's own
+    // environment ahead of the one place a child is spawned.
+    const configCheck = DRIVER.indexOf('budgetConfigRefusals({ env: process.env })');
+    const ledgerCheck = DRIVER.indexOf(
+      'ledgerRefusals({ ledger: process.env.BHARATCODE_REQUEST_LEDGER })',
+    );
+    const spawn = DRIVER.indexOf('const result = spawnSync(file, args, {');
+    expect(configCheck, 'the driver checks the ceiling pair').toBeGreaterThanOrEqual(0);
+    expect(ledgerCheck, 'the driver validates the ledger directory').toBeGreaterThanOrEqual(0);
+    expect(spawn, 'the driver spawns children through one call').toBeGreaterThanOrEqual(0);
+    expect(configCheck, 'the ceiling check has to precede the first child').toBeLessThan(spawn);
+    expect(ledgerCheck, 'the ledger check has to precede the first child').toBeLessThan(spawn);
+    // The report the driver files carries the guard's own count, read off the ledger rather
+    // than off what each stage believed it asked for.
+    expect(DRIVER).toContain('hardCeilingForThisChain: MAX_MODEL_COMPLETIONS');
+    expect(DRIVER).toContain('reservationsWrittenToLedger: reservationsWritten');
+    expect(DRIVER).toContain('the request ledger could not be read after the run');
+  });
+
+  it('hands the budget pair to every child and the credential to none of the public ones', () => {
+    // The stages run as children of this driver, so a child environment that dropped the ledger
+    // would re-open the hole the guard exists to close: each stage counting its own spend in a
+    // directory nobody else could see. This is the same `childEnv` the fixture-acceptance
+    // inspection already uses, now delegating to the module the preflight tests.
+    expect(DRIVER).toContain('liveChildEnv({ env: process.env, publicGit })');
+    expect(DRIVER).toContain('env: childEnv({ publicGit: true })');
+    // The names the credential-strip is defined by, and the ceiling default, live beside the
+    // rule they protect rather than being restated in the driver.
+    expect(LIVE_BUDGET).toContain('export function liveChildEnv');
+    expect(LIVE_BUDGET).toContain("'BHARATCODE_API_KEY'");
+    expect(LIVE_BUDGET).toContain('ceiling = MAX_MODEL_COMPLETIONS');
+    // The budget variables are not on the strip list. They are the counter, and a
+    // repository-facing child that cannot authenticate cannot spend anyway. The list is read
+    // from its own declaration rather than searched across the file, so a `BHARATCODE_…` name
+    // mentioned 1,500 characters later cannot satisfy or falsify this by accident.
+    const stripStart = LIVE_BUDGET.indexOf('CREDENTIAL_ENV_NAMES = Object.freeze([');
+    expect(stripStart, 'the credential strip list is declared by name').toBeGreaterThanOrEqual(0);
+    const stripList = LIVE_BUDGET.slice(stripStart, LIVE_BUDGET.indexOf('])', stripStart));
+    expect(stripList).toContain('BHARATCODE_API_KEY');
+    expect(stripList).toContain('GH_TOKEN');
+    expect(stripList).not.toContain('REQUEST_LEDGER');
+    expect(stripList).not.toContain('MAX_COMPLETION_REQUESTS');
+  });
+
+  it('never wipes or rebuilds the ledger it is supposed to be counting', () => {
+    // A step that emptied the markers would refund every request the run already paid for, and
+    // a driver that deleted its own ledger could not report what it spent. The preflight is
+    // allowed to create and to probe; it is not allowed to remove anything shaped like a
+    // reservation, which the behaviour test proves against planted markers.
+    expect(WORKFLOW).not.toMatch(/rm\s+-[a-zA-Z]*\s+"?\$\{\{\s*runner\.temp/);
+    expect(WORKFLOW).not.toMatch(/(delete|remove|reset|truncate)[^\n]*ledger/i);
+    expect(DRIVER).not.toMatch(/rm\([^)]*BHARATCODE_REQUEST_LEDGER/);
+    expect(LIVE_BUDGET).toContain('LEDGER_PROBE_FILE');
+    expect(LIVE_BUDGET).not.toMatch(/unlink\([^)]*completion/);
   });
 
   it('states the transport bound instead of promising a cap it cannot honour', () => {

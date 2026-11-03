@@ -4,6 +4,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { AppError } from '../../src/core/errors.js';
+import { reserveCompletion } from '../../src/bharatcode/request-budget.js';
 import { implementationRecordSchema } from '../../src/implement/state.js';
 import { sha256Hex } from '../../src/security/digest.js';
 import {
@@ -710,6 +711,31 @@ describe('stopping, and what a stopped run keeps', () => {
     // uncontrolled spend this stage exists to prevent.
     expect(attempts).toHaveLength(1);
     expect(harness.implementation.termination.detail).toContain('bounded retries');
+    expect(harness.implementation.summary.modelRequests).toBe(0);
+  });
+
+  it('says no request was sent when the run budget refused, not that the model was asked', async () => {
+    // The sentence above is an account of a request that left and came back failed. A
+    // completion-budget refusal is the opposite event — the adapter stopped the request on
+    // this side of the transport — so reusing it would file a record claiming the provider
+    // was asked, retried, and did not answer, when none of that happened.
+    //
+    // The error comes from the real reservation path rather than being hand-written,
+    // because what the loop has to classify is whatever that module actually throws.
+    const ledger = await mkdtemp(path.join(tmpdir(), 'mergesutra-loop-budget-'));
+    tempDirs.push(ledger);
+    const budget = { limit: 1, ledgerDirectory: ledger };
+    await reserveCompletion(budget);
+    const client = scriptedClient([]);
+    client.complete = async () => {
+      await reserveCompletion(budget);
+      throw new AppError({ kind: 'server', message: 'unreachable: the refusal comes first' });
+    };
+    const harness = await runLoop(tempDirs, [], { deps: { client } });
+
+    expect(harness.implementation.termination.kind).toBe('MODEL_UNAVAILABLE');
+    expect(harness.implementation.termination.detail).toContain('No request was sent');
+    expect(harness.implementation.termination.detail).not.toContain('bounded retries');
     expect(harness.implementation.summary.modelRequests).toBe(0);
   });
 

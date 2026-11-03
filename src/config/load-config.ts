@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { z } from 'zod';
 import { AppError } from '../core/errors.js';
 import { defaultRedactor } from '../security/redaction.js';
@@ -6,6 +7,7 @@ import {
   DEFAULT_MAX_RETRIES,
   DEFAULT_TIMEOUT_MS,
   type BharatCodeClientConfig,
+  type RequestBudget,
 } from '../bharatcode/types.js';
 
 /**
@@ -59,6 +61,65 @@ function resolveBaseUrl(env: Env): string {
   return raw.replace(/\/+$/, '');
 }
 
+/**
+ * The optional pre-request completion budget, or nothing at all.
+ *
+ * Both halves have to be present, and the reason is what this function is for. A ceiling
+ * with nowhere to count into is a number nobody enforces: it reads like a budget, prints
+ * like a budget, and lets every request through — the exact defect this repository has
+ * already had to correct once in its documentation. So a half-configured pair is a
+ * configuration error at load time, before any request is possible, rather than a silent
+ * no-op or a request-time surprise.
+ *
+ * The ledger has to be an absolute path because the reservation is made by several
+ * processes that do not share a working directory: `plan`, `implement` and `review` each
+ * resolve a relative path against wherever they happened to be started, and three ledgers
+ * of one slot each is three times the ceiling.
+ */
+function resolveRequestBudget(env: Env): RequestBudget | undefined {
+  const rawLimit = env.BHARATCODE_MAX_COMPLETION_REQUESTS?.trim();
+  const rawLedger = env.BHARATCODE_REQUEST_LEDGER?.trim();
+  if (!rawLimit && !rawLedger) return undefined;
+  if (!rawLedger) {
+    throw new AppError({
+      kind: 'config',
+      message:
+        'BHARATCODE_MAX_COMPLETION_REQUESTS is set with no BHARATCODE_REQUEST_LEDGER, so there is ' +
+        'nowhere to record which requests have already been counted.',
+      remediation:
+        'Point BHARATCODE_REQUEST_LEDGER at an absolute directory this run owns, or unset ' +
+        'BHARATCODE_MAX_COMPLETION_REQUESTS to run without a ceiling.',
+    });
+  }
+  if (!rawLimit) {
+    throw new AppError({
+      kind: 'config',
+      message:
+        'BHARATCODE_REQUEST_LEDGER is set with no BHARATCODE_MAX_COMPLETION_REQUESTS, so the ' +
+        'ledger would fill up and never refuse anything.',
+      remediation: 'Set BHARATCODE_MAX_COMPLETION_REQUESTS to the number of requests authorised.',
+    });
+  }
+  const limit = Number(rawLimit);
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new AppError({
+      kind: 'config',
+      message: 'BHARATCODE_MAX_COMPLETION_REQUESTS must be a whole number of requests, at least 1.',
+      remediation: `It was set to ${JSON.stringify(rawLimit)}.`,
+    });
+  }
+  if (!path.isAbsolute(rawLedger)) {
+    throw new AppError({
+      kind: 'config',
+      message: 'BHARATCODE_REQUEST_LEDGER must be an absolute directory path.',
+      remediation:
+        'The stages of one run start in different directories, so a relative ledger path becomes ' +
+        'several ledgers and the ceiling stops meaning one run.',
+    });
+  }
+  return { limit, ledgerDirectory: rawLedger };
+}
+
 /** Load a BharatCode client config from an environment record. */
 export function loadBharatCodeConfig(env: Env = process.env): BharatCodeClientConfig {
   const parsedEnv = z
@@ -99,6 +160,7 @@ export function loadBharatCodeConfig(env: Env = process.env): BharatCodeClientCo
         ? Number(env.BHARATCODE_RETRY_MAX_MS)
         : 15_000,
     },
+    requestBudget: resolveRequestBudget(env),
   };
 }
 

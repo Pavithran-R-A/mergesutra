@@ -10,7 +10,9 @@ import {
   changesOutsideAllowlist,
   inspectFixtureAcceptance,
   liveQualificationFailures,
+  MAX_MODEL_COMPLETIONS,
 } from './lib/live-qualification.mjs';
+import { budgetConfigRefusals, ledgerRefusals, liveChildEnv } from './lib/live-budget.mjs';
 import {
   PACK_FILE_NAMES,
   buildPublicationBundle,
@@ -41,6 +43,7 @@ await mkdir(logRoot, { recursive: true });
 
 const secret = process.env.BHARATCODE_API_KEY ?? '';
 const configuredModel = process.env.BHARATCODE_MODEL ?? '';
+let budgetNotes = [];
 
 if (mode === 'live') {
   if (secret.length < 8) fail('BHARATCODE_API_KEY is not configured; no model request was sent.');
@@ -49,6 +52,19 @@ if (mode === 'live') {
       `BHARATCODE_MODEL must be one of ${[...ALLOWED_MODELS].join(', ')}; no model request was sent.`,
     );
   }
+  // The ceiling has to be installed before the first child starts, not merely configured
+  // somewhere upstream: the product counts only when both names reach it, so a chain whose
+  // ledger went missing spends freely and still prints a number at the end. Both checks run
+  // here, on the parent's own environment, because every child is built from it.
+  const configuration = budgetConfigRefusals({ env: process.env });
+  if (configuration.length > 0) {
+    fail(`${configuration.join('; ')}; no model request was sent.`);
+  }
+  const ledger = await ledgerRefusals({ ledger: process.env.BHARATCODE_REQUEST_LEDGER });
+  if (ledger.refusals.length > 0) {
+    fail(`${ledger.refusals.join('; ')}; no model request was sent.`);
+  }
+  budgetNotes = ledger.notes;
 } else {
   delete process.env.BHARATCODE_API_KEY;
   delete process.env.BHARATCODE_KEY;
@@ -82,16 +98,10 @@ function remainingMs() {
 }
 
 function childEnv({ publicGit = false } = {}) {
-  const env = { ...process.env, NO_COLOR: '1' };
-  if (publicGit) {
-    delete env.GH_TOKEN;
-    delete env.GITHUB_TOKEN;
-    delete env.GITHUB_PAT;
-    delete env.BHARATCODE_API_KEY;
-    delete env.BHARATCODE_KEY;
-    delete env.BHARATCODE_MODEL;
-  }
-  return env;
+  // The names stripped for repository-facing children live in `live-budget.mjs`, next to the
+  // rule they exist to protect: the budget pair must survive into every child, because a
+  // stage that cannot see the ledger is a stage that spends without counting.
+  return liveChildEnv({ env: process.env, publicGit });
 }
 
 function exec(label, file, args, options = {}) {
@@ -215,6 +225,24 @@ function fail(message) {
   const safe = sanitized(String(message));
   process.stderr.write(`LIVE_VALIDATION_FAILURE: ${safe}\n`);
   throw new Error(safe);
+}
+
+/**
+ * How many completion slots the ledger actually holds.
+ *
+ * Only names shaped exactly like the markers `reserveCompletion` writes are counted, so a
+ * stray file in the directory is not reported as a paid request. The ledger path itself never
+ * appears in the result or in anything derived from it: the summary is uploaded as an
+ * artifact, and a local operator's ledger sits wherever their home directory is.
+ *
+ * An unreadable directory returns null rather than 0. A count that could not be taken must
+ * not read as a run that asked for nothing.
+ */
+async function countReservations() {
+  if (mode !== 'live') return null;
+  const names = await readdir(process.env.BHARATCODE_REQUEST_LEDGER).catch(() => null);
+  if (!names) return null;
+  return names.filter((name) => /^completion-\d{4}$/.test(name)).length;
 }
 
 /**
@@ -604,6 +632,13 @@ async function main() {
     (implementation?.summary?.modelRequests ?? 0) +
     (review?.attempts ?? 0);
 
+  // The guard's own side of the count, read off the ledger rather than off the stages. Each
+  // marker is one completion that left this process, so this number is what the ceiling was
+  // actually enforced against — and it is the only figure here that a stage could not have
+  // mis-reported. A failure to read the directory is recorded as null rather than as zero: a
+  // missing count must not look like a run that asked for nothing.
+  const reservationsWritten = await countReservations();
+
   const summary = {
     mode,
     sourceSha: process.env.GITHUB_SHA ?? null,
@@ -630,8 +665,22 @@ async function main() {
       implementationRequests: implementation?.summary?.modelRequests ?? 0,
       reviewAttempts: review?.attempts ?? 0,
       completionsObserved: completionCount,
-      hardCeilingForThisChain: 12,
+      hardCeilingForThisChain: MAX_MODEL_COMPLETIONS,
     },
+    // Which of the two numbers came from enforcement and which from bookkeeping. The stages
+    // report what they believe they asked; the ledger is what the transport actually let
+    // through, and the preflight ran before either number existed. Null in the no-key run,
+    // where nothing spends and no ceiling is installed.
+    budget:
+      mode === 'live'
+        ? {
+            ceilingEnforcedBeforeTransport: MAX_MODEL_COMPLETIONS,
+            reservationsWrittenToLedger: reservationsWritten,
+            completionRetriesAllowed: Number(process.env.BHARATCODE_MAX_RETRIES),
+            workflowRunAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+            preflightNotes: budgetNotes,
+          }
+        : null,
     implementation: implementation
       ? {
           status: implementation.status,
@@ -697,6 +746,24 @@ async function main() {
   process.stdout.write(JSON.stringify(summary, null, 2) + '\n');
 
   if (mode === 'live') {
+    // The ceiling is a property of the ledger, not of the report. The guard wrote one marker
+    // per request it let through, so a count past the ceiling means it was bypassed rather
+    // than that a stage mis-added its own turns — and a ledger that cannot be read means this
+    // run cannot say what it spent at all. Both are reported as unqualified after the fact,
+    // which is the honest direction: the spend already happened, and what is being refused
+    // here is the certificate, not the request.
+    if (reservationsWritten === null) {
+      fail(
+        'the request ledger could not be read after the run, so this chain cannot say how many ' +
+          'completions its guard allowed',
+      );
+    }
+    if (reservationsWritten > MAX_MODEL_COMPLETIONS) {
+      fail(
+        `${String(reservationsWritten)} completion reservations are in the ledger and this chain's ceiling is ` +
+          `${String(MAX_MODEL_COMPLETIONS)}: the pre-request guard was bypassed, not exceeded`,
+      );
+    }
     const failures = liveQualificationFailures({
       completionCount,
       elapsedMs: Date.now() - startedAt,

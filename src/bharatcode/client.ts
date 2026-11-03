@@ -2,6 +2,7 @@ import { AppError, isAppError, isErrorLike, kindForStatus, retryFacts } from '..
 import { Redactor } from '../security/redaction.js';
 import { terminalSafeSingleLine } from '../security/terminal-safety.js';
 import { ResponseStream } from './responses.js';
+import { reserveCompletion } from './request-budget.js';
 import { parseModelList } from './schemas.js';
 import { abortOutcome, parseRetryAfter, runWithRetry, throwIfCancelled } from './retry.js';
 import { SseParser, type SseFrame } from './sse.js';
@@ -330,6 +331,7 @@ export class HttpBharatCodeClient implements BharatCodeClient {
         baseDelayMs: deps.config?.retry?.baseDelayMs ?? 500,
         maxDelayMs: deps.config?.retry?.maxDelayMs ?? 15_000,
       },
+      requestBudget: deps.config?.requestBudget,
     };
     this.fetch = deps.fetch ?? realFetch;
     this.sleeper = deps.sleeper ?? defaultSleeper;
@@ -520,6 +522,15 @@ export class HttpBharatCodeClient implements BharatCodeClient {
     model: string;
   }): Promise<CompletionResult> {
     const auth = this.requireKey();
+    // The reservation is taken here, at the one line this build asks the provider for a
+    // completion, rather than in a stage that intends to make one. Every route to a
+    // completion passes through this call — `completeStructured` delegates to `complete`,
+    // and a retry re-enters it — so a ceiling collected here counts requests, which is
+    // what the run was authorised for, instead of turns, which is what the caller planned.
+    //
+    // It comes after `requireKey()` on purpose: a request that could not have been made
+    // because no credential is configured never consumes a slot.
+    if (this.config.requestBudget) await reserveCompletion(this.config.requestBudget);
     let response: Awaited<ReturnType<FetchLike>>;
     try {
       response = await this.fetch(this.url('/responses'), {

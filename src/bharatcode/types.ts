@@ -25,12 +25,34 @@ export interface RetryConfig {
   maxDelayMs: number;
 }
 
+/**
+ * A ceiling on how many completion requests may be sent, and where the count of those
+ * already sent is kept.
+ *
+ * The count lives on disk, not in a client object, for two reasons this configuration
+ * exists to serve. A run is several `mergesutra` processes — `plan`, `implement`, `review`
+ * — so a number one of them holds in memory is unknown to the next, and `plan`'s own
+ * next-stage line tells the operator to run it again. And the retries this adapter makes
+ * are the provider's spend too: an attempt that re-enters the transport has to pay into
+ * the same ceiling, which only a reservation taken at the transport can collect.
+ *
+ * Absent means unbounded: nothing about an ordinary run's requests changes until somebody
+ * names both a ceiling and a ledger.
+ */
+export interface RequestBudget {
+  /** The most completion requests this configuration will let leave the process. */
+  readonly limit: number;
+  /** Absolute directory holding one marker file per request already reserved. */
+  readonly ledgerDirectory: string;
+}
+
 export interface BharatCodeClientConfig {
   apiKey: string | undefined;
   baseUrl: string;
   model: string | undefined;
   timeoutMs: number;
   retry: RetryConfig;
+  requestBudget?: RequestBudget;
 }
 
 export interface ModelInfo {

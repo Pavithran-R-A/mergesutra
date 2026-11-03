@@ -168,7 +168,11 @@ function everySourceText(relativeDir: string): string {
     for (const entry of readdirSync(dir)) {
       const full = path.join(dir, entry);
       if (statSync(full).isDirectory()) walk(full);
-      else if (entry.endsWith('.ts')) files.push(readFileSync(full, 'utf8'));
+      // `.mjs` is not an afterthought: the live chain's driver and its budget preflight are
+      // ESM JavaScript under `scripts/`, and a reader that only knows `.ts` reports a variable
+      // the driver reads on the very next line as one "no code reads". That is the shape this
+      // guard was written to catch, fired at the instrument itself.
+      else if (/\.(?:ts|mjs)$/.test(entry)) files.push(readFileSync(full, 'utf8'));
     }
   };
   if (existsSync(path.join(ROOT, relativeDir))) walk(path.join(ROOT, relativeDir));
@@ -176,7 +180,11 @@ function everySourceText(relativeDir: string): string {
 }
 
 const SRC = everySourceText('src');
-const CODE = `${SRC}\n${everySourceText('tests')}`;
+// `scripts` is in the corpus because a hosted live run is code too: `GITHUB_RUN_ATTEMPT` is
+// read at `scripts/lib/live-budget.mjs:122` and recorded at `scripts/e2e-validation.mjs:680`,
+// and the procedure documents both. Excluding it made the rule blind to the one reader that
+// exists for every variable the live chain's own preflight consumes.
+const CODE = `${SRC}\n${everySourceText('tests')}\n${everySourceText('scripts')}`;
 
 /** Read from an environment somewhere, or emitted as a quoted constant by source. */
 function nameAppearsInCode(name: string): boolean {
@@ -296,6 +304,22 @@ describe('every variable the procedure exports is one something reads', () => {
       unread,
       `the procedure tells a person to set a variable no code reads: ${unread.join(', ')}`,
     ).toEqual([]);
+  });
+
+  it('can still fail, because a corpus wide enough to read anything proves nothing', () => {
+    // Widening the corpus to `scripts/*.mjs` is only honest if the rule keeps biting. Two
+    // bounds, measured against the predicate rather than asserted in prose: the name this
+    // change was walked into must now resolve to its real reader, and a name nobody wrote
+    // anywhere must still come back unread. Drop `scripts` from CODE and the first fails;
+    // make the predicate unconditional and the second fails.
+    expect(
+      nameAppearsInCode('GITHUB_RUN_ATTEMPT'),
+      'the preflight reads GITHUB_RUN_ATTEMPT, so the procedure may name it',
+    ).toBe(true);
+    expect(
+      nameAppearsInCode('MERGESUTRA_A_VARIABLE_NOBODY_WROTE_DOWN'),
+      'a name absent from every source file must still be reported as unread',
+    ).toBe(false);
   });
 });
 

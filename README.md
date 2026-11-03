@@ -48,8 +48,17 @@ becomes a PR."*
 > no findings, and the live job ran 2,368 passing tests (6 skipped) before the
 > chain. That commit predates the current tree; the run proves one bounded
 > fixture task, not general customer reliability, and its PR was neither approved
-> nor published (`NOT_READY_FOR_PUBLICATION`). Real-model latency under the
-> current 290-second per-request cap is unproven.
+> nor published (`NOT_READY_FOR_PUBLICATION`). On the current release, one
+> single-request smoke has passed: [run #41393924176](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41393924176)
+> (2 November 2026, commit `5b104189b85922d72713076529c82ab36622e1d7`) answered in
+> 2,294 ms with finish reason `stop`, 64 reported tokens and the sentinel matched
+> exactly — connectivity and one bounded completion, not a chain. A second dispatch
+> (23 October 2026, [run #39909412225](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39909412225))
+> was cancelled by its own 90-second clock with no response headers yet; its cause is
+> not established here. Real-model latency for a full chain under the current
+> 290-second per-request cap is unproven, and so is the request ceiling below against
+> a live route: it is enforced before a request is sent and has only ever been
+> exercised offline.
 >
 > **Demonstration.** [`scripts/demo-scripted-journey.mjs`](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/scripts/demo-scripted-journey.mjs)
 > drives the production CLI through
@@ -1779,13 +1788,49 @@ source.
 - **`BHARATCODE_MAX_RETRIES`** — the adapter's own bounded retries, default `3`.
 - **`BHARATCODE_RETRY_BASE_MS`** — the backoff floor, default `500`.
 - **`BHARATCODE_RETRY_MAX_MS`** — the backoff ceiling, default `15000`.
+- **`BHARATCODE_MAX_COMPLETION_REQUESTS`** and **`BHARATCODE_REQUEST_LEDGER`** — the
+  ceiling on how many completion requests a run may send, and the directory that counts
+  them. They are a pair: a ceiling with nowhere to record what has already been spent is a
+  number nobody enforces, so setting one without the other is a configuration refusal at
+  exit `78` that names the variable missing, before any request is possible
+  (`src/config/load-config.ts:79-121`). Set neither — which is what an ordinary run still does,
+  and was the state of every run in this repository before the live chain grew a ceiling — and
+  there is no ceiling, no directory, and no filesystem access at
+  all; an ordinary run behaves exactly as it did before this pair existed.
+  The count is a directory of marker files, one per request, each created exclusively, so
+  the same ceiling is seen by every process pointed at the same ledger: `plan`, `implement`,
+  `review` and `repair` each call that loader, and `mergesutra resume` reaches it by running
+  those stages rather than reading the names itself, so a resumed process is charged against
+  the ledger its run has already spent — which is the case a count kept in memory cannot
+  see — and two processes racing for the last slot cannot both win it. What it counts is
+  requests rather than turns: an attempt the adapter retries spends a slot of its own, so
+  with the default
+  `BHARATCODE_MAX_RETRIES=3` one intended completion can take as many as four. A slot is
+  spent and never refunded — a request that was cancelled, killed mid-flight, or answered
+  with an error was still asked for, and under-counting is the failure this pair exists to
+  prevent — so a fresh run needs a fresh ledger directory, and
+  `BHARATCODE_REQUEST_LEDGER` must be an absolute path because the stages of one run start
+  in different directories and a relative path becomes several ledgers. At the ceiling the
+  request is refused where it would have been sent, non-retryably, with
+  `This run's BharatCode completion budget of N requests is already spent, so the request
+  was refused here and never left this process.`; `implement` files that as
+  `MODEL_UNAVAILABLE` with a detail beginning `No request was sent.` rather than its usual
+  sentence about bounded retries, because nothing was asked and a record saying otherwise
+  would be a claim about spend that never happened. A ledger this build cannot create or
+  write refuses the request too — a guard that spends when its bookkeeping breaks is a
+  guard that spends.
 
 A numeric variable that is empty, unparseable, negative or unmeasurable falls back
 to its default instead of failing the run, and a fractional value is floored; `0`
 is honoured, which is how a person turns retrying off
-(`src/config/load-config.ts:22-30`). A loop's budgets are flags rather than
+(`src/config/load-config.ts:29-37`). A loop's budgets are flags rather than
 variables — `--max-steps`, `--max-writes` and `--max-commands` on `implement`,
 each capped, and `mergesutra implement --help` prints the caps.
+
+That tolerance is about the variables that have a default. The completion-budget pair has
+none, and a value outside its rules — one name of the pair set without the other, a limit
+that is not a whole number of at least `1`, a relative ledger path — is a refusal at exit
+`78` rather than a fallback.
 
 Two other names shape the screens and are not BharatCode configuration: `NO_COLOR`
 turns colour off when it is set to anything non-empty, and `FORCE_COLOR=0` turns it
@@ -2015,7 +2060,10 @@ BharatCode `qwen-3.8-27b` endpoint on commit
 `b1c18bfaf299dfae6316b70e17647a6bde48caee`, with 9 of 12 budgeted model requests,
 no review findings and passing fixture checks. That is one bounded fixture task on
 an older commit — evidence that the path works, not a claim of general customer
-reliability; latency under the current 290-second cap is unproven. One opt-in test (`tests/review/live.test.ts`) will ask the real
+reliability; latency for a full chain under the current 290-second cap is unproven, though one
+single-request smoke on the current release did answer in 2,294 ms
+([run #41393924176](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41393924176), 2 November
+2026, commit `5b104189b85922d72713076529c82ab36622e1d7`). One opt-in test (`tests/review/live.test.ts`) will ask the real
 endpoint for one review — it stays skipped unless `MERGESUTRA_LIVE_BHARATCODE=1`,
 a key and a model id are all present together. Stage 9R deliberately adds no such
 live test of its own: a repair is the one path where a model gets a writer, and its

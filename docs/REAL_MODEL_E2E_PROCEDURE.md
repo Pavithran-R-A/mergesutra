@@ -19,6 +19,24 @@ submission gates. See [REAL_TASK_BENCHMARK.md](REAL_TASK_BENCHMARK.md)
 for the pending independent benchmark protocol. Section 4 retains the
 historical no-key procedure; predictions are not passing evidence.
 
+**Three real-model readings exist, and they are not the same claim (2 November 2026).** Each was
+re-taken from its own hosted job log rather than copied forward, and each says something different:
+
+| Date | Run | Build | What the provider did | What it proves |
+| --- | --- | --- | --- | --- |
+| 11 Oct 2026 | [38144174041](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38144174041) | `b1c18bfaf299dfae6316b70e17647a6bde48caee` | the full `plan` → `implement` → `review` chain, 9 of 12 budgeted completions | one bounded fixture task was completed by the real model on an older build |
+| 23 Oct 2026 | [39909412225](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39909412225) | `cd03393c587ac0213bec6fa6a5cef00ddbef936a` | the `standard` one-request smoke, `kind=cancelled http=(none)` at 89,059 ms against the 90,000 ms clock, no usage reported, exit `4` | the smoke's own cancellation path works, and the credential reached a catalog that listed the model |
+| 2 Nov 2026 | [41393924176](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41393924176) | `5b104189b85922d72713076529c82ab36622e1d7` | the `availability` one-request smoke: `PASS`, `LIVE_SMOKE_LATENCY_MS: 2294`, finish reason `stop`, 21 characters, `prompt=54 completion=10 total=64`, sentinel matched, clean artifact audit | the **current release's** adapter completes one bounded request on the real route, quickly |
+
+The middle row's cause is not established here. What the record shows is that no response headers had
+arrived when this build cancelled its own request at its own deadline: `http=(none)` is the absence of
+a status line, `kind=cancelled` is the abort this process raised, and 89,059 ms against 90,000 ms is
+the clock it was given. Provider queueing, a cold route, a shared-runner slowdown and Node's own
+fetch behaviour are all consistent with that, and this repository has not measured any of them, so
+none of them is named as the cause. What the third row rules out is one specific reading — that the
+route cannot answer at all for this credential — and it does not rule out a slow answer under a
+longer prompt, which is what the chain's requests are.
+
 This procedure is for one controlled validation run against one fixture repository. It is not a
 general tutorial; `README.md` is that, and where the two disagree the screens printed by
 `node dist/bin.js <command> --help` are the ones that are true. A guard in
@@ -29,11 +47,12 @@ general tutorial; `README.md` is that, and where the two disagree the screens pr
 
 | Name | Read at | Required | If it is absent |
 | --- | --- | --- | --- |
-| `BHARATCODE_API_KEY` | `src/config/load-config.ts:74` | yes, for `plan`, `implement`, `review`, `repair` | `doctor` FAILs that row; `plan` exits 78 before asking anything (§4) |
-| `BHARATCODE_MODEL` | `src/config/load-config.ts:91` | yes | `plan` has no `--model` flag, so the chain's fourth step ends in a configuration refusal |
-| `BHARATCODE_API_BASE` | `src/config/load-config.ts:38` | no | defaults to `https://bharatcode.ai/api/model/v1` (`src/bharatcode/types.ts:9`) |
-| `BHARATCODE_TIMEOUT_MS`, `BHARATCODE_MAX_RETRIES` | `src/config/load-config.ts:70-71` | no | `60000` ms and `3`; the live job sets `290000` and `0`. The Responses route answers as a stream, so headers arrive when the stream opens and this budget is enforced on every read for the whole answer. Before the headers arrive, Node's fetch still gives up at its own ~300 s `UND_ERR_HEADERS_TIMEOUT`, which no larger value here can raise |
-| `BHARATCODE_RETRY_BASE_MS`, `BHARATCODE_RETRY_MAX_MS` | `src/config/load-config.ts:95-100` | no | 500 ms and 15 000 ms |
+| `BHARATCODE_API_KEY` | `src/config/load-config.ts:135` | yes, for `plan`, `implement`, `review`, `repair` | `doctor` FAILs that row; `plan` exits 78 before asking anything (§4) |
+| `BHARATCODE_MODEL` | `src/config/load-config.ts:152` | yes | `plan` has no `--model` flag, so the chain's fourth step ends in a configuration refusal |
+| `BHARATCODE_API_BASE` | `src/config/load-config.ts:40` | no | defaults to `https://bharatcode.ai/api/model/v1` (`src/bharatcode/types.ts:9`) |
+| `BHARATCODE_TIMEOUT_MS`, `BHARATCODE_MAX_RETRIES` | `src/config/load-config.ts:131-132` | no | `60000` ms and `3`; the live job sets `290000` and `0`. The Responses route answers as a stream, so headers arrive when the stream opens and this budget is enforced on every read for the whole answer. Before the headers arrive, Node's fetch still gives up at its own ~300 s `UND_ERR_HEADERS_TIMEOUT`, which no larger value here can raise |
+| `BHARATCODE_RETRY_BASE_MS`, `BHARATCODE_RETRY_MAX_MS` | `src/config/load-config.ts:156-161` | no | 500 ms and 15 000 ms |
+| `BHARATCODE_MAX_COMPLETION_REQUESTS`, `BHARATCODE_REQUEST_LEDGER` | `src/config/load-config.ts:79-121` | yes for the hosted live chain (`live-validation.yml:226` and `:233` set both); no for an ordinary run | unset, and the ceiling does not exist: no directory is made and no file is written. Set together they cap the number of completion **requests** one ledger can send — one marker file per request, created exclusively, so a resumed process and a racing process both see the same count, and a retried attempt pays in too. Set one without the other, or a limit below 1, or a relative ledger, and the load itself refuses at exit `78`. A slot is never refunded, so a fresh run needs a fresh directory, and a hosted re-run is refused rather than re-counted (§5) |
 | `NO_COLOR` | `src/cli/render.ts:41` | no | colour stays on |
 
 `implement --model <id>` can name a model for that one verb. Do not use it to pick a different
@@ -68,7 +87,7 @@ export BHARATCODE_MODEL='<the model your account offers>'
 - Never `export BHARATCODE_API_KEY=<the key>`: that writes the value into your shell history and
   into any file you paste it into.
 - Never pass it as an argument. No flag accepts one, and the adapter's own refusal says so
-  (`src/bharatcode/client.ts:525`).
+  (`src/bharatcode/client.ts:536`).
 - `unset BHARATCODE_API_KEY` when the run is over (§8).
 - The key is chosen by your BharatCode account. This build cannot list model names: `doctor
   --connect` reports how many models the endpoint says it has, not what they are called, so a
@@ -197,7 +216,7 @@ recovered run does not silently double the bill.
 What this build bounds, and what it does not:
 
 - **Output tokens.** Every request the chain makes carries a ceiling. `plan` and `implement` send
-  `max_output_tokens: 4096` (`src/plan/plan.ts:245`, `src/implement/loop.ts:278`) and `review`
+  `max_output_tokens: 4096` (`src/plan/plan.ts:245`, `src/implement/loop.ts:280`) and `review`
   sends 8192 (`REVIEW_MAX_OUTPUT_TOKENS` at `src/review/engine.ts:48`, sent at `:159`), which its
   one schema-repair turn carries too because both go through that call site. For the composition
   this workflow runs — 2 plan + 8 implement + 2 review, with review held to one cycle by
@@ -213,7 +232,7 @@ What this build bounds, and what it does not:
   `INCOMPLETE_OUTPUT` loop ending and a `REFUSED` review — never as a stored plan, a write, a
   command or a clean second reading — and none of them re-asks, so a truncation costs one request.
   One asymmetry a live run can hit: `plan` and `implement` send `reasoning: { effort: "none" }`
-  (`src/plan/plan.ts:246`, `src/implement/loop.ts:279`) while `review` leaves reasoning at the
+  (`src/plan/plan.ts:246`, `src/implement/loop.ts:281`) while `review` leaves reasoning at the
   provider's default, so a reviewer that reasons at length can be cut at 8192 and come back
   refused rather than answered. That is the ceiling doing its job; raise
   `REVIEW_MAX_OUTPUT_TOKENS`, or send `enableThinking: false` from the review engine, before a
@@ -232,6 +251,43 @@ name the gateway answered with and the usage it reported (`src/plan/plan.ts:181-
 implementation loop counts its requests (`src/implement/state.ts:134`). A gateway's own claim about
 which model served a request is provenance, not authority (S12-27).
 
+### Which of these stops a request, and which only reads a number afterwards
+
+The list above mixes two kinds of bound, and the difference is the whole point of the request
+budget: one kind can prevent a spend, the other can only report one.
+
+Enforced **before** a request leaves the process — a refusal here means no bytes went to the provider:
+
+| Bound | Where the refusal happens | What it refuses |
+| --- | --- | --- |
+| the 12-request ceiling | `src/bharatcode/client.ts:533`, one exclusive marker per request in the ledger directory | any completion past the ceiling, with `REQUEST_BUDGET_EXHAUSTED` |
+| an unusable ledger | the same call, and `scripts/e2e-validation.mjs:63` before the chain's first child | `REQUEST_BUDGET_UNAVAILABLE` when a marker cannot be created, and a driver refusal for a symlink, a non-directory, an uncreatable, a non-private or a non-exclusive-create ledger |
+| the ceiling pair itself | `scripts/e2e-validation.mjs:59` | a live chain that pinned no ceiling, pinned a number other than 12, named a relative ledger, or left retries on |
+| a workflow re-run | `.github/workflows/live-validation.yml:111`, ahead of the catalog read at `:177` | `GITHUB_RUN_ATTEMPT` other than `1`, at exit `78`, before any credentialed call |
+| zero retries | `BHARATCODE_MAX_RETRIES: '0'` on the live job | the extra POSTs one `complete()` would otherwise make |
+
+Decided **after** the spend, as qualification — each of these can fail a finished run and cannot
+stop a request:
+
+| Check | Where it lives | What it measures |
+| --- | --- | --- |
+| completions at or under 12 | `scripts/lib/live-qualification.mjs:179` (`MAX_MODEL_COMPLETIONS` at `:20`) | what the stages filed as they ran |
+| the ledger's own count | `scripts/e2e-validation.mjs:761`, read by `countReservations()` at `:241` | the marker files the guard actually wrote, independent of any stage's self-report |
+| the 25-minute chain clock and the 290 s per-request deadline | the driver's wall clock and `BHARATCODE_TIMEOUT_MS` | elapsed time; a deadline that fires has already paid for its request |
+| verify, `COMPLETED_BY_MODEL`, fixture acceptance, review findings, no unapproved repair plan | the conjunction in §8 | whether the run achieved the task, not whether it stayed in budget |
+
+The ledger count is deliberately a *second* reading rather than the enforcement: the guard is the
+only thing that can say "not this request", and the readback is how the report can say "the guard
+was not bypassed" without taking the stages' word for it. A refusal from the guard never refunds its
+slot — a cancelled, killed or failed request was still asked for — which is why a fresh run needs a
+fresh ledger and why the workflow refuses a re-run instead of trusting the new runner's empty
+temporary directory. Where the pre-request guard and the qualification rule disagree, the run is
+refused: more markers than the ceiling means the guard was bypassed rather than exceeded, and an
+unreadable ledger means the chain cannot say what it allowed. When the loop ends on a budget
+refusal it files `MODEL_UNAVAILABLE` with a detail beginning `No request was sent.`
+(`src/implement/loop.ts:299`), because every other word in that record field describes a request
+that left.
+
 ### The one-request smoke, which asks cheaper questions first
 
 `.github/workflows/live-smoke.yml` is not this chain. It answers one question — can this
@@ -248,7 +304,7 @@ before a client exists. `scripts/live-smoke.mjs` takes the model from the standa
 which is the model both variants share, refusing at exit `78` if a `BHARATCODE_MODEL` asks for a
 different one — so a run cannot choose its own target either. What the smoke does not set, it does
 not claim either:
-`stream` and `store` are the adapter's own hard-coded fields (`src/bharatcode/client.ts:997-998`),
+`stream` and `store` are the adapter's own hard-coded fields (`src/bharatcode/client.ts:1008-1009`),
 and the policy suite reads that file too, so the artifact's description of the request is checked
 against the code that builds it rather than restated by it.
 
@@ -269,11 +325,24 @@ than uploaded (`scripts/live-smoke.mjs:152`). Every string the provider chooses 
 its model name, its answer text, the wording of a transport failure — is redacted and forced onto
 one line before it is written or printed (`scripts/lib/live-smoke-rules.mjs:188`), so an answer
 cannot forge a second `LIVE_SMOKE:` verdict line in a log a reader trusts. It has been dispatched
-once. Run 39909412225 on 2026-10-23 (`cd03393c`) ran the `standard` budget: the authenticated
-catalog listed two models and contained the requested one, then the completion failed at 89,059 ms
-against the 90,000 ms clock as `kind=cancelled http=(none)`, with no token usage reported, exit `4`,
-and a clean artifact audit. That is one host's reading of one dispatch, not a verdict about the
-route — and it is why the `availability` variant exists. Its switch defaults to off, and a run
+twice, and the two readings are recorded apart because they answer different questions. Run
+[39909412225](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39909412225) on 2026-10-23
+(`cd03393c`) ran the `standard` budget: the authenticated catalog listed two models and contained the
+requested one, then the completion failed at 89,059 ms against the 90,000 ms clock as
+`kind=cancelled http=(none)`, with no token usage reported, exit `4`, and a clean artifact audit. No
+response headers had arrived when this build cancelled its own request; that is the whole of what that
+row says about the failure, and its cause — provider queueing, a cold route, runner contention, Node's
+fetch behaviour — is not established by anything in this repository, so none of them is named here.
+Run [41393924176](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41393924176) on 2026-11-02
+(`5b104189`) ran the `availability` budget against the same route and printed `LIVE_SMOKE: PASS`,
+`LIVE_SMOKE_LATENCY_MS: 2294`, `LIVE_SMOKE_FINISH_REASON: stop`, `LIVE_SMOKE_CHARS: 21`,
+`LIVE_SMOKE_TOKENS: prompt=54 completion=10 total=64`, `LIVE_SMOKE_SENTINEL_MATCHED: yes` and
+`LIVE_SMOKE_ARTIFACT_AUDIT: clean`, at job attempt 1. Each row is one host's reading of one dispatch.
+Together they show that this credential reaches a catalog that lists the model and that the current
+release's adapter completes one bounded request on that route; neither row says anything about a
+chain, whose requests are longer, or about latency under the chain's 290-second per-request clock —
+which no smoke measures, because the smoke runs its own frozen deadline. The `availability` variant
+exists because of the first row, not as a fix for it. Its switch defaults to off, and a run
 needs the operator's yes for that specific SHA.
 
 ## 6. The two approvals, and what they do not do
@@ -362,6 +431,18 @@ that is not true rather than only the first, and the run is refused when that li
 6. the review completed with zero findings;
 7. no repair plan is waiting unapproved.
 
+Two more refusals come from the driver itself rather than from that function, because they are facts
+about the ledger and the function is handed the stages' records: a ledger it cannot read, and more
+reservation markers in the ledger than the ceiling (`scripts/e2e-validation.mjs:755` and `:761`). Both
+are raised after the run, and both refuse the certificate rather than a request — the spend, if any,
+had already happened by then. The count is taken from the marker files the guard wrote
+(`countReservations()` at `scripts/e2e-validation.mjs:241`) and appears in the summary artifact as
+`budget.reservationsWrittenToLedger`, beside `budget.ceilingEnforcedBeforeTransport`, so a reader can
+compare the guard's own record against what each stage claimed without trusting either. No message
+the driver files and no field the summary carries contains the ledger path: the summary and
+`live-failure.json` are uploaded as artifacts, and a hosted path is innocent while a local operator's
+is not something to publish.
+
 Criterion 5's `checkContainsAllThreeAssertions` is the one that changed for issue #8's fourth criterion,
 which asks that the check file *contain assertions* for the three required behaviors. It used to ask
 whether each `slugify('<input>')` string appeared anywhere in the file — a file authored by the model
@@ -439,6 +520,14 @@ Merely obtaining a successful workflow status or a recorded review does not clos
   chain reaching `FINISH` with `implementation.status === 'COMPLETED_BY_MODEL'`, and a
   `Rejected answers` screen row if the model still sends answers nothing could run from. A rerun is a
   chargeable action and needs the operator's explicit authorization.
+- The pre-request ceiling has never met the real provider. Every claim in §5's first table is proven
+  offline — against a fake transport and a real filesystem, in `tests/bharatcode/request-budget.test.ts`
+  (21 cases), `tests/security/live-budget-preflight.test.ts` (21 cases, which runs the shipped module in
+  a real Node process against planted directories) and the workflow-policy suite — and the hosted
+  live-model job has not been dispatched since the pair was installed, because dispatching it spends.
+  Nothing here therefore claims that a live chain has ever been stopped by the guard; it claims that a
+  request past the ceiling is refused before the adapter builds one, and that the workflow refuses a
+  re-run before its first authenticated read.
 - The credential-free chain has hosted readings on both Ubuntu and Windows, including
   post-merge checks. The ordinary CI matrix also runs Ubuntu/Windows × Node 22/24.
   Neither the matrix nor a no-key walk proves an actual model patch is acceptable.
