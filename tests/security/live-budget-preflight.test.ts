@@ -25,8 +25,9 @@ const runChild = promisify(execFile);
  * process against planted directories (the rules live under `scripts/`, which vitest cannot
  * bundle: its loader cannot resolve an absolute path containing spaces), and it plants the
  * hostile cases — a symlink, a file in place of a directory, a group-readable ledger, a
- * filesystem that ignores `O_EXCL`, a filesystem that ignores permission bits — rather than
- * hoping a hosted runner happens to produce one.
+ * filesystem that ignores `O_EXCL`, a filesystem that ignores permission bits, a filesystem that
+ * answers the way POSIX does rather than the way this host does — rather than hoping a hosted
+ * runner happens to produce one.
  */
 
 interface LedgerResult {
@@ -162,12 +163,32 @@ function fakeFilesystem(mode, honorExclusive) {
   };
 }
 
+// What a POSIX machine does to a ledger path whose parent is a regular file, which the host
+// this file was written on cannot produce on demand: lstat answers ENOTDIR, because part of
+// the path exists and is not a directory, where Windows answers ENOENT. The two answers mean
+// the same thing about this path — there is no ledger directory here yet — and the gate has to
+// classify them the same way, so the hostile machine is presented here rather than hoped for.
+function posixParentIsAFile() {
+  const notADirectory = () =>
+    Promise.reject(Object.assign(new Error('not a directory'), { code: 'ENOTDIR' }));
+  return {
+    names: () => [],
+    lstat: notADirectory,
+    mkdir: notADirectory,
+    writeFile: notADirectory,
+    unlink: notADirectory,
+    rmdir: notADirectory,
+  };
+}
+
 for (const [name, kind] of Object.entries(input.fakes)) {
   const at = path.join(root, 'fake', name, 'ledger');
   const fs =
     kind === 'ignoresExclusive'
       ? fakeFilesystem(0o700, false)
-      : fakeFilesystem(0o777, true);
+      : kind === 'ignoresModes'
+        ? fakeFilesystem(0o777, true)
+        : posixParentIsAFile();
   const result = await lib.ledgerRefusals({ ledger: at, fs });
   ledger[name] = {
     refusals: result.refusals,
@@ -265,6 +286,7 @@ beforeAll(async () => {
       fakes: {
         'ignores-exclusive-create': 'ignoresExclusive',
         'ignores-permission-bits': 'ignoresModes',
+        'posix-parent-is-a-file': 'posixParent',
       },
       childEnv: {
         live: { env: { ...hostedLive, GH_TOKEN: 'x' }, publicGit: false },
@@ -409,6 +431,18 @@ describe('the live chain ledger directory', () => {
 
   it('refuses a ledger that cannot be created', () => {
     expect(joined(ledgerCase('parent-blocked').refusals)).toMatch(/created/i);
+  });
+
+  it('refuses an uncreatable ledger as uncreatable on a POSIX errno, not as uninspectable', () => {
+    // The hosted matrix showed this case reporting "could not be inspected" on Linux and macOS
+    // while passing on Windows: the same blocked path, two different errno answers, and only one
+    // of them classified as "go on and try to create it". The run was refused in both cases, so
+    // the ceiling held — what was lost was the reason an operator could act on. Pinning the
+    // answer against a modelled machine means the next platform cannot silently re-word it.
+    const result = ledgerCase('posix-parent-is-a-file');
+    expect(joined(result.refusals)).toMatch(/created/i);
+    expect(joined(result.refusals)).not.toMatch(/inspected/);
+    expect(result.refusals).toHaveLength(1);
   });
 
   it('refuses a ledger whose exclusive creation the filesystem does not honour', () => {

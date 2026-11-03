@@ -34,7 +34,15 @@ cannot be created, a filesystem that ignores `O_EXCL` (two writers both believin
 slot), and a ledger group- or other-readable. The permission check is decided by measurement rather
 than by the mode field, because a directory created with mode `0700` on this host's Windows filesystem
 reports `0666`: where the bits cannot discriminate, the guard says so in a note instead of refusing
-every legitimate run or pretending to have checked. `liveChildEnv()` hands the pair to every child and
+every legitimate run or pretending to have checked. The two answers that mean "no ledger directory is
+here yet" are now read together, because they are not the same answer everywhere: where a parent
+component exists and is not a directory, POSIX `lstat` replies `ENOTDIR` while this host replies
+`ENOENT`. Treating only `ENOENT` that way left every Linux and macOS runner describing an uncreatable
+ledger as one that "could not be inspected" — still refused, still before the first request, so the
+ceiling never moved, but with a reason an operator could not act on. Four of the six platform jobs on
+`c3a209e` said so in the same line; the file that should have caught it could not, because the host it
+was written on only ever produces one of the two codes, which is why that machine is now planted as a
+third fake filesystem rather than left to a runner's mood. `liveChildEnv()` hands the pair to every child and
 strips the credential and the GitHub tokens from the repository-facing ones — the budget names are
 deliberately not in the strip list, because a child that cannot authenticate cannot spend and a child
 that can must be counted. Nothing the driver files or prints carries the ledger path:
@@ -47,9 +55,9 @@ beside `budget.ceilingEnforcedBeforeTransport`, `budget.completionRetriesAllowed
 the run — after the fact, which is the correct direction: the spend already happened, and what is
 being withheld is the certificate.
 
-Tests: `tests/security/live-budget-preflight.test.ts` (new, 20 cases) runs the shipped module in a real
-Node process against planted directories and two fake filesystems, because a host cannot be made to
-ignore `O_EXCL` or to model permission bits on demand; it also proves that the marker names the
+Tests: `tests/security/live-budget-preflight.test.ts` (new, 21 cases) runs the shipped module in a real
+Node process against planted directories and three fake filesystems, because a host cannot be made to
+ignore `O_EXCL`, to model permission bits, or to answer `ENOTDIR` where it answers `ENOENT` on demand; it also proves that the marker names the
 preflight protects are the names `reserveCompletion` writes, and that an operator running the chain
 locally without GitHub Actions is refused nothing. `tests/security/live-validation-workflow-policy.test.ts`
 grew to 26 cases and now pins the ordering that matters — attempt refusal before catalog before chain,

@@ -179,12 +179,18 @@ export async function ledgerRefusals({ ledger, fs = nodeFs }) {
     };
   }
 
-  // A missing ledger is the normal start of a run, so ENOENT is not an inspection failure —
-  // it is the answer that says "create it". Every other code is: an unreadable path, a symlink
-  // loop or an access denial each mean the count below is not what the guard thinks it is, and
-  // none of them can be reasoned around from here.
+  // A missing ledger is the normal start of a run, so this is not an inspection failure — it is
+  // the answer that says "create it". POSIX gives the same instruction a second way: when part of
+  // the path exists and is not a directory, `lstat` answers ENOTDIR rather than the ENOENT a
+  // Windows host answers, and both mean that there is no ledger directory here yet. Treating only
+  // one of them as "create it" left a Linux runner describing an uncreatable path as uninspectable
+  // — the run was still refused before the first request, but with a reason an operator could not
+  // act on. Every other code is a genuine inspection failure: an unreadable path, a symlink loop or
+  // an access denial each mean the count below is not what the guard thinks it is, and none of them
+  // can be reasoned around from here.
+  const absentCodes = new Set(['ENOENT', 'ENOTDIR']);
   const before = await probe(fs.lstat, ledger);
-  if (before.error && codeOf(before.error) !== 'ENOENT') {
+  if (before.error && !absentCodes.has(codeOf(before.error))) {
     return {
       refusals: [
         `the ledger could not be inspected before the first request (code ${codeOf(before.error)})`,

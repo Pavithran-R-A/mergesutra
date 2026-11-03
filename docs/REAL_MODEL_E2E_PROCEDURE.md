@@ -522,7 +522,7 @@ Merely obtaining a successful workflow status or a recorded review does not clos
   chargeable action and needs the operator's explicit authorization.
 - The pre-request ceiling has never met the real provider. Every claim in §5's first table is proven
   offline — against a fake transport and a real filesystem, in `tests/bharatcode/request-budget.test.ts`
-  (21 cases), `tests/security/live-budget-preflight.test.ts` (20 cases, which runs the shipped module in
+  (21 cases), `tests/security/live-budget-preflight.test.ts` (21 cases, which runs the shipped module in
   a real Node process against planted directories) and the workflow-policy suite — and the hosted
   live-model job has not been dispatched since the pair was installed, because dispatching it spends.
   Nothing here therefore claims that a live chain has ever been stopped by the guard; it claims that a
