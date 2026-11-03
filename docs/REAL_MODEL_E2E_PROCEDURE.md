@@ -53,7 +53,7 @@ general tutorial; `README.md` is that, and where the two disagree the screens pr
 | `BHARATCODE_TIMEOUT_MS`, `BHARATCODE_MAX_RETRIES` | `src/config/load-config.ts:131-132` | no | `60000` ms and `3`; the live job sets `290000` and `0`. The Responses route answers as a stream, so headers arrive when the stream opens and this budget is enforced on every read for the whole answer. Before the headers arrive, Node's fetch still gives up at its own ~300 s `UND_ERR_HEADERS_TIMEOUT`, which no larger value here can raise |
 | `BHARATCODE_RETRY_BASE_MS`, `BHARATCODE_RETRY_MAX_MS` | `src/config/load-config.ts:156-161` | no | 500 ms and 15 000 ms |
 | `BHARATCODE_MAX_COMPLETION_REQUESTS`, `BHARATCODE_REQUEST_LEDGER` | `src/config/load-config.ts:79-121` | yes for the hosted live chain (`live-validation.yml:226` and `:233` set both); no for an ordinary run | unset, and the ceiling does not exist: no directory is made and no file is written. Set together they cap the number of completion **requests** one ledger can send — one marker file per request, created exclusively, so a resumed process and a racing process both see the same count, and a retried attempt pays in too. Set one without the other, or a limit below 1, or a relative ledger, and the load itself refuses at exit `78`. A slot is never refunded, so a fresh run needs a fresh directory, and a hosted re-run is refused rather than re-counted (§5) |
-| `NO_COLOR` | `src/cli/render.ts:41` | no | colour stays on |
+| `NO_COLOR` | `src/cli/render.ts:45` | no | colour stays on |
 
 `implement --model <id>` can name a model for that one verb. Do not use it to pick a different
 model from `BHARATCODE_MODEL`: the plan and the patch would then have been written by two
@@ -64,7 +64,7 @@ only publication switch is the `--publish` flag described in §2, and the chain 
 it.
 
 **One cheaper way to spend a key, and what it does not buy.** `npm run test:live`
-(`package.json:55`) is the suite's own live mode: it sets an enable flag itself
+(`package.json:58`) is the suite's own live mode: it sets an enable flag itself
 (`MERGESUTRA_LIVE_BHARATCODE`, read at `tests/plan/live.test.ts:21`) and runs everything, which is what
 turns the three tests that reach the real endpoint from skips into runs — `tests/plan/live.test.ts`,
 `tests/implement/live.test.ts` (with that loop capped at 3 steps, `tests/implement/live.test.ts:96`),
@@ -87,7 +87,7 @@ export BHARATCODE_MODEL='<the model your account offers>'
 - Never `export BHARATCODE_API_KEY=<the key>`: that writes the value into your shell history and
   into any file you paste it into.
 - Never pass it as an argument. No flag accepts one, and the adapter's own refusal says so
-  (`src/bharatcode/client.ts:536`).
+  (`src/bharatcode/client.ts:1148-1153`).
 - `unset BHARATCODE_API_KEY` when the run is over (§8).
 - The key is chosen by your BharatCode account. This build cannot list model names: `doctor
   --connect` reports how many models the endpoint says it has, not what they are called, so a
@@ -199,8 +199,8 @@ The ceilings are code, not estimates:
 
 | Verb | Completions | Where the bound lives |
 | --- | --- | --- |
-| `plan` | 1 ask + at most 1 schema repair | `src/plan/plan.ts:67`, `src/plan/plan.ts:239` |
-| `implement` | 1 per turn, default 12, cap 40 | `src/implement/limits.ts:50`, `:69` |
+| `plan` | 1 ask + at most 1 schema repair | `src/plan/plan.ts:69`, `src/plan/plan.ts:241` |
+| `implement` | 1 per turn, default 12, cap 40 | `src/implement/limits.ts:55`, `:74` |
 | `review` | 1 ask + at most 1 schema repair, ≤3 rounds | `src/review/engine.ts:51`, `node dist/bin.js review --help` |
 | `repair` | 1 per turn, default 6, ceiling 8, ≤3 cycles | `src/repair/limits.ts:34`, `:51` |
 | every other verb | 0 | — |
@@ -220,13 +220,13 @@ What this build bounds, and what it does not:
   sends 8192 (`REVIEW_MAX_OUTPUT_TOKENS` at `src/review/engine.ts:48`, sent at `:159`), which its
   one schema-repair turn carries too because both go through that call site. For the composition
   this workflow runs — 2 plan + 8 implement + 2 review, with review held to one cycle by
-  `--max-review-cycles 1` at `scripts/e2e-validation.mjs:518` — that is at most **57,344** output
+  `--max-review-cycles 1` at `scripts/e2e-validation.mjs:546` — that is at most **57,344** output
   tokens asked for in total. Widen the review cycles and the total moves with it: the shipped
   default is two cycles (`src/repair/bounds.ts:22`, ceiling 3 at `:27`), and the 12-request ceiling
   counts requests, not tokens, so the figure to budget money against is the worst product —
   12 requests at 8192, which is 98,304. The 200,000-character review receipt limit still stands
   behind all of it, in case a gateway ignores the ceiling it was sent
-  (`MAX_REVIEW_ANSWER_CHARS` at `src/review/engine.ts:36`).
+  (`MAX_REVIEW_ANSWER_CHARS` at `src/review/engine.ts:37`).
 - **A cut-off answer.** `plan`, `implement` and `review` read the provider's own finish reason
   before interpreting any text, so a `response.incomplete` is filed as no plan, an
   `INCOMPLETE_OUTPUT` loop ending and a `REFUSED` review — never as a stored plan, a write, a
@@ -244,11 +244,11 @@ What this build bounds, and what it does not:
 
 Recommended hard stop: end the run at 20 completions or 10 minutes of wall clock, whichever comes
 first. The loop also stops itself at 8 minutes per `implement` entry
-(`src/implement/limits.ts:61`).
+(`src/implement/limits.ts:66`).
 
 After the run, the record — not this file — holds what was actually spent: `plan` stores the model
-name the gateway answered with and the usage it reported (`src/plan/plan.ts:181-182`), and the
-implementation loop counts its requests (`src/implement/state.ts:134`). A gateway's own claim about
+name the gateway answered with and the usage it reported (`src/plan/plan.ts:177`, `:183-184`), and the
+implementation loop counts its requests (`src/implement/state.ts:135`). A gateway's own claim about
 which model served a request is provenance, not authority (S12-27).
 
 ### Which of these stops a request, and which only reads a number afterwards
@@ -295,11 +295,11 @@ credential reach this route, and does the provider mark the answer complete — 
 and nothing else, so it is the instrument for checking a route before committing to the
 12-completion, 25-minute run above. Its budgets are the two frozen blocks in
 `scripts/lib/live-smoke-rules.mjs`: `SMOKE_BUDGET` (`:12`) and `SMOKE_BUDGET_AVAILABILITY`
-(`:47`), both the model `qwen-3.8-27b`, one completion (`:20`), `max_output_tokens: 512` (`:23`),
+(`:48`), both the model `qwen-3.8-27b`, one completion (`:20`), `max_output_tokens: 512` (`:23`),
 `temperature: 0`, reasoning off, streaming on, `store` off, and zero retries (`:31`). They differ
 in one number: the clock on the credentialed phase, 90 seconds for `standard` (`:30`) and 270
-seconds for `availability` (`:49`). A dispatch chooses a variant by name from the frozen
-`SMOKE_VARIANTS` map (`:56`) and cannot choose a number; an unknown name is refused at exit `78`
+seconds for `availability` (`:50`). A dispatch chooses a variant by name from the frozen
+`SMOKE_VARIANTS` map (`:57`) and cannot choose a number; an unknown name is refused at exit `78`
 before a client exists. `scripts/live-smoke.mjs` takes the model from the standard block (`:37`),
 which is the model both variants share, refusing at exit `78` if a `BHARATCODE_MODEL` asks for a
 different one — so a run cannot choose its own target either. What the smoke does not set, it does
