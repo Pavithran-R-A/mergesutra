@@ -77,7 +77,7 @@ const ping: CompletionRequest = { messages: [{ role: 'user', content: 'ping' }] 
 
 function clientWith(
   env: Record<string, string | undefined>,
-  responses: Array<typeof answered | typeof modelUnavailable | typeof catalog>,
+  responses: Array<typeof answered | typeof modelUnavailable | typeof catalog | Error>,
 ) {
   const { fetch, calls } = fakeFetch(responses);
   const sleeper = recordingSleeper();
@@ -278,6 +278,139 @@ describe('the pre-request completion budget', () => {
     expect((error as { details?: Record<string, unknown> }).details?.code).toBe(
       'REQUEST_BUDGET_EXHAUSTED',
     );
+  });
+
+  it('lets exactly the chain ceiling through and refuses the request past it', async () => {
+    // The other tests in this file use small ceilings because they are cheap, which leaves the
+    // actual live-chain number unexercised: a guard that stops at two but not at twelve is a
+    // guard the live run would not have. Twelve requests go out, the ledger holds twelve
+    // markers, and the thirteenth is refused on this side of the transport — so the provider
+    // is asked exactly twelve times and the run's stated budget is the one that was enforced.
+    const ledger = await newLedger();
+    const { client, calls } = clientWith(
+      { BHARATCODE_MAX_COMPLETION_REQUESTS: '12', BHARATCODE_REQUEST_LEDGER: ledger },
+      [answered],
+    );
+
+    for (let index = 0; index < 12; index += 1) {
+      await expect(client.complete(ping)).resolves.toBeTruthy();
+    }
+    expect(calls).toHaveLength(12);
+    expect(await readdir(ledger)).toHaveLength(12);
+
+    await expect(client.complete(ping)).rejects.toMatchObject({
+      kind: 'blocked',
+      details: { code: 'REQUEST_BUDGET_EXHAUSTED' },
+    });
+    expect(calls).toHaveLength(12);
+    expect(await readdir(ledger)).toHaveLength(12);
+  });
+
+  it('keeps the slot spent when the transport dies after the reservation', async () => {
+    // The reservation is taken before the request is sent, so a completion that never got an
+    // answer still occupies a slot — and it has to. A request that reaches the provider, is
+    // charged for, and then dies on the way back is invisible from here; refunding it would let
+    // a flaky link spend the ceiling twice over while reporting one spend.
+    const ledger = await newLedger();
+    const { client, calls } = clientWith(
+      { BHARATCODE_MAX_COMPLETION_REQUESTS: '1', BHARATCODE_REQUEST_LEDGER: ledger },
+      [new Error('socket hang up')],
+    );
+
+    await expect(client.complete(ping)).rejects.toThrow(/socket hang up/);
+    expect(calls).toHaveLength(1);
+    // One marker for one failed request: consumed, not refunded.
+    expect(await readdir(ledger)).toHaveLength(1);
+
+    // And the next caller is told the budget is out, not that the previous request failed —
+    // the two answers send the operator to different places.
+    await expect(client.complete(ping)).rejects.toMatchObject({
+      kind: 'blocked',
+      details: { code: 'REQUEST_BUDGET_EXHAUSTED' },
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('refuses an exhausted budget before the transport without retrying or sleeping', async () => {
+    // A budget refusal is not a busy provider. The retry policy exists for a 503 and pays a
+    // slot per attempt; applying it to "you have no slots left" would sleep, re-ask, and still
+    // be refused — the only difference being a slower refusal and an operator watching retries
+    // that were never possible.
+    const ledger = await newLedger();
+    const { client, calls, sleeper } = clientWith(
+      {
+        BHARATCODE_MAX_COMPLETION_REQUESTS: '1',
+        BHARATCODE_REQUEST_LEDGER: ledger,
+        BHARATCODE_MAX_RETRIES: '3',
+      },
+      [answered],
+    );
+    await client.complete(ping);
+    expect(calls).toHaveLength(1);
+
+    await expect(client.complete(ping)).rejects.toMatchObject({
+      kind: 'blocked',
+      details: { code: 'REQUEST_BUDGET_EXHAUSTED' },
+    });
+    expect(calls).toHaveLength(1);
+    expect(sleeper.delays).toEqual([]);
+  });
+
+  it('spends one ceiling across three independent clients', async () => {
+    // The live chain is not one process: `plan`, `implement` and `review` are separate CLI
+    // children of the driver, each building its own client from its own environment. The
+    // ceiling the run was authorised for is a ceiling on the *run*, so the three of them have
+    // to be refused together — five, four and three requests here are twelve, and the next one
+    // from any of them is refused. A guard that counted per client would let each stage spend
+    // the whole twelve.
+    const ledger = await newLedger();
+    const budget = {
+      BHARATCODE_MAX_COMPLETION_REQUESTS: '12',
+      BHARATCODE_REQUEST_LEDGER: ledger,
+    };
+    const plan = clientWith(budget, [answered]);
+    const implement = clientWith(budget, [answered]);
+    const review = clientWith(budget, [answered]);
+
+    for (let index = 0; index < 5; index += 1) await plan.client.complete(ping);
+    for (let index = 0; index < 4; index += 1) await implement.client.complete(ping);
+    for (let index = 0; index < 3; index += 1) await review.client.complete(ping);
+
+    expect(plan.calls.length + implement.calls.length + review.calls.length).toBe(12);
+    expect(await readdir(ledger)).toHaveLength(12);
+
+    // Every stage is refused, not just the one that filled the last slot.
+    for (const stage of [plan, implement, review]) {
+      await expect(stage.client.complete(ping)).rejects.toMatchObject({
+        kind: 'blocked',
+        details: { code: 'REQUEST_BUDGET_EXHAUSTED' },
+      });
+    }
+    expect(plan.calls.length + implement.calls.length + review.calls.length).toBe(12);
+  });
+
+  it('counts into a ledger directory the run has not created yet', async () => {
+    // A first request of a fresh run arrives before anything has made the directory — the live
+    // job points `BHARATCODE_REQUEST_LEDGER` at a path under the runner's temporary directory
+    // that does not exist until the guard needs it. Creating it is the guard's job; a ledger
+    // that only works if someone else remembered `mkdir` is a ledger that refuses the first
+    // request of every run. What must not happen is the opposite: a directory that cannot be
+    // created is refused above, not silently counted somewhere else.
+    const parent = await newLedger('mergesutra-budget-notyet-');
+    const ledger = path.join(parent, 'ledgers', 'attempt-1');
+    const { client, calls } = clientWith(
+      { BHARATCODE_MAX_COMPLETION_REQUESTS: '1', BHARATCODE_REQUEST_LEDGER: ledger },
+      [answered],
+    );
+
+    await expect(client.complete(ping)).resolves.toBeTruthy();
+    expect(calls).toHaveLength(1);
+    expect(await readdir(ledger)).toHaveLength(1);
+
+    await expect(client.complete(ping)).rejects.toMatchObject({
+      kind: 'blocked',
+      details: { code: 'REQUEST_BUDGET_EXHAUSTED' },
+    });
   });
 
   it('leaves every request uncounted when no budget is configured', async () => {

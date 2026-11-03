@@ -108,6 +108,26 @@ jobs:
             exit 78
           fi
 
+      - name: Refuse a workflow re-run before any credentialed request
+        shell: bash
+        # GitHub keeps `GITHUB_RUN_ID` across a re-run and hands every attempt a brand new
+        # ephemeral machine, so the request ledger configured below is empty at the start of
+        # attempt 2. The count is therefore enforced *inside* an attempt, and the attempt
+        # itself is what is refused here — refused before the catalog call, so a re-run spends
+        # nothing at all, not even an authenticated read. No new temporary directory is
+        # offered as proof that a budget survived a re-run: it did not survive one.
+        env:
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_RUN_ATTEMPT:-unset}" != "1" ]; then
+            echo "GITHUB_RUN_ATTEMPT is ${GITHUB_RUN_ATTEMPT:-unset}, not 1." >&2
+            echo "a re-run is given a fresh runner, so its request ledger starts empty and would hand this" >&2
+            echo "same run another full ceiling of model requests. The budget is enforced within an attempt;" >&2
+            echo "the attempt is refused. No credentialed request was sent." >&2
+            exit 78
+          fi
+
       - name: Install
         run: npm ci
 
@@ -199,6 +219,18 @@ jobs:
           # gives every command no more than the time left on it.
           BHARATCODE_TIMEOUT_MS: '290000'
           BHARATCODE_MAX_RETRIES: '0'
+          # The chain's hard pre-request ceiling, enforced by the client before a byte leaves
+          # the process rather than read back off the stage records afterwards. It is the same
+          # number the post-run qualification rules measure against, and the driver refuses to
+          # start if the two ever disagree. `MAX_MODEL_COMPLETIONS` is 12.
+          BHARATCODE_MAX_COMPLETION_REQUESTS: '12'
+          # One absolute directory under the runner's own temporary path, which is private to
+          # this job's machine and is not the workspace the model under review writes into.
+          # The driver validates it before the first child starts — absolute, inside
+          # RUNNER_TEMP, a real directory rather than a link, writable, honouring exclusive
+          # create — and refuses to send anything if it fails. Nothing deletes or resets the
+          # markers in it: a spent slot stays spent, including for a request that then died.
+          BHARATCODE_REQUEST_LEDGER: ${{ runner.temp }}/mergesutra-request-ledger
         run: node scripts/e2e-validation.mjs live
 
       - name: Upload sanitized live evidence
