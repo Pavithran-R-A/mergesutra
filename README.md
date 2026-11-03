@@ -48,8 +48,17 @@ becomes a PR."*
 > no findings, and the live job ran 2,368 passing tests (6 skipped) before the
 > chain. That commit predates the current tree; the run proves one bounded
 > fixture task, not general customer reliability, and its PR was neither approved
-> nor published (`NOT_READY_FOR_PUBLICATION`). Real-model latency under the
-> current 290-second per-request cap is unproven.
+> nor published (`NOT_READY_FOR_PUBLICATION`). On the current release, one
+> single-request smoke has passed: [run #41393924176](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41393924176)
+> (2 November 2026, commit `5b104189b85922d72713076529c82ab36622e1d7`) answered in
+> 2,294 ms with finish reason `stop`, 64 reported tokens and the sentinel matched
+> exactly — connectivity and one bounded completion, not a chain. A second dispatch
+> (23 October 2026, [run #39909412225](https://github.com/Pavithran-R-A/mergesutra/actions/runs/39909412225))
+> was cancelled by its own 90-second clock with no response headers yet; its cause is
+> not established here. Real-model latency for a full chain under the current
+> 290-second per-request cap is unproven, and so is the request ceiling below against
+> a live route: it is enforced before a request is sent and has only ever been
+> exercised offline.
 >
 > **Demonstration.** [`scripts/demo-scripted-journey.mjs`](https://github.com/Pavithran-R-A/mergesutra/blob/HEAD/scripts/demo-scripted-journey.mjs)
 > drives the production CLI through
@@ -1784,8 +1793,9 @@ source.
   them. They are a pair: a ceiling with nowhere to record what has already been spent is a
   number nobody enforces, so setting one without the other is a configuration refusal at
   exit `78` that names the variable missing, before any request is possible
-  (`src/config/load-config.ts:79-121`). Set neither — which is the state every run has
-  been in until now — and there is no ceiling, no directory, and no filesystem access at
+  (`src/config/load-config.ts:79-121`). Set neither — which is what an ordinary run still does,
+  and was the state of every run in this repository before the live chain grew a ceiling — and
+  there is no ceiling, no directory, and no filesystem access at
   all; an ordinary run behaves exactly as it did before this pair existed.
   The count is a directory of marker files, one per request, each created exclusively, so
   the same ceiling is seen by every process pointed at the same ledger: `plan`, `implement`,
@@ -2050,7 +2060,10 @@ BharatCode `qwen-3.8-27b` endpoint on commit
 `b1c18bfaf299dfae6316b70e17647a6bde48caee`, with 9 of 12 budgeted model requests,
 no review findings and passing fixture checks. That is one bounded fixture task on
 an older commit — evidence that the path works, not a claim of general customer
-reliability; latency under the current 290-second cap is unproven. One opt-in test (`tests/review/live.test.ts`) will ask the real
+reliability; latency for a full chain under the current 290-second cap is unproven, though one
+single-request smoke on the current release did answer in 2,294 ms
+([run #41393924176](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41393924176), 2 November
+2026, commit `5b104189b85922d72713076529c82ab36622e1d7`). One opt-in test (`tests/review/live.test.ts`) will ask the real
 endpoint for one review — it stays skipped unless `MERGESUTRA_LIVE_BHARATCODE=1`,
 a key and a model id are all present together. Stage 9R deliberately adds no such
 live test of its own: a repair is the one path where a model gets a writer, and its
