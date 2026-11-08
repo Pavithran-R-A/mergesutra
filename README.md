@@ -129,6 +129,8 @@ Issue text, repository contents and model responses are **untrusted data**. Repo
 
 Credentials come from the environment, never a CLI flag.
 
+- **`BHARATCODE_TIMEOUT_MS` transport ceiling:** Node's fetch may fail before response headers at ~300 s with `UND_ERR_HEADERS_TIMEOUT`, regardless of a larger configured timeout. The controlled live workflow sets 290000 ms (below that transport bound); a longer setting is not a promise of longer provider patience.
+
 | Variable | Role |
 | --- | --- |
 | `BHARATCODE_API_KEY` | API credential for model calls |
@@ -141,8 +143,6 @@ Credentials come from the environment, never a CLI flag.
 | `NO_COLOR` | Plain terminal output |
 
 For a fully bounded run, use the [real-model qualification guide](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/REAL_MODEL_E2E_PROCEDURE.md). No environment variable grants remote publication permission.
-
-- **`BHARATCODE_TIMEOUT_MS` transport ceiling:** Node's fetch may fail before response headers at ~300 s with `UND_ERR_HEADERS_TIMEOUT`, regardless of a larger configured timeout. The controlled live workflow sets 290000 ms (below that transport bound); a longer setting is not a promise of longer provider patience.
 
 ## Supported repositories
 
