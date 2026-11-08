@@ -1,6 +1,6 @@
 # MergeSutra
 
-### Issue in. Evidence-backed PR out.
+### AI can propose a fix. MergeSutra demands evidence.
 
 [![CI](https://github.com/Pavithran-R-A/mergesutra/actions/workflows/ci.yml/badge.svg)](https://github.com/Pavithran-R-A/mergesutra/actions/workflows/ci.yml)
 
@@ -16,6 +16,10 @@ the evidence connecting each requirement to the change — you decide whether it
 becomes a PR."*
 
 ---
+
+**Issue in. Evidence-backed PR out.** The trust layer for BharatCode-powered development asks a question a code diff alone cannot answer: **which requirements do the executed checks actually support?** MergeSutra keeps failed and unverified criteria visible rather than turning model confidence into proof.
+
+**BharatCode ecosystem fit:** This release uses BharatCode's model API as a standalone CLI. It is **not** a BharatCode Desktop/IDE plugin or an official editor integration. The contract, evidence, and approval workflow could complement editor-based agents; no editor extension is currently shipped.
 
 **BharatCode Build League judges:** [Start with the 2-minute guide](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/JUDGE_GUIDE.md).
 
