@@ -172,7 +172,17 @@ export async function openConfinedWriter(candidateRoot: string): Promise<Confine
       }
 
       await mkdir(path.dirname(absolute), { recursive: true });
-      const staged = await stageScratch(path.dirname(absolute), `${process.pid}-${Date.now()}`);
+      // Resolve the destination directory again before staging. Windows refuses
+      // exclusive creation through junctions. A swapped junction must also never
+      // receive temporary bytes outside the authorized workspace.
+      const stagingDirectory = await realpath(path.dirname(absolute));
+      if (!isInsideRoot(root, stagingDirectory)) {
+        throw refusal(
+          relativePath,
+          'a link or directory on the way resolves outside the workspace',
+        );
+      }
+      const staged = await stageScratch(stagingDirectory, `${process.pid}-${Date.now()}`);
       if (staged === null) {
         throw refusal(
           relativePath,

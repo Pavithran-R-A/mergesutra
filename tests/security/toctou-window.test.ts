@@ -1,12 +1,10 @@
 import { createHash } from 'node:crypto';
 import type * as fsPromises from 'node:fs/promises';
-import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppError } from '../../src/core/errors.js';
 import { CAN_SYMLINK, makeFixtureTree, makeLink, snapshotTree } from '../helpers/fixture.js';
-import { isInsideRoot } from '../../src/security/path-safety.js';
 import { openConfinedWriter, type ConfinedWriter } from '../../src/security/writer.js';
 
 /**
@@ -52,9 +50,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       return value;
     },
     async open(...args: Parameters<typeof real.open>) {
-      // Recorded, not intercepted: the second proof refuses a write whose scratch
-      // file has already been put where the swapped ancestor points. Saying that
-      // in a document needs the path, not an inference about ordering.
+      // Record every attempted scratch open. The swapped-ancestor case must refuse
+      // before this boundary, without touching the external target.
       stagedPaths.push(String(args[0]));
       return real.open(...args);
     },
@@ -181,35 +178,26 @@ describe('what the last moment re-checks, and what it cannot', () => {
       // write staged before it noticed.
       expect(await outsideTree()).toEqual(outsideBefore);
 
-      // And the narrower truth about the gap that *was* closed: the scratch file is
-      // staged before the second proof runs, so it really did go wherever the
-      // swapped ancestor pointed. The refusal is what stopped it becoming a result;
-      // the cleanup that removes a failed temp is what stopped it staying there.
-      // Recorded here because SECURITY_MODEL §4.3 says this, and a document should
-      // not be the only place a claim like that lives.
+      // A swapped ancestor must be refused before staging. On Windows, exclusive
+      // creation through a junction reports EEXIST; accepting that as a collision
+      // would mask the path refusal and skip containment proof.
       const staged = stagedPaths.filter((p) => path.basename(p).startsWith('.mergesutra-tmp-'));
-      expect(staged.length, 'the write staged a scratch file before it was refused').toBe(1);
-      const scratch = staged[0] as string;
-      // The *spelling* of the scratch path is inside the workspace; it is the
-      // resolved directory that is not. Saying which one escaped is the point.
-      const stagedDir = realpathSync(path.dirname(scratch));
-      expect(
-        isInsideRoot(writer.root, stagedDir),
-        'the scratch file was staged inside the workspace',
-      ).toBe(false);
-      expect(stagedDir).toBe(realpathSync(OUTSIDE));
-      expect(existsSync(scratch), 'the refused write left its scratch file behind').toBe(false);
+      expect(staged, 'the writer must refuse before opening scratch').toEqual([]);
+      expect(await readdir(OUTSIDE)).toEqual(['secret.txt']);
     },
   );
 
-  it('proves the way twice: before the bytes are staged, and before they are placed', async () => {
+  it('proves the way before staging and before placing bytes', async () => {
     // The link layer is consulted for the deepest existing ancestor. Once is not
     // enough, because the operation that follows is long: a temp file is written,
-    // synced and read back before the rename that replaces anything. Twice is the
-    // most this design can do, and the count is the claim — a window between the
-    // second proof and the rename syscall remains, and SECURITY_MODEL says so.
+    // synced and read back before the rename that replaces anything. Canonical
+    // staging adds one path resolution between the containment proofs.
     linkCheckSaw.length = 0;
     await writer.writeText('sub/one.ts', 'one\n', { expectedAbsent: true });
-    expect(linkCheckSaw).toEqual([path.join(writer.root, 'sub'), path.join(writer.root, 'sub')]);
+    expect(linkCheckSaw).toEqual([
+      path.join(writer.root, 'sub'),
+      path.join(writer.root, 'sub'),
+      path.join(writer.root, 'sub'),
+    ]);
   });
 });

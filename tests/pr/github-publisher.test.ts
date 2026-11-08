@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createGitHubPublicationRemote } from '../../src/pr/github-publisher.js';
@@ -972,13 +972,17 @@ describe.skipIf(!AVAILABLE)('the GitHub draft-pull-request transport', () => {
   it('refuses a patch that would exceed the read-back budget, before any write', async () => {
     const fixture = await implementedRun(tempDirs);
     const longDir = `generated/${'a'.repeat(40)}/${'b'.repeat(40)}/${'c'.repeat(30)}`;
-    for (let index = 0; index < 400; index += 1) {
-      await put(
-        fixture.repoDir,
-        `${longDir}/file-${String(index).padStart(3, '0')}.txt`,
-        `${String(index)}\n`,
-      );
-    }
+    const parent = path.join(fixture.repoDir, longDir);
+    await mkdir(parent, { recursive: true });
+    await Promise.all(
+      Array.from({ length: 400 }, (_, index) =>
+        writeFile(
+          path.join(parent, `file-${String(index).padStart(3, '0')}.txt`),
+          `${String(index)}\n`,
+          'utf8',
+        ),
+      ),
+    );
     const input = await inputFor(fixture.repoDir, fixture.base);
     const scripted = scriptedGitHub();
     const remote = createGitHubPublicationRemote({ run: scripted.run });
