@@ -142,12 +142,23 @@ Credentials come from the environment, never a CLI flag.
 
 For a fully bounded run, use the [real-model qualification guide](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/REAL_MODEL_E2E_PROCEDURE.md). No environment variable grants remote publication permission.
 
+- **`BHARATCODE_TIMEOUT_MS` transport ceiling:** Node's fetch may fail before response headers at ~300 s with `UND_ERR_HEADERS_TIMEOUT`, regardless of a larger configured timeout. The controlled live workflow sets 290000 ms (below that transport bound); a longer setting is not a promise of longer provider patience.
+
 ## Supported repositories
 
 - **Engineering CI:** Linux, Windows and macOS with **Node 22** and **Node 24**; six hosted cells passed at the recorded SHA.
 - **Initial scope:** Public GitHub issues and a local Git clone whose repository checks are supported by the bounded discovery and execution workflow.
 - **Runtime:** Repository commands require the pinned Docker image; [exact host/command qualifications](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/SANDBOX_EXECUTION.md) are documented. Green macOS CI does **not** mean Docker-host qualification on macOS.
 - **Publication:** An explicitly approved **draft** PR only; no forced history update or merge.
+
+## What a run leaves behind
+
+MergeSutra deliberately does **not** silently delete the evidence or reset your workspace after a run. Check and preserve the changes you want before removing anything:
+
+- **Worktrees:** Under `.mergesutra/worktrees` in the target repository. Inspect the correct run first. Only if you have saved its work and intentionally want to delete that worktree, use `git worktree remove <exact-worktree-path>` from the owning repository. If Git says it contains changes, review them rather than forcing removal.
+- **Git metadata:** Inspect linked worktrees with `git worktree list`; after intentional removals, `git worktree prune` can clear stale bookkeeping. Branches beginning `mergesutra/` may remain; inspect them before deleting any branch.
+- **Evidence records:** Under `.mergesutra/runs`. Preserve these records if you need to audit or reproduce a result. MergeSutra never automatically deletes them.
+- **CLI installation:** This release runs from source, not a published npm package. If you previously installed a global package in another context, `npm uninstall -g mergesutra` removes that global installation; it does not delete project worktrees or run evidence.
 
 ## BharatCode Build League
 
