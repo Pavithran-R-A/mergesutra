@@ -1,5 +1,7 @@
 # MergeSutra — Product Specification
 
+> **Status note — 8 November 2026:** This specification includes historical stage-by-stage snapshots, including statements from Stage 11 that are no longer current. The shipped source and [README](https://github.com/Pavithran-R-A/mergesutra#readme) take precedence for present-tense behavior: the CLI has a digest-approved GitHub **draft** PR transport behind an explicit `pr --publish`, while unattended `run` and native BharatCode Desktop/IDE integration are **not** shipped. The product remains an evidence-first workflow powered by BharatCode's model API.
+
 > Status legend used throughout: **[IMPLEMENTED]** exists and is tested today.
 > **[DESIGNED]** specified but not yet built. **[PLANNED]** intended later.
 
