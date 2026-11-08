@@ -64,7 +64,10 @@ function shortSpelling(target: string): string | null {
  * it, so the admin directory records the target spelling, not the literal one.
  */
 async function linkedWorkspace(repo: string, base: string, runId: string): Promise<string> {
-  const workspace = path.join(base, runId);
+  // Node's recursive mkdir cannot create through Windows junctions.
+  // Git records the resolved worktree path instead.
+  await mkdir(base, { recursive: true });
+  const workspace = path.join(await realpath(base), runId);
   const admin = path.join(repo, '.git', 'worktrees', runId);
   await mkdir(workspace, { recursive: true });
   await mkdir(admin, { recursive: true });
@@ -732,7 +735,7 @@ describe('repository sandbox readiness', () => {
     const base = path.join(repo, '.mergesutra', 'worktrees');
     await mkdir(path.dirname(base), { recursive: true });
     await symlink(outsideBase, base, process.platform === 'win32' ? 'junction' : 'dir');
-    const workspace = path.join(base, 'run-20260101T000000Z-cccccc');
+    const workspace = path.join(await realpath(base), 'run-20260101T000000Z-cccccc');
     // A fake owner whose path arithmetic would line up with the workspace, but
     // whose "admin" directory is not shaped like <repo>/.git/worktrees/<run-id>.
     const fakeOwner = await scratch();

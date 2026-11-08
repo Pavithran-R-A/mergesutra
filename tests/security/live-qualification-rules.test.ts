@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// Windows measured 34.6 seconds for this 26-process fixture matrix.
+vi.setConfig({ hookTimeout: 60_000 });
 
 const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const LIB = path.join(ROOT, 'scripts', 'lib', 'live-qualification.mjs');
@@ -377,7 +380,7 @@ describe('the live fixture-acceptance scanner, run against planted workspaces', 
 
   it('answers the whole case matrix from one real Node process, inside the hook budget', () => {
     expect(Object.keys(harness.proofs)).toHaveLength(INSPECT_CASES.length);
-    expect(harnessMs).toBeLessThan(25_000);
+    expect(harnessMs).toBeLessThan(45_000);
   });
 
   it('does not count required inputs that only appear in a line comment', () => {

@@ -19,9 +19,19 @@ function runInline(script) {
 }
 
 function timed(script) {
-  const started = Date.now();
-  const result = runInline(script);
-  return { result, elapsed: Date.now() - started };
+  const result = runInline(`
+const started = performance.now();
+process.once('beforeExit', () => {
+  process.stdout.write('\\n__ELAPSED__' + (performance.now() - started));
+});
+${script}
+`);
+  const marker = result.stdout?.lastIndexOf('\n__ELAPSED__') ?? -1;
+  const elapsed = marker < 0 ? Number.NaN : Number(result.stdout.slice(marker + 12));
+  return {
+    result: { ...result, stdout: marker < 0 ? result.stdout : result.stdout.slice(0, marker) },
+    elapsed,
+  };
 }
 
 const resolved = timed(`
