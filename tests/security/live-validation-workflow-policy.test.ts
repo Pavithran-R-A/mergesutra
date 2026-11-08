@@ -72,7 +72,7 @@ describe('the controlled live-validation workflow', () => {
         /^\s*GH_TOKEN:/m,
       );
 
-      const sections = body.split(/^      - name: /m).slice(1);
+      const sections = body.split(/^ {6}- name: /m).slice(1);
       const exposed = sections
         .filter((section) => /^ {10}GH_TOKEN:/m.test(section))
         .map((section) => section.split('\n')[0]);
