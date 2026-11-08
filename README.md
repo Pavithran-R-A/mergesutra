@@ -2,8 +2,6 @@
 
 ### Issue in. Evidence-backed PR out.
 
-**BharatCode Build League judges:** [Start with the 2-minute guide](docs/JUDGE_GUIDE.md) — workflow, replay, evidence, limitations and category.
-
 [![CI](https://github.com/Pavithran-R-A/mergesutra/actions/workflows/ci.yml/badge.svg)](https://github.com/Pavithran-R-A/mergesutra/actions/workflows/ci.yml)
 
 MergeSutra is a **BharatCode-powered CLI agent** that turns a GitHub issue into
@@ -18,6 +16,8 @@ the evidence connecting each requirement to the change — you decide whether it
 becomes a PR."*
 
 ---
+
+**BharatCode Build League judges:** [Start with the 2-minute guide](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/JUDGE_GUIDE.md).
 
 **Source:** [github.com/Pavithran-R-A/mergesutra](https://github.com/Pavithran-R-A/mergesutra)
 · **Report a problem:** [issue tracker](https://github.com/Pavithran-R-A/mergesutra/issues)
