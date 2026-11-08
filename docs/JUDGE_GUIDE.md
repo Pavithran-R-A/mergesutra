@@ -13,18 +13,18 @@ Most code agents can make a patch and say tests passed. MergeSutra preserves an 
 
 A single run can be inspected through the shipped commands:
 
-\`issue → inspect → contract → plan → implement → verify → report → review → pr\`
+`issue → inspect → contract → plan → implement → verify → report → review → pr`
 
-\`status\` and \`resume\` expose lifecycle and recovery decisions; \`repair\` is digest-approved and triggers re-verification. The unattended \`run\` command is **not shipped**.
+`status` and `resume` expose lifecycle and recovery decisions; `repair` is digest-approved and triggers re-verification. The unattended `run` command is **not shipped**.
 
 ## What you can verify
 
 | Question | Evidence | Precise reading |
 | --- | --- | --- |
-| Does the source build and install across supported Node versions? | [CI run #41646695271](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41646695271) | Six green jobs on Ubuntu, Windows and macOS × Node 22 and 24 at \`f2e2b08\` (3 Nov 2026) |
+| Does the source build and install across supported Node versions? | [CI run #41646695271](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41646695271) | Six green jobs on Ubuntu, Windows and macOS × Node 22 and 24 at `f2e2b08` (3 Nov 2026) |
 | Does the production CLI complete customer journeys? | [Customer workflow run #41640417724](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41640417724) | Eight hosted journeys through the compiled CLI, with a **scripted-model gateway**; verifies workflow, not live-model quality |
 | Are commands isolated? | [Docker isolation run #41614337044](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41614337044) | Three green Linux Docker isolation jobs, within the documented image/host/command limits |
-| Has BharatCode actually completed a bounded issue-to-patch task? | [Live Qwen run #38144174041](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38144174041) | Successful **older** 11 Oct 2026 fixture run at \`b1c18bf\`: 9/12 model requests; independent acceptance passed; **no PR published** |
+| Has BharatCode actually completed a bounded issue-to-patch task? | [Live Qwen run #38144174041](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38144174041) | Successful **older** 11 Oct 2026 fixture run at `b1c18bf`: 9/12 model requests; independent acceptance passed; **no PR published** |
 | Does the present adapter answer at least one real request? | [Live smoke #41393924176](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41393924176) | A bounded single request passed on 2 Nov 2026; this is **not** a full live chain |
 | Has the ten-case independent real-task benchmark passed? | [Benchmark protocol and ledger](REAL_TASK_BENCHMARK.md) | **No. 0/10 live-model cases recorded.** Offline fixtures and negative controls exist |
 
@@ -42,7 +42,7 @@ No single row proves everything; each evidence link is scoped to the code revisi
 
 Prerequisites: Node.js 22 or 24, Git, and a clean source checkout.
 
-\`\`\`bash
+```bash
 git clone https://github.com/Pavithran-R-A/mergesutra.git
 cd mergesutra
 npm ci
@@ -50,13 +50,13 @@ npm run check
 npm run verify:package
 npm run test:artifact
 node dist/bin.js --help
-\`\`\`
+```
 
-To replay the full scripted-model demo, also install Docker and \`gh\`, preload the digest-pinned image as documented in [DEMO.md](DEMO.md), then run:
+To replay the full scripted-model demo, also install Docker and `gh`, preload the digest-pinned image as documented in [DEMO.md](DEMO.md), then run:
 
-\`\`\`bash
+```bash
 node scripts/demo-scripted-journey.mjs --out /tmp/mergesutra-demo
-\`\`\`
+```
 
 For the eight hosted customer journeys, see [the customer-workflow job](https://github.com/Pavithran-R-A/mergesutra/actions/workflows/customer-workflow.yml) and its production CLI harness [source](../scripts/customer-workflow-qualification.mjs). Those tests use a scripted gateway, not a paid API key.
 
@@ -65,8 +65,8 @@ For the eight hosted customer journeys, see [the customer-workflow job](https://
 - Model output is untrusted structured data, checked against schemas and controlled tool policies.
 - Repository-owned commands run inside a digest-pinned, network-disabled Linux container with read-only root, non-root user and resource limits; writes are confined to a run-specific Git worktree. See [sandbox qualifications and limitations](SANDBOX_EXECUTION.md).
 - Docker support is **measured, not universal**: repository git-native gates have limits, and a macOS Docker host has not been qualified.
-- The real BharatCode full-chain success predates the latest \`main\`; a final-revision full live run and ten-class representative reliability benchmark are still missing.
-- The \`mergesutra\` npm package and GitHub v0.1.0 release are not published as of this guide's creation. Run from source.
-- The CLI never merges or force-pushes. Approval itself does not publish. Only the explicit separate \`pr --publish\` step may create a GitHub **draft** PR.
+- The real BharatCode full-chain success predates the latest `main`; a final-revision full live run and ten-class representative reliability benchmark are still missing.
+- The `mergesutra` npm package and GitHub v0.1.0 release are not published as of this guide's creation. Run from source.
+- The CLI never merges or force-pushes. Approval itself does not publish. Only the explicit separate `pr --publish` step may create a GitHub **draft** PR.
 
 For every unverified claim, prefer an honest **not yet measured** over a guessed pass. More context: [README](../README.md), [architecture](ARCHITECTURE.md), [submission pack](SUBMISSION.md), [release checklist](RELEASING.md).
