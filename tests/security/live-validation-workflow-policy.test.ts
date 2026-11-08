@@ -76,15 +76,11 @@ describe('the controlled live-validation workflow', () => {
       const exposed = sections
         .filter((section) => /^ {10}GH_TOKEN:/m.test(section))
         .map((section) => section.split('\n')[0]);
-      expect(exposed, 'only the trusted E2E driver may receive the token').toEqual([
-        allowedStep,
-      ]);
+      expect(exposed, 'only the trusted E2E driver may receive the token').toEqual([allowedStep]);
 
       const driver = sections.find((section) => section.split('\n')[0] === allowedStep);
       expect(driver, 'the driver step is missing').toBeDefined();
-      expect(driver).toMatch(
-        /^ {8}env:\n {10}GH_TOKEN: \$\{\{ github\.token \}\}\n/m,
-      );
+      expect(driver).toMatch(/^ {8}env:\n {10}GH_TOKEN: \$\{\{ github\.token \}\}\n/m);
     }
 
     expect(WORKFLOW.match(/GH_TOKEN:\s*\$\{\{ github\.token \}\}/g) ?? []).toHaveLength(2);
