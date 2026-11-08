@@ -1,11 +1,13 @@
 # MergeSutra — judge's quick guide
 
-**Issue in. Evidence-backed PR out.** MergeSutra is a BharatCode-powered command-line agent that converts one GitHub issue into a patch, a record of which requirements were checked, and a human-approved **draft** pull request. It is not a general chat assistant.
+**AI can propose a fix. MergeSutra demands evidence.** MergeSutra is a BharatCode-powered CLI that takes a GitHub issue through acceptance contracts, bounded edits, executed checks and an auditable draft-PR candidate. Publication is a separate, human-approved action. It is not a general coding chatbot.
 
 **Category:** Coding & developer tools (CLI agent).  
 **Competition:** [BharatCode Build League, Round 1](https://bharatcode.ai/hackathon).  
 **Source:** [Pavithran-R-A/mergesutra](https://github.com/Pavithran-R-A/mergesutra).  
 **Entry status:** A public repository is not proof of an account-linked contest submission. Check the competition site for the actual entry.
+
+**BharatCode ecosystem fit:** The shipped product connects through BharatCode's model API as a standalone CLI. No BharatCode Desktop/IDE plugin or official editor integration is claimed.
 
 ## The important difference
 
@@ -21,8 +23,8 @@ A single run can be inspected through the shipped commands:
 
 | Question | Evidence | Precise reading |
 | --- | --- | --- |
-| Does the source build and install across supported Node versions? | [CI run #41646695271](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41646695271) | Six green jobs on Ubuntu, Windows and macOS × Node 22 and 24 at `f2e2b08` (3 Nov 2026) |
-| Does the production CLI complete customer journeys? | [Customer workflow run #41640417724](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41640417724) | Eight hosted journeys through the compiled CLI, with a **scripted-model gateway**; verifies workflow, not live-model quality |
+| Does the source build and install across supported Node versions? | [CI run #42481055084](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42481055084) | Six green jobs on Ubuntu, Windows and macOS × Node 22 and 24 at `e61fd5d` (8 Nov 2026) |
+| Does the production CLI complete customer journeys? | [Customer workflow run #42478877591](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42478877591) | Eight hosted journeys passed on PR #69 head `55f1351`; **scripted-model gateway**, not a live model or the exact post-merge SHA |
 | Are commands isolated? | [Docker isolation run #41614337044](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41614337044) | Three green Linux Docker isolation jobs, within the documented image/host/command limits |
 | Has BharatCode actually completed a bounded issue-to-patch task? | [Live Qwen run #38144174041](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38144174041) | Successful **older** 11 Oct 2026 fixture run at `b1c18bf`: 9/12 model requests; independent acceptance passed; **no PR published** |
 | Does the present adapter answer at least one real request? | [Live smoke #41393924176](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41393924176) | A bounded single request passed on 2 Nov 2026; this is **not** a full live chain |
