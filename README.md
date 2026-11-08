@@ -17,6 +17,8 @@ becomes a PR."*
 
 ---
 
+**BharatCode Build League judges:** [Start with the 2-minute guide](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/JUDGE_GUIDE.md).
+
 **Source:** [github.com/Pavithran-R-A/mergesutra](https://github.com/Pavithran-R-A/mergesutra)
 · **Report a problem:** [issue tracker](https://github.com/Pavithran-R-A/mergesutra/issues)
 
