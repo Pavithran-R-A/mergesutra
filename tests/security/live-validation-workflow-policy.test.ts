@@ -50,7 +50,39 @@ describe('the controlled live-validation workflow', () => {
     expect(WORKFLOW).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN|GITHUB_TOKEN:\s*\$\{\{\s*secrets/);
   });
 
-  it('uses the ephemeral GitHub token only for MergeSutra-owned reads', () => {
+  it('never gives a GitHub token to job-wide install, build, test or audit commands', () => {
+    // Two token references are not enough: the previous policy passed even
+    // when both were at job scope, exposing them to npm ci and npm run check.
+    const scopes = [
+      {
+        body: job('no-key-chain', 'live-model'),
+        allowedStep: 'Walk the credential-free fixture chain',
+      },
+      {
+        body: job('live-model'),
+        allowedStep: 'Run the bounded real-model chain',
+      },
+    ];
+
+    for (const { body, allowedStep } of scopes) {
+      const stepsStart = body.indexOf('    steps:\n');
+      expect(stepsStart, 'the job has no steps boundary').toBeGreaterThanOrEqual(0);
+      const jobHeader = body.slice(0, stepsStart);
+      expect(jobHeader, 'GH_TOKEN must not be defined for an entire job').not.toMatch(
+        /^\s*GH_TOKEN:/m,
+      );
+
+      const sections = body.split(/^ {6}- name: /m).slice(1);
+      const exposed = sections
+        .filter((section) => /^ {10}GH_TOKEN:/m.test(section))
+        .map((section) => section.split('\n')[0]);
+      expect(exposed, 'only the trusted E2E driver may receive the token').toEqual([allowedStep]);
+
+      const driver = sections.find((section) => section.split('\n')[0] === allowedStep);
+      expect(driver, 'the driver step is missing').toBeDefined();
+      expect(driver).toMatch(/^ {8}env:\n {10}GH_TOKEN: \$\{\{ github\.token \}\}\n/m);
+    }
+
     expect(WORKFLOW.match(/GH_TOKEN:\s*\$\{\{ github\.token \}\}/g) ?? []).toHaveLength(2);
     expect(WORKFLOW).not.toMatch(/GITHUB_TOKEN:/);
   });

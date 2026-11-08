@@ -33,7 +33,6 @@ jobs:
     permissions:
       contents: read
     env:
-      GH_TOKEN: ${{ github.token }}
       NO_COLOR: '1'
     steps:
       - name: Checkout
@@ -55,6 +54,10 @@ jobs:
         run: npm run build
 
       - name: Walk the credential-free fixture chain
+        # The trusted driver reads a public GitHub issue through gh. Repository
+        # commands run as separate children and strip GH_TOKEN before execution.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/e2e-validation.mjs no-key
 
       - name: Upload sanitized no-key evidence
@@ -78,7 +81,6 @@ jobs:
     permissions:
       contents: read
     env:
-      GH_TOKEN: ${{ github.token }}
       NO_COLOR: '1'
       # The image and engine the product's repository runner must use. The proof step
       # below preloads and measures this same digest; a repository command never runs
@@ -204,7 +206,11 @@ jobs:
         run: npm run check
 
       - name: Run the bounded real-model chain
+        # Only this trusted driver can use gh for GitHub API reads. All install,
+        # build, audit, deterministic tests and sandbox proofs run token-free.
+        # Workspace-facing children are given a stripped environment by the driver.
         env:
+          GH_TOKEN: ${{ github.token }}
           BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
           BHARATCODE_MODEL: ${{ inputs.model }}
           # Below the transport's own ceiling, not above it. Node's fetch gives up at
