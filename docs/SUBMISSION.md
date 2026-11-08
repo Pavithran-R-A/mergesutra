@@ -37,14 +37,11 @@ Coding & developer tools (CLI Agent track)
 
 **Short summary**
 
-MergeSutra is a BharatCode-powered CLI agent that turns a GitHub issue into a
-reviewable code change, independently verifies each acceptance criterion against
-real evidence, and opens a draft pull request only after a human approves the
-exact page by digest.
+AI can propose a fix. MergeSutra demands evidence. Built on BharatCode's model API, MergeSutra is an evidence-first CLI that turns GitHub issues into reviewable, human-controlled draft PR workflows. It converts issues and repository policy into acceptance contracts, guides bounded AI edits in isolated worktrees, runs permitted checks in a locked-down Docker sandbox, and maps each criterion to what actually passed, failed, or remains unverified. A separate AI review examines the patch. Publication requires approval of the exact page by digest and a distinct, explicit action—no silent push, force-push, or merge. Less “AI says it's fixed.” More “here are the receipts.”
 
 **Longer description**
 
-MergeSutra adds the missing layer to AI coding agents: trustworthy evidence.
+AI coding can propose patches at speed; maintainers still need to know what the checks actually prove. MergeSutra adds the missing layer: traceable evidence, explicit uncertainty, and human-controlled publication.
 It reads an issue, compiles the repository's own requirements into an acceptance
 contract, asks BharatCode for a plan and a bounded sequence of file writes and
 commands, then runs the repository's own gates only after a human consents by
@@ -56,12 +53,14 @@ approval records a decision, and only a separate `--publish` asks GitHub for a
 **draft** pull request through the operator's own `gh` login. MergeSutra never
 force-pushes and never merges.
 
+**BharatCode ecosystem positioning.** This release is a standalone CLI using BharatCode's model API, not an in-IDE feature, desktop plugin or official BharatCode integration. Its evidence-first contribution workflow could complement future editor workflows; no editor extension is currently shipped.
+
 The repository command runner is a digest-pinned, network-disabled, read-only
 Linux container under a non-root user; model output is untrusted,
 schema-validated data. The project includes a recorded live BharatCode run from
 11 October 2026 on commit `b1c18bf` (9 of 12 budgeted model requests, zero review
 findings, independent fixture checks passed) and a completed scripted-model
-demonstration of the full workflow at the current tree (`run-20261021T115401Z-ea10b8`:
+demonstration of the full workflow on an earlier build (`run-20261021T115401Z-ea10b8`:
 both gates exit 0, all five independent oracle checks pass, zero review findings,
 digest-bound approval filed, `--publish` never invoked). The live run predates
 the current tree and proves one bounded fixture task, not general model
