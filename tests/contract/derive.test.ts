@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Gate, RepositoryContract } from '../../src/discovery/contract.js';
 import {
   AcceptanceContractUnavailable,
+  bindIssueChecks,
   deriveAcceptanceCriteria,
   withRevision,
   type InjectedCriterion,
@@ -355,5 +356,55 @@ describe('withRevision', () => {
     const contract = base();
     const broken = [{ id: 'AC-99', status: 'PASS' }] as unknown as AcceptanceCriterion[];
     expect(() => withRevision(contract, broken, 'trying', 'now')).toThrow();
+  });
+});
+
+describe('named-operator bindings for existing issue criteria', () => {
+  const source = () =>
+    derive({
+      issue: body('## Acceptance criteria\n1. Reject empty dates.\n2. Preserve valid dates.'),
+    });
+  const check = { command: 'node --test test/acceptance.test.js', kind: 'test' as const };
+
+  it('retains all requirements and records the changed binding', () => {
+    const original = source();
+    const updated = bindIssueChecks(
+      original,
+      [{ id: 'AC-1', by: 'Release maintainer', check }],
+      '2026-11-09T00:00:00Z',
+    );
+    expect(updated.version).toBe(2);
+    expect(updated.criteria.map((criterion) => criterion.statement)).toEqual(
+      original.criteria.map((criterion) => criterion.statement),
+    );
+    expect(updated.criteria.map((criterion) => criterion.source)).toEqual(
+      original.criteria.map((criterion) => criterion.source),
+    );
+    expect(updated.criteria.every((criterion) => criterion.status === 'PENDING')).toBe(true);
+    expect(updated.criteria.every((criterion) => criterion.evidence.length === 0)).toBe(true);
+    expect(updated.criteria[0]?.verificationPlan).toEqual([
+      {
+        kind: 'test',
+        command: check.command,
+        source: 'MERGESUTRA_ADDITIONAL',
+        from: 'operator:Release maintainer',
+      },
+    ]);
+    expect(updated.criteria[1]?.verificationPlan[0]?.kind).toBe('manual');
+    expect(updated.revisions[0]?.affectedCriterionIds).toEqual(['AC-1']);
+  });
+
+  it('refuses duplicates, missing ids and attempts to overwrite repository policy', () => {
+    const original = source();
+    const binding = { id: 'AC-1', by: 'Maintainer', check };
+    expect(() => bindIssueChecks(original, [binding, binding], 'now')).toThrow('unique');
+    const unknown = () => bindIssueChecks(original, [{ ...binding, id: 'AC-99' }], 'now');
+    expect(unknown).toThrow('Unknown');
+    const policy = () => bindIssueChecks(original, [{ ...binding, id: 'AC-3' }], 'now');
+    expect(policy).toThrow('Only previously');
+    const once = bindIssueChecks(original, [binding], 'now');
+    expect(() => bindIssueChecks(once, [binding], 'now')).toThrow('Only previously');
+    const unnamed = () => bindIssueChecks(original, [{ ...binding, by: ' ' }], 'now');
+    expect(unnamed).toThrow('named operator');
   });
 });

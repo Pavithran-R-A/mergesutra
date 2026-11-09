@@ -51,6 +51,70 @@ export interface InjectedCriterion {
   check: { command: string; kind: CommandKind } | null;
 }
 
+/**
+ * A command a named human explicitly binds to a criterion that was already copied
+ * from an issue. This never introduces a new requirement and never claims PASS.
+ */
+export interface BoundIssueCheck {
+  readonly id: string;
+  readonly by: string;
+  readonly check: { readonly command: string; readonly kind: CommandKind };
+}
+
+export function bindIssueChecks(
+  contract: AcceptanceContract,
+  bindings: readonly BoundIssueCheck[],
+  now: string,
+): AcceptanceContract {
+  if (bindings.length === 0) return contract;
+  const byId = new Map<string, BoundIssueCheck>();
+  for (const binding of bindings) {
+    if (!/^AC-\d+$/.test(binding.id) || byId.has(binding.id) || !binding.by.trim()) {
+      throw new Error('Binding needs a unique existing AC-n and a named operator.');
+    }
+    byId.set(binding.id, binding);
+  }
+  const criteria: AcceptanceCriterion[] = contract.criteria.map((criterion) => {
+    const bound = byId.get(criterion.id);
+    if (!bound) return criterion;
+    // An operator may interpret the check, never erase the issue statement or
+    // quietly replace an already authorized requirement/check.
+    if (
+      criterion.source.kind !== 'issue' ||
+      criterion.status !== 'PENDING' ||
+      criterion.verificationPlan.length !== 1 ||
+      criterion.verificationPlan[0]?.kind !== 'manual'
+    ) {
+      throw new Error('Only previously unbound, pending issue criteria can be bound.');
+    }
+    byId.delete(criterion.id);
+    return {
+      ...criterion,
+      verificationPlan: [
+        {
+          kind: bound.check.kind,
+          command: bound.check.command,
+          source: 'MERGESUTRA_ADDITIONAL' as const,
+          from: `operator:${bound.by.trim()}`,
+        },
+      ],
+      limitations: [
+        ...criterion.limitations,
+        `Operator ${bound.by.trim()} selected an executable check; it has not run or passed.`,
+      ],
+    };
+  });
+  if (byId.size > 0) {
+    throw new Error(`Unknown acceptance criterion: ${[...byId.keys()].join(', ')}`);
+  }
+  return withRevision(
+    contract,
+    criteria,
+    `Named operator check bindings for ${bindings.map((b) => b.id).join(', ')}; no criteria removed`,
+    now,
+  );
+}
+
 export interface DeriveInput {
   runId: string;
   issue: IssueProse | null;
@@ -323,7 +387,12 @@ export function withRevision(
     version: contract.version + 1,
     reason: trimmed,
     affectedCriterionIds: [
-      ...criteria.filter((criterion) => !previousIds.has(criterion.id)).map((c) => c.id),
+      ...criteria
+        .filter((criterion) => {
+          const old = contract.criteria.find((entry) => entry.id === criterion.id);
+          return old === undefined || JSON.stringify(old) !== JSON.stringify(criterion);
+        })
+        .map((criterion) => criterion.id),
       ...[...previousIds].filter((id) => !criteria.some((criterion) => criterion.id === id)),
     ],
     createdAt: now,

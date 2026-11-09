@@ -149,6 +149,8 @@ export interface AdditionalGateSpec {
   readonly cwd?: string;
   /** Why MergeSutra adds it; this becomes the provenance a reviewer reads. */
   readonly reason: string;
+  /** Present only for a check an explicitly named operator supplied to an issue criterion. */
+  readonly operatorBy?: string;
   readonly relevantCriteria?: readonly string[];
   readonly timeoutMs?: number;
 }
@@ -319,11 +321,13 @@ function fromAdditional(spec: AdditionalGateSpec): UnplannedGate {
     commandForms: [normalizeCommand(argv.join(' '))],
     // Derived, never read back from the spec: a caller cannot declare its own
     // preference to be the repository's requirement.
-    requirementLevel: 'MERGESUTRA_ADDITIONAL',
+    requirementLevel: spec.operatorBy ? 'USER_REQUESTED' : 'MERGESUTRA_ADDITIONAL',
     provenance: {
-      source: 'MERGESUTRA_BUILTIN',
+      source: spec.operatorBy ? 'USER_SUPPLIED' : 'MERGESUTRA_BUILTIN',
       file: null,
-      detail: `MergeSutra adds this check on its own authority: ${spec.reason}`,
+      detail: spec.operatorBy
+        ? `Operator ${spec.operatorBy} supplied this check: ${spec.reason}`
+        : `MergeSutra adds this check on its own authority: ${spec.reason}`,
       line: null,
     },
     corroboratedBy: [],

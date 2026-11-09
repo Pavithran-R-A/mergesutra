@@ -170,6 +170,59 @@ describe('mergesutra contract — the obligations a run must prove', () => {
     expect(c.text()).toContain('will check: `vitest run test/invalid.test.ts`');
   });
 
+  it('binds a named check to an existing issue AC without replacing its statement', async () => {
+    const store = memoryRunStore();
+    await intakeRun('## Acceptance criteria\n- [ ] Reject invalid input.', store);
+    const c = capture();
+    const code = await cli(
+      [
+        'contract',
+        '--bind-check',
+        'AC-1=node --test test/invalid.test.js',
+        '--by',
+        'Release maintainer',
+      ],
+      store,
+      c,
+    );
+    expect(code).toBe(EXIT.OK);
+    const contract = contractOf(writtenByContract(store));
+    expect(contract.criteria[0]?.statement).toBe('Reject invalid input.');
+    expect(contract.criteria[0]?.status).toBe('PENDING');
+    expect(contract.criteria[0]?.evidence).toEqual([]);
+    expect(contract.criteria[0]?.verificationPlan).toEqual([
+      {
+        kind: 'test',
+        command: 'node --test test/invalid.test.js',
+        source: 'MERGESUTRA_ADDITIONAL',
+        from: 'operator:Release maintainer',
+      },
+    ]);
+    expect(contract.revisions[0]?.affectedCriterionIds).toEqual(['AC-1']);
+  });
+
+  it('refuses unattributed or unknown issue bindings without saving a contract', async () => {
+    const store = memoryRunStore();
+    await intakeRun('## Acceptance criteria\n- [ ] Reject invalid input.', store);
+    const noBy = capture();
+    expect(
+      await cli(['contract', '--bind-check', 'AC-1=node --test test/a.test.js'], store, noBy),
+    ).toBe(EXIT.ERROR);
+    expect(noBy.errorText()).toContain('named operator');
+
+    const unknown = capture();
+    expect(
+      await cli(
+        ['contract', '--bind-check', 'AC-99=node --test test/a.test.js', '--by', 'Maintainer'],
+        store,
+        unknown,
+      ),
+    ).toBe(EXIT.ERROR);
+    expect(
+      [...store.files.values()].filter((value) => JSON.parse(value).stage === 'contract'),
+    ).toHaveLength(0);
+  });
+
   it('refuses a check that states no gate, and a check with no criterion', async () => {
     const unnamed = capture();
     const store = memoryRunStore();

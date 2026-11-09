@@ -24,7 +24,7 @@ export const CUSTOMER_REPOSITORY_URL =
   'https://github.com/Pavithran-R-A/mergesutra-e2e-fixture.git';
 export const CUSTOMER_ISSUE_URL =
   'https://github.com/Pavithran-R-A/mergesutra-e2e-fixture/issues/1';
-export const CUSTOMER_BASE_SHA = '6f3a0adb17389b93fd76b95c21a1c9eb7b161998';
+export const CUSTOMER_BASE_SHA = 'fc7f8f74160552cd3e83e1bff293dd26efdabee0';
 export const CUSTOMER_DEFAULT_BRANCH = 'main';
 export const CUSTOMER_WORKTREE_BRANCH = 'issue-1';
 

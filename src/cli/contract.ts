@@ -3,7 +3,9 @@ import { gatesEnforced } from '../discovery/contract.js';
 import { toExecutableArgv } from '../verify/command.js';
 import {
   AcceptanceContractUnavailable,
+  bindIssueChecks,
   deriveAcceptanceCriteria,
+  type BoundIssueCheck,
   type InjectedCriterion,
 } from '../contract/derive.js';
 import type { AcceptanceContract } from '../contract/schema.js';
@@ -46,7 +48,11 @@ export interface ContractResult {
 }
 
 export async function runContractStage(
-  input: { runId?: string; injectedCriteria?: readonly InjectedCriterion[] },
+  input: {
+    runId?: string;
+    injectedCriteria?: readonly InjectedCriterion[];
+    boundChecks?: readonly BoundIssueCheck[];
+  },
   deps: Partial<ContractDeps> = {},
 ): Promise<ContractResult> {
   const store = deps.store ?? createFileRunStore(defaultRunStoreRoot(deps.cwd ?? process.cwd()));
@@ -55,6 +61,14 @@ export async function runContractStage(
 
   const sourceRunId = input.runId ?? (await contractSourceRunId(store));
   const source = await store.load(sourceRunId);
+  if (input.boundChecks?.length && source.acceptanceContract) {
+    throw new AppError({
+      kind: 'validation',
+      message: 'Issue checks must be bound while deriving the original contract, before planning.',
+      remediation:
+        'Start from the inspect record and explicitly provide --bind-check for each issue criterion.',
+    });
+  }
 
   const checks: RunCheck[] = [
     {
@@ -107,18 +121,19 @@ export async function runContractStage(
     // A criterion statement is copied out of issue text, and issue text is
     // untrusted like any other input: redact before it is stored or printed, so
     // a credential pasted into an issue cannot be laundered into a run record.
+    const derived = deriveAcceptanceCriteria({
+      runId: recordRunId,
+      issue: prose,
+      repository: {
+        fullName: source.repository?.fullName ?? null,
+        baseSha: source.base?.sha ?? null,
+        localPath: source.local?.toplevel ?? null,
+      },
+      contract: source.contract,
+      injectedCriteria: input.injectedCriteria,
+    });
     acceptanceContract = defaultRedactor.deep(
-      deriveAcceptanceCriteria({
-        runId: recordRunId,
-        issue: prose,
-        repository: {
-          fullName: source.repository?.fullName ?? null,
-          baseSha: source.base?.sha ?? null,
-          localPath: source.local?.toplevel ?? null,
-        },
-        contract: source.contract,
-        injectedCriteria: input.injectedCriteria,
-      }),
+      bindIssueChecks(derived, input.boundChecks ?? [], now().toISOString()),
     );
     checks.push({
       name: 'Acceptance Contract',
@@ -249,6 +264,8 @@ export interface ContractCommandOptions {
    * then reports as needing a person rather than as passing.
    */
   readonly check?: readonly string[];
+  /** Explicit mappings AC-n=command for issue criteria; operator names themselves with --by. */
+  readonly bindCheck?: readonly string[];
   readonly by?: string;
 }
 
@@ -261,7 +278,14 @@ export async function contractAction(
   const renderer = createRenderer({
     color: resolveColor(options.noColor === true, options.env ?? process.env),
   });
-  const result = await runContractStage({ runId, injectedCriteria: humanCriteria(options) }, deps);
+  const result = await runContractStage(
+    {
+      runId,
+      injectedCriteria: humanCriteria(options),
+      boundChecks: operatorBoundChecks(options),
+    },
+    deps,
+  );
 
   if (options.json) {
     write(terminalSafeJson({ recordFile: result.recordFile, record: result.record }));
@@ -365,6 +389,32 @@ export function formatContract(input: ContractResult, renderer: Renderer): strin
  * check cannot be spelled as an argv can never be met by a receipt, so the
  * contract would be storing a promise Stage 7 has no way to keep.
  */
+function operatorBoundChecks(options: ContractCommandOptions): readonly BoundIssueCheck[] {
+  const raw = options.bindCheck ?? [];
+  if (raw.length === 0) return [];
+  const by = options.by?.trim();
+  if (!by) {
+    throw new AppError({
+      kind: 'validation',
+      message: 'Binding an existing issue criterion requires a named operator (--by).',
+      remediation: 'Name the accountable human who reviewed the exact check.',
+    });
+  }
+  return raw.map((entry) => {
+    const equals = entry.indexOf('=');
+    const id = entry.slice(0, equals).trim();
+    const command = entry.slice(equals + 1).trim();
+    if (equals <= 0 || !/^AC-\d+$/.test(id) || !command) {
+      throw new AppError({
+        kind: 'validation',
+        message: 'A bound check must be AC-n=program arguments.',
+        remediation: 'Use --bind-check "AC-1=node --test test/example.test.js".',
+      });
+    }
+    return { id, by, check: namedCheck(command) };
+  });
+}
+
 function humanCriteria(options: ContractCommandOptions): readonly InjectedCriterion[] | undefined {
   const statements = options.criterion ?? [];
   const checks = (options.check ?? []).map((command) => command.trim());
