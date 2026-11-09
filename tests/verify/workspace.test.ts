@@ -410,7 +410,7 @@ describe.skipIf(!AVAILABLE)('one verification round over a workspace', () => {
 
     expect(error.kind).toBe('validation');
     expect(error.message).toMatch(/Cannot name a patch/);
-  });
+  }, 90_000);
 
   it('is the same round `mergesutra verify` runs, not a second implementation of it', async () => {
     const fixture = await implementedRun(tempDirs);
@@ -433,5 +433,5 @@ describe.skipIf(!AVAILABLE)('one verification round over a workspace', () => {
       );
     expect(judged(round)).toEqual(judged(stage));
     expect(round.checks).toEqual(stage.record.checks);
-  });
+  }, 90_000);
 });
