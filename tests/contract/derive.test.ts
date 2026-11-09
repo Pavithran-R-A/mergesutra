@@ -362,7 +362,7 @@ describe('withRevision', () => {
 describe('named-operator bindings for existing issue criteria', () => {
   const source = () =>
     derive({
-      issue: body('## Acceptance criteria\\n1. Reject empty dates.\\n2. Preserve valid dates.'),
+      issue: body('## Acceptance criteria\n1. Reject empty dates.\n2. Preserve valid dates.'),
     });
   const check = { command: 'node --test test/acceptance.test.js', kind: 'test' as const };
 
