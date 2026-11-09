@@ -35,17 +35,18 @@ describe('npm release requires the matching tag on protected main', () => {
   });
 
   it('rejects a release from a different repository', () => {
-    expect(
-      releaseIdentityProblems({ ...approved, repository: 'untrusted/mergesutra' }),
-    ).toContain('the event repository is not the package repository');
+    const result = releaseIdentityProblems({ ...approved, repository: 'untrusted/mergesutra' });
+    expect(result).toContain('the event repository is not the package repository');
   });
 
   it('rejects a tag, workflow SHA or main branch pointing elsewhere', () => {
     expect(releaseIdentityProblems({ ...approved, tagCommit: OTHER })).not.toEqual([]);
     expect(releaseIdentityProblems({ ...approved, workflowSha: OTHER })).not.toEqual([]);
-    expect(
-      releaseIdentityProblems({ ...approved, remoteMainLine: OTHER + '\trefs/heads/main' }),
-    ).toContain('the release commit is not the current protected main tip');
+    const result = releaseIdentityProblems({
+      ...approved,
+      remoteMainLine: OTHER + '\trefs/heads/main',
+    });
+    expect(result).toContain('the release commit is not the current protected main tip');
   });
 
   it('refuses malformed, duplicated and missing remote Git answers', () => {

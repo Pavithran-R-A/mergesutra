@@ -14,7 +14,9 @@ if (
   process.env.GITHUB_EVENT_NAME !== 'release' ||
   process.env.GITHUB_REF !== 'refs/tags/' + expectedTag
 ) {
-  process.stderr.write('Refusing npm release: expected a published GitHub Release for this version.\n');
+  process.stderr.write(
+    'Refusing npm release: expected a published GitHub Release for this version.\n',
+  );
   process.exit(1);
 }
 
@@ -48,7 +50,9 @@ try {
   ]);
 } catch {
   // The network, tag or Git ref may be unavailable. Do not print child stderr.
-  process.stderr.write('Refusing npm release: could not verify Git tag and protected main identity.\n');
+  process.stderr.write(
+    'Refusing npm release: could not verify Git tag and protected main identity.\n',
+  );
   process.exit(1);
 }
 
@@ -65,7 +69,9 @@ const problems = releaseIdentityProblems({
   remoteMainLine,
 });
 if (problems.length > 0) {
-  process.stderr.write('Refusing npm release:\n' + problems.map((p) => '- ' + p).join('\n') + '\n');
+  process.stderr.write(
+    'Refusing npm release:\n' + problems.map((p) => '- ' + p).join('\n') + '\n',
+  );
   process.exit(1);
 }
 
