@@ -149,6 +149,24 @@ describe('the action list shown to the model', () => {
     expect(system).toContain('at least one repository-required gate');
   });
 
+  it('avoids spending bounded turns on prohibited or unavailable checks', async () => {
+    const { system } = await build();
+    for (const phrase of [
+      'already installed, non-mutating and allowed by tool policy',
+      'no npm install, npm ci, or npx',
+      'Never run a modifying formatter such as npm run format',
+      'prettier: not found',
+      'do not substitute an install or prohibited command',
+      'FINISH if safe checks are',
+      'never a passing verdict',
+      'independent verifier must still check requirements',
+    ]) {
+      expect(system).toContain(phrase);
+    }
+    expect(system).toContain('every required source AND test-file change');
+    expect(system).toContain('at least one repository-required gate');
+  });
+
   it('preserves existing regression checks when adding acceptance assertions', async () => {
     const { system } = await build();
     expect(system).toContain('preserve assertions for unrelated behavior');
