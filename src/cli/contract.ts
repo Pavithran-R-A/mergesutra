@@ -65,7 +65,8 @@ export async function runContractStage(
     throw new AppError({
       kind: 'validation',
       message: 'Issue checks must be bound while deriving the original contract, before planning.',
-      remediation: 'Start from the inspect record and explicitly provide --bind-check for each issue criterion.',
+      remediation:
+        'Start from the inspect record and explicitly provide --bind-check for each issue criterion.',
     });
   }
 
