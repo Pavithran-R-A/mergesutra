@@ -27,8 +27,16 @@ describe('operator-origin acceptance gates', () => {
     const contract = bindIssueChecks(
       original(),
       [
-        { id: 'AC-1', by: 'Maintainer', check: { kind: 'test', command: 'node --test test/acceptance.test.js' } },
-        { id: 'AC-2', by: 'Maintainer', check: { kind: 'test', command: 'node --test test/acceptance.test.js' } },
+        {
+          id: 'AC-1',
+          by: 'Maintainer',
+          check: { kind: 'test', command: 'node --test test/acceptance.test.js' },
+        },
+        {
+          id: 'AC-2',
+          by: 'Maintainer',
+          check: { kind: 'test', command: 'node --test test/acceptance.test.js' },
+        },
       ],
       '2026-11-09T00:00:00Z',
     );
@@ -61,19 +69,30 @@ describe('operator-origin acceptance gates', () => {
   it('refuses forged operator labels on repository criteria and invalid commands', () => {
     const bound = bindIssueChecks(
       original(),
-      [{ id: 'AC-1', by: 'Maintainer', check: { kind: 'test', command: 'node --test test/a.test.js' } }],
+      [
+        {
+          id: 'AC-1',
+          by: 'Maintainer',
+          check: { kind: 'test', command: 'node --test test/a.test.js' },
+        },
+      ],
       'now',
     );
     const malformed = parseAcceptanceContract({
       ...bound,
       criteria: bound.criteria.map((criterion) =>
         criterion.id === 'AC-1'
-          ? { ...criterion, verificationPlan: [{
-              kind: 'test',
-              command: 'npm install',
-              source: 'MERGESUTRA_ADDITIONAL',
-              from: 'operator:Maintainer',
-            }] }
+          ? {
+              ...criterion,
+              verificationPlan: [
+                {
+                  kind: 'test',
+                  command: 'npm install',
+                  source: 'MERGESUTRA_ADDITIONAL',
+                  from: 'operator:Maintainer',
+                },
+              ],
+            }
           : criterion,
       ),
     });
@@ -82,7 +101,10 @@ describe('operator-origin acceptance gates', () => {
       ...bound,
       criteria: bound.criteria.map((criterion) =>
         criterion.id === 'AC-1'
-          ? { ...criterion, source: { kind: 'repository_policy', file: 'ci.yml', line: 1 } }
+          ? {
+              ...criterion,
+              source: { kind: 'repository_policy', file: 'ci.yml', line: 1 },
+            }
           : criterion,
       ),
     });
