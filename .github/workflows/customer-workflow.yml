@@ -251,7 +251,7 @@ jobs:
           # against history nobody can name.
           if advertised="$(git ls-remote --exit-code https://github.com/Pavithran-R-A/mergesutra-e2e-fixture.git refs/heads/main)"; then
             advertised="$(printf '%s\n' "$advertised" | cut -f1)"
-            if [ "$advertised" != '6f3a0adb17389b93fd76b95c21a1c9eb7b161998' ]; then
+            if [ "$advertised" != 'fc7f8f74160552cd3e83e1bff293dd26efdabee0' ]; then
               say "the customer fixture's main branch is at $advertised, not the base SHA these journeys are written against"
             fi
           else

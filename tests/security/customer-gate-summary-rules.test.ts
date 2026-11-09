@@ -101,7 +101,7 @@ process.stdout.write(
 `;
 
 const REVISION = 'a'.repeat(40);
-const FIXTURE_BASE = '6f3a0adb17389b93fd76b95c21a1c9eb7b161998';
+const FIXTURE_BASE = 'fc7f8f74160552cd3e83e1bff293dd26efdabee0';
 const IMAGE = 'node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7';
 
 const SCENARIOS = [
