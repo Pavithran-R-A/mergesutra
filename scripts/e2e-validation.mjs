@@ -13,6 +13,7 @@ import {
   MAX_MODEL_COMPLETIONS,
 } from './lib/live-qualification.mjs';
 import { budgetConfigRefusals, ledgerRefusals, liveChildEnv } from './lib/live-budget.mjs';
+import { countLedgerReservations } from './lib/live-failure-budget.mjs';
 import {
   PACK_FILE_NAMES,
   buildPublicationBundle,
@@ -239,10 +240,10 @@ function fail(message) {
  * not read as a run that asked for nothing.
  */
 async function countReservations() {
-  if (mode !== 'live') return null;
-  const names = await readdir(process.env.BHARATCODE_REQUEST_LEDGER).catch(() => null);
-  if (!names) return null;
-  return names.filter((name) => /^completion-\d{4}$/.test(name)).length;
+  return countLedgerReservations({
+    mode,
+    ledgerDirectory: process.env.BHARATCODE_REQUEST_LEDGER,
+  });
 }
 
 /**
@@ -784,6 +785,10 @@ try {
   for (let index = 0; index < steps.length; index += 1) {
     await writeStep(steps[index], index).catch(() => undefined);
   }
+  // A failure before the success summary still consumed a transport reservation.
+  // Read the authoritative ledger; an inaccessible count is unknown, never zero.
+  // Do not expose the private directory, credentials or raw model response.
+  const reservationsWritten = await countReservations();
   await writeFile(
     path.join(exportRoot, `${mode}-failure.json`),
     JSON.stringify(
@@ -796,6 +801,15 @@ try {
           exitCode: step.exitCode,
           signal: step.signal,
         })),
+        budget:
+          mode === 'live'
+            ? {
+                ceilingEnforcedBeforeTransport: MAX_MODEL_COMPLETIONS,
+                reservationsWrittenToLedger: reservationsWritten,
+                completionRetriesAllowed: Number(process.env.BHARATCODE_MAX_RETRIES),
+                workflowRunAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+              }
+            : null,
         outputLeakDetected: rawLeak,
       },
       null,

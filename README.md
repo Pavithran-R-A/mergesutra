@@ -4,14 +4,14 @@
 
 **Issue in. Evidence-backed PR out.** An open-source, BharatCode-powered coding agent that takes a GitHub issue through bounded code changes, executed checks, and traceable acceptance evidence—then leaves draft pull request publication in human hands.
 
-> **Build League supporters:** [Vote for MergeSutra on BharatCode](https://bharatcode.ai/hackathon#projects) (search **MergeSutra**; one genuine registered-account vote per person) · [Star the GitHub repo](https://github.com/Pavithran-R-A/mergesutra) if you find it useful · [Watch the 88-second demo](docs/assets/merge-sutra-demo-88s.mp4) (scripted model, production CLI).
-
 **A model's confidence is not a test result. If a requirement wasn't verified, MergeSutra tells you.**
 
 [![CI](https://github.com/Pavithran-R-A/mergesutra/actions/workflows/ci.yml/badge.svg)](https://github.com/Pavithran-R-A/mergesutra/actions/workflows/ci.yml)
 [![MIT license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
+
+**Support the Build League entry:** [Vote for MergeSutra](https://bharatcode.ai/hackathon#projects) (find MergeSutra; one genuine vote per registered account) · [Star the open-source repo](https://github.com/Pavithran-R-A/mergesutra) if useful · [Watch the clearly labeled scripted demo](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/assets/merge-sutra-demo-88s.mp4).
 
 **Judges: [Watch the 88-second demo](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/assets/merge-sutra-demo-88s.mp4) · [Inspect the proof](#proof-not-promises) · [Open the two-minute judge guide](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/JUDGE_GUIDE.md)**
 
