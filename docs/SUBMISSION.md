@@ -12,9 +12,9 @@ submission has been made.
 | Public GitHub repository | PASS | `gh repo view Pavithran-R-A/mergesutra` reports `"visibility":"PUBLIC"` |
 | `BharatCode.txt` at the repository root | PASS | `gh api repos/Pavithran-R-A/mergesutra/contents/BharatCode.txt` returns the file at `main` |
 | Built with BharatCode | PASS, with stated limits | Live run [#38144174041](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38144174041), 11 October 2026, `qwen-3.8-27b`, commit `b1c18bfaf299dfae6316b70e17647a6bde48caee` |
-| Working project | PASS | `npm run build`; completed scripted-model journey `run-20261021T115401Z-ea10b8` (2/2 gates, 5/5 oracle checks, 0 review findings); hosted CI on `main` |
+| Working project | PASS | Merged-main CI [#42677315458](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42677315458), scripted customer workflow [#42677463193](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42677463193), plus the 21 October scripted demo |
 | Submission form fields | READY | Name, URL and summary below |
-| Submission made | **NO** | No account-linked entry exists until the organiser's site confirms one |
+| Submission made | **OWNER-REPORTED; NOT RECHECKED** | Issue #72 records the owner's screenshot; this environment cannot inspect account-linked status |
 | Deadline | 10 November 2026, 11:59 PM IST | Must be submitted from the organiser's site by the account holder; re-verified on <https://bharatcode.ai/hackathon> on 23 October 2026 |
 
 Eligibility: students and other builders. Judging: GitHub stars, website votes,

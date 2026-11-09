@@ -94,13 +94,13 @@ The fully unattended `mergesutra run` command is **not shipped**. Neither is an 
 
 | Claim | Inspectable evidence | Honest boundary |
 | --- | --- | --- |
-| Cross-platform engineering | [Six CI jobs passed at `c6fd871`](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42492506208) on Linux, Windows and macOS with Node 22 and Node 24 | Not a live BharatCode result |
-| Working customer CLI stages | [Eight hosted scripted customer journeys passed](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42489888186) on PR #70's pre-merge revision | Scripted gateway; not the final merged SHA |
+| Cross-platform engineering | [Six CI jobs passed](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42677315458) on merged `a381ff0`, across Linux, Windows and macOS with Node 22 and Node 24 | Not a live BharatCode result |
+| Working customer CLI stages | [Eight hosted scripted journeys passed](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42677463193) on merged `a381ff0` | Scripted gateway; not a live model |
 | Real BharatCode used successfully | [Historical Qwen fixture at `b1c18bf`](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38144174041), 11 October: 9/12 model requests, independent acceptance passed | Older commit, one bounded fixture; no published PR |
 | Isolated repository execution | [Linux Docker sandbox jobs passed](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41614337044) | Some host/command combinations remain unqualified |
 | Representative AI reliability | [Ten-case benchmark ledger](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/REAL_TASK_BENCHMARK.md) | **0/10 live cases recorded** |
 
-**Still unproven:** Full live BharatCode qualification on the present submission SHA, the ten-case reliability benchmark, real remote draft-PR publication, and macOS Docker-host behavior. The writer retains a documented final-check-to-rename race. These limits are disclosed—not hidden behind a 100% claim.
+**Still unproven:** Full live BharatCode qualification on `a381ff0`, the ten-case reliability benchmark, real remote draft-PR publication, and macOS Docker-host behavior. The writer retains a documented final-check-to-rename race. These limits are disclosed—not hidden behind a 100% claim.
 
 ## Architecture: where trust is enforced
 
