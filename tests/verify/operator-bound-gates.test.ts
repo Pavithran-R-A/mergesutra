@@ -11,7 +11,7 @@ function original() {
     issue: {
       url: 'https://github.com/acme/repo/issues/1',
       title: 'A bug',
-      body: '## Acceptance criteria\\n1. Fix case A.\\n2. Preserve case B.',
+      body: '## Acceptance criteria\n1. Fix case A.\n2. Preserve case B.',
     },
     repository: { fullName: 'acme/repo', baseSha: 'a'.repeat(40), localPath: null },
     contract: null,
