@@ -11,9 +11,13 @@ for this qualification.
 This is not a production-readiness claim. Submission assets are technically
 ready. The account holder must verify contest-entry status before the deadline.
 
-## Qualified revision
+## Qualified source revisions
 
-- Final `main`: `a381ff064873f631da7bc86783d2a197fb03af8b`.
+- Code candidate `main`: `a381ff064873f631da7bc86783d2a197fb03af8b`.
+- PR #79 updated documentation only.
+- Its merge changed `main` to `b723c011973116cb3d7693aacee5fde43f80bf83`.
+- Fresh CI and customer checks passed there.
+- No source files changed after the code candidate.
 - PR #77 merged as `fda2615c03c856debcf2bea9bc63da9f47b367ab`.
 - PR #78 merged as `a381ff064873f631da7bc86783d2a197fb03af8b`.
 - PR #78 head: `a48f2d53b61dc35a69ed58d951315630b80d5106`.
@@ -32,6 +36,7 @@ ready. The account holder must verify contest-entry status before the deadline.
 | macOS, Node 22 | PASS | [Main CI #42677315458](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42677315458) |
 | macOS, Node 24 | PASS | [Main CI #42677315458](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42677315458) |
 | Eight scripted customer journeys | PASS | [Main #42677463193](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42677463193) |
+| Documentation-only `main` revision | PASS | [CI #42684494407](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42684494407), [customer #42684569891](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42684569891) |
 | PR-head matrix and customer gate | PASS | [CI #42675078631](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42675078631), [customer #42675078865](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42675078865) |
 
 The PR-head jobs tested `a48f2d5`.
@@ -48,7 +53,7 @@ Vitest used repository defaults without overrides.
 | Command | Result |
 | --- | --- |
 | `npm ci` | PASS |
-| `npm run check` | PASS: format, lint, types, build; 2,997 passed, 12 skipped |
+| `npm run check` | First full run passed: 2,997 passed, 12 skipped; later contention rerun failed |
 | `npm run qualify:path-shapes` | PASS: Windows path cases |
 | `npm run verify:package` | PASS: 115 tests |
 | `npm run test:artifact` | PASS: 15 tests |
@@ -58,6 +63,16 @@ Vitest used repository defaults without overrides.
 Hosted customer qualification passed in Docker.
 The Windows-local result supplements hosted matrix evidence.
 The 12 skipped tests remain disclosed.
+
+A later Windows rerun exposed resource-sensitive limits.
+It reported nine timed-out tests and 37 skips.
+The ten-oracle subprocess exceeded its 180-second limit.
+The live fixture harness exceeded its 45-second measurement.
+Its isolated rerun measured 54.864 seconds.
+Publisher, verification, and repair tests timed out.
+No timeout was raised or skip added.
+The exact-source hosted matrix still passed 6/6.
+See [main CI #42684494407](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42684494407).
 
 ## Confirmed corrections
 
