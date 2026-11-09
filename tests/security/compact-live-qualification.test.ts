@@ -60,9 +60,11 @@ describe('compact live qualification is separate and still fail-closed', () => {
   });
 
   it('rejects unapproved file changes, missing tests and failed independent oracle', async () => {
-    expect(changesOutsideAllowlist(['scripts/e2e-acceptance-check.mjs'], COMPACT_ALLOWED_PATHS)).toEqual([
-      'scripts/e2e-acceptance-check.mjs',
-    ]);
+    const forbidden = changesOutsideAllowlist(
+      ['scripts/e2e-acceptance-check.mjs'],
+      COMPACT_ALLOWED_PATHS,
+    );
+    expect(forbidden).toEqual(['scripts/e2e-acceptance-check.mjs']);
     const { proof: rejected } = await evidence({
       changedPaths: [...changedPaths, 'scripts/e2e-acceptance-check.mjs'],
       readFile: async (file) =>
