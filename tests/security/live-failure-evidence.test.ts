@@ -48,7 +48,7 @@ console.log(JSON.stringify(observed));
     expect(finalCatch).toContain('ceilingEnforcedBeforeTransport: MAX_MODEL_COMPLETIONS');
     expect(finalCatch).toContain('reservationsWrittenToLedger: reservationsWritten');
     expect(finalCatch).toContain('workflowRunAttempt: process.env.GITHUB_RUN_ATTEMPT');
-    expect(finalCatch).toContain('mode === \'live\'');
+    expect(finalCatch).toContain("mode === 'live'");
     expect(finalCatch).not.toContain('ledgerDirectory:');
     expect(finalCatch).not.toContain('BHARATCODE_API_KEY');
   });
