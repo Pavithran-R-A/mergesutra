@@ -68,7 +68,8 @@ export function operatorBoundGates(contract: AcceptanceContract): AdditionalGate
         throw new AppError({
           kind: 'validation',
           message: 'An operator-bound issue check is invalid or no longer executable.',
-          remediation: 'Review its attributed command and derive a new contract, never treat it as PASS.',
+          remediation:
+            'Review its attributed command and derive a new contract, never treat it as PASS.',
         });
       }
       const argv = [...parsed.argv];
