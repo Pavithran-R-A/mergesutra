@@ -69,9 +69,7 @@ const problems = releaseIdentityProblems({
   remoteMainLine,
 });
 if (problems.length > 0) {
-  process.stderr.write(
-    'Refusing npm release:\n' + problems.map((p) => '- ' + p).join('\n') + '\n',
-  );
+  process.stderr.write('Refusing npm release:\n' + problems.map((p) => '- ' + p).join('\n') + '\n');
   process.exit(1);
 }
 
