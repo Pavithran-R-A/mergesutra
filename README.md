@@ -4,6 +4,8 @@
 
 **Issue in. Evidence-backed PR out.** An open-source, BharatCode-powered coding agent that takes a GitHub issue through bounded code changes, executed checks, and traceable acceptance evidence—then leaves draft pull request publication in human hands.
 
+> **Build League supporters:** [Vote for MergeSutra on BharatCode](https://bharatcode.ai/hackathon#projects) (search **MergeSutra**; one genuine registered-account vote per person) · [Star the GitHub repo](https://github.com/Pavithran-R-A/mergesutra) if you find it useful · [Watch the 88-second demo](docs/assets/merge-sutra-demo-88s.mp4) (scripted model, production CLI).
+
 **A model's confidence is not a test result. If a requirement wasn't verified, MergeSutra tells you.**
 
 [![CI](https://github.com/Pavithran-R-A/mergesutra/actions/workflows/ci.yml/badge.svg)](https://github.com/Pavithran-R-A/mergesutra/actions/workflows/ci.yml)
