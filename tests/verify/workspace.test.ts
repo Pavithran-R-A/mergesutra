@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { bindIssueChecks, deriveAcceptanceCriteria } from '../../src/contract/derive.js';
+import { EXITED_FAILING, SUCCEEDED } from '../helpers/verification.js';
 import { defaultRunner } from '../../src/core/runner.js';
 import type { RunRecord } from '../../src/state/run-record.js';
 import type { ExecutionConsent } from '../../src/verify/consent.js';
@@ -120,6 +122,76 @@ describe.skipIf(!AVAILABLE)('one verification round over a workspace', () => {
       'Verification run',
       'Acceptance evidence',
     ]);
+  });
+
+  it('records real gate receipts for named issue checks and never credits failed checks', async () => {
+    const fixture = await implementedRun(tempDirs);
+    const derived = deriveAcceptanceCriteria({
+      runId: fixture.source.runId,
+      issue: {
+        url: 'https://github.com/acme/repo/issues/1',
+        title: 'Keep parser behavior correct',
+        body: '## Acceptance criteria\\n1. Invalid input must be rejected.',
+      },
+      repository: {
+        fullName: 'acme/repo',
+        baseSha: fixture.base,
+        localPath: fixture.primaryDir,
+      },
+      contract: null,
+    });
+    const contract = bindIssueChecks(
+      derived,
+      [
+        {
+          id: 'AC-1',
+          by: 'Release operator',
+          check: { kind: 'test', command: 'node --test test/acceptance.test.js' },
+        },
+      ],
+      NOW.toISOString(),
+    );
+    const trusted = scriptedGates();
+    const first = await verifyWorkspace(
+      {
+        runId: fixture.source.runId,
+        workspace: fixture.repoDir,
+        baseSha: fixture.base,
+        contract,
+      },
+      { now: () => NOW, runFor: trusted.runFor },
+    );
+    const gate = first.plan.gates.find((entry) => entry.provenance.source === 'USER_SUPPLIED');
+    expect(gate).toBeDefined();
+    expect(gate?.relevantCriteria).toEqual(['AC-1']);
+    expect(trusted.calls).toContain('node --test test/acceptance.test.js');
+    expect(first.run.gates.find((entry) => entry.gateId === gate?.id)).toMatchObject({
+      status: 'OPERATOR_SUPPLIED',
+      receipt: { result: 'PASS', exitCode: 0 },
+    });
+    expect(first.evidence.criteria.find((entry) => entry.criterionId === 'AC-1')).toMatchObject({
+      status: 'PASS',
+      gateIds: [gate?.id],
+    });
+
+    const failures = {
+      runFor: () => async (file: string, args: readonly string[]) =>
+        file === 'node' && args.join(' ') === '--test test/acceptance.test.js'
+          ? EXITED_FAILING
+          : SUCCEEDED,
+    };
+    const second = await verifyWorkspace(
+      {
+        runId: fixture.source.runId,
+        workspace: fixture.repoDir,
+        baseSha: fixture.base,
+        contract,
+      },
+      { now: () => NOW, ...failures },
+    );
+    expect(second.evidence.criteria.find((entry) => entry.criterionId === 'AC-1')?.status).toBe(
+      'FAIL',
+    );
   });
 
   it('runs no repository command until the operator names one, and records that it did not', async () => {
