@@ -403,7 +403,7 @@ function operatorBoundChecks(options: ContractCommandOptions): readonly BoundIss
     const equals = entry.indexOf('=');
     const id = entry.slice(0, equals).trim();
     const command = entry.slice(equals + 1).trim();
-    if (equals <= 0 || !/^AC-\\d+$/.test(id) || !command) {
+    if (equals <= 0 || !/^AC-\d+$/.test(id) || !command) {
       throw new AppError({
         kind: 'validation',
         message: 'A bound check must be AC-n=program arguments.',
