@@ -172,7 +172,7 @@ describe('mergesutra contract — the obligations a run must prove', () => {
 
   it('binds a named check to an existing issue AC without replacing its statement', async () => {
     const store = memoryRunStore();
-    await intakeRun('## Acceptance criteria\\n- [ ] Reject invalid input.', store);
+    await intakeRun('## Acceptance criteria\n- [ ] Reject invalid input.', store);
     const c = capture();
     const code = await cli(
       [
@@ -203,7 +203,7 @@ describe('mergesutra contract — the obligations a run must prove', () => {
 
   it('refuses unattributed or unknown issue bindings without saving a contract', async () => {
     const store = memoryRunStore();
-    await intakeRun('## Acceptance criteria\\n- [ ] Reject invalid input.', store);
+    await intakeRun('## Acceptance criteria\n- [ ] Reject invalid input.', store);
     const noBy = capture();
     expect(
       await cli(['contract', '--bind-check', 'AC-1=node --test test/a.test.js'], store, noBy),
