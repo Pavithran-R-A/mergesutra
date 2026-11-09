@@ -29,7 +29,7 @@ PR #81 remains open and mergeable. It has no recorded review decision. Its exact
 | G6 AI reliability | BLOCKED | 7436c63 | tests/benchmark/oracles.test.ts passed offline controls | Ten real tasks remain unrun |
 | G7 GitHub publication | BLOCKED | 7436c63 | Local publisher suite passed | No authorized disposable-repository run |
 | G8 Package distribution | BLOCKED | 7436c63 | Package verification and artifact tests passed | Registry package unavailable; Node 22/24 consumers untested |
-| G9 Credential security | BLOCKED | 4eda9ad | Package scans, boundary tests, artifact tests passed | No live qualification artifacts exist |
+| G9 Credential security | BLOCKED | 4eda9ad | Package scans, boundary tests, artifact tests passed | No current-SHA live artifacts exist |
 | G10 Operational reliability | BLOCKED | 4eda9ad | Resume, interruption, locking, timeout tests passed | Local stress timeout; resource envelope unmeasured |
 | G11 Release integrity | BLOCKED | 7436c63 | No GitHub releases; no publish runs | No package, tag, provenance, or release |
 | G12 Documentation | BLOCKED | 7436c63 | Release and security documents inspected | Ruleset lacks required reviews and checks |
