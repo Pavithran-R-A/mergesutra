@@ -36,7 +36,9 @@ if (FIXTURE_PROFILE !== 'full' && FIXTURE_PROFILE !== 'compact') {
   process.exit(64);
 }
 const FIXTURE_REPO =
-  FIXTURE_PROFILE === 'compact' ? 'Pavithran-R-A/mergesutra-e2e-fixture' : 'Pavithran-R-A/mergesutra';
+  FIXTURE_PROFILE === 'compact'
+    ? 'Pavithran-R-A/mergesutra-e2e-fixture'
+    : 'Pavithran-R-A/mergesutra';
 const FIXTURE_NUMBER = FIXTURE_PROFILE === 'compact' ? 1 : 8;
 const FIXTURE_URL = `https://github.com/${FIXTURE_REPO}.git`;
 const ISSUE_URL = `https://github.com/${FIXTURE_REPO}/issues/${FIXTURE_NUMBER}`;
@@ -611,19 +613,17 @@ async function main() {
     // The CLI deliberately records incomplete work as evidence rather than lying
     // about success. A successful workflow must prove the actual fixture task.
     const changed = implementation?.changes?.map((entry) => entry.relativePath) ?? [];
-    if (
-      changesOutsideAllowlist(changed, FIXTURE_PROFILE === 'compact' ? COMPACT_ALLOWED_PATHS : undefined)
-        .length > 0
-    ) {
+    const allowedPaths = FIXTURE_PROFILE === 'compact' ? COMPACT_ALLOWED_PATHS : undefined;
+    if (changesOutsideAllowlist(changed, allowedPaths).length > 0) {
       fail('the model changed a file outside the controlled fixture allowlist');
     }
 
     // These checks execute only in the isolated worktree, with all secrets and
     // GitHub tokens removed. Repository CI by itself does not cover AC-1..AC-5.
     const workspace = path.join(fixture, '.mergesutra', 'worktrees', runId);
-    fixtureProof = await (FIXTURE_PROFILE === 'compact'
-      ? inspectCompactAcceptance
-      : inspectFixtureAcceptance)({
+    const inspector =
+      FIXTURE_PROFILE === 'compact' ? inspectCompactAcceptance : inspectFixtureAcceptance;
+    fixtureProof = await inspector({
       workspace,
       run: exec,
       env: childEnv({ publicGit: true }),
