@@ -145,7 +145,13 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
       collect,
       [],
     )
-    .option('--by <name>', 'who supplied the --criterion requirements (required with it)')
+    .option('--by <name>', 'who supplied or bound requirements/checks (required with them)')
+    .option(
+      '--bind-check <id=command>',
+      'bind an existing issue AC-n to an explicitly reviewed executable check (repeatable)',
+      collect,
+      [],
+    )
     .option(
       '--check <command>',
       'the command that proves the --criterion in the same position; repeatable, no shell syntax',
@@ -160,6 +166,7 @@ export function buildProgram(deps: ProgramDeps = {}): Command {
         env,
         criterion: opts.criterion,
         check: opts.check,
+        bindCheck: opts.bindCheck,
         by: opts.by,
       };
       setExitCode(await contractAction(runId, options, deps.contract, write));
