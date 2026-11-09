@@ -73,7 +73,7 @@ export function operatorBoundGates(contract: AcceptanceContract): AdditionalGate
         });
       }
       const argv = [...parsed.argv];
-      const key = JSON.stringify([step.kind, argv]);
+      const key = JSON.stringify([step.kind, argv, operatorBy]);
       const current = grouped.get(key);
       if (current) {
         grouped.set(key, {
