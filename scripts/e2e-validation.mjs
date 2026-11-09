@@ -462,7 +462,19 @@ async function main() {
 
     cli('issue', ['issue', ISSUE_URL, '--repo', fixture], [0]);
     const inspect = cli('inspect', ['inspect', fixture], [0]);
-    const contract = cli('contract', ['contract', inspect.json.record.runId], [0]);
+    // These five bindings are reviewed release-harness policy, not model output.
+    // Their executable oracle is outside the issue's allowlisted edit paths.
+    // An issue sentence is not evidence until Stage 7 executes its exact gate.
+    const trustedCheck = 'node --test scripts/stage14-acceptance-check.mjs';
+    const bindings = [1, 2, 3, 4, 5].flatMap((number) => [
+      '--bind-check',
+      `AC-${number}=${trustedCheck}`,
+    ]);
+    const contract = cli(
+      'contract',
+      ['contract', inspect.json.record.runId, '--by', 'MergeSutra release operator', ...bindings],
+      [0],
+    );
     runId = contract.json.record.runId;
 
     const plan = cli('plan', ['plan', runId], [0]);
@@ -534,6 +546,20 @@ async function main() {
       .map((gate) => gate.id);
     if (!repositoryGateIds.includes(gateId)) {
       fail('the npm test gate was not included in the repository consent set');
+    }
+
+    const operatorGates = gates.filter(
+      (gate) =>
+        gate.provenance?.source === 'USER_SUPPLIED' &&
+        Array.isArray(gate.argv) &&
+        gate.argv.join(' ') === trustedCheck,
+    );
+    if (
+      operatorGates.length !== 1 ||
+      JSON.stringify(operatorGates[0].relevantCriteria) !==
+        JSON.stringify(['AC-1', 'AC-2', 'AC-3', 'AC-4', 'AC-5'])
+    ) {
+      fail('the five explicit issue acceptance bindings did not survive into Stage 7');
     }
 
     const allowFlags = repositoryGateIds.flatMap((id) => ['--allow', id]);
