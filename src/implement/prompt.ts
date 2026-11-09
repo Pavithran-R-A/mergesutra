@@ -97,7 +97,7 @@ function systemMessage(limits: LoopLimits): string {
     '- If a planned or required check cannot run safely (for example, prettier: not found), do not',
     '  substitute an install or prohibited command. Keep the limitation visible for verification.',
     '- Once the required source and assertion changes are made, use FINISH if safe checks are',
-    '  exhausted or unavailable. FINISH is only your completion claim, never a passing verdict;', 
+    '  exhausted or unavailable. FINISH is only your completion claim, never a passing verdict;',
     '  the independent verifier must still check requirements and may fail or block the candidate.',
     '- You may not mark a criterion PASS, weaken one, delete one, or rewrite the issue. There is',
     '  no action that does that. If a criterion looks wrong, use PROPOSE_CONTRACT_REVISION and keep',
