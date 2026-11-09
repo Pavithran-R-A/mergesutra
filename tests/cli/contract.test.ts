@@ -218,7 +218,9 @@ describe('mergesutra contract — the obligations a run must prove', () => {
         unknown,
       ),
     ).toBe(EXIT.ERROR);
-    expect([...store.files.values()].filter((value) => JSON.parse(value).stage === 'contract')).toHaveLength(0);
+    expect(
+      [...store.files.values()].filter((value) => JSON.parse(value).stage === 'contract'),
+    ).toHaveLength(0);
   });
 
   it('refuses a check that states no gate, and a check with no criterion', async () => {
