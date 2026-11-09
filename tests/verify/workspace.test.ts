@@ -131,7 +131,7 @@ describe.skipIf(!AVAILABLE)('one verification round over a workspace', () => {
       issue: {
         url: 'https://github.com/acme/repo/issues/1',
         title: 'Keep parser behavior correct',
-        body: ['## Acceptance criteria', '1. Invalid input must be rejected.'].join('\\n'),
+        body: ['## Acceptance criteria', '1. Invalid input must be rejected.'].join('\n'),
       },
       repository: {
         fullName: 'acme/repo',
