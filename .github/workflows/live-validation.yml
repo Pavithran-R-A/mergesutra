@@ -16,6 +16,14 @@ on:
         options:
           - qwen-3.8-27b
           - deepseek-v4.1-flash
+      fixture_profile:
+        description: Compact representative public-repo task or full self-repository adversarial task
+        required: true
+        default: compact
+        type: choice
+        options:
+          - compact
+          - full
 # This workflow never runs on pull requests or pushes. Ordinary CI owns untrusted
 # code. A person must dispatch it deliberately. The live job additionally refuses
 # to run unless the selected ref is main.
@@ -213,6 +221,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BHARATCODE_API_KEY: ${{ secrets.BHARATCODE_API_KEY }}
           BHARATCODE_MODEL: ${{ inputs.model }}
+          MERGESUTRA_E2E_FIXTURE: ${{ inputs.fixture_profile }}
           # Below the transport's own ceiling, not above it. Node's fetch gives up at
           # ~300 s (UND_ERR_HEADERS_TIMEOUT) on any request whose response headers have
           # not arrived. Whether a completion sends those headers only once the answer is

@@ -474,11 +474,15 @@ describe('the controlled live-validation workflow', () => {
         '      fixtureProof,',
         '      review,',
         '      repairPlanPresent: Boolean(finalRecord?.repairPlan),',
+        "      requiredChangedPaths:\n        FIXTURE_PROFILE === 'compact' ? ['src/slugify.js', 'test/slugify.test.js'] : undefined,",
         '    });',
         '    for (const failure of failures) fail(failure);',
       ].join('\n'),
     );
-    expect(DRIVER).toContain('inspectFixtureAcceptance({');
+    expect(DRIVER).toMatch(
+      /const inspector =\s*FIXTURE_PROFILE === 'compact' \? inspectCompactAcceptance\s*: inspectFixtureAcceptance;/,
+    );
+    expect(DRIVER).toContain('fixtureProof = await inspector({');
     expect(DRIVER).toContain('run: exec');
     expect(DRIVER).toContain('env: childEnv({ publicGit: true })');
     expect(DRIVER).toContain('fixtureAcceptance: fixtureProof');
@@ -501,9 +505,12 @@ describe('the controlled live-validation workflow', () => {
   });
   it('reports the same fixture branch and issue that it actually clones', () => {
     expect(DRIVER).toContain("const FIXTURE_BRANCH = 'main';");
+    expect(DRIVER).toContain("const FIXTURE_NUMBER = FIXTURE_PROFILE === 'compact' ? 1 : 8;");
     expect(DRIVER).toContain(
-      "const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra/issues/8';",
+      'const ISSUE_URL = `https://github.com/${FIXTURE_REPO}/issues/${FIXTURE_NUMBER}`;',
     );
+    expect(DRIVER).toContain("? 'Pavithran-R-A/mergesutra-e2e-fixture'");
+    expect(DRIVER).toContain(": 'Pavithran-R-A/mergesutra';");
     expect(DRIVER).toContain('branch: FIXTURE_BRANCH');
     expect(DRIVER).not.toContain("branch: 'e2e-fixture'");
   });

@@ -14,6 +14,7 @@ import {
 } from './lib/live-qualification.mjs';
 import { budgetConfigRefusals, ledgerRefusals, liveChildEnv } from './lib/live-budget.mjs';
 import { countLedgerReservations } from './lib/live-failure-budget.mjs';
+import { COMPACT_ALLOWED_PATHS, inspectCompactAcceptance } from './lib/compact-qualification.mjs';
 import {
   PACK_FILE_NAMES,
   buildPublicationBundle,
@@ -22,8 +23,22 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'dist', 'bin.js');
-const FIXTURE_URL = 'https://github.com/Pavithran-R-A/mergesutra.git';
-const ISSUE_URL = 'https://github.com/Pavithran-R-A/mergesutra/issues/8';
+// A compact standalone repo demonstrates the issue-to-draft-PR path without
+// inheriting this product's large, unrelated repository-wide CI. The original
+// full-repository qualification remains available and is never reclassified.
+const FIXTURE_PROFILE =
+  process.argv[2] === 'live' ? (process.env.MERGESUTRA_E2E_FIXTURE ?? 'full') : 'full';
+if (FIXTURE_PROFILE !== 'full' && FIXTURE_PROFILE !== 'compact') {
+  process.stderr.write('Unrecognized fixture profile; select full or compact.\\n');
+  process.exit(64);
+}
+const FIXTURE_REPO =
+  FIXTURE_PROFILE === 'compact'
+    ? 'Pavithran-R-A/mergesutra-e2e-fixture'
+    : 'Pavithran-R-A/mergesutra';
+const FIXTURE_NUMBER = FIXTURE_PROFILE === 'compact' ? 1 : 8;
+const FIXTURE_URL = `https://github.com/${FIXTURE_REPO}.git`;
+const ISSUE_URL = `https://github.com/${FIXTURE_REPO}/issues/${FIXTURE_NUMBER}`;
 const FIXTURE_BRANCH = 'main';
 const ALLOWED_MODELS = new Set(['qwen-3.8-27b', 'deepseek-v4.1-flash']);
 const LIVE_DEADLINE_MS = 25 * 60_000;
@@ -465,7 +480,10 @@ async function main() {
     // These five bindings are reviewed release-harness policy, not model output.
     // Their executable oracle is outside the issue's allowlisted edit paths.
     // An issue sentence is not evidence until Stage 7 executes its exact gate.
-    const trustedCheck = 'node --test scripts/stage14-acceptance-check.mjs';
+    const trustedCheck =
+      FIXTURE_PROFILE === 'compact'
+        ? 'node --test scripts/e2e-acceptance-check.mjs'
+        : 'node --test scripts/stage14-acceptance-check.mjs';
     const bindings = [1, 2, 3, 4, 5].flatMap((number) => [
       '--bind-check',
       `AC-${number}=${trustedCheck}`,
@@ -592,14 +610,17 @@ async function main() {
     // The CLI deliberately records incomplete work as evidence rather than lying
     // about success. A successful workflow must prove the actual fixture task.
     const changed = implementation?.changes?.map((entry) => entry.relativePath) ?? [];
-    if (changesOutsideAllowlist(changed).length > 0) {
+    const allowedPaths = FIXTURE_PROFILE === 'compact' ? COMPACT_ALLOWED_PATHS : undefined;
+    if (changesOutsideAllowlist(changed, allowedPaths).length > 0) {
       fail('the model changed a file outside the controlled fixture allowlist');
     }
 
     // These checks execute only in the isolated worktree, with all secrets and
     // GitHub tokens removed. Repository CI by itself does not cover AC-1..AC-5.
     const workspace = path.join(fixture, '.mergesutra', 'worktrees', runId);
-    fixtureProof = await inspectFixtureAcceptance({
+    const inspector =
+      FIXTURE_PROFILE === 'compact' ? inspectCompactAcceptance : inspectFixtureAcceptance;
+    fixtureProof = await inspector({
       workspace,
       run: exec,
       env: childEnv({ publicGit: true }),
@@ -671,9 +692,10 @@ async function main() {
     sourceSha: process.env.GITHUB_SHA ?? null,
     mergeSutraVersion: version.stdout.trim(),
     fixture: {
-      repository: 'Pavithran-R-A/mergesutra',
+      profile: FIXTURE_PROFILE,
+      repository: FIXTURE_REPO,
       branch: FIXTURE_BRANCH,
-      issue: 8,
+      issue: FIXTURE_NUMBER,
       sha: fixtureSha,
       trackedBytesUnchanged: fixtureUnchanged,
       statusUnchanged,
@@ -800,6 +822,8 @@ async function main() {
       fixtureProof,
       review,
       repairPlanPresent: Boolean(finalRecord?.repairPlan),
+      requiredChangedPaths:
+        FIXTURE_PROFILE === 'compact' ? ['src/slugify.js', 'test/slugify.test.js'] : undefined,
     });
     for (const failure of failures) fail(failure);
   }

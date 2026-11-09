@@ -174,6 +174,7 @@ export function liveQualificationFailures({
   fixtureProof,
   review,
   repairPlanPresent,
+  requiredChangedPaths = ['fixtures/stage14-e2e/check.mjs', 'fixtures/stage14-e2e/src/slugify.js'],
 }) {
   const failures = [];
   if (completionCount > MAX_MODEL_COMPLETIONS) {
@@ -192,8 +193,7 @@ export function liveQualificationFailures({
     !fixtureProof?.checkContainsAllThreeAssertions ||
     !fixtureProof?.baselineAssertionsPreserved ||
     !fixtureProof?.dependencyFree ||
-    !fixtureProof?.changedPaths?.includes('fixtures/stage14-e2e/check.mjs') ||
-    !fixtureProof?.changedPaths?.includes('fixtures/stage14-e2e/src/slugify.js')
+    !requiredChangedPaths.every((name) => fixtureProof?.changedPaths?.includes(name))
   ) {
     failures.push('the independent fixture acceptance criteria were not all satisfied');
   }
