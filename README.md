@@ -13,7 +13,7 @@
 
 **Support the Build League entry:** [Vote for MergeSutra](https://bharatcode.ai/hackathon#projects) (find MergeSutra; one genuine vote per registered account) · [Star the open-source repo](https://github.com/Pavithran-R-A/mergesutra) if useful · [Watch the 48s audio-fixed Build League explainer](https://www.youtube.com/shorts/-MvfEyC4FPs).
 
-**Judges: [Watch the audio-fixed project overview](https://www.youtube.com/shorts/-MvfEyC4FPs) · [See the labeled scripted technical demo](docs/assets/merge-sutra-demo-88s.mp4) · [Inspect the proof](#proof-not-promises) · [Open the two-minute judge guide](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/JUDGE_GUIDE.md)**
+**Judges: [Watch the audio-fixed project overview](https://www.youtube.com/shorts/-MvfEyC4FPs) · [See the labeled scripted technical demo](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/assets/merge-sutra-demo-88s.mp4) · [Inspect the proof](#proof-not-promises) · [Open the two-minute judge guide](https://github.com/Pavithran-R-A/mergesutra/blob/main/docs/JUDGE_GUIDE.md)**
 
 Built for BharatCode's model API, MergeSutra is a **standalone CLI**, not an already-shipped BharatCode Desktop/IDE plugin or official editor integration.
 
