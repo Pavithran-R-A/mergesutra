@@ -366,7 +366,7 @@ describe('named-operator bindings for existing issue criteria', () => {
     });
   const check = { command: 'node --test test/acceptance.test.js', kind: 'test' as const };
 
-  it('keeps every original issue and repository requirement PENDING and audits the changed id', () => {
+  it('retains all requirements and records the changed binding', () => {
     const original = source();
     const updated = bindIssueChecks(
       original,
@@ -398,16 +398,13 @@ describe('named-operator bindings for existing issue criteria', () => {
     const original = source();
     const binding = { id: 'AC-1', by: 'Maintainer', check };
     expect(() => bindIssueChecks(original, [binding, binding], 'now')).toThrow('unique');
-    expect(() =>
-      bindIssueChecks(original, [{ ...binding, id: 'AC-99' }], 'now'),
-    ).toThrow('Unknown');
-    expect(() =>
-      bindIssueChecks(original, [{ ...binding, id: 'AC-3' }], 'now'),
-    ).toThrow('Only previously');
+    const unknown = () => bindIssueChecks(original, [{ ...binding, id: 'AC-99' }], 'now');
+    expect(unknown).toThrow('Unknown');
+    const policy = () => bindIssueChecks(original, [{ ...binding, id: 'AC-3' }], 'now');
+    expect(policy).toThrow('Only previously');
     const once = bindIssueChecks(original, [binding], 'now');
     expect(() => bindIssueChecks(once, [binding], 'now')).toThrow('Only previously');
-    expect(() =>
-      bindIssueChecks(original, [{ ...binding, by: ' ' }], 'now'),
-    ).toThrow('named operator');
+    const unnamed = () => bindIssueChecks(original, [{ ...binding, by: ' ' }], 'now');
+    expect(unnamed).toThrow('named operator');
   });
 });
