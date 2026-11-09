@@ -1,4 +1,7 @@
 import type { AcceptanceContract } from '../contract/schema.js';
+import { AppError } from '../core/errors.js';
+import { gatesEnforced } from '../discovery/contract.js';
+import { toExecutableArgv } from './command.js';
 import type { Runner } from '../core/runner.js';
 import { detectManifests } from '../discovery/manifests.js';
 import { openRepoReader } from '../discovery/repo-fs.js';
@@ -39,6 +42,56 @@ import {
  * cycle can run this twice without a workspace changing between the two — measuring
  * is not editing, and this module has no way to confuse them.
  */
+
+/**
+ * Operator-bound check commands, never inferred from issue prose or a model plan.
+ * A saved contract carries the named operator and exact command. Fail closed if
+ * the command no longer parses or no longer has a recognizable check kind.
+ * Duplicate mappings execute the same command only once, without losing its
+ * per-criterion links in the verification plan and resulting receipts.
+ */
+export function operatorBoundGates(contract: AcceptanceContract): AdditionalGateSpec[] {
+  const grouped = new Map<string, AdditionalGateSpec>();
+  for (const criterion of contract.criteria) {
+    for (const step of criterion.verificationPlan) {
+      if (!('command' in step) || step.source !== 'MERGESUTRA_ADDITIONAL') continue;
+      if (!step.from?.startsWith('operator:')) continue;
+      const operatorBy = step.from.slice('operator:'.length).trim();
+      const parsed = toExecutableArgv(step.command);
+      const routes = gatesEnforced(step.command, new Map());
+      if (
+        criterion.source.kind !== 'issue' ||
+        !operatorBy ||
+        !parsed.ok ||
+        !routes.some((route) => route.kind === step.kind)
+      ) {
+        throw new AppError({
+          kind: 'validation',
+          message: 'An operator-bound issue check is invalid or no longer executable.',
+          remediation: 'Review its attributed command and derive a new contract, never treat it as PASS.',
+        });
+      }
+      const argv = [...parsed.argv];
+      const key = JSON.stringify([step.kind, argv]);
+      const current = grouped.get(key);
+      if (current) {
+        grouped.set(key, {
+          ...current,
+          relevantCriteria: [...(current.relevantCriteria ?? []), criterion.id],
+        });
+      } else {
+        grouped.set(key, {
+          name: step.kind,
+          argv,
+          operatorBy,
+          reason: `explicit check of ${criterion.id}, approved by ${operatorBy}`,
+          relevantCriteria: [criterion.id],
+        });
+      }
+    }
+  }
+  return [...grouped.values()];
+}
 
 /** MergeSutra's own check, declared here so both rounds get the same one. */
 const BUILT_IN_GATES: readonly AdditionalGateSpec[] = [
@@ -159,7 +212,7 @@ export async function verifyWorkspace(
   const plan = input.previous
     ? reviseVerificationPlan(input.previous.plan, {
         discovered,
-        additional: BUILT_IN_GATES,
+        additional: [...BUILT_IN_GATES, ...operatorBoundGates(input.contract)],
         reason: input.previous.reason,
         source: REPLAN_SOURCE,
         patchIdentity: patch.identity,
@@ -170,7 +223,7 @@ export async function verifyWorkspace(
         baseSha: input.baseSha,
         patchIdentity: patch.identity,
         discovered,
-        additional: BUILT_IN_GATES,
+        additional: [...BUILT_IN_GATES, ...operatorBoundGates(input.contract)],
         now,
       });
 
