@@ -23,10 +23,11 @@ A single run can be inspected through the shipped commands:
 
 | Question | Evidence | Precise reading |
 | --- | --- | --- |
-| Does the source build and install across supported Node versions? | [CI run #42481055084](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42481055084) | Six green jobs on Ubuntu, Windows and macOS × Node 22 and 24 at `e61fd5d` (8 Nov 2026) |
-| Does the production CLI complete customer journeys? | [Customer workflow run #42478877591](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42478877591) | Eight hosted journeys passed on PR #69 head `55f1351`; **scripted-model gateway**, not a live model or the exact post-merge SHA |
+| Does the source build and install across supported Node versions? | [Merged-main CI run #42677315458](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42677315458) | Six green jobs on Ubuntu, Windows and macOS × Node 22 and 24 at `a381ff0` (10 Nov 2026) |
+| Does the production CLI complete customer journeys? | [Merged-main customer run #42677463193](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42677463193) | Eight hosted journeys passed at `a381ff0`; **scripted-model gateway**, not a live model |
 | Are commands isolated? | [Docker isolation run #41614337044](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41614337044) | Three green Linux Docker isolation jobs, within the documented image/host/command limits |
 | Has BharatCode actually completed a bounded issue-to-patch task? | [Live Qwen run #38144174041](https://github.com/Pavithran-R-A/mergesutra/actions/runs/38144174041) | Successful **older** 11 Oct 2026 fixture run at `b1c18bf`: 9/12 model requests; independent acceptance passed; **no PR published** |
+| Did the latest full live qualification pass? | [Failed run #42497165107](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42497165107) | No. Qwen planning timed out at older `801aab0`; no implementation or review followed |
 | Does the present adapter answer at least one real request? | [Live smoke #41393924176](https://github.com/Pavithran-R-A/mergesutra/actions/runs/41393924176) | A bounded single request passed on 2 Nov 2026; this is **not** a full live chain |
 | Has the ten-case independent real-task benchmark passed? | [Benchmark protocol and ledger](REAL_TASK_BENCHMARK.md) | **No. 0/10 live-model cases recorded.** Offline fixtures and negative controls exist |
 
