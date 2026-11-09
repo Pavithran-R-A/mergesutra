@@ -13,6 +13,17 @@ import {
 
 const root = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const changedPaths = ['src/slugify.js', 'test/slugify.test.js'];
+type RunnerOptions = { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number };
+type EvidenceOverrides = {
+  changedPaths?: string[];
+  readFile?: (file: string) => Promise<string>;
+  run?: (
+    label: string,
+    file: string,
+    args: string[],
+    config: RunnerOptions,
+  ) => { exitCode: number | null };
+};
 const check = [
   "import assert from 'node:assert/strict';",
   "assert.equal(slugify('  Hello  World  '), 'hello-world');",
@@ -22,15 +33,20 @@ const check = [
   "assert.equal(slugify('a.b,c'), 'a-b-c');",
 ].join('\n');
 
-async function evidence(options = {}) {
-  const calls = [];
+async function evidence(options: EvidenceOverrides = {}) {
+  const calls: {
+    label: string;
+    file: string;
+    args: string[];
+    config: RunnerOptions;
+  }[] = [];
   const proof = await inspectCompactAcceptance({
     workspace: '/fixture',
     changedPaths,
-    readFile: async (file) =>
+    readFile: async (file: string) =>
       file.endsWith('package.json') ? '{"name":"tiny","type":"module"}' : check,
     env: { NO_COLOR: '1' },
-    run: (label, file, args, config) => {
+    run: (label: string, file: string, args: string[], config: RunnerOptions) => {
       calls.push({ label, file, args, config });
       return { exitCode: 0 };
     },
@@ -54,8 +70,8 @@ describe('compact live qualification is separate and still fail-closed', () => {
       'fixture-independent-acceptance',
       'fixture-check-file',
     ]);
-    expect(calls[0].args).toEqual(['scripts/e2e-acceptance-check.mjs']);
-    expect(calls[1].args).toEqual(['--test', 'test/slugify.test.js']);
+    expect(calls[0]?.args).toEqual(['scripts/e2e-acceptance-check.mjs']);
+    expect(calls[1]?.args).toEqual(['--test', 'test/slugify.test.js']);
     expect(COMPACT_ALLOWED_PATHS).toContain('src/slugify.js');
   });
 
@@ -67,7 +83,7 @@ describe('compact live qualification is separate and still fail-closed', () => {
     expect(forbidden).toEqual(['scripts/e2e-acceptance-check.mjs']);
     const { proof: rejected } = await evidence({
       changedPaths: [...changedPaths, 'scripts/e2e-acceptance-check.mjs'],
-      readFile: async (file) =>
+      readFile: async (file: string) =>
         file.endsWith('package.json')
           ? '{"dependencies":{"malicious":"1.0.0"}}'
           : "assert.equal(slugify('a--b'), 'a-b');",

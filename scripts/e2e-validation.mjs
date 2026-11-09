@@ -14,10 +14,7 @@ import {
 } from './lib/live-qualification.mjs';
 import { budgetConfigRefusals, ledgerRefusals, liveChildEnv } from './lib/live-budget.mjs';
 import { countLedgerReservations } from './lib/live-failure-budget.mjs';
-import {
-  COMPACT_ALLOWED_PATHS,
-  inspectCompactAcceptance,
-} from './lib/compact-qualification.mjs';
+import { COMPACT_ALLOWED_PATHS, inspectCompactAcceptance } from './lib/compact-qualification.mjs';
 import {
   PACK_FILE_NAMES,
   buildPublicationBundle,
