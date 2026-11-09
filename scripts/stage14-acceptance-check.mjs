@@ -5,6 +5,7 @@
 // establish behavior: these independent assertions do that.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { URL } from 'node:url';
 import { slugify } from '../fixtures/stage14-e2e/src/slugify.js';
 
 const checks = [
