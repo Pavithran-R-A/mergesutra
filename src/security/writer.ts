@@ -286,11 +286,20 @@ export function writePathLockKey(
   target: string,
   platform: NodeJS.Platform = process.platform,
 ): string {
-  const normalized = path.normalize(target);
+  const normalized = platform === 'win32' ? path.win32.normalize(target) : path.normalize(target);
+  if (platform === 'win32') {
+    // Ordinary Win32 lookup ignores trailing dots and spaces per component.
+    // Match those aliases so concurrent writes share one process lock.
+    return normalized
+      .split(path.win32.sep)
+      .map((component) => component.replace(/[. ]+$/u, ''))
+      .join(path.win32.sep)
+      .toLowerCase();
+  }
   // macOS volumes may ignore case, just like Windows. Folding every Darwin
   // path is safe on case-sensitive volumes; it only serializes extra writes.
   // NFC also joins canonically equivalent macOS filename spellings.
-  return platform === 'win32' || platform === 'darwin'
+  return platform === 'darwin'
     ? normalized.normalize('NFC').toLowerCase().normalize('NFC')
     : normalized;
 }

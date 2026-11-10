@@ -198,6 +198,13 @@ describe('write destination lock keys', () => {
     const decomposed = path.resolve('workspace', 'Cafe\u0301.ts');
     expect(writePathLockKey(composed, 'darwin')).toBe(writePathLockKey(decomposed, 'darwin'));
   });
+
+  it('folds trailing dots and spaces for Windows path components', () => {
+    const regular = path.win32.resolve('C:\\repo', 'nested', 'file.ts');
+    const aliased = path.win32.resolve('C:\\repo', 'nested. ', 'file.ts...');
+
+    expect(writePathLockKey(regular, 'win32')).toBe(writePathLockKey(aliased, 'win32'));
+  });
 });
 
 describe('write preconditions (compare-before-write)', () => {
