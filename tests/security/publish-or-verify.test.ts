@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { preflightPublish, verifyPublished } from '../../scripts/lib/publish-registry.mjs';
 
 const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const SCRIPT = path.join(ROOT, 'scripts', 'publish-or-verify.mjs');
@@ -131,6 +132,71 @@ function run(scenario: string): {
 }
 
 describe('the publish-or-verify helper does not invent registry facts', () => {
+  it('preflight authorizes publication only for a complete E404 answer', () => {
+    const base = { spec: `${PKG.name}@${PKG.version}`, version: PKG.version, head: HEAD };
+    const missing = preflightPublish({
+      ...base,
+      npm: () => ({ status: 1, stdout: '', stderr: 'npm error code E404\n' }),
+    });
+    expect(missing).toEqual({ code: 0, publishRequired: true });
+
+    const unreadable = preflightPublish({
+      ...base,
+      npm: () => ({ status: 1, stdout: '', stderr: 'npm error code EAI_AGAIN\n' }),
+    });
+    expect(unreadable).toEqual({ code: 1, publishRequired: false });
+
+    const incidentalNotFound = preflightPublish({
+      ...base,
+      npm: () => ({
+        status: 1,
+        stdout: '',
+        stderr: 'npm error code EAI_AGAIN\nnpm error request to /E404 failed\n',
+      }),
+    });
+    expect(incidentalNotFound).toEqual({ code: 1, publishRequired: false });
+
+    const mismatched = preflightPublish({
+      ...base,
+      npm: () => ({
+        status: 0,
+        stdout: JSON.stringify({ version: '9.9.9', gitHead: HEAD }),
+      }),
+    });
+    expect(mismatched).toEqual({ code: 1, publishRequired: false });
+  });
+
+  it('preflight verifies an existing version without requesting publication', () => {
+    const publishCalls: string[][] = [];
+    const result = preflightPublish({
+      spec: `${PKG.name}@${PKG.version}`,
+      version: PKG.version,
+      head: HEAD,
+      npm: (args: string[]) => {
+        if (args[0] === 'publish') publishCalls.push(args);
+        return { status: 0, stdout: JSON.stringify({ version: PKG.version, gitHead: HEAD }) };
+      },
+    });
+    expect(result).toEqual({ code: 0, publishRequired: false });
+    expect(publishCalls).toEqual([]);
+  });
+
+  it('post-publish verification only reads the registry', () => {
+    const calls: string[][] = [];
+    const code = verifyPublished({
+      spec: `${PKG.name}@${PKG.version}`,
+      version: PKG.version,
+      head: HEAD,
+      npm: (args: string[]) => {
+        calls.push(args);
+        return { status: 0, stdout: JSON.stringify({ version: PKG.version, gitHead: HEAD }) };
+      },
+      wait: () => undefined,
+    });
+    expect(code).toBe(0);
+    expect(calls).toEqual([['view', `${PKG.name}@${PKG.version}`, 'version', 'gitHead', '--json']]);
+  });
+
   it('refuses to publish when the registry could not be read', () => {
     const result = run('read-error');
     expect(result.calls.filter((call) => call.kind === 'publish')).toEqual([]);

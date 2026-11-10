@@ -33,6 +33,7 @@ import { openConfinedWriter, type ConfinedWriter } from '../../src/security/writ
 const hook = vi.hoisted(() => ({ swap: null as null | (() => Promise<void>) }));
 const linkCheckSaw = vi.hoisted(() => [] as string[]);
 const stagedPaths = vi.hoisted(() => [] as string[]);
+const writeOrder = vi.hoisted(() => [] as string[]);
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const real = await importOriginal<typeof fsPromises>();
@@ -41,6 +42,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     async realpath(target: Parameters<typeof real.realpath>[0]) {
       const value = await real.realpath(target);
       linkCheckSaw.push(String(target));
+      writeOrder.push('realpath');
       const swap = hook.swap;
       if (swap !== null) {
         // The link layer has just been answered for `target`. Change the tree now.
@@ -54,6 +56,14 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       // before this boundary, without touching the external target.
       stagedPaths.push(String(args[0]));
       return real.open(...args);
+    },
+    async readFile(...args: Parameters<typeof real.readFile>) {
+      writeOrder.push('readFile');
+      return real.readFile(...args);
+    },
+    async rename(...args: Parameters<typeof real.rename>) {
+      writeOrder.push('rename');
+      return real.rename(...args);
     },
   };
 });
@@ -125,7 +135,9 @@ describe('what the byte check at the last moment does catch', () => {
     hook.swap = null;
 
     expect(failure, 'a link that appeared must not be written through').toBeInstanceOf(AppError);
-    expect((failure as Error).message).toMatch(/not a regular file|the target is a symlink/);
+    expect((failure as Error).message).toMatch(
+      /not a regular file|the target is a symlink|resolves outside the workspace/,
+    );
     expect(await readFile(path.join(OUTSIDE, 'secret.txt'), 'utf8')).toBe(OUTSIDE_SECRET);
     expect(await outsideTree()).toEqual(outsideBefore);
   });
@@ -198,6 +210,24 @@ describe('what the last moment re-checks, and what it cannot', () => {
       path.join(writer.root, 'sub'),
       path.join(writer.root, 'sub'),
       path.join(writer.root, 'sub'),
+      path.join(writer.root, 'sub'),
     ]);
+  });
+
+  it('rechecks containment after reading the precondition, just before rename', async () => {
+    const target = path.join(WORKSPACE, 'ordered.ts');
+    const original = 'original\n';
+    await writeFile(target, original, 'utf8');
+    writeOrder.length = 0;
+
+    await writer.writeText('ordered.ts', 'replacement\n', {
+      expectedSha256: digestOf(original),
+    });
+
+    const lastRead = writeOrder.lastIndexOf('readFile');
+    const finalContainmentCheck = writeOrder.lastIndexOf('realpath');
+    const renameIndex = writeOrder.lastIndexOf('rename');
+    expect(finalContainmentCheck).toBeGreaterThan(lastRead);
+    expect(renameIndex).toBe(finalContainmentCheck + 1);
   });
 });

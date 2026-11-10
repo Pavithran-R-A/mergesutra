@@ -53,8 +53,19 @@ jobs:
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=high
 
+      - name: Record complete development dependency audit
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '22.x'
+        run: node scripts/full-audit-gate.mjs
+
       - name: Run all deterministic gates
         run: npm run check
+
+      - name: Inspect packed artifact contents
+        run: npm pack --dry-run --ignore-scripts
+
+      - name: Check patch whitespace
+        if: github.event_name == 'pull_request'
+        run: git diff --check "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
 
       - name: Qualify customer path shapes and real Git/gh discovery
         run: npm run qualify:path-shapes

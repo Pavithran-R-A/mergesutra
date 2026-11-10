@@ -13,9 +13,8 @@ name: Customer workflow release gate
 #   repository's.
 # - no repository-secret reference of any kind. There is nothing here worth stealing:
 #   the model is a scripted loopback gateway, the customer repository is a public
-#   fixture, and the only credential the job is handed is its own ephemeral read-only
-#   token, which `gh` needs to raise rate limits and which the product strips from its
-#   own logs (`src/github/gh-client.ts`) before any of it reaches evidence.
+#   fixture, and only the journey step gets its ephemeral read-only token. It uses
+#   `gh` to read the public issue. Dependency installation and other steps lack it.
 # - no permission beyond reading the repository. The job's rights are declared at the
 #   bottom of this block, and the checkout keeps the Actions token out of the runner's
 #   Git config so no later step can use it by accident.
@@ -84,7 +83,6 @@ jobs:
       MERGESUTRA_SANDBOX_IMAGE: node@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7
       MERGESUTRA_DOCKER_EXECUTABLE: /usr/bin/docker
       MERGESUTRA_STAGE_DEADLINE_MS: '420000'
-      GH_TOKEN: ${{ github.token }}
       NO_COLOR: '1'
     steps:
       - name: Checkout
@@ -183,6 +181,8 @@ jobs:
 
       - name: Run the eight customer journeys through the compiled CLI
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/customer-workflow-qualification.mjs
 
       - name: Certify the record independently of the harness

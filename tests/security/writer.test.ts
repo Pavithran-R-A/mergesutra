@@ -3,8 +3,12 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppError } from '../../src/core/errors.js';
-import { MAX_WRITE_BYTES, openConfinedWriter } from '../../src/security/writer.js';
-import { makeFixtureTree, makeLink, snapshotTree } from '../helpers/fixture.js';
+import {
+  MAX_WRITE_BYTES,
+  openConfinedWriter,
+  writePathLockKey,
+} from '../../src/security/writer.js';
+import { CAN_SYMLINK, makeFixtureTree, makeLink, snapshotTree } from '../helpers/fixture.js';
 
 /**
  * The write boundary, tested as a boundary.
@@ -181,6 +185,30 @@ describe('writeText', () => {
   });
 });
 
+describe('write destination lock keys', () => {
+  it('folds path case for macOS and Windows filesystems', () => {
+    const upper = path.resolve('workspace', 'Case.ts');
+    const lower = path.resolve('workspace', 'case.ts');
+
+    expect(writePathLockKey(upper, 'darwin')).toBe(writePathLockKey(lower, 'darwin'));
+    expect(writePathLockKey(upper, 'win32')).toBe(writePathLockKey(lower, 'win32'));
+    expect(writePathLockKey(upper, 'linux')).not.toBe(writePathLockKey(lower, 'linux'));
+
+    const composed = path.resolve('workspace', 'Caf\u00e9.ts');
+    const decomposed = path.resolve('workspace', 'Cafe\u0301.ts');
+    expect(writePathLockKey(composed, 'darwin')).toBe(writePathLockKey(decomposed, 'darwin'));
+  });
+
+  it('folds trailing dots and spaces for Windows path components', () => {
+    const regular = path.win32.resolve('C:\\repo', 'nested', 'file.ts');
+    const aliased = path.win32.resolve('C:\\repo', 'nested.', 'file.ts...');
+
+    expect(writePathLockKey(regular, 'win32')).toBe(writePathLockKey(aliased, 'win32'));
+    const trailingSpace = path.win32.resolve('C:\\repo', 'nested ', 'file.ts');
+    expect(writePathLockKey(regular, 'win32')).toBe(writePathLockKey(trailingSpace, 'win32'));
+  });
+});
+
 describe('write preconditions (compare-before-write)', () => {
   /**
    * Stage 7's closing of a Stage 6 gap.
@@ -233,6 +261,58 @@ describe('write preconditions (compare-before-write)', () => {
     expect((error as AppError).message).toContain('STALE_FILE');
     expect(await readFile(path.join(workspace, target), 'utf8')).toBe(ORIGINAL);
   });
+
+  it('allows only one concurrent writer based on the same file snapshot', async () => {
+    const firstWriter = await openConfinedWriter(workspace);
+    const secondWriter = await openConfinedWriter(workspace);
+    const target = await seeded('concurrent');
+    const expectedSha256 = sha256Hex(ORIGINAL);
+
+    const results = await Promise.allSettled([
+      firstWriter.writeText(target, 'first concurrent result\n', { expectedSha256 }),
+      secondWriter.writeText(target, 'second concurrent result\n', { expectedSha256 }),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((result) => result.status === 'rejected');
+    expect(rejected?.status).toBe('rejected');
+    if (rejected?.status !== 'rejected') throw new Error('one concurrent write must be stale');
+    expect((rejected.reason as AppError).details?.code).toBe('STALE_FILE');
+    expect(['first concurrent result\n', 'second concurrent result\n']).toContain(
+      await readFile(path.join(workspace, target), 'utf8'),
+    );
+  });
+
+  it.skipIf(!CAN_SYMLINK)(
+    'serializes concurrent writes through in-root directory aliases',
+    async () => {
+      const firstWriter = await openConfinedWriter(workspace);
+      const secondWriter = await openConfinedWriter(workspace);
+      const realDirectory = path.join(workspace, 'concurrent-real');
+      const aliasDirectory = path.join(workspace, 'concurrent-alias');
+      await mkdir(realDirectory, { recursive: true });
+      const target = path.join(realDirectory, 'file.ts');
+      await writeFile(target, ORIGINAL, 'utf8');
+      expect(await makeLink(realDirectory, aliasDirectory, 'directory')).toBe(true);
+
+      const expectedSha256 = sha256Hex(ORIGINAL);
+      const results = await Promise.allSettled([
+        firstWriter.writeText('concurrent-real/file.ts', 'through real path\n', {
+          expectedSha256,
+        }),
+        secondWriter.writeText('concurrent-alias/file.ts', 'through alias\n', {
+          expectedSha256,
+        }),
+      ]);
+
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      const rejected = results.find((result) => result.status === 'rejected');
+      expect(rejected?.status).toBe('rejected');
+      if (rejected?.status !== 'rejected') throw new Error('one alias write must be stale');
+      expect((rejected.reason as AppError).details?.code).toBe('STALE_FILE');
+      expect(['through real path\n', 'through alias\n']).toContain(await readFile(target, 'utf8'));
+    },
+  );
 
   it('does not hand the current digest back, which would replace re-reading with guessing', async () => {
     const writer = await openConfinedWriter(workspace);

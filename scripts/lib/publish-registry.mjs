@@ -124,11 +124,10 @@ function defaultWait() {
  * registry answer. Returns the process exit code; it never exits or throws on an
  * expected failure. `npm(args, { inherit })` returns a `spawnSync`-shaped result.
  */
-export function publishOrVerify(options) {
+export function preflightPublish(options) {
   const { spec, version, head, npm } = options;
   const out = options.out ?? (() => {});
   const err = options.err ?? (() => {});
-  const wait = options.wait ?? defaultWait;
   const readSpec = ['view', spec, 'version', 'gitHead', '--json'];
   const expect = { version, head };
 
@@ -137,7 +136,7 @@ export function publishOrVerify(options) {
     err(
       `Could not read ${spec} from the registry; refusing to treat that as version absence.\n${first.reason}\n`,
     );
-    return 1;
+    return { code: 1, publishRequired: false };
   }
   if (first.kind === 'metadata') {
     let verified;
@@ -145,16 +144,25 @@ export function publishOrVerify(options) {
       verified = verifyRegistryMetadata(first.metadata, expect);
     } catch (error) {
       err(`${error.message}\n`);
-      return 1;
+      return { code: 1, publishRequired: false };
     }
     out(verifiedLine(spec, head, verified));
     out('This exact version already exists on npm; refusing to republish it.\n');
-    return 0;
+    return { code: 0, publishRequired: false };
   }
 
-  out(`Publishing ${spec} through npm Trusted Publishing.\n`);
-  const published = npm(['publish', '--access', 'public'], { inherit: true });
-  if (published?.status !== 0) return published?.status ?? 1;
+  out(`Registry reports ${spec} absent; publication may proceed after qualification.\n`);
+  return { code: 0, publishRequired: true };
+}
+
+/** Verify a version after a separate, credential-isolated publisher job. */
+export function verifyPublished(options) {
+  const { spec, version, head, npm } = options;
+  const out = options.out ?? (() => {});
+  const err = options.err ?? (() => {});
+  const wait = options.wait ?? defaultWait;
+  const readSpec = ['view', spec, 'version', 'gitHead', '--json'];
+  const expect = { version, head };
 
   let last = 'absent';
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
@@ -181,4 +189,17 @@ export function publishOrVerify(options) {
     }. The version may already be live; re-run this helper to verify it rather than publish again.\n`,
   );
   return 1;
+}
+
+/** The legacy single-job decision, retained for its offline regression tests. */
+export function publishOrVerify(options) {
+  const { spec, npm } = options;
+  const out = options.out ?? (() => {});
+  const preflight = preflightPublish(options);
+  if (preflight.code !== 0 || !preflight.publishRequired) return preflight.code;
+
+  out(`Publishing ${spec} through npm Trusted Publishing.\n`);
+  const published = npm(['publish', '--access', 'public'], { inherit: true });
+  if (published?.status !== 0) return published?.status ?? 1;
+  return verifyPublished(options);
 }

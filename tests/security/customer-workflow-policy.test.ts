@@ -281,8 +281,12 @@ function violations(text: string, harness = HARNESS, gateCli = GATE_CLI): string
       problems.push(`actions/${action} is not pinned to a full commit SHA`);
     }
   }
-  if (!/GH_TOKEN: \$\{\{ github\.token \}\}/.test(text)) {
-    problems.push('the fixture reads are not given the job read-only token');
+  if (/^ {6}GH_TOKEN:/m.test(text)) {
+    problems.push('the read-only token is exposed to every customer-workflow step');
+  }
+  const journeyStep = stepOf(text, 'node scripts/customer-workflow-qualification.mjs') ?? '';
+  if (!/^ {10}GH_TOKEN: \$\{\{ github\.token \}\}/m.test(journeyStep)) {
+    problems.push('the fixture read token is not scoped to its journey step');
   }
 
   const commands = runCommands(text);
@@ -473,7 +477,18 @@ describe('the hosted customer gate enforces what it claims', () => {
     );
     expect(
       violations(WORKFLOW.replace('GH_TOKEN: ${{ github.token }}', 'GH_TOKEN: ${{ secrets.X }}')),
-    ).toContain('the fixture reads are not given the job read-only token');
+    ).toContain('the fixture read token is not scoped to its journey step');
+  });
+
+  it('refuses widening the read token to every workflow step', () => {
+    const widened = WORKFLOW.replace(
+      /^ {4}env:\n/m,
+      '    env:\n      GH_TOKEN: ${{ github.token }}\n',
+    );
+    expect(widened).not.toEqual(WORKFLOW);
+    expect(violations(widened)).toContain(
+      'the read-only token is exposed to every customer-workflow step',
+    );
   });
 
   it('refuses an unbounded job, an unbounded stage, or a mutable image', () => {
