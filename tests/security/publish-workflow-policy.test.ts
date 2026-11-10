@@ -69,6 +69,11 @@ describe('the npm publish workflow is release-only and least-privilege', () => {
   it('binds the GitHub Release tag into the version/commit identity check', () => {
     expect(WORKFLOW).toContain('RELEASE_TAG: ${{ github.event.release.tag_name }}');
     expect(WORKFLOW).toContain('node scripts/verify-release-tag.mjs');
+    const verify = readFileSync(path.join(ROOT, 'scripts', 'verify-release-tag.mjs'), 'utf8');
+    expect(verify).toContain("'ls-remote'");
+    expect(verify).toContain("'refs/heads/main'");
+    expect(verify).toContain('GITHUB_REPOSITORY');
+    expect(verify).toContain('releaseIdentityProblems');
   });
 
   it('never swallows a release failure', () => {

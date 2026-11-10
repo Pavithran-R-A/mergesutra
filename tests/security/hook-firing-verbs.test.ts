@@ -415,7 +415,7 @@ describe('every test repository is sealed against the host machine’s hook conf
       ),
     );
 
-    // Named rather than sampled: three fixtures in this repository run `git init`, and each
+    // Named rather than sampled: four fixtures in this repository run `git init`, and each
     // one has to say which hooks it is not going to run.
     const builders = [...sources]
       .filter(([, text]) => createsARepository(text))
@@ -424,8 +424,20 @@ describe('every test repository is sealed against the host machine’s hook conf
       'git/workspace.test.ts',
       'helpers/git.ts',
       'security/hook-firing-verbs.test.ts',
+      'security/release-git-url-isolation.test.ts',
     ]);
     expect(unsealed(sources)).toEqual([]);
+  });
+
+  it('detects when the release fixture loses its local hook seal', async () => {
+    const file = 'security/release-git-url-isolation.test.ts';
+    const source = await readFile(path.join(TESTS, file), 'utf8');
+    const seal = "git(['config', 'core.hooksPath', hooks], hookEnv, dir);";
+    const withoutSeal = source.replace(seal, '');
+
+    expect(withoutSeal).not.toBe(source);
+    expect(createsARepository(withoutSeal)).toBe(true);
+    expect(unsealed(new Map([[file, withoutSeal]]))).toEqual([file]);
   });
 });
 
