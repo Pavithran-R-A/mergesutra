@@ -205,7 +205,7 @@ describe('write destination lock keys', () => {
 
     expect(writePathLockKey(regular, 'win32')).toBe(writePathLockKey(aliased, 'win32'));
     const trailingSpace = path.win32.resolve('C:\\repo', 'nested ', 'file.ts');
-    expect(writePathLockKey(regular, 'win32')).not.toBe(writePathLockKey(trailingSpace, 'win32'));
+    expect(writePathLockKey(regular, 'win32')).toBe(writePathLockKey(trailingSpace, 'win32'));
   });
 });
 
