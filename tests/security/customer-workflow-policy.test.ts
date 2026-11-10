@@ -482,7 +482,7 @@ describe('the hosted customer gate enforces what it claims', () => {
 
   it('refuses widening the read token to every workflow step', () => {
     const widened = WORKFLOW.replace(
-      /^    env:\n/m,
+      /^ {4}env:\n/m,
       '    env:\n      GH_TOKEN: ${{ github.token }}\n',
     );
     expect(widened).not.toEqual(WORKFLOW);
