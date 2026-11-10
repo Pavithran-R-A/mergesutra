@@ -15,7 +15,6 @@ const UPLOAD_ARTIFACT_SHA = 'ea165f8d65b6e75b540449e92b4886f43607fa02';
 const DOWNLOAD_ARTIFACT_SHA = 'd3f86a106a0bac45b974a628896c90dbdf5c8093';
 const UNTRUSTED_STEP_PREFIX =
   'env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STEP_SUMMARY';
-const NPM_CLI = npmCliScript();
 
 function runCommands(text: string): string[] {
   return text.split(/\r?\n/).flatMap((line) => {
@@ -32,11 +31,30 @@ function jobBlock(name: string): string {
 }
 
 describe('the npm publish workflow is release-only and least-privilege', () => {
-  it.skipIf(NPM_CLI === null)('proves ignored install scripts cannot run', () => {
+  it('proves ignored install scripts cannot run', () => {
     const directory = mkdtempSync(path.join(os.tmpdir(), 'mergesutra-release-script-'));
     const guarded = path.join(directory, 'guarded');
     const control = path.join(directory, 'control');
     const marker = 'postinstall-ran.txt';
+    const npmCli = npmCliScript();
+    expect(npmCli, 'the Node installation must include npm').not.toBeNull();
+    const cleanEnv: NodeJS.ProcessEnv = {
+      PATH: process.env.PATH ?? '',
+      ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+      ...(process.env.WINDIR ? { WINDIR: process.env.WINDIR } : {}),
+      ...(process.env.ComSpec ? { ComSpec: process.env.ComSpec } : {}),
+      ...(process.env.PATHEXT ? { PATHEXT: process.env.PATHEXT } : {}),
+      HOME: directory,
+      USERPROFILE: directory,
+      TEMP: directory,
+      TMP: directory,
+      TMPDIR: directory,
+      CI: 'true',
+      NPM_CONFIG_USERCONFIG: path.join(directory, 'user.npmrc'),
+      NPM_CONFIG_GLOBALCONFIG: path.join(directory, 'global.npmrc'),
+      NPM_CONFIG_CACHE: path.join(directory, 'cache'),
+      NPM_CONFIG_UPDATE_NOTIFIER: 'false',
+    };
     const createFixture = (target: string): void => {
       const packageJson = {
         name: `install-script-fixture-${path.basename(target)}`,
@@ -50,34 +68,46 @@ describe('the npm publish workflow is release-only and least-privilege', () => {
         path.join(target, 'install.js'),
         `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`,
       );
+      writeFileSync(path.join(target, 'package-lock.json'), '');
     };
-    const install = (target: string, ignoreScripts: boolean) => {
-      const args = [
-        NPM_CLI as string,
-        'install',
-        '--prefix',
-        target,
-        '--offline',
-        '--no-audit',
-        '--no-fund',
-        ...(ignoreScripts ? ['--ignore-scripts'] : []),
-      ];
-      return spawnSync(process.execPath, args, {
+    const runNpm = (target: string, args: readonly string[]) =>
+      spawnSync(process.execPath, [npmCli as string, ...args], {
+        cwd: target,
+        env: cleanEnv,
         encoding: 'utf8',
         maxBuffer: 1024 * 1024,
         timeout: 15_000,
         windowsHide: true,
       });
-    };
 
     try {
+      writeFileSync(cleanEnv.NPM_CONFIG_USERCONFIG as string, '');
+      writeFileSync(cleanEnv.NPM_CONFIG_GLOBALCONFIG as string, '');
       createFixture(control);
-      const controlResult = install(control, false);
+      createFixture(guarded);
+      for (const target of [control, guarded]) {
+        const lockResult = runNpm(target, [
+          'install',
+          '--package-lock-only',
+          '--ignore-scripts',
+          '--offline',
+          '--no-audit',
+          '--no-fund',
+        ]);
+        expect(lockResult.status, lockResult.stderr).toBe(0);
+      }
+
+      const controlResult = runNpm(control, ['ci', '--offline', '--no-audit', '--no-fund']);
       expect(controlResult.status, controlResult.stderr).toBe(0);
       expect(existsSync(path.join(control, marker))).toBe(true);
 
-      createFixture(guarded);
-      const guardedResult = install(guarded, true);
+      const guardedResult = runNpm(guarded, [
+        'ci',
+        '--ignore-scripts',
+        '--offline',
+        '--no-audit',
+        '--no-fund',
+      ]);
       expect(guardedResult.status, guardedResult.stderr).toBe(0);
       expect(existsSync(path.join(guarded, marker))).toBe(false);
     } finally {
