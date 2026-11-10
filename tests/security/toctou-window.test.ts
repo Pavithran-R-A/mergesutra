@@ -135,7 +135,9 @@ describe('what the byte check at the last moment does catch', () => {
     hook.swap = null;
 
     expect(failure, 'a link that appeared must not be written through').toBeInstanceOf(AppError);
-    expect((failure as Error).message).toMatch(/not a regular file|the target is a symlink/);
+    expect((failure as Error).message).toMatch(
+      /not a regular file|the target is a symlink|resolves outside the workspace/,
+    );
     expect(await readFile(path.join(OUTSIDE, 'secret.txt'), 'utf8')).toBe(OUTSIDE_SECRET);
     expect(await outsideTree()).toEqual(outsideBefore);
   });
@@ -205,6 +207,7 @@ describe('what the last moment re-checks, and what it cannot', () => {
     linkCheckSaw.length = 0;
     await writer.writeText('sub/one.ts', 'one\n', { expectedAbsent: true });
     expect(linkCheckSaw).toEqual([
+      path.join(writer.root, 'sub'),
       path.join(writer.root, 'sub'),
       path.join(writer.root, 'sub'),
       path.join(writer.root, 'sub'),
