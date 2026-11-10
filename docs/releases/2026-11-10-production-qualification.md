@@ -222,3 +222,45 @@ The account-side category remains unverified.
 The project file `BharatCode.txt` exists on main.
 
 Source: [BharatCode Build League page](https://auth.bharatcode.ai/hackathon).
+
+## Current pre-merge qualification — 10 November 2026
+
+Main remains `7436c63e8dc7d248ef713a56c2e4ca0284cfc31c`.
+PR #81 is ready for review; it remains unmerged.
+Its independent security review found no blocker.
+Human approval and merge remain outstanding.
+PR #82 still targets the old main.
+Do not treat its report as post-merge evidence.
+
+| Gate | Current result | Exact evidence or blocker |
+|---|---|---|
+| G1 Build integrity | PASS on main and PRs | Main CI [42694415774](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42694415774); PR #81 CI 6/6 [42784965793](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42784965793); PR #82 CI 6/6 [42790048689](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42790048689). Local writer-fix suite has one unrelated timeout; see G10. |
+| G2 Cross-platform behavior | PASS for PR #81 and PR #82 | Both exact hosted matrices passed Ubuntu, Windows and macOS on Node 22 and 24. The writer-fix commit has no hosted run. |
+| G3 Sandbox isolation | BLOCKED | Docker Desktop Linux engine is unavailable locally. Linked-worktree Git metadata remains fail-closed. macOS Docker proof remains absent. |
+| G4 Filesystem security | BLOCKED | Local commit `23591ba8da7226099ff00f17c80f8c3077dbf86d` rechecks containment after precondition read-back. It narrows, but cannot close, Node's final path-based rename race. Hosted checks remain pending for that commit. |
+| G5 Model integration | BLOCKED | No current-main credentialed run exists. The historical Qwen run failed before review and acceptance. No new request was sent. |
+| G6 AI reliability | BLOCKED | Offline B01–B10 oracle controls passed. Ten real tasks remain unrun. |
+| G7 GitHub publication | BLOCKED | Local publisher tests pass. No authorized disposable-repository PR was created. |
+| G8 Package distribution | BLOCKED | Package verification and installed-artifact tests pass. `npm view mergesutra@0.1.0 version` returned E404. |
+| G9 Credential security | BLOCKED | Package scans passed. No current-source live artifact exists for review. |
+| G10 Operational reliability | BLOCKED | On the writer-fix worktree, `npm run check` reported 3,006 passed, 12 skipped and one 30-second publisher-test timeout. The exact test passed alone in 13.39 seconds. The full run began with 657 MiB free and recorded no `ENOSPC`. |
+| G11 Release integrity | BLOCKED | No release tag, package publication, Trusted Publisher proof or provenance exists. |
+| G12 Documentation and governance | BLOCKED | Ruleset 24454501 currently requires deletion and non-fast-forward protections only. It requires no PR, review or hosted checks. |
+
+The writer-fix regression test first failed before the code change.
+It then passed with all six TOCTOU tests.
+`npm run verify:package` passed 115 tests.
+`npm run test:artifact` passed 15 tests.
+`npm audit --omit=dev --audit-level=high` found zero runtime vulnerabilities.
+`npm ci` reported fourteen development advisories.
+No force-fix or timeout relaxation occurred.
+
+The Windows preflight required 512 MiB free.
+The suite started with 657 MiB available.
+The timeout passed on an isolated rerun.
+This points to local contention, not deterministic product failure.
+Do not call the writer-fix full suite clean.
+
+Current decision: `PRODUCTION_GA_BLOCKED`.
+Requalify after PR #81 merges and the writer fix receives review.
+Then update PR #82 against the new main SHA.
