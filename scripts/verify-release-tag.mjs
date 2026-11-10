@@ -50,7 +50,10 @@ try {
         cwd,
       }).trim();
     head = git(['rev-parse', '--verify', 'HEAD'], process.cwd());
-    tagCommit = git(['rev-parse', '--verify', 'refs/tags/' + expectedTag + '^{commit}'], process.cwd());
+    tagCommit = git(
+      ['rev-parse', '--verify', 'refs/tags/' + expectedTag + '^{commit}'],
+      process.cwd(),
+    );
     // A scratch cwd also prevents checkout-local Git url.insteadOf rewrites.
     remoteMainLine = git(
       [

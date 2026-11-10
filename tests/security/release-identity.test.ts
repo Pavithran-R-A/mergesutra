@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { isolatedGitEnvironment, releaseIdentityProblems } from '../../scripts/lib/release-identity.mjs';
+import {
+  isolatedGitEnvironment,
+  releaseIdentityProblems,
+} from '../../scripts/lib/release-identity.mjs';
 
 const SHA = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
