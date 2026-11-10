@@ -148,7 +148,7 @@ No timeout was increased.
 Offline benchmark oracle tests passed twice.
 They exercised ten oracles against three patch states.
 This does not count as real-model evidence.
-Production gates remain blocked: G3–G8, G10–G12.
+Production gates remain blocked: G3–G12.
 No paid requests, external PR, ruleset change, release or merge occurred.
 
 PR #81's exact head passes both hosted gates.
