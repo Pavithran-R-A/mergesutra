@@ -56,6 +56,12 @@ jobs:
       - name: Run all deterministic gates
         run: npm run check
 
+      - name: Print Prettier formatting diff for release security test (temporary diagnostic)
+        if: ${{ failure() && matrix.os == 'ubuntu-latest' && matrix.node == '22.x' }}
+        run: |
+          npx prettier --write tests/security/release-git-url-isolation.test.ts
+          git diff -- tests/security/release-git-url-isolation.test.ts
+
       - name: Qualify customer path shapes and real Git/gh discovery
         run: npm run qualify:path-shapes
 
