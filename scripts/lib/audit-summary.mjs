@@ -8,8 +8,7 @@ export function summarizeAudit(report) {
       throw new Error(`npm audit returned an invalid ${severity} count.`);
     }
   }
-  const severityTotal =
-    counts.info + counts.low + counts.moderate + counts.high + counts.critical;
+  const severityTotal = counts.info + counts.low + counts.moderate + counts.high + counts.critical;
   if (severityTotal !== counts.total) {
     throw new Error('npm audit returned inconsistent vulnerability totals.');
   }

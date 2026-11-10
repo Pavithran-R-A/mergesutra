@@ -125,7 +125,12 @@ describe('the npm publish workflow is release-only and least-privilege', () => {
   it('keeps runner command files away from install scripts', () => {
     const qualify = jobBlock('qualify');
     expect(qualify).toContain('npm ci --ignore-scripts');
-    for (const command of ['npm ci --ignore-scripts', 'npm run check', 'npm run build', 'npm pack']) {
+    for (const command of [
+      'npm ci --ignore-scripts',
+      'npm run check',
+      'npm run build',
+      'npm pack',
+    ]) {
       expect(qualify).toContain(`${UNTRUSTED_STEP_PREFIX} ${command}`);
     }
     expect(qualify).toContain('persist-credentials: false');
