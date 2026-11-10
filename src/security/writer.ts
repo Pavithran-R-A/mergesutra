@@ -73,6 +73,7 @@ export const MAX_WRITE_BYTES = 1024 * 1024;
  * names this writer would choose is a directory someone else is already busy in.
  */
 const MAX_SCRATCH_ATTEMPTS = 16;
+const activeWriteLocks = new Map<string, Promise<void>>();
 
 /** Machine-readable conflict code, so a caller can tell stale from refused. */
 export const STALE_FILE = 'STALE_FILE';
@@ -148,82 +149,100 @@ export async function openConfinedWriter(candidateRoot: string): Promise<Confine
     return absolute;
   }
 
+  async function writeTextUnserialized(
+    relativePath: string,
+    text: string,
+    precondition: WritePrecondition,
+  ): Promise<WriteReceipt> {
+    const absolute = await confine(relativePath);
+    if (text.includes('\0')) throw refusal(relativePath, 'the content contains a NUL byte');
+    const buffer = Buffer.from(text, 'utf8');
+    if (buffer.byteLength > MAX_WRITE_BYTES) {
+      throw refusal(
+        relativePath,
+        `${buffer.byteLength} bytes is over the ${MAX_WRITE_BYTES}-byte single-write cap`,
+        'Split the change, or let the verification stage report that the file is too large.',
+      );
+    }
+
+    const existing = await lstat(absolute).catch(notFound);
+    if (existing?.isSymbolicLink()) {
+      throw refusal(relativePath, 'the target is a symlink');
+    }
+    if (existing?.isDirectory()) {
+      throw refusal(relativePath, 'the target is a directory');
+    }
+
+    await mkdir(path.dirname(absolute), { recursive: true });
+    // Resolve the destination directory again before staging. Windows refuses
+    // exclusive creation through junctions. A swapped junction must also never
+    // receive temporary bytes outside the authorized workspace.
+    const stagingDirectory = await realpath(path.dirname(absolute));
+    if (!isInsideRoot(root, stagingDirectory)) {
+      throw refusal(relativePath, 'a link or directory on the way resolves outside the workspace');
+    }
+    const staged = await stageScratch(stagingDirectory, `${process.pid}-${Date.now()}`);
+    if (staged === null) {
+      throw refusal(
+        relativePath,
+        `${MAX_SCRATCH_ATTEMPTS} scratch names in this directory are all taken, so no write could be staged without touching a file this call did not create`,
+        'Remove the `.mergesutra-tmp-*` leftovers in that directory and try again.',
+      );
+    }
+    try {
+      try {
+        await staged.handle.writeFile(buffer);
+        await staged.handle.sync();
+      } finally {
+        await staged.handle.close();
+      }
+      // The proof happens here, after the bytes are safe on disk and before the
+      // one operation that replaces anything. Everything above is reversible.
+      //
+      // The way is proved again, not just the bytes. The check at the top of this
+      // function judged a directory that may no longer exist: a temp file was
+      // written, synced and read back since, and an ancestor that was a plain
+      // directory then can be a link now. Proving it a second time here narrows
+      // the window to the microseconds before the rename; it does not close it,
+      // and docs/SECURITY_MODEL.md says so rather than this comment implying the
+      // check is a transaction.
+      await verifyPrecondition(absolute, relativePath, precondition);
+      // Read-back can take time. Re-resolve containment after that work, as
+      // close to the rename as Node's path-based API permits.
+      await confine(relativePath);
+      await renameChecked(staged.path, absolute, relativePath);
+    } catch (error) {
+      // Only the scratch this call opened is removed. A name that was already
+      // taken belongs to whoever created it, and this call never owned it.
+      await rmQuiet(staged.path);
+      throw error;
+    }
+
+    return {
+      relativePath: relativePath.replaceAll('\\', '/'),
+      bytes: buffer.byteLength,
+      created: existing === null,
+      contentSha256: sha256Hex(buffer),
+    };
+  }
+
+  async function writeText(
+    relativePath: string,
+    text: string,
+    precondition: WritePrecondition,
+  ): Promise<WriteReceipt> {
+    const candidate = resolveInsideRoot(root, relativePath, `write target '${relativePath}'`);
+    if (hasGitSegment(relativePath)) throw refusal(relativePath, 'the path crosses .git');
+    const lockTarget = await resolveExistingAncestor(candidate);
+    if (!isInsideRoot(root, lockTarget)) {
+      throw refusal(relativePath, 'a link or directory on the way resolves outside the workspace');
+    }
+    return withPathLock(lockTarget, () => writeTextUnserialized(relativePath, text, precondition));
+  }
+
   return {
     root,
-
-    async writeText(relativePath, text, precondition) {
-      const absolute = await confine(relativePath);
-      if (text.includes('\0')) throw refusal(relativePath, 'the content contains a NUL byte');
-      const buffer = Buffer.from(text, 'utf8');
-      if (buffer.byteLength > MAX_WRITE_BYTES) {
-        throw refusal(
-          relativePath,
-          `${buffer.byteLength} bytes is over the ${MAX_WRITE_BYTES}-byte single-write cap`,
-          'Split the change, or let the verification stage report that the file is too large.',
-        );
-      }
-
-      const existing = await lstat(absolute).catch(notFound);
-      if (existing?.isSymbolicLink()) {
-        throw refusal(relativePath, 'the target is a symlink');
-      }
-      if (existing?.isDirectory()) {
-        throw refusal(relativePath, 'the target is a directory');
-      }
-
-      await mkdir(path.dirname(absolute), { recursive: true });
-      // Resolve the destination directory again before staging. Windows refuses
-      // exclusive creation through junctions. A swapped junction must also never
-      // receive temporary bytes outside the authorized workspace.
-      const stagingDirectory = await realpath(path.dirname(absolute));
-      if (!isInsideRoot(root, stagingDirectory)) {
-        throw refusal(
-          relativePath,
-          'a link or directory on the way resolves outside the workspace',
-        );
-      }
-      const staged = await stageScratch(stagingDirectory, `${process.pid}-${Date.now()}`);
-      if (staged === null) {
-        throw refusal(
-          relativePath,
-          `${MAX_SCRATCH_ATTEMPTS} scratch names in this directory are all taken, so no write could be staged without touching a file this call did not create`,
-          'Remove the `.mergesutra-tmp-*` leftovers in that directory and try again.',
-        );
-      }
-      try {
-        try {
-          await staged.handle.writeFile(buffer);
-          await staged.handle.sync();
-        } finally {
-          await staged.handle.close();
-        }
-        // The proof happens here, after the bytes are safe on disk and before the
-        // one operation that replaces anything. Everything above is reversible.
-        //
-        // The way is proved again, not just the bytes. The check at the top of this
-        // function judged a directory that may no longer exist: a temp file was
-        // written, synced and read back since, and an ancestor that was a plain
-        // directory then can be a link now. Proving it a second time here narrows
-        // the window to the microseconds before the rename; it does not close it,
-        // and docs/SECURITY_MODEL.md says so rather than this comment implying the
-        // check is a transaction.
-        await confine(relativePath);
-        await verifyPrecondition(absolute, relativePath, precondition);
-        await renameChecked(staged.path, absolute, relativePath);
-      } catch (error) {
-        // Only the scratch this call opened is removed. A name that was already
-        // taken belongs to whoever created it, and this call never owned it.
-        await rmQuiet(staged.path);
-        throw error;
-      }
-
-      return {
-        relativePath: relativePath.replaceAll('\\', '/'),
-        bytes: buffer.byteLength,
-        created: existing === null,
-        contentSha256: sha256Hex(buffer),
-      };
-    },
+    writeText,
 
     async exists(relativePath) {
       try {
@@ -243,6 +262,48 @@ async function renameChecked(from: string, to: string, relativePath: string): Pr
   } catch (error) {
     throw refusal(relativePath, error instanceof Error ? error.message : 'the rename failed');
   }
+}
+
+/** Serialize same-process writes to one canonical destination. */
+async function withPathLock<T>(target: string, operation: () => Promise<T>): Promise<T> {
+  const key = writePathLockKey(target);
+  const previous = activeWriteLocks.get(key);
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  activeWriteLocks.set(key, current);
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (activeWriteLocks.get(key) === current) activeWriteLocks.delete(key);
+  }
+}
+
+export function writePathLockKey(
+  target: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const normalized = platform === 'win32' ? path.win32.normalize(target) : path.normalize(target);
+  if (platform === 'win32') {
+    // Ordinary Win32 lookup ignores trailing dots and spaces.
+    // Match those aliases so concurrent writes share one process lock.
+    return normalized
+      .split(path.win32.sep)
+      .map((component) =>
+        component === '.' || component === '..' ? component : component.replace(/[ .]+$/u, ''),
+      )
+      .join(path.win32.sep)
+      .toLowerCase();
+  }
+  // macOS volumes may ignore case, just like Windows. Folding every Darwin
+  // path is safe on case-sensitive volumes; it only serializes extra writes.
+  // NFC also joins canonically equivalent macOS filename spellings.
+  return platform === 'darwin'
+    ? normalized.normalize('NFC').toLowerCase().normalize('NFC')
+    : normalized;
 }
 
 /**
