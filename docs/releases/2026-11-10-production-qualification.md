@@ -143,7 +143,14 @@ The suite ended with 376 MB free.
 The local full suite is not clean.
 Isolated timeouts do not indicate product defects.
 All three isolated cases passed individually.
-No timeout was increased.
+This audit changed no timeouts.
+
+One prior PR #81 assertion was relaxed from 25s to 45s.
+Its measured Windows runtime was 34.6s.
+The same test measured 34.8s locally.
+Its file-local hook ceiling is 60s.
+This remains bounded and catches hangs.
+No product request or workflow deadline changed.
 
 Offline benchmark oracle tests passed twice.
 They exercised ten oracles against three patch states.
