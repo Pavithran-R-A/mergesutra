@@ -10,11 +10,13 @@ const CHECKOUT_SHA = 'd23441a48e516b6c34aea4fa41551a30e30af803';
 const SETUP_NODE_SHA = '249970729cb0ef3589644e2896645e5dc5ba9c38';
 const UPLOAD_ARTIFACT_SHA = 'ea165f8d65b6e75b540449e92b4886f43607fa02';
 const DOWNLOAD_ARTIFACT_SHA = 'd3f86a106a0bac45b974a628896c90dbdf5c8093';
+const UNTRUSTED_STEP_PREFIX =
+  'env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STEP_SUMMARY';
 
 function runCommands(text: string): string[] {
   return text.split(/\r?\n/).flatMap((line) => {
     const match = /^\s*run:\s*(.+?)\s*$/.exec(line);
-    return match ? [match[1] ?? ''] : [];
+    return match && match[1] !== '|' ? [match[1] ?? ''] : [];
   });
 }
 
@@ -45,7 +47,7 @@ describe('the npm publish workflow is release-only and least-privilege', () => {
     expect(jobBlock('publish')).toContain('gh api "$tag_ref"');
     expect(jobBlock('publish')).toContain('gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main"');
     expect(jobBlock('publish')).toContain(
-      'npm publish release-package/*.tgz --access public --provenance --ignore-scripts',
+      'npm publish "$tarball" --access public --provenance --ignore-scripts',
     );
     expect(jobBlock('publish')).not.toMatch(/uses:\s*actions\/checkout|npm ci|npm run|scripts\//i);
   });
@@ -76,19 +78,21 @@ describe('the npm publish workflow is release-only and least-privilege', () => {
 
   it('qualifies before packing and publishes only verified artifacts', () => {
     expect(runCommands(jobBlock('qualify'))).toEqual([
-      'node scripts/verify-release-tag.mjs',
-      'npm ci',
-      'npm audit --omit=dev --audit-level=high',
-      'npm run check',
-      'npm run verify:package',
-      'npm run test:artifact',
-      'git diff --exit-code && test -z "$(git status --porcelain --untracked-files=all)"',
-      'npm run build',
+      `${UNTRUSTED_STEP_PREFIX} node scripts/verify-release-tag.mjs`,
+      `${UNTRUSTED_STEP_PREFIX} npm ci --ignore-scripts`,
+      `${UNTRUSTED_STEP_PREFIX} npm audit --omit=dev --audit-level=high`,
+      `${UNTRUSTED_STEP_PREFIX} npm run check`,
+      `${UNTRUSTED_STEP_PREFIX} npm run verify:package`,
+      `${UNTRUSTED_STEP_PREFIX} npm run test:artifact`,
+      `${UNTRUSTED_STEP_PREFIX} npm run build`,
       'mkdir -p release-package',
-      'npm pack --ignore-scripts --pack-destination release-package',
+      `${UNTRUSTED_STEP_PREFIX} npm pack --ignore-scripts --pack-destination release-package`,
       'node scripts/preflight-release-publish.mjs',
     ]);
     expect(runCommands(jobBlock('verify'))).toEqual(['node scripts/verify-published-release.mjs']);
+    expect(jobBlock('verify')).toContain('npm install --prefix "$check_dir" --ignore-scripts');
+    expect(jobBlock('verify')).toContain('npm audit signatures --prefix "$check_dir"');
+    expect(jobBlock('verify')).not.toMatch(/id-token:\s*write/);
     expect(jobBlock('qualify')).toContain('ref: ${{ github.event.repository.default_branch }}');
     expect(jobBlock('verify')).toContain(
       'RELEASE_PACKAGE_VERSION: ${{ needs.qualify.outputs.package_version }}',
@@ -101,6 +105,30 @@ describe('the npm publish workflow is release-only and least-privilege', () => {
     );
     expect(WORKFLOW).toContain('actions/upload-artifact@');
     expect(WORKFLOW).toContain('actions/download-artifact@');
+    expect(WORKFLOW).toContain('artifact_sha256: ${{ steps.artifact.outputs.sha256 }}');
+    expect(WORKFLOW).toContain('RELEASE_COMMIT_SHA: ${{ steps.registry.outputs.release_commit }}');
+    expect(WORKFLOW).toContain('scripts/lib/release-artifact.mjs');
+    expect(WORKFLOW).toContain('manifest.json');
+    expect(WORKFLOW).toContain('ARTIFACT_SHA256: ${{ needs.qualify.outputs.artifact_sha256 }}');
+    expect(jobBlock('publish')).toContain('sha256sum "$tarball"');
+    expect(jobBlock('publish')).toContain('test "$actual_sha256" = "$ARTIFACT_SHA256"');
+    expect(jobBlock('publish')).toContain('jq -e');
+    expect(jobBlock('publish')).toContain('--arg source "$EXPECTED_SOURCE_SHA"');
+    expect(jobBlock('publish')).not.toContain('npm publish release-package/*.tgz');
+    expect(jobBlock('qualify')).toContain('safe_git rev-parse --verify HEAD');
+    expect(jobBlock('qualify')).toContain(
+      'safe_git diff --no-ext-diff --no-textconv --exit-code "$GITHUB_SHA" -- .',
+    );
+    expect(jobBlock('qualify')).toContain('safe_git status --porcelain --untracked-files=all');
+  });
+
+  it('keeps runner command files away from install scripts', () => {
+    const qualify = jobBlock('qualify');
+    expect(qualify).toContain('npm ci --ignore-scripts');
+    for (const command of ['npm ci --ignore-scripts', 'npm run check', 'npm run build', 'npm pack']) {
+      expect(qualify).toContain(`${UNTRUSTED_STEP_PREFIX} ${command}`);
+    }
+    expect(qualify).toContain('persist-credentials: false');
   });
 
   it('binds the GitHub Release tag into the version/commit identity check', () => {

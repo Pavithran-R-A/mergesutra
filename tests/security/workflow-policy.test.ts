@@ -35,7 +35,10 @@ const SHA = /^[0-9a-f]{40}$/;
 const REQUIRED_STEPS = [
   'npm ci',
   'npm audit --omit=dev --audit-level=high',
+  'node scripts/full-audit-gate.mjs',
   'npm run check',
+  'npm pack --dry-run --ignore-scripts',
+  'git diff --check "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"',
   'npm run qualify:path-shapes',
   'npm run verify:package',
   'npm run test:artifact',
@@ -422,7 +425,7 @@ describe('the gate set is complete, not merely valid', () => {
     }
   });
 
-  it('orders them install, runtime audit, source gates, path qualification, then artifact gates', () => {
+  it('orders install, audits, source gates, then package qualifications', () => {
     expect(runs.map((r) => r.raw.replace(/^\s*run:\s*/, '').trim())).toEqual(REQUIRED_STEPS);
   });
 });
