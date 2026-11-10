@@ -109,8 +109,8 @@ This addendum replaces older PR #81 check claims.
 |---|---|
 | Main | `7436c63e8dc7d248ef713a56c2e4ca0284cfc31c` |
 | PR #81 head | `f48b0f5c7772ad3c752e772903cb0dd920005a88`, open and draft |
-| PR #81 CI | Pending: [run 42784965793](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42784965793), six matrix jobs |
-| PR #81 customer workflow | Pending: [run 42784965462](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42784965462) |
+| PR #81 CI | PASS 6/6: [run 42784965793](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42784965793) |
+| PR #81 customer workflow | PASS 8/8: [run 42784965462](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42784965462) |
 | PR #82 report head | `b35863554ddc7e85374a274df0db23c850a1b2e7`; its passing checks describe that older report-only head |
 
 PR #81's earlier CI missed one fixture.
@@ -151,7 +151,52 @@ This does not count as real-model evidence.
 Production gates remain blocked: G3–G8, G10–G12.
 No paid requests, external PR, ruleset change, release or merge occurred.
 
-PR #81 remains unqualified pending both workflows.
-Require six CI successes on exact SHA.
-Require eight customer journeys on that SHA.
+PR #81's exact head passes both hosted gates.
+Independent human review remains unresolved.
+Do not merge without authorized review.
 Older PR #82 checks cannot qualify this source.
+
+## Historical credentialed run evidence
+
+[Run 42497165107](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42497165107) used source SHA `801aab0de847db4d5237a68b5f3d195aaaa62afc`.
+The authenticated catalog listed `qwen-3.8-27b`.
+The requested model's response did not finish.
+Planning stopped after the 290000 ms timeout.
+The run failed before review or repair.
+No independent acceptance result was recorded.
+No post-run baseline comparison was recorded.
+The sanitized artifact reports no output leak.
+An additional scan found zero credential-shaped files.
+It scanned all thirteen downloaded artifact files.
+The artifact does not record exact ledger count.
+Workflow configuration set twelve requests, zero retries.
+The response model identity remains unverified.
+No retry or new credentialed run occurred.
+This run does not qualify current `main`.
+
+Evidence: [run artifact](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42497165107/artifacts/13624078273).
+
+## Proposed main ruleset
+
+Current rules block deletion and force-push.
+They require no reviews or checks.
+Do not change rules without owner approval.
+
+Proposed rules require pull requests before merging.
+Require one independent approval where practical.
+Dismiss stale approvals and resolve conversations.
+Require these exact CI checks:
+
+| Required check name |
+|---|
+| `check (ubuntu-latest, node 22.x)` |
+| `check (ubuntu-latest, node 24.x)` |
+| `check (windows-latest, node 22.x)` |
+| `check (windows-latest, node 24.x)` |
+| `check (macos-latest, node 22.x)` |
+| `check (macos-latest, node 24.x)` |
+| `eight customer journeys, hosted` |
+
+Solo maintenance needs an independent reviewer.
+Do not enable approval lockout without one.
+Preserve deletion and force-push protections.
