@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -18,6 +18,19 @@ describe('npm release Git URL isolation (real Git)', () => {
     mkdirSync(clean);
     writeFileSync(path.join(clean, 'config'), '', 'utf8');
     const safeEnv = isolatedGitEnvironment(process.env, clean);
+    const hostileHooks = path.join(root, 'hostile-hooks');
+    mkdirSync(hostileHooks);
+    const hostileMarker = path.join(root, 'hostile-hook-fired').replace(/\\/g, '/');
+    const hostileHook = path.join(hostileHooks, 'post-commit');
+    writeFileSync(hostileHook, `#!/bin/sh\nprintf 'hook fired\\n' > '${hostileMarker}'\n`, 'utf8');
+    chmodSync(hostileHook, 0o755);
+    const hookGlobalConfig = path.join(root, 'hook.gitconfig');
+    writeFileSync(
+      hookGlobalConfig,
+      `[core]\n\thooksPath = "${hostileHooks.replace(/\\/g, '/')}"\n`,
+      'utf8',
+    );
+    const hookEnv = { ...safeEnv, GIT_CONFIG_GLOBAL: hookGlobalConfig };
     const git = (args: string[], env: NodeJS.ProcessEnv = safeEnv, cwd = clean): string =>
       execFileSync('git', args, {
         cwd,
@@ -32,22 +45,30 @@ describe('npm release Git URL isolation (real Git)', () => {
       const attacker = path.join(root, 'attacker');
       const makeFixture = (dir: string, message: string): void => {
         mkdirSync(dir);
-        git(['init', '-q', '-b', 'main', dir]);
-        git([
-          '-C',
-          dir,
-          '-c',
-          'user.name=Release Test',
-          '-c',
-          'user.email=test@example.invalid',
-          'commit',
-          '--allow-empty',
-          '-m',
-          message,
-        ]);
+        git(['init', '-q', '-b', 'main', dir], hookEnv);
+        const hooks = path.join(root, path.basename(dir) + '-hooks');
+        mkdirSync(hooks);
+        git(['config', 'core.hooksPath', hooks], hookEnv, dir);
+        expect(git(['config', '--local', '--get', 'core.hooksPath'], hookEnv, dir)).toBe(hooks);
+        git(
+          [
+            '-C',
+            dir,
+            '-c',
+            'user.name=Release Test',
+            '-c',
+            'user.email=test@example.invalid',
+            'commit',
+            '--allow-empty',
+            '-m',
+            message,
+          ],
+          hookEnv,
+        );
       };
       makeFixture(approved, 'approved');
       makeFixture(attacker, 'attacker');
+      expect(existsSync(hostileMarker)).toBe(false);
 
       const approvedSha = git(['-C', approved, 'rev-parse', 'HEAD']);
       const attackerSha = git(['-C', attacker, 'rev-parse', 'HEAD']);
