@@ -57,20 +57,17 @@ describe('npm release Git URL isolation (real Git)', () => {
 
         const approvedUrl = pathToFileURL(approved).href;
         const attackerUrl = pathToFileURL(attacker).href;
-        const readMain = (env: NodeJS.ProcessEnv, cwd = clean): string =>
-          git(['ls-remote', '--exit-code', approvedUrl, 'refs/heads/main'], env, cwd).split(
-            '\t',
-          )[0] ?? '';
+        const readMain = (env: NodeJS.ProcessEnv, cwd = clean): string => {
+          const output = git(['ls-remote', '--exit-code', approvedUrl, 'refs/heads/main'], env, cwd);
+          return output.split('\t')[0] ?? '';
+        };
 
         expect(readMain(safeEnv)).toBe(approvedSha);
 
         // A poisoned global config silently redirects an apparently trusted URL.
         const hostileConfig = path.join(root, 'hostile.gitconfig');
-        writeFileSync(
-          hostileConfig,
-          `[url "${attackerUrl}"]\n  insteadOf = ${approvedUrl}\n`,
-          'utf8',
-        );
+        const rewrite = `[url "${attackerUrl}"]\n  insteadOf = ${approvedUrl}\n`;
+        writeFileSync(hostileConfig, rewrite, 'utf8');
         expect(readMain({ ...safeEnv, GIT_CONFIG_GLOBAL: hostileConfig })).toBe(attackerSha);
 
         // The same redirect is injectable without any config file.
