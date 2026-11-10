@@ -201,9 +201,11 @@ describe('write destination lock keys', () => {
 
   it('folds trailing dots and spaces for Windows path components', () => {
     const regular = path.win32.resolve('C:\\repo', 'nested', 'file.ts');
-    const aliased = path.win32.resolve('C:\\repo', 'nested. ', 'file.ts...');
+    const aliased = path.win32.resolve('C:\\repo', 'nested.', 'file.ts...');
 
     expect(writePathLockKey(regular, 'win32')).toBe(writePathLockKey(aliased, 'win32'));
+    const trailingSpace = path.win32.resolve('C:\\repo', 'nested ', 'file.ts');
+    expect(writePathLockKey(regular, 'win32')).not.toBe(writePathLockKey(trailingSpace, 'win32'));
   });
 });
 
