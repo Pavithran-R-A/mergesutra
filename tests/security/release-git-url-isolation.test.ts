@@ -32,10 +32,7 @@ describe('npm release Git URL isolation (real Git)', () => {
       try {
         const approved = path.join(root, 'approved');
         const attacker = path.join(root, 'attacker');
-        for (const [dir, message] of [
-          [approved, 'approved'],
-          [attacker, 'attacker'],
-        ]) {
+        const makeFixture = (dir: string, message: string): void => {
           mkdirSync(dir);
           git(['init', '-q', '-b', 'main', dir]);
           git([
@@ -50,7 +47,10 @@ describe('npm release Git URL isolation (real Git)', () => {
             '-m',
             message,
           ]);
-        }
+        };
+        makeFixture(approved, 'approved');
+        makeFixture(attacker, 'attacker');
+
         const approvedSha = git(['-C', approved, 'rev-parse', 'HEAD']);
         const attackerSha = git(['-C', attacker, 'rev-parse', 'HEAD']);
         expect(approvedSha).not.toBe(attackerSha);
