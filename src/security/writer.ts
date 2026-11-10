@@ -207,8 +207,10 @@ export async function openConfinedWriter(candidateRoot: string): Promise<Confine
         // the window to the microseconds before the rename; it does not close it,
         // and docs/SECURITY_MODEL.md says so rather than this comment implying the
         // check is a transaction.
-        await confine(relativePath);
         await verifyPrecondition(absolute, relativePath, precondition);
+        // Read-back can take time. Re-resolve containment after that work, as
+        // close to the rename as Node's path-based API permits.
+        await confine(relativePath);
         await renameChecked(staged.path, absolute, relativePath);
       } catch (error) {
         // Only the scratch this call opened is removed. A name that was already
