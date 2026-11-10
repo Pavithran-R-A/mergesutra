@@ -1,7 +1,10 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { npmCliScript } from '../helpers/npmInvocation.js';
 
 const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..');
 const WORKFLOW = readFileSync(path.join(ROOT, '.github', 'workflows', 'publish.yml'), 'utf8');
@@ -12,6 +15,7 @@ const UPLOAD_ARTIFACT_SHA = 'ea165f8d65b6e75b540449e92b4886f43607fa02';
 const DOWNLOAD_ARTIFACT_SHA = 'd3f86a106a0bac45b974a628896c90dbdf5c8093';
 const UNTRUSTED_STEP_PREFIX =
   'env -u GITHUB_ENV -u GITHUB_OUTPUT -u GITHUB_PATH -u GITHUB_STEP_SUMMARY';
+const NPM_CLI = npmCliScript();
 
 function runCommands(text: string): string[] {
   return text.split(/\r?\n/).flatMap((line) => {
@@ -28,6 +32,59 @@ function jobBlock(name: string): string {
 }
 
 describe('the npm publish workflow is release-only and least-privilege', () => {
+  it.skipIf(NPM_CLI === null)('proves ignored install scripts cannot run', () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'mergesutra-release-script-'));
+    const guarded = path.join(directory, 'guarded');
+    const control = path.join(directory, 'control');
+    const marker = 'postinstall-ran.txt';
+    const createFixture = (target: string): void => {
+      const packageJson = {
+        name: `install-script-fixture-${path.basename(target)}`,
+        version: '1.0.0',
+        private: true,
+        scripts: { postinstall: 'node install.js' },
+      };
+      mkdirSync(target, { recursive: true });
+      writeFileSync(path.join(target, 'package.json'), JSON.stringify(packageJson));
+      writeFileSync(
+        path.join(target, 'install.js'),
+        `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`,
+      );
+    };
+    const install = (target: string, ignoreScripts: boolean) => {
+      const args = [
+        NPM_CLI as string,
+        'install',
+        '--prefix',
+        target,
+        '--offline',
+        '--no-audit',
+        '--no-fund',
+        ...(ignoreScripts ? ['--ignore-scripts'] : []),
+      ];
+      return spawnSync(process.execPath, args, {
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024,
+        timeout: 15_000,
+        windowsHide: true,
+      });
+    };
+
+    try {
+      createFixture(control);
+      const controlResult = install(control, false);
+      expect(controlResult.status, controlResult.stderr).toBe(0);
+      expect(existsSync(path.join(control, marker))).toBe(true);
+
+      createFixture(guarded);
+      const guardedResult = install(guarded, true);
+      expect(guardedResult.status, guardedResult.stderr).toBe(0);
+      expect(existsSync(path.join(guarded, marker))).toBe(false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('runs only for a published GitHub Release', () => {
     expect(WORKFLOW).toMatch(/^on:\n {2}release:\n {4}types: \[published\]/m);
     expect(WORKFLOW).not.toMatch(
