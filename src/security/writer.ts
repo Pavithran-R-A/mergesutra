@@ -288,11 +288,13 @@ export function writePathLockKey(
 ): string {
   const normalized = platform === 'win32' ? path.win32.normalize(target) : path.normalize(target);
   if (platform === 'win32') {
-    // Ordinary Win32 lookup ignores trailing dots and spaces per component.
+    // Ordinary Win32 lookup ignores trailing dots in path components.
     // Match those aliases so concurrent writes share one process lock.
     return normalized
       .split(path.win32.sep)
-      .map((component) => component.replace(/[. ]+$/u, ''))
+      .map((component) =>
+        component === '.' || component === '..' ? component : component.replace(/\.+$/u, ''),
+      )
       .join(path.win32.sep)
       .toLowerCase();
   }
