@@ -100,3 +100,58 @@ No model cost is quoted. Current eligibility and pricing remain unverified.
 PRODUCTION_GA_BLOCKED
 
 G3 through G12 lack mandatory passing evidence. Do not publish v0.1.0. Do not claim production qualification.
+
+## Exact-head reconciliation — 10 November 2026
+
+This addendum replaces older PR #81 check claims.
+
+| Item | Current evidence |
+|---|---|
+| Main | `7436c63e8dc7d248ef713a56c2e4ca0284cfc31c` |
+| PR #81 head | `f48b0f5c7772ad3c752e772903cb0dd920005a88`, open and draft |
+| PR #81 CI | Pending: [run 42784965793](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42784965793), six matrix jobs |
+| PR #81 customer workflow | Pending: [run 42784965462](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42784965462) |
+| PR #82 report head | `b35863554ddc7e85374a274df0db23c850a1b2e7`; its passing checks describe that older report-only head |
+
+PR #81's earlier CI missed one fixture.
+Each disposable repo now gets local hooks.
+Seals precede repository commits.
+A hostile inherited hook does not execute.
+Inventory now names the fixture.
+Removing its seal triggers the negative control.
+URL rewrite attacks remain covered.
+Independent review found no security blocker.
+
+Exact-head local evidence for `f48b0f5`:
+
+| Command | Result |
+|---|---|
+| `npm ci` | PASS; 157 packages installed; 14 development advisories reported |
+| `npm run format:check` | PASS |
+| `npx vitest run tests/security/hook-firing-verbs.test.ts tests/security/release-git-url-isolation.test.ts` | PASS; 27 tests |
+| `npm run check` | FAIL locally; first run had three timeouts, all three passed individually; second run had 84 failures across 12 files after Windows reported `ENOSPC` |
+| `npm run qualify:path-shapes` | PASS on Windows |
+| `npm run verify:package` | PASS; 115 tests |
+| `npm run test:artifact` | PASS; 15 tests |
+| `npm audit --omit=dev --audit-level=high` | PASS; zero production vulnerabilities |
+| `npm pack --dry-run` | PASS; 492 files; prepack security checks passed |
+| `git diff --check` | PASS |
+
+Windows started with only 9.8 MB free.
+Fixture writes produced explicit `ENOSPC` errors.
+The suite ended with 376 MB free.
+The local full suite is not clean.
+Isolated timeouts do not indicate product defects.
+All three isolated cases passed individually.
+No timeout was increased.
+
+Offline benchmark oracle tests passed twice.
+They exercised ten oracles against three patch states.
+This does not count as real-model evidence.
+Production gates remain blocked: G3–G8, G10–G12.
+No paid requests, external PR, ruleset change, release or merge occurred.
+
+PR #81 remains unqualified pending both workflows.
+Require six CI successes on exact SHA.
+Require eight customer journeys on that SHA.
+Older PR #82 checks cannot qualify this source.
