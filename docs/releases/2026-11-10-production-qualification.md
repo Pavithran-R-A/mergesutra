@@ -81,7 +81,9 @@ Current npm docs require npm CLI 11.5.1+. They require Node 22.14.0+. Trusted pu
 
 ## Remaining approval gates
 
-No BharatCode request was made. No external PR was created. No package, tag, or release was published.
+No new BharatCode request was made during this audit.
+No external customer PR was created.
+No package, tag, or release was published.
 
 Owners must authorize these actions:
 
@@ -156,7 +158,8 @@ Offline benchmark oracle tests passed twice.
 They exercised ten oracles against three patch states.
 This does not count as real-model evidence.
 Production gates remain blocked: G3–G12.
-No paid requests, external PR, ruleset change, release or merge occurred.
+No new model requests or external customer PRs occurred during this audit.
+No ruleset change, release or merge occurred.
 
 PR #81's exact head passes both hosted gates.
 Independent human review remains unresolved.
