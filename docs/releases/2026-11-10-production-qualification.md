@@ -200,3 +200,15 @@ Require these exact CI checks:
 Solo maintenance needs an independent reviewer.
 Do not enable approval lockout without one.
 Preserve deletion and force-push protections.
+
+## Hackathon listing check
+
+The public event page lists MergeSutra.
+Its card links the expected GitHub repository.
+The card does not show its category.
+Issue #72 cites an earlier category screenshot.
+That screenshot was unavailable during this audit.
+The account-side category remains unverified.
+The project file `BharatCode.txt` exists on main.
+
+Source: [BharatCode Build League page](https://auth.bharatcode.ai/hackathon).
