@@ -3,7 +3,11 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppError } from '../../src/core/errors.js';
-import { MAX_WRITE_BYTES, openConfinedWriter } from '../../src/security/writer.js';
+import {
+  MAX_WRITE_BYTES,
+  openConfinedWriter,
+  writePathLockKey,
+} from '../../src/security/writer.js';
 import { CAN_SYMLINK, makeFixtureTree, makeLink, snapshotTree } from '../helpers/fixture.js';
 
 /**
@@ -178,6 +182,21 @@ describe('writeText', () => {
     expect(await writer.exists('existing.ts')).toBe(true);
     expect(await writer.exists('missing.ts')).toBe(false);
     expect(await writer.exists('../outside/secret.txt')).toBe(false);
+  });
+});
+
+describe('write destination lock keys', () => {
+  it('folds path case for macOS and Windows filesystems', () => {
+    const upper = path.resolve('workspace', 'Case.ts');
+    const lower = path.resolve('workspace', 'case.ts');
+
+    expect(writePathLockKey(upper, 'darwin')).toBe(writePathLockKey(lower, 'darwin'));
+    expect(writePathLockKey(upper, 'win32')).toBe(writePathLockKey(lower, 'win32'));
+    expect(writePathLockKey(upper, 'linux')).not.toBe(writePathLockKey(lower, 'linux'));
+
+    const composed = path.resolve('workspace', 'Caf\u00e9.ts');
+    const decomposed = path.resolve('workspace', 'Cafe\u0301.ts');
+    expect(writePathLockKey(composed, 'darwin')).toBe(writePathLockKey(decomposed, 'darwin'));
   });
 });
 
