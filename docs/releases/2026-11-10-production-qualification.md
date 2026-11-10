@@ -267,21 +267,22 @@ Then update PR #82 against the new main SHA.
 
 ## Integrated-source requalification — 11 November 2026
 
-The integrated candidate is PR #86, head `455ab238857ebe4b8523cd24cb8ca3ee59ad6a91`.
+The integrated candidate is PR #86, head `67c37c809ad414b8a024f46b3f069ad6f931ff8a`.
 It targets main `7436c63e8dc7d248ef713a56c2e4ca0284cfc31c`.
 PR #86 remains draft, unmerged, and unapproved.
 Its merge state is clean.
 
 The exact candidate passed all six hosted CI jobs.
 It also passed all eight customer journeys.
-See [CI run 42883625346](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42883625346) and [customer run 42883625323](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42883625323).
+See [CI run 42887953742](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42887953742) and [customer run 42887953833](https://github.com/Pavithran-R-A/mergesutra/actions/runs/42887953833).
 CI included check, package, artifact, and path-shape gates.
 
 Runtime audit found zero vulnerabilities.
 Full audit found seven moderate advisories.
 It found zero high or critical advisories.
-The local focused policy suite passed 35 tests.
-It skipped one test, on Windows Node 24.
+The local customer policy suite passed 35 tests.
+It skipped one Windows-only test.
+The install-hook suite passed 10 tests.
 
 | Gate | Candidate result | Remaining limit |
 |---|---|---|
@@ -298,7 +299,7 @@ It skipped one test, on Windows Node 24.
 | G11 Release integrity | BLOCKED | No release, provenance, or registry proof exists. |
 | G12 Documentation and governance | BLOCKED | Owner review and ruleset changes remain. |
 
-The Windows host had about 346 MB free afterward.
+The Windows host had about 216 MB free afterward.
 No local full-suite rerun was attempted.
 Hosted qualification supplies the exact-source result.
 No live model, publication, merge, or customer write occurred.
