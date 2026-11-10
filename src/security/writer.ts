@@ -266,8 +266,7 @@ async function renameChecked(from: string, to: string, relativePath: string): Pr
 
 /** Serialize same-process writes to one canonical destination. */
 async function withPathLock<T>(target: string, operation: () => Promise<T>): Promise<T> {
-  const normalized = path.normalize(target);
-  const key = process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  const key = writePathLockKey(target);
   const previous = activeWriteLocks.get(key);
   let release!: () => void;
   const current = new Promise<void>((resolve) => {
@@ -281,6 +280,19 @@ async function withPathLock<T>(target: string, operation: () => Promise<T>): Pro
     release();
     if (activeWriteLocks.get(key) === current) activeWriteLocks.delete(key);
   }
+}
+
+export function writePathLockKey(
+  target: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const normalized = path.normalize(target);
+  // macOS volumes may ignore case, just like Windows. Folding every Darwin
+  // path is safe on case-sensitive volumes; it only serializes extra writes.
+  // NFC also joins canonically equivalent macOS filename spellings.
+  return platform === 'win32' || platform === 'darwin'
+    ? normalized.normalize('NFC').toLowerCase().normalize('NFC')
+    : normalized;
 }
 
 /**
