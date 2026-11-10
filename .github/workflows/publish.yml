@@ -4,24 +4,27 @@ on:
   release:
     types: [published]
 
-# Publishing uses npm Trusted Publishing (OIDC), never a long-lived npm token.
-# The package must be linked to this exact workflow in npm's Trusted Publisher
-# settings after the first package version exists. Until then, a release whose
-# version is already on npm is verified rather than republished.
+# Source qualification has no OIDC permission. Only the isolated job that
+# publishes a prebuilt tarball uses npm Trusted Publishing (OIDC).
 permissions:
   contents: read
 
 jobs:
-  publish:
-    name: publish
+  qualify:
+    name: qualify and package release
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+    outputs:
+      publish_required: ${{ steps.registry.outputs.publish_required }}
+      package_name: ${{ steps.registry.outputs.package_name }}
+      package_version: ${{ steps.registry.outputs.package_version }}
+      release_commit: ${{ steps.registry.outputs.release_commit }}
     steps:
-      - name: Checkout
+      - name: Checkout trusted default branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -29,8 +32,13 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.x'
-          registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
+
+      # This trusted-main script checks the tag before package code executes.
+      - name: Verify release tag matches protected main
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node scripts/verify-release-tag.mjs
 
       - name: Install (clean, from lockfile)
         run: npm ci
@@ -47,10 +55,102 @@ jobs:
       - name: Install the packed artifact and run it
         run: npm run test:artifact
 
-      - name: Verify release tag matches package version
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: node scripts/verify-release-tag.mjs
+      - name: Ensure qualification left source unchanged
+        run: git diff --exit-code && test -z "$(git status --porcelain --untracked-files=all)"
 
-      - name: Publish or verify the exact public version
-        run: node scripts/publish-or-verify.mjs
+      - name: Rebuild the qualified source
+        run: npm run build
+
+      - name: Prepare the release artifact directory
+        run: mkdir -p release-package
+
+      - name: Pack the qualified source
+        run: npm pack --ignore-scripts --pack-destination release-package
+
+      - name: Check registry publication state
+        id: registry
+        run: node scripts/preflight-release-publish.mjs
+
+      - name: Upload the qualified tarball
+        if: steps.registry.outputs.publish_required == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-package
+          path: release-package/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: publish qualified tarball
+    needs: qualify
+    if: needs.qualify.outputs.publish_required == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Download the qualified tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-package
+          path: release-package
+
+      # No checkout, install, or repository script runs with OIDC permission.
+      - name: Publish the exact qualified tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RELEASE_TAG" = "$GITHUB_REF_NAME"
+          tag_ref="repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG"
+          tag_json="$(gh api "$tag_ref")"
+          tag_type="$(jq -er '.object.type' <<<"$tag_json")"
+          tag_object="$(jq -er '.object.sha' <<<"$tag_json")"
+          case "$tag_type" in
+            tag) tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_object" --jq '.object.sha')" ;;
+            commit) tag_sha="$tag_object" ;;
+            *) echo 'Refusing publish: unexpected release tag object.' >&2; exit 1 ;;
+          esac
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          test "$tag_sha" = "$GITHUB_SHA"
+          test "$main_sha" = "$GITHUB_SHA"
+          npm publish release-package/*.tgz --access public --provenance --ignore-scripts
+
+  verify:
+    name: verify published registry version
+    needs: [qualify, publish]
+    if: >-
+      always() && needs.qualify.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Verify the exact published version
+        env:
+          RELEASE_PACKAGE_NAME: ${{ needs.qualify.outputs.package_name }}
+          RELEASE_PACKAGE_VERSION: ${{ needs.qualify.outputs.package_version }}
+          RELEASE_COMMIT_SHA: ${{ needs.qualify.outputs.release_commit }}
+        run: node scripts/verify-published-release.mjs
