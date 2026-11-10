@@ -15,8 +15,11 @@ A release candidate is not releasable unless all of these are true:
 4. `npm run check`, `npm run verify:package` and `npm run test:artifact` succeed.
 5. The package version, `src/version.ts`, release tag and checked-out commit agree.
    The tag must peel to the exact checked-out commit, and that commit must
-   equal the *current protected remote `main` tip*. The check fails closed if
+   equal the *current verified remote `main` tip*. The check fails closed if
    the read-only GitHub ref lookup is unavailable or returns malformed output.
+   That ref lookup runs from an isolated scratch directory with a scrubbed Git
+   configuration to prevent local/global Git URL rewriting. The branch ruleset
+   must independently require CI and PR review; this command cannot enforce them.
 6. The packed artifact contains no credential, author home path, private-only link
    or unintended repository file.
 7. A failed or missing real-model validation is reported as missing evidence, never

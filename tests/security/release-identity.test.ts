@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { releaseIdentityProblems } from '../../scripts/lib/release-identity.mjs';
+import { isolatedGitEnvironment, releaseIdentityProblems } from '../../scripts/lib/release-identity.mjs';
 
 const SHA = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
@@ -46,7 +46,7 @@ describe('npm release requires the matching tag on protected main', () => {
       ...approved,
       remoteMainLine: OTHER + '\trefs/heads/main',
     });
-    expect(result).toContain('the release commit is not the current protected main tip');
+    expect(result).toContain('the release commit is not the current remote main tip');
   });
 
   it('refuses malformed, duplicated and missing remote Git answers', () => {
@@ -69,6 +69,54 @@ describe('npm release requires the matching tag on protected main', () => {
       expect(releaseIdentityProblems({ ...approved, head })).toContain(
         'the checkout does not name a complete Git commit',
       );
+    }
+  });
+});
+
+describe('release Git lookup isolates hostile runtime configuration', () => {
+  it('does not inherit global Git config, Git URL rewrites or network proxies', () => {
+    const bad = {
+      PATH: '/trusted/git',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'url.https://attacker.example/.insteadOf',
+      GIT_CONFIG_VALUE_0: 'https://github.com/',
+      GIT_CONFIG_PARAMETERS: 'attacker-controlled',
+      GIT_CONFIG_GLOBAL: '/home/user/.gitconfig',
+      GIT_CONFIG_SYSTEM: '/etc/gitconfig',
+      GIT_DIR: '/other/repository',
+      GIT_WORK_TREE: '/other/worktree',
+      GIT_SSL_NO_VERIFY: '1',
+      GIT_SSH_COMMAND: 'hostile-helper',
+      GIT_ASKPASS: '/home/user/secret-helper',
+      HTTPS_PROXY: 'http://attacker.example:8080',
+      HTTP_PROXY: 'http://attacker.example:8080',
+      HOME: '/home/user',
+      XDG_CONFIG_HOME: '/home/user/.config',
+      NODE_OPTIONS: '--require /tmp/hijack.cjs',
+    };
+    const env = isolatedGitEnvironment(bad, '/trusted/empty');
+    expect(env.PATH).toBe('/trusted/git');
+    expect(env.GIT_CONFIG_COUNT).toBe('0');
+    expect(env.GIT_CONFIG_NOSYSTEM).toBe('1');
+    expect(env.GIT_CONFIG_GLOBAL).toBe('/trusted/empty/config');
+    expect(env.GIT_CONFIG_SYSTEM).toBe('/trusted/empty/config');
+    expect(env.GIT_TERMINAL_PROMPT).toBe('0');
+    expect(env.HOME).toBe('/trusted/empty');
+    expect(env.TMP).toBe('/trusted/empty');
+    for (const name of [
+      'GIT_CONFIG_KEY_0',
+      'GIT_CONFIG_VALUE_0',
+      'GIT_CONFIG_PARAMETERS',
+      'GIT_DIR',
+      'GIT_WORK_TREE',
+      'GIT_SSL_NO_VERIFY',
+      'GIT_SSH_COMMAND',
+      'GIT_ASKPASS',
+      'HTTPS_PROXY',
+      'HTTP_PROXY',
+      'NODE_OPTIONS',
+    ]) {
+      expect(env[name]).toBeUndefined();
     }
   });
 });

@@ -1,8 +1,10 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { URL } from 'node:url';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import process from 'node:process';
-import { releaseIdentityProblems } from './lib/release-identity.mjs';
+import { isolatedGitEnvironment, releaseIdentityProblems } from './lib/release-identity.mjs';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const expectedTag = 'v' + pkg.version;
@@ -32,22 +34,36 @@ try {
   }
   expectedRepository = match[1];
 
-  const git = (args) =>
-    execFileSync('git', args, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 20_000,
-      maxBuffer: 4096,
-    }).trim();
-  head = git(['rev-parse', '--verify', 'HEAD']);
-  tagCommit = git(['rev-parse', '--verify', 'refs/tags/' + expectedTag + '^{commit}']);
-  // Read GitHub directly, not a checkout's mutable origin remote configuration.
-  remoteMainLine = git([
-    'ls-remote',
-    '--exit-code',
-    'https://github.com/' + expectedRepository + '.git',
-    'refs/heads/main',
-  ]);
+  // Do not inherit GIT_CONFIG_COUNT, global/system config, HOME, Git SSH
+  // overrides or proxy variables. They can silently redirect GitHub URLs.
+  const scratch = mkdtempSync(path.join(tmpdir(), 'mergesutra-release-ref-'));
+  try {
+    writeFileSync(path.join(scratch, 'config'), '', { mode: 0o600 });
+    const env = isolatedGitEnvironment(process.env, scratch);
+    const git = (args, cwd) =>
+      execFileSync('git', args, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 20_000,
+        maxBuffer: 4096,
+        env,
+        cwd,
+      }).trim();
+    head = git(['rev-parse', '--verify', 'HEAD'], process.cwd());
+    tagCommit = git(['rev-parse', '--verify', 'refs/tags/' + expectedTag + '^{commit}'], process.cwd());
+    // A scratch cwd also prevents checkout-local Git url.insteadOf rewrites.
+    remoteMainLine = git(
+      [
+        'ls-remote',
+        '--exit-code',
+        'https://github.com/' + expectedRepository + '.git',
+        'refs/heads/main',
+      ],
+      scratch,
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 } catch {
   // The network, tag or Git ref may be unavailable. Do not print child stderr.
   process.stderr.write(
@@ -80,5 +96,5 @@ process.stdout.write(
     pkg.version +
     ' at ' +
     head +
-    ', equal to protected main.\n',
+    ', equal to verified remote main.\n',
 );

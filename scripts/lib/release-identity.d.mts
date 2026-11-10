@@ -12,3 +12,9 @@ export interface ReleaseIdentityInput {
 }
 
 export declare function releaseIdentityProblems(input: ReleaseIdentityInput): string[];
+
+/** Whitelisted Git environment; refuses inherited Git config and URL rewrites. */
+export declare function isolatedGitEnvironment(
+  sourceEnv: NodeJS.ProcessEnv,
+  emptyDirectory: string,
+): NodeJS.ProcessEnv;
